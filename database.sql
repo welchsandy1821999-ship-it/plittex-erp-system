@@ -41,3 +41,30 @@ CREATE TABLE recipes (
     material_id INTEGER REFERENCES items(id) NOT NULL,
     quantity_per_unit DECIMAL(10, 4) NOT NULL 
 );
+
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL,
+    full_name VARCHAR(100) NOT NULL
+);
+
+-- Таблица оборудования
+CREATE TABLE equipment (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    purchase_price DECIMAL(12, 2) NOT NULL, -- Цена покупки
+    service_life_months INTEGER NOT NULL,  -- Срок службы в месяцах
+    current_value DECIMAL(12, 2),           -- Текущая стоимость
+    status VARCHAR(50) DEFAULT 'active'     -- Работает / В ремонте
+);
+
+-- Таблица ремонтов и ТО
+CREATE TABLE equipment_maintenance (
+    id SERIAL PRIMARY KEY,
+    equipment_id INTEGER REFERENCES equipment(id),
+    maintenance_date DATE DEFAULT CURRENT_DATE,
+    cost DECIMAL(12, 2) NOT NULL,
+    description TEXT
+);
