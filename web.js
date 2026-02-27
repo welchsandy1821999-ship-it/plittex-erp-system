@@ -13,7 +13,7 @@ const pool = new Pool({
 });
 
 app.use(express.static('public'));
-app.use(express.json()); 
+app.use(express.json());
 
 // 1. Отдаем остатки склада
 app.get('/api/inventory', async (req, res) => {
@@ -72,9 +72,27 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
+// Финансовый отчет только для админа
+app.get('/api/report/finance', async (req, res) => {
+    // В будущем здесь будет проверка сессии, а пока просто отдаем данные
+    try {
+        const result = await pool.query(`
+            SELECT 
+                category,
+                SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) as income,
+                SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END) as expense
+            FROM transactions
+            GROUP BY category;
+        `);
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).send('Ошибка аналитики');
+    }
+});
+
 // 3. УМНОЕ ПРОИЗВОДСТВО ПО РЕЦЕПТУРЕ
 app.post('/api/produce', async (req, res) => {
-    const { tileId, quantity } = req.body; 
+    const { tileId, quantity } = req.body;
 
     if (!tileId || quantity <= 0) {
         return res.status(400).send('Некорректные данные');
@@ -103,14 +121,14 @@ app.post('/api/produce', async (req, res) => {
         for (let ingredient of ingredients) {
             // Умножаем норму на количество квадратов
             const totalNeeded = (ingredient.quantity_per_unit * quantity).toFixed(4);
-            
+
             await client.query(
                 `INSERT INTO inventory_movements (item_id, quantity, movement_type, description) 
                  VALUES ($1, $2, $3, $4)`,
                 [
-                    ingredient.material_id, 
+                    ingredient.material_id,
                     -totalNeeded, // Обязательно с минусом!
-                    'production_expense', 
+                    'production_expense',
                     `Списание по рецепту на партию ${quantity} ед. (Продукт ID: ${tileId})`
                 ]
             );
