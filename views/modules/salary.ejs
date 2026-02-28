@@ -16,7 +16,19 @@
         <div class="icon">▼</div>
     </div>
     <div id="acc-employees" class="accordion-body">
-        <div style="text-align: right; margin-bottom: 15px;">
+        <div
+            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; background: #f8fafc; padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
+            <div style="display: flex; gap: 10px;">
+                <input type="text" id="emp-search-input" class="input-modern"
+                    placeholder="🔍 Поиск по ФИО или должности..." oninput="renderEmployeesTable()"
+                    style="width: 250px;">
+                <select id="emp-dep-filter" class="input-modern" onchange="renderEmployeesTable()">
+                    <option value="all">🌐 Все отделы</option>
+                    <option value="Офис">Офис</option>
+                    <option value="Цех">Цех</option>
+                    <option value="Охрана">Охрана</option>
+                </select>
+            </div>
             <button class="btn btn-outline" style="border-color: var(--success); color: var(--success);"
                 onclick="openEmployeeModal()">➕ Добавить сотрудника</button>
         </div>
@@ -59,6 +71,10 @@
                     style="border-color: var(--primary); color: var(--primary); padding: 6px 12px; margin-left: 10px;"
                     onclick="openPieceRateModal()">
                     🏭 Начислить сделку (Цех)
+                </button>
+                <button class="btn btn-green" style="padding: 6px 12px; font-size: 13px;"
+                    onclick="fillTodayBySchedule()">
+                    ✅ Заполнить по графику (Сегодня)
                 </button>
             </div>
             <div style="display: flex; gap: 10px; font-size: 12px; font-weight: 600;">
@@ -107,6 +123,7 @@
                         <th style="text-align: right; color: var(--primary);">± Остаток</th>
                         <th style="text-align: right; color: var(--danger);">Удержание (Налоги)</th>
                         <th style="text-align: right; color: var(--text-muted);">Авансы (тек. мес)</th>
+                        <th style="text-align: right; color: #d97706;">Доп. операции</th>
                         <th style="text-align: right; background: #dcfce3; color: var(--success); font-size: 14px;">К
                             ВЫДАЧЕ</th>
                         <th style="text-align: center;">Действие</th>

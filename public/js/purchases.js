@@ -27,7 +27,7 @@ function onPurchaseMaterialSelect() {
     const sel = document.getElementById('purchase-material-select');
     const opt = sel.options[sel.selectedIndex];
     const price = parseFloat(opt.getAttribute('data-price')) || 0;
-    
+
     if (price > 0) {
         document.getElementById('purchase-price').value = price;
     }
@@ -37,39 +37,26 @@ function onPurchaseMaterialSelect() {
 // 4. Оформление прихода на склад
 function submitPurchase() {
     const materialId = document.getElementById('purchase-material-select').value;
-    const supplier = document.getElementById('purchase-supplier').value;
     const quantity = parseFloat(document.getElementById('purchase-qty').value) || 0;
     const pricePerUnit = parseFloat(document.getElementById('purchase-price').value) || 0;
+    const supplier = document.getElementById('purchase-supplier').value;
 
     if (!materialId || quantity <= 0) {
-        return alert('Пожалуйста, выберите сырье и укажите количество больше нуля!');
+        return UI.toast('Выберите сырье и укажите количество!', 'error'); // Замена alert
     }
 
-    const btn = document.getElementById('purchase-submit-btn');
-    btn.disabled = true;
-    btn.innerText = '⏳ Обработка...';
-
-    // Отправляем запрос на наш независимый маршрут
     fetch('/api/purchase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ materialId, quantity, pricePerUnit, supplier })
     }).then(async res => {
-        btn.disabled = false;
-        btn.innerText = '📥 Оформить приход на Склад №1';
-
         if (res.ok) {
-            alert('✅ Сырье успешно оприходовано на Склад №1!');
-            // Очищаем форму
+            UI.toast('✅ Сырье оприходовано!', 'success');
             document.getElementById('purchase-qty').value = '';
-            document.getElementById('purchase-price').value = '';
-            document.getElementById('purchase-supplier').value = '';
             calculatePurchaseTotal();
-            
-            // Если функция Склада существует, обновляем остатки на экране
             if (typeof loadTable === 'function') loadTable();
         } else {
-            alert('❌ Ошибка: ' + await res.text());
+            UI.toast('Ошибка закупки', 'error');
         }
     });
 }

@@ -95,6 +95,10 @@
                 target.classList.add('active');
                 if (navElement) navElement.classList.add('active');
             }
+
+            // === УМНОЕ АВТО-ОБНОВЛЕНИЕ ДАННЫХ ПРИ ПЕРЕХОДЕ ===
+            if (moduleId === 'stock-mod' && typeof loadTable === 'function') loadTable();
+            if (moduleId === 'salary-mod' && typeof loadMonthlyTimesheet === 'function') loadMonthlyTimesheet();
         }
 
         // === ГЛОБАЛЬНЫЙ ДВИЖОК КРАСИВЫХ УВЕДОМЛЕНИЙ (UI) ===

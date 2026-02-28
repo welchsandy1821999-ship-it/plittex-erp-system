@@ -80,24 +80,23 @@ app.get('/api/report/finance', async (req, res) => {
 
 // === web.js: Управление замесами ===
 
-// 1. Получение дефолтных норм замесов
+// 1. Получение дефолтных норм замесов (из БД)
 app.get('/api/mix-templates', async (req, res) => {
     try {
-        // Здесь можно либо сделать таблицу в БД, либо хранить как константу
-        const templates = {
-            big: [
-                { name: 'Цемент М-600', qty: 250, unit: 'кг' },
-                { name: 'Песок основной', qty: 600, unit: 'кг' },
-                { name: 'Щебень', qty: 800, unit: 'кг' },
-                { name: 'Мурасан 16', qty: 2.5, unit: 'кг' }
-            ],
-            small: [
-                { name: 'Песок лицевой', qty: 200, unit: 'кг' },
-                { name: 'Щебень', qty: 300, unit: 'кг' },
-                { name: 'Мурасан 17', qty: 1.2, unit: 'кг' }
-            ]
-        };
-        res.json(templates);
+        const result = await pool.query(`SELECT value FROM settings WHERE key = 'mix_templates'`);
+        if (result.rows.length > 0) res.json(result.rows[0].value);
+        else res.json({ big: [], small: [] });
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+// Сохранение обновленных норм замесов
+app.post('/api/mix-templates', async (req, res) => {
+    try {
+        await pool.query(`
+            INSERT INTO settings (key, value) VALUES ('mix_templates', $1)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        `, [JSON.stringify(req.body)]);
+        res.json({ success: true });
     } catch (err) { res.status(500).send(err.message); }
 });
 
@@ -224,11 +223,13 @@ app.get('/api/production/batch/:id/materials', async (req, res) => {
             SELECT i.name, 
                    SUM(ABS(m.quantity)) as qty, 
                    i.unit, 
-                   SUM(ABS(m.quantity) * i.current_price) as cost
+                   SUM(ABS(m.quantity) * i.current_price) as cost,
+                   pb.planned_quantity
             FROM inventory_movements m
             JOIN items i ON m.item_id = i.id
+            JOIN production_batches pb ON m.batch_id = pb.id
             WHERE m.batch_id = $1 AND m.movement_type = 'production_expense'
-            GROUP BY i.name, i.unit
+            GROUP BY i.name, i.unit, pb.planned_quantity
             ORDER BY cost DESC
         `, [req.params.id]);
         res.json(result.rows);
@@ -277,7 +278,6 @@ app.post('/api/purchase', async (req, res) => {
 // === БЛОК: СКЛАД (С учетом партий) ===
 app.get('/api/inventory', async (req, res) => {
     try {
-        // Мы добавляем m.batch_id в SELECT и GROUP BY, чтобы видеть остатки по каждой партии отдельно
         const result = await pool.query(`
             SELECT 
                 w.id as warehouse_id, 
@@ -286,20 +286,19 @@ app.get('/api/inventory', async (req, res) => {
                 i.name as item_name, 
                 i.category, 
                 i.unit, 
-                m.batch_id, -- Видим номер партии
+                m.batch_id, 
+                pb.batch_number, -- Подтягиваем красивый номер партии
                 SUM(m.quantity) as total
             FROM inventory_movements m
             JOIN items i ON m.item_id = i.id
             JOIN warehouses w ON m.warehouse_id = w.id
-            GROUP BY w.id, w.name, i.id, i.name, i.category, i.unit, m.batch_id 
+            LEFT JOIN production_batches pb ON m.batch_id = pb.id
+            GROUP BY w.id, w.name, i.id, i.name, i.category, i.unit, m.batch_id, pb.batch_number
             HAVING SUM(m.quantity) != 0
             ORDER BY w.id, i.category, i.name;
         `);
         res.json(result.rows);
-    } catch (err) {
-        console.error('Ошибка склада:', err.message);
-        res.status(500).send('Ошибка при получении данных склада');
-    }
+    } catch (err) { res.status(500).send('Ошибка склада'); }
 });
 
 // ==========================================
@@ -371,6 +370,20 @@ app.post('/api/produce', async (req, res) => {
     } finally { client.release(); }
 });
 
+// Получить партии в сушилке (для распалубки)
+app.get('/api/production/in-drying', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT pb.id, pb.batch_number, pb.product_id, i.name as product_name, pb.planned_quantity, pb.created_at
+            FROM production_batches pb
+            JOIN items i ON pb.product_id = i.id
+            WHERE pb.status = 'in_drying'
+            ORDER BY pb.created_at ASC
+        `);
+        res.json(result.rows);
+    } catch (err) { res.status(500).send(err.message); }
+});
+
 // Умная Распалубка с закрытием партии
 app.post('/api/move-wip', async (req, res) => {
     const { tileId, currentWipQty, goodQty, grade2Qty, scrapQty, isComplete, batchId } = req.body;
@@ -378,30 +391,41 @@ app.post('/api/move-wip', async (req, res) => {
     try {
         await client.query('BEGIN');
 
-        // 1. Списание из сушилки
         const totalActual = parseFloat(goodQty || 0) + parseFloat(grade2Qty || 0) + parseFloat(scrapQty || 0);
-        const expenseQty = isComplete ? currentWipQty : totalActual;
 
-        await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id) 
-                            VALUES ($1, $2, 'wip_expense', 'Выгрузка партии', 3, $3)`, [tileId, -expenseQty, batchId]);
+        // ЛОГИКА ЗАКРЫТИЯ: закрываем, если стоит галочка ИЛИ если по факту вытащили всё, что числилось
+        const finalIsComplete = isComplete || (totalActual >= parseFloat(currentWipQty));
+
+        // Если закрываем полностью, списываем из сушилки ВЕСЬ числящийся остаток (чтобы не было пустых хвостов).
+        // Но если получилось больше плана, списываем фактическое количество.
+        const expenseQty = finalIsComplete ? Math.max(parseFloat(currentWipQty), totalActual) : totalActual;
+
+        if (expenseQty > 0) {
+            await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id) 
+                                VALUES ($1, $2, 'wip_expense', 'Выгрузка партии', 3, $3)`, [tileId, -expenseQty, batchId]);
+        }
 
         // 2. Приход на склады
-        if (goodQty > 0) await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, warehouse_id, batch_id) VALUES ($1, $2, 'finished_receipt', 4, $3)`, [tileId, goodQty, batchId]);
-        if (grade2Qty > 0) await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, warehouse_id, batch_id) VALUES ($1, $2, 'defect_receipt', 5, $3)`, [tileId, grade2Qty, batchId]);
-        if (scrapQty > 0) await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, warehouse_id, batch_id) VALUES ($1, $2, 'scrap_receipt', 6, $3)`, [tileId, scrapQty, batchId]);
+        if (parseFloat(goodQty) > 0) await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, warehouse_id, batch_id) VALUES ($1, $2, 'finished_receipt', 4, $3)`, [tileId, goodQty, batchId]);
+        if (parseFloat(grade2Qty) > 0) await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, warehouse_id, batch_id) VALUES ($1, $2, 'defect_receipt', 5, $3)`, [tileId, grade2Qty, batchId]);
+        if (parseFloat(scrapQty) > 0) await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, warehouse_id, batch_id) VALUES ($1, $2, 'scrap_receipt', 6, $3)`, [tileId, scrapQty, batchId]);
 
         // 3. ЗАКРЫВАЕМ ПАРТИЮ И ФИКСИРУЕМ ВЫХОД
+        const status = finalIsComplete ? 'completed' : 'in_drying';
+
         await client.query(`
             UPDATE production_batches 
-            SET actual_good_qty = $1, actual_grade2_qty = $2, actual_scrap_qty = $3, status = 'completed'
-            WHERE id = $4
-        `, [goodQty, grade2Qty, scrapQty, batchId]);
+            SET actual_good_qty = COALESCE(actual_good_qty, 0) + $1, 
+                actual_grade2_qty = COALESCE(actual_grade2_qty, 0) + $2, 
+                actual_scrap_qty = COALESCE(actual_scrap_qty, 0) + $3, 
+                status = $4
+            WHERE id = $5
+        `, [goodQty, grade2Qty, scrapQty, status, batchId]);
 
         await client.query('COMMIT');
         res.send('Партия успешно закрыта');
     } catch (err) { await client.query('ROLLBACK'); res.status(500).send(err.message); } finally { client.release(); }
 });
-
 // МАРШРУТ ДЛЯ ГРАФИКА АНАЛИТИКИ
 app.get('/api/analytics/cost-deviation', async (req, res) => {
     try {
@@ -673,27 +697,27 @@ app.get('/api/employees', async (req, res) => {
 
 // Добавить сотрудника
 app.post('/api/employees', async (req, res) => {
-    const { full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance } = req.body;
+    const { full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, status } = req.body;
     try {
         await pool.query(`
-            INSERT INTO employees (full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        `, [full_name, position, department, schedule_type, salary_cash || 0, salary_official || 20000, tax_rate || 13, tax_withheld || 2600, prev_balance || 0]);
+            INSERT INTO employees (full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        `, [full_name, position, department, schedule_type, salary_cash || 0, salary_official || 20000, tax_rate || 13, tax_withheld || 2600, prev_balance || 0, status || 'active']);
         res.send('Сотрудник добавлен');
     } catch (err) { res.status(500).send(err.message); }
 });
 
 // Обновить сотрудника (с защитой прошлых месяцев и остатком)
 app.put('/api/employees/:id', async (req, res) => {
-    const { full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance } = req.body;
+    const { full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, status } = req.body;
     const currentMonthStr = new Date().toISOString().substring(0, 7);
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
         await client.query(`
-            UPDATE employees SET full_name=$1, position=$2, department=$3, schedule_type=$4, salary_cash=$5, salary_official=$6, tax_rate=$7, tax_withheld=$8, prev_balance=$9
-            WHERE id=$10
-        `, [full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, req.params.id]);
+            UPDATE employees SET full_name=$1, position=$2, department=$3, schedule_type=$4, salary_cash=$5, salary_official=$6, tax_rate=$7, tax_withheld=$8, prev_balance=$9, status=$10
+            WHERE id=$11
+        `, [full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, status, req.params.id]);
 
         await client.query(`
             UPDATE monthly_salary_stats 
@@ -707,6 +731,29 @@ app.put('/api/employees/:id', async (req, res) => {
         await client.query('ROLLBACK');
         res.status(500).send(err.message);
     } finally { client.release(); }
+});
+
+// === ДОП. ОПЕРАЦИИ (ГСМ, ЗАЙМЫ, ШТРАФЫ И БОНУСЫ) ===
+app.get('/api/salary/adjustments', async (req, res) => {
+    try {
+        const result = await pool.query(`SELECT * FROM salary_adjustments WHERE month_str = $1`, [req.query.monthStr]);
+        res.json(result.rows);
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+app.post('/api/salary/adjustments', async (req, res) => {
+    const { employee_id, month_str, amount, description } = req.body;
+    try {
+        await pool.query(`INSERT INTO salary_adjustments (employee_id, month_str, amount, description) VALUES ($1, $2, $3, $4)`, [employee_id, month_str, amount, description]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+app.delete('/api/salary/adjustments/:id', async (req, res) => {
+    try {
+        await pool.query(`DELETE FROM salary_adjustments WHERE id = $1`, [req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).send(err.message); }
 });
 
 // Получить "слепки" окладов на конкретный месяц (Авто-создание если их нет)
@@ -941,8 +988,58 @@ pool.query(`
         tax_rate NUMERIC(5, 2), tax_withheld NUMERIC(10, 2),
         UNIQUE(employee_id, month_str)
     );
+
+    -- Добавляем статус сотрудникам
+    ALTER TABLE employees ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active';
+
+    -- Таблица для разовых удержаний и начислений (ГСМ, Займы и тд)
+    CREATE TABLE IF NOT EXISTS salary_adjustments (
+        id SERIAL PRIMARY KEY, 
+        employee_id INTEGER REFERENCES employees(id),
+        month_str VARCHAR(7) NOT NULL,
+        amount NUMERIC(10, 2) NOT NULL,
+        description TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS settings (
+        key VARCHAR(50) PRIMARY KEY,
+        value JSONB NOT NULL
+    );
+    INSERT INTO settings (key, value) VALUES (
+        'mix_templates',
+        '{"big": [{"name": "Цемент М-600", "qty": 250, "unit": "кг"}, {"name": "Песок основной", "qty": 600, "unit": "кг"}, {"name": "Щебень", "qty": 800, "unit": "кг"}, {"name": "Мурасан 16", "qty": 2.5, "unit": "кг"}], "small": [{"name": "Песок лицевой", "qty": 200, "unit": "кг"}, {"name": "Щебень", "qty": 300, "unit": "кг"}, {"name": "Мурасан 17", "qty": 1.2, "unit": "кг"}]}'
+    ) ON CONFLICT (key) DO NOTHING;
+
 `).then(() => console.log('✅ База Зарплат обновлена (добавлены налоги и исторические слепки)'))
     .catch(err => console.error('Ошибка обновления БД:', err.message));
+
+// Полная очистка данных зарплатного модуля за конкретный месяц
+app.post('/api/debug/clear-timesheet-month', async (req, res) => {
+    const { year, month } = req.body;
+    const monthStr = `${year}-${month}`;
+    const startDate = `${monthStr}-01`;
+    const endDate = `${year}-${month}-${new Date(year, month, 0).getDate()}`;
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // 1. Удаляем отметки в табеле (чтобы "Заработал на сегодня" стало 0)
+        await client.query('DELETE FROM timesheets WHERE record_date >= $1 AND record_date <= $2', [startDate, endDate]);
+
+        // 2. Удаляем записи о выданных авансах (чтобы колонка "Авансы" стала 0)
+        await client.query('DELETE FROM salary_payments WHERE payment_date >= $1 AND payment_date <= $2', [startDate, endDate]);
+
+        // 3. Удаляем "слепки" окладов за этот месяц (чтобы сбросить расчет налогов)
+        await client.query('DELETE FROM monthly_salary_stats WHERE month_str = $1', [monthStr]);
+
+        await client.query('COMMIT');
+        res.json({ success: true });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).send(err.message);
+    } finally { client.release(); }
+});
 
 app.listen(port, () => {
     console.log(`🚀 ERP Плиттекс Server запущен: http://localhost:${port}`);

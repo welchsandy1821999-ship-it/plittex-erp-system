@@ -6,11 +6,11 @@ let refSearchTimeout = null;
 // Инициализация при открытии приложения
 async function loadReferences(page = 1) {
     currentRefPage = page;
-    
+
     const search = document.getElementById('ref-search').value;
     const itemType = document.getElementById('ref-filter-type').value;
     const category = document.getElementById('ref-filter-category').value;
-    
+
     try {
         // 1. Обновляем список категорий в фильтрах (если это первая загрузка)
         await updateCategoryFilters();
@@ -19,7 +19,7 @@ async function loadReferences(page = 1) {
         const url = `/api/items?page=${page}&limit=50&search=${encodeURIComponent(search)}&item_type=${itemType}&category=${encodeURIComponent(category)}`;
         const res = await fetch(url);
         const data = await res.json();
-        
+
         renderRefTable(data.data);
         document.getElementById('ref-page-info').innerText = `Страница ${data.currentPage} из ${data.totalPages} (Всего позиций: ${data.total})`;
     } catch (e) { console.error("Ошибка загрузки справочников:", e); }
@@ -30,14 +30,14 @@ async function updateCategoryFilters() {
     try {
         const res = await fetch('/api/categories');
         const categories = await res.json();
-        
+
         // Обновляем фильтр-селект
         const catSelect = document.getElementById('ref-filter-category');
         const currentVal = catSelect.value;
         catSelect.innerHTML = '<option value="">🌐 Все категории</option>';
         categories.forEach(c => catSelect.add(new Option(c, c)));
         catSelect.value = currentVal; // Сохраняем выбранное значение
-        
+
         // Обновляем подсказки (Datalist) для формы добавления
         const dataList = document.getElementById('dl-categories');
         dataList.innerHTML = '';
@@ -46,7 +46,7 @@ async function updateCategoryFilters() {
             opt.value = c;
             dataList.appendChild(opt);
         });
-    } catch (e) {}
+    } catch (e) { }
 }
 
 // Умный поиск (задержка 0.4 сек, чтобы не спамить сервер при каждом нажатии клавиши)
@@ -108,13 +108,13 @@ function clearRefForm() {
 function editReference(id) {
     openRefForm();
     document.getElementById('ref-form-title').innerText = '✏️ Редактирование позиции (ID: ' + id + ')';
-    
+
     // Ищем товар в уже загруженной таблице (чтобы не делать лишний запрос)
     fetch(`/api/items?search=&item_type=&category=`) // Небольшой хак: проще всего достать напрямую, но лучше сделаем запрос
         .then(res => res.json())
         .then(data => {
             const item = data.data.find(i => i.id === id);
-            if(item) {
+            if (item) {
                 document.getElementById('ref-edit-id').value = item.id;
                 document.getElementById('ref-name').value = item.name;
                 document.getElementById('ref-category').value = item.category || '';
@@ -122,9 +122,9 @@ function editReference(id) {
                 document.getElementById('ref-price').value = parseFloat(item.current_price);
                 document.getElementById('ref-weight').value = parseFloat(item.weight_kg);
                 document.getElementById('ref-type').value = item.item_type;
-                
+
                 // Прокручиваем наверх к форме
-                document.querySelector('.content-area').scrollTo({top: 0, behavior: 'smooth'});
+                document.querySelector('.content-area').scrollTo({ top: 0, behavior: 'smooth' });
             }
         });
 }
@@ -141,7 +141,7 @@ async function saveReference() {
         weight: parseFloat(document.getElementById('ref-weight').value) || 0
     };
 
-    if (!payload.name) return alert('Укажите название!');
+    if (!payload.name) return UI.toast('Укажите название позиции!', 'error'); // Замена alert
 
     const method = id ? 'PUT' : 'POST';
     const url = id ? `/api/items/${id}` : '/api/items';
@@ -152,28 +152,45 @@ async function saveReference() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-        
+
         if (res.ok) {
-            alert(id ? '✅ Позиция обновлена!' : '✅ Позиция добавлена!');
+            UI.toast(id ? '✅ Позиция обновлена!' : '✅ Позиция добавлена!', 'success');
             closeRefForm();
-            loadReferences(currentRefPage); // Перезагружаем текущую страницу
-            loadProducts(); // Обновляем списки продаж/замесов в других вкладках
+            loadReferences(currentRefPage);
+            if (typeof loadProducts === 'function') loadProducts();
         } else {
-            alert('Ошибка: ' + await res.text());
+            UI.toast('Ошибка: ' + await res.text(), 'error');
         }
     } catch (e) { console.error(e); }
 }
 
-async function deleteReference(id, name) {
-    if (!confirm(`Точно удалить позицию "${name}"? Если она используется в рецептах или на складе, база данных заблокирует удаление для безопасности.`)) return;
+window.deleteReference = function (id, name) {
+    const html = `
+        <p>Вы уверены, что хотите удалить <b>"${name}"</b>?</p>
+        <p style="font-size: 12px; color: var(--danger); margin-top: 10px;">
+            ⚠️ База данных запретит удаление, если этот товар используется в рецептах или уже есть на складе.
+        </p>
+    `;
+    const buttons = `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-red" onclick="confirmDeleteRef(${id})">Удалить навсегда</button>
+    `;
+    UI.showModal('Удаление из справочника', html, buttons);
+};
+
+window.confirmDeleteRef = async function (id) {
     try {
         const res = await fetch(`/api/items/${id}`, { method: 'DELETE' });
         if (res.ok) {
+            UI.closeModal();
+            UI.toast('Позиция удалена', 'success');
             loadReferences(currentRefPage);
-            loadProducts();
-        } else alert('Ошибка: ' + await res.text());
+            if (typeof loadProducts === 'function') loadProducts();
+        } else {
+            UI.toast('Нельзя удалить: товар используется в системе', 'error');
+        }
     } catch (e) { console.error(e); }
-}
+};
 
 function changeRefPage(dir) {
     const newPage = currentRefPage + dir;

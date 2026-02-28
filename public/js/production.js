@@ -1,6 +1,7 @@
 // === public/js/production.js ===
 
 let defaultMixNorms = {};
+window.currentMixTemplates = { big: [], small: [] };
 let allProductsList = [];
 let sessionProducts = [];
 
@@ -9,6 +10,8 @@ async function initProduction() {
     try {
         const resMix = await fetch('/api/mix-templates');
         defaultMixNorms = await resMix.json();
+        window.currentMixTemplates = defaultMixNorms; 
+        
         renderMixInputs();
 
         const resProd = await fetch('/api/products');
@@ -21,27 +24,34 @@ async function initProduction() {
 
 function renderMixInputs() {
     const bigArea = document.getElementById('big-mix-norms');
-    bigArea.innerHTML = defaultMixNorms.big.map((m, i) => `
-        <div style="display:flex; justify-content:space-between; margin-bottom:8px; padding-bottom:4px; border-bottom:1px dashed #e2e8f0;">
-            <span style="font-size:13px;">${m.name}:</span>
-            <input type="number" class="big-norm-val" data-index="${i}" value="${m.qty}" oninput="autoCalculateQty()" style="width:70px; border:none; background:none; text-align:right; font-weight:bold; color:var(--primary);">
+    bigArea.innerHTML = `
+        <div style="text-align: right; margin-bottom: 10px;">
+            <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; border-color: #94a3b8; color: #475569;" onclick="editMixTemplate('big')">⚙️ Настроить шаблон</button>
         </div>
-    `).join('');
+        ${defaultMixNorms.big.map((m, i) => `
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px; padding-bottom:4px; border-bottom:1px dashed #e2e8f0;">
+                <span style="font-size:13px;">${m.name}:</span>
+                <input type="number" class="big-norm-val" data-index="${i}" value="${m.qty}" oninput="autoCalculateQty()" style="width:70px; border:none; background:none; text-align:right; font-weight:bold; color:var(--primary);">
+            </div>
+        `).join('')}
+    `;
 
     const smallArea = document.getElementById('small-mix-norms');
-    smallArea.innerHTML = defaultMixNorms.small.map((m, i) => `
-        <div style="display:flex; justify-content:space-between; margin-bottom:8px; padding-bottom:4px; border-bottom:1px dashed #e2e8f0;">
-            <span style="font-size:13px;">${m.name}:</span>
-            <input type="number" class="small-norm-val" data-index="${i}" value="${m.qty}" oninput="autoCalculateQty()" style="width:70px; border:none; background:none; text-align:right; font-weight:bold; color:var(--primary);">
+    smallArea.innerHTML = `
+        <div style="text-align: right; margin-bottom: 10px;">
+            <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; border-color: #94a3b8; color: #475569;" onclick="editMixTemplate('small')">⚙️ Настроить шаблон</button>
         </div>
-    `).join('');
+        ${defaultMixNorms.small.map((m, i) => `
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px; padding-bottom:4px; border-bottom:1px dashed #e2e8f0;">
+                <span style="font-size:13px;">${m.name}:</span>
+                <input type="number" class="small-norm-val" data-index="${i}" value="${m.qty}" oninput="autoCalculateQty()" style="width:70px; border:none; background:none; text-align:right; font-weight:bold; color:var(--primary);">
+            </div>
+        `).join('')}
+    `;
 
-    // Вешаем триггеры пересчета объема на все новые поля
     document.getElementById('big-mix-count').addEventListener('input', autoCalculateQty);
     document.getElementById('small-mix-count').addEventListener('input', autoCalculateQty);
     document.getElementById('small-mix-cement-qty').addEventListener('input', autoCalculateQty);
-
-    // Триггеры для химии
     document.getElementById('small-mix-dioxide').addEventListener('input', autoCalculateQty);
     document.getElementById('small-mix-pigment1-qty').addEventListener('input', autoCalculateQty);
     document.getElementById('small-mix-pigment2-qty').addEventListener('input', autoCalculateQty);
@@ -65,7 +75,7 @@ function filterProductsByCategory() {
 
     if (filtered.length > 0) {
         itemSelect.selectedIndex = 0;
-        autoCalculateQty(); // Автоматически считаем объем первой плитки в списке
+        autoCalculateQty(); 
     } else {
         document.getElementById('prod-item-qty').value = '';
     }
@@ -82,14 +92,11 @@ async function autoCalculateQty() {
     const smallCount = parseFloat(document.getElementById('small-mix-count').value) || 0;
     let totalWeight = 0;
 
-    // Вес больших замесов
     document.querySelectorAll('.big-norm-val').forEach(inp => totalWeight += (parseFloat(inp.value) || 0) * bigCount);
 
-    // Вес малых замесов (Цемент + Базовые компоненты)
     totalWeight += (parseFloat(document.getElementById('small-mix-cement-qty').value) || 0) * smallCount;
     document.querySelectorAll('.small-norm-val').forEach(inp => totalWeight += (parseFloat(inp.value) || 0) * smallCount);
 
-    // Вес химии и пигментов
     totalWeight += (parseFloat(document.getElementById('small-mix-dioxide').value) || 0) * smallCount;
     totalWeight += (parseFloat(document.getElementById('small-mix-pigment1-qty').value) || 0) * smallCount;
     totalWeight += (parseFloat(document.getElementById('small-mix-pigment2-qty').value) || 0) * smallCount;
@@ -112,12 +119,12 @@ function addProdToSession() {
     const qtyInput = document.getElementById('prod-item-qty');
     const qty = parseFloat(qtyInput.value);
 
-    if (select.selectedIndex === -1 || !qty || qty <= 0) return alert('Укажите товар и объем!');
+    // ИСПОЛЬЗУЕМ UI.toast ВМЕСТО alert
+    if (select.selectedIndex === -1 || !qty || qty <= 0) return UI.toast('Укажите товар и объем!', 'error');
 
     sessionProducts.push({ id: select.value, name: select.options[select.selectedIndex].text, qty: qty });
     renderSessionProducts();
 
-    // ОЧИЩАЕМ ПОЛЯ ДЛЯ СЛЕДУЮЩЕЙ ПЛИТКИ
     qtyInput.value = '';
 }
 
@@ -146,16 +153,15 @@ async function submitDailyProduction() {
     const bigMixCount = parseFloat(document.getElementById('big-mix-count').value) || 0;
     const smallMixCount = parseFloat(document.getElementById('small-mix-count').value) || 0;
 
-    if (bigMixCount === 0 && smallMixCount === 0) return alert('Укажите количество замесов!');
-    if (sessionProducts.length === 0) return alert('Добавьте продукцию к выпуску!');
+    // ИСПОЛЬЗУЕМ UI.toast ВМЕСТО alert
+    if (bigMixCount === 0 && smallMixCount === 0) return UI.toast('Укажите количество замесов!', 'error');
+    if (sessionProducts.length === 0) return UI.toast('Добавьте продукцию к выпуску!', 'error');
 
-    // 1. Собираем Большие замесы
     const bigMixes = Array.from(document.querySelectorAll('.big-norm-val')).map(input => ({
         name: defaultMixNorms.big[input.dataset.index].name,
         qty: (parseFloat(input.value) || 0) * bigMixCount
     }));
 
-    // 2. Собираем Малые замесы (Цемент + База)
     const smallMixes = [];
     smallMixes.push({
         name: document.getElementById('small-mix-cement').value === 'white' ? 'Белый цемент' : 'Цемент М-600',
@@ -165,7 +171,6 @@ async function submitDailyProduction() {
         smallMixes.push({ name: defaultMixNorms.small[input.dataset.index].name, qty: (parseFloat(input.value) || 0) * smallMixCount });
     });
 
-    // 3. ДОБАВЛЯЕМ ХИМИЮ И ПИГМЕНТЫ
     const dioxideQty = parseFloat(document.getElementById('small-mix-dioxide').value) || 0;
     if (dioxideQty > 0) smallMixes.push({ name: 'Диоксид титана', qty: dioxideQty * smallMixCount });
 
@@ -185,8 +190,8 @@ async function submitDailyProduction() {
         });
 
         if (res.ok) {
-            alert('✅ Формовка сохранена!');
-            // Сброс полей
+            UI.toast('Формовка успешно сохранена!', 'success');
+            
             document.getElementById('big-mix-count').value = 0;
             document.getElementById('small-mix-count').value = 0;
             document.getElementById('small-mix-dioxide').value = 0;
@@ -196,8 +201,11 @@ async function submitDailyProduction() {
             document.getElementById('small-mix-pigment2-color').selectedIndex = 0;
 
             sessionProducts = []; renderSessionProducts(); document.getElementById('prod-item-qty').value = '';
-            loadDailyHistory(); loadTable();
-        } else alert('❌ Ошибка: ' + await res.text());
+            loadDailyHistory(); 
+            if(typeof loadTable === 'function') loadTable();
+        } else {
+            UI.toast('Ошибка: ' + await res.text(), 'error');
+        }
     } catch (e) { console.error(e); }
 }
 
@@ -222,17 +230,17 @@ async function loadDailyHistory() {
     } catch (e) { console.error(e); }
 }
 
-// Функция плавного раскрытия чека списания (Красивый вид)
 async function toggleBatchDetails(batchId) {
     const existingRow = document.getElementById(`details-${batchId}`);
-    if (existingRow) { existingRow.remove(); return; } // Если уже открыто - закрываем
+    if (existingRow) { existingRow.remove(); return; } 
 
     try {
         const res = await fetch(`/api/production/batch/${batchId}/materials`);
         const materials = await res.json();
 
-        // Считаем общую сумму чека
         const totalCost = materials.reduce((sum, m) => sum + parseFloat(m.cost), 0);
+        const plannedQty = parseFloat(materials[0]?.planned_quantity) || 1;
+        const perUnitTotal = (totalCost / plannedQty).toFixed(2);
 
         let html = `<td colspan="5" style="padding: 0; background: #f8fafc; border-bottom: 2px solid var(--primary);">
             <div style="padding: 20px; box-shadow: inset 0 3px 6px -3px rgba(0,0,0,0.1);">
@@ -242,21 +250,40 @@ async function toggleBatchDetails(batchId) {
                     <thead style="background: #f1f5f9; color: var(--text-muted);">
                         <tr>
                             <th style="padding: 10px 15px; text-align: left; border-bottom: 1px solid var(--border);">Сырье</th>
-                            <th style="padding: 10px 15px; text-align: right; border-bottom: 1px solid var(--border);">Израсходовано</th>
-                            <th style="padding: 10px 15px; text-align: right; border-bottom: 1px solid var(--border);">Сумма (₽)</th>
+                            <th style="padding: 10px 15px; text-align: right; border-bottom: 1px solid var(--border);">
+                                Израсходовано<br>
+                                <span style="font-size: 11px; color: var(--primary); font-weight: normal;">На 1 ед. продукции</span>
+                            </th>
+                            <th style="padding: 10px 15px; text-align: right; border-bottom: 1px solid var(--border);">
+                                Сумма (₽)<br>
+                                <span style="font-size: 11px; color: var(--primary); font-weight: normal;">На 1 ед. продукции</span>
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${materials.map(m => `
+                        ${materials.map(m => {
+                            const pQty = (m.qty / plannedQty).toFixed(4);
+                            const pCost = (m.cost / plannedQty).toFixed(2);
+                            return `
                             <tr>
                                 <td style="padding: 10px 15px; border-bottom: 1px solid var(--border);"><strong>${m.name}</strong></td>
-                                <td style="padding: 10px 15px; text-align: right; border-bottom: 1px solid var(--border); color: var(--primary); font-weight: 600;">${parseFloat(m.qty).toFixed(2)} ${m.unit}</td>
-                                <td style="padding: 10px 15px; text-align: right; border-bottom: 1px solid var(--border);">${parseFloat(m.cost).toFixed(2)} ₽</td>
+                                <td style="padding: 10px 15px; text-align: right; border-bottom: 1px solid var(--border);">
+                                    <div style="color: var(--primary); font-weight: 600;">${parseFloat(m.qty).toFixed(2)} ${m.unit}</div>
+                                    <div style="font-size: 11px; color: var(--text-muted);">${pQty} ${m.unit}/ед</div>
+                                </td>
+                                <td style="padding: 10px 15px; text-align: right; border-bottom: 1px solid var(--border);">
+                                    <div style="font-weight: 600;">${parseFloat(m.cost).toFixed(2)} ₽</div>
+                                    <div style="font-size: 11px; color: var(--text-muted);">${pCost} ₽/ед</div>
+                                </td>
                             </tr>
-                        `).join('')}
+                            `;
+                        }).join('')}
                         <tr>
-                            <td colspan="2" style="padding: 12px 15px; text-align: right; font-weight: bold; background: #fafafa; font-size: 14px;">ИТОГО СЕБЕСТОИМОСТЬ ПАРТИИ:</td>
-                            <td style="padding: 12px 15px; text-align: right; font-weight: bold; color: var(--danger); background: #fafafa; font-size: 14px;">${totalCost.toFixed(2)} ₽</td>
+                            <td colspan="2" style="padding: 12px 15px; text-align: right; font-weight: bold; background: #fafafa; font-size: 14px;">ИТОГО СЕБЕСТОИМОСТЬ:</td>
+                            <td style="padding: 12px 15px; text-align: right; font-weight: bold; color: var(--danger); background: #fafafa; font-size: 14px;">
+                                ${totalCost.toFixed(2)} ₽
+                                <div style="font-size: 11px; font-weight: normal; color: var(--text-muted); margin-top: 4px;">Себестоимость 1 ед: ${perUnitTotal} ₽</div>
+                            </td>
                         </tr>
                     </tbody>
                 </table>
@@ -271,10 +298,107 @@ async function toggleBatchDetails(batchId) {
     } catch (e) { console.error(e); }
 }
 
-async function deleteBatch(id, batchNumber) {
-    if (!confirm(`Отменить формовку ${batchNumber}? Материалы вернутся на склад.`)) return;
+// === ИСПОЛЬЗУЕМ КРАСИВОЕ ОКНО ДЛЯ ПОДТВЕРЖДЕНИЯ УДАЛЕНИЯ ===
+window.deleteBatch = function(id, batchNumber) {
+    const html = `
+        <p style="font-size: 15px;">Вы уверены, что хотите отменить формовку партии <strong style="color: var(--primary);">${batchNumber}</strong>?</p>
+        <p style="font-size: 13px; color: var(--danger); margin-top: 10px; background: #fef2f2; padding: 10px; border-radius: 6px;">
+            ⚠️ <b>Внимание:</b> Все списанные материалы будут возвращены на склад сырья, а эта партия удалена из истории.
+        </p>
+    `;
+    const buttons = `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-red" onclick="confirmDeleteBatch(${id})">🗑️ Да, отменить</button>
+    `;
+    UI.showModal('Удаление партии', html, buttons);
+};
+
+window.confirmDeleteBatch = async function(id) {
     try {
         const res = await fetch(`/api/production/batch/${id}`, { method: 'DELETE' });
-        if (res.ok) { loadDailyHistory(); loadTable(); }
+        if (res.ok) { 
+            UI.closeModal();
+            UI.toast('Партия успешно удалена, материалы возвращены', 'success');
+            loadDailyHistory(); 
+            if(typeof loadTable === 'function') loadTable(); 
+        } else {
+            UI.toast('Ошибка при удалении партии', 'error');
+        }
     } catch (e) { console.error(e); }
-}
+};
+
+// === НАСТРОЙКА ШАБЛОНОВ ЗАМЕСА ПО УМОЛЧАНИЮ ===
+window.editMixTemplate = function(type) {
+    const title = type === 'big' ? 'Большой замес (Серый)' : 'Малый замес (Цветной)';
+    const template = window.currentMixTemplates[type] || [];
+    
+    let rowsHtml = '';
+    template.forEach((item) => {
+        rowsHtml += `
+            <div class="form-grid template-row" style="grid-template-columns: 2fr 1fr 1fr auto; margin-bottom: 10px; align-items: end;">
+                <div class="form-group"><label style="font-size:11px;">Сырье</label><input type="text" class="input-modern tpl-name" value="${item.name}"></div>
+                <div class="form-group"><label style="font-size:11px;">Кол-во</label><input type="number" step="0.01" class="input-modern tpl-qty" value="${item.qty}"></div>
+                <div class="form-group"><label style="font-size:11px;">Ед. изм.</label><input type="text" class="input-modern tpl-unit" value="${item.unit}"></div>
+                <button class="btn btn-outline" style="border-color: var(--danger); color: var(--danger); padding: 10px;" onclick="this.parentElement.remove()">🗑️</button>
+            </div>
+        `;
+    });
+
+    const html = `
+        <p style="font-size: 13px; color: var(--text-muted); margin-top: 0;">Измените сырье или пропорции. Эти данные будут автоматически подставляться в таблицу замесов.</p>
+        <div id="template-rows-container">${rowsHtml}</div>
+        <button class="btn btn-outline" style="width: 100%; margin-top: 10px; border-style: dashed; color: var(--primary);" onclick="addTemplateRow()">➕ Добавить строку</button>
+    `;
+
+    const buttons = `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-blue" onclick="saveMixTemplate('${type}')">💾 Сохранить шаблон</button>
+    `;
+
+    UI.showModal(`⚙️ Настройка: ${title}`, html, buttons);
+};
+
+window.addTemplateRow = function() {
+    const container = document.getElementById('template-rows-container');
+    const div = document.createElement('div');
+    div.className = 'form-grid template-row';
+    div.style.cssText = 'grid-template-columns: 2fr 1fr 1fr auto; margin-bottom: 10px; align-items: end;';
+    div.innerHTML = `
+        <div class="form-group"><input type="text" class="input-modern tpl-name" placeholder="Название сырья"></div>
+        <div class="form-group"><input type="number" step="0.01" class="input-modern tpl-qty" placeholder="0"></div>
+        <div class="form-group"><input type="text" class="input-modern tpl-unit" value="кг"></div>
+        <button class="btn btn-outline" style="border-color: var(--danger); color: var(--danger); padding: 10px;" onclick="this.parentElement.remove()">🗑️</button>
+    `;
+    container.appendChild(div);
+};
+
+window.saveMixTemplate = async function(type) {
+    const rows = document.querySelectorAll('.template-row');
+    const newTemplate = [];
+    
+    rows.forEach(row => {
+        const name = row.querySelector('.tpl-name').value.trim();
+        const qty = parseFloat(row.querySelector('.tpl-qty').value) || 0;
+        const unit = row.querySelector('.tpl-unit').value.trim();
+        if (name && qty > 0) newTemplate.push({ name, qty, unit });
+    });
+
+    const fullData = { 
+        ...window.currentMixTemplates, 
+        [type]: newTemplate 
+    };
+
+    try {
+        const res = await fetch('/api/mix-templates', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(fullData)
+        });
+        
+        if (res.ok) {
+            UI.closeModal();
+            UI.toast('Шаблон замеса успешно обновлен!', 'success');
+            initProduction(); 
+        }
+    } catch(e) { console.error(e); }
+};
