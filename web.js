@@ -659,6 +659,291 @@ app.post('/api/recipes/sync-category', async (req, res) => {
     }
 });
 
+// ==========================================
+// 9. КАДРЫ, ТАБЕЛЬ И ЗАРПЛАТА
+// ==========================================
+
+// Получить список всех сотрудников
+app.get('/api/employees', async (req, res) => {
+    try {
+        const result = await pool.query(`SELECT * FROM employees ORDER BY department, full_name`);
+        res.json(result.rows);
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+// Добавить сотрудника
+app.post('/api/employees', async (req, res) => {
+    const { full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance } = req.body;
+    try {
+        await pool.query(`
+            INSERT INTO employees (full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `, [full_name, position, department, schedule_type, salary_cash || 0, salary_official || 20000, tax_rate || 13, tax_withheld || 2600, prev_balance || 0]);
+        res.send('Сотрудник добавлен');
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+// Обновить сотрудника (с защитой прошлых месяцев и остатком)
+app.put('/api/employees/:id', async (req, res) => {
+    const { full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance } = req.body;
+    const currentMonthStr = new Date().toISOString().substring(0, 7);
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query(`
+            UPDATE employees SET full_name=$1, position=$2, department=$3, schedule_type=$4, salary_cash=$5, salary_official=$6, tax_rate=$7, tax_withheld=$8, prev_balance=$9
+            WHERE id=$10
+        `, [full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, req.params.id]);
+
+        await client.query(`
+            UPDATE monthly_salary_stats 
+            SET salary_cash=$1, salary_official=$2, tax_rate=$3, tax_withheld=$4
+            WHERE employee_id=$5 AND month_str >= $6
+        `, [salary_cash, salary_official, tax_rate, tax_withheld, req.params.id, currentMonthStr]);
+
+        await client.query('COMMIT');
+        res.send('Данные обновлены');
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).send(err.message);
+    } finally { client.release(); }
+});
+
+// Получить "слепки" окладов на конкретный месяц (Авто-создание если их нет)
+app.get('/api/salary/stats', async (req, res) => {
+    const { year, month } = req.query;
+    const monthStr = `${year}-${month}`;
+    try {
+        // Если мы впервые открываем этот месяц, копируем текущие оклады из профиля сотрудников
+        await pool.query(`
+            INSERT INTO monthly_salary_stats (employee_id, month_str, salary_cash, salary_official, tax_rate, tax_withheld)
+            SELECT id, $1, salary_cash, salary_official, tax_rate, tax_withheld FROM employees
+            ON CONFLICT (employee_id, month_str) DO NOTHING
+        `, [monthStr]);
+
+        const result = await pool.query(`SELECT * FROM monthly_salary_stats WHERE month_str = $1`, [monthStr]);
+        res.json(result.rows);
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+// Оплата официальных налогов по безналу
+app.post('/api/salary/pay-taxes', async (req, res) => {
+    const { monthStr, amount } = req.body;
+    try {
+        await pool.query(`
+            INSERT INTO transactions (amount, transaction_type, category, description, vat_amount, payment_method)
+            VALUES ($1, 'expense', 'Налоги и Взносы', $2, 0, 'Безналичный расчет')
+        `, [amount, `Уплата налогов с ФОТ за ${monthStr}`]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+// Получить табель на конкретную дату
+app.get('/api/timesheet', async (req, res) => {
+    const { date } = req.query;
+    try {
+        // Вытягиваем всех сотрудников и их отметки на этот день (если они есть)
+        const result = await pool.query(`
+            SELECT e.id as employee_id, e.full_name, e.position, e.department, e.schedule_type, t.status 
+            FROM employees e
+            LEFT JOIN timesheets t ON e.id = t.employee_id AND t.record_date = $1
+            ORDER BY e.department, e.full_name
+        `, [date]);
+        res.json(result.rows);
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+// Сохранить табель за день
+app.post('/api/timesheet', async (req, res) => {
+    const { date, records } = req.body;
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        for (let rec of records) {
+            // Используем UPSERT (вставить или обновить, если уже есть отметка на этот день)
+            await client.query(`
+                INSERT INTO timesheets (employee_id, record_date, status)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (employee_id, record_date) 
+                DO UPDATE SET status = EXCLUDED.status
+            `, [rec.employee_id, date, rec.status]);
+        }
+        await client.query('COMMIT');
+        res.json({ message: 'Табель успешно сохранен!' });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).send(err.message);
+    } finally { client.release(); }
+});
+
+// Получить табель на ВЕСЬ МЕСЯЦ (с деньгами)
+app.get('/api/timesheet/month', async (req, res) => {
+    const { year, month } = req.query;
+    try {
+        const startDate = `${year}-${month}-01`;
+        const endDate = `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`; // ЖЕЛЕЗОБЕТОННАЯ ДАТА
+
+        // ИСПОЛЬЗУЕМ TO_CHAR ДЛЯ ЗАЩИТЫ ОТ СДВИГА ЧАСОВЫХ ПОЯСОВ
+        const result = await pool.query(`
+            SELECT employee_id, TO_CHAR(record_date, 'YYYY-MM-DD') as record_date, status, bonus, penalty
+            FROM timesheets
+            WHERE record_date >= $1 AND record_date <= $2
+        `, [startDate, endDate]);
+
+        res.json(result.rows);
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+// Быстрое сохранение статуса одной ячейки (с премией и штрафом)
+app.post('/api/timesheet/cell', async (req, res) => {
+    const { employee_id, date, status, bonus, penalty } = req.body;
+    try {
+        await pool.query(`
+            INSERT INTO timesheets (employee_id, record_date, status, bonus, penalty)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (employee_id, record_date) 
+            DO UPDATE SET status = EXCLUDED.status, bonus = EXCLUDED.bonus, penalty = EXCLUDED.penalty
+        `, [employee_id, date, status, bonus || 0, penalty || 0]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+// ==========================================
+// ИНТЕГРАЦИЯ: ПРОИЗВОДСТВО -> ЗАРПЛАТА (СДЕЛЬНАЯ)
+// ==========================================
+
+// Получить статистику производства (Годная продукция) за конкретный день
+app.get('/api/production/daily-stats', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT SUM(actual_good_qty) as total_good 
+            FROM production_batches 
+            WHERE created_at::date = $1 AND status = 'completed'
+        `, [req.query.date]);
+        res.json({ total: result.rows[0].total_good || 0 });
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+// Массовое начисление сдельной премии выбранным сотрудникам
+app.post('/api/timesheet/mass-bonus', async (req, res) => {
+    const { date, empIds, bonusPerPerson } = req.body;
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        for (let id of empIds) {
+            // Если отметка в табеле уже есть — прибавляем премию. 
+            // Если отметки нет (забыли поставить) — ставим "Был" и начисляем.
+            await client.query(`
+                INSERT INTO timesheets (employee_id, record_date, status, bonus)
+                VALUES ($1, $2, 'present', $3)
+                ON CONFLICT (employee_id, record_date) 
+                DO UPDATE SET bonus = timesheets.bonus + EXCLUDED.bonus
+            `, [id, date, bonusPerPerson]);
+        }
+        await client.query('COMMIT');
+        res.json({ success: true });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).send(err.message);
+    } finally { client.release(); }
+});
+
+// Получить все выплаты (авансы) за выбранный месяц (с детализацией)
+app.get('/api/salary/payments', async (req, res) => {
+    const { year, month } = req.query;
+    try {
+        const startDate = `${year}-${month}-01`;
+        const endDate = `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`;
+
+        const result = await pool.query(`
+            SELECT id, employee_id, amount, TO_CHAR(payment_date, 'YYYY-MM-DD') as payment_date, description
+            FROM salary_payments
+            WHERE payment_date >= $1 AND payment_date <= $2
+            ORDER BY payment_date ASC
+        `, [startDate, endDate]);
+
+        res.json(result.rows);
+    } catch (err) { res.status(500).send(err.message); }
+});
+// Выдать аванс/зарплату
+app.post('/api/salary/pay', async (req, res) => {
+    const { employee_id, amount, date, description } = req.body;
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // 1. Фиксируем выплату в модуле зарплат
+        await client.query(`
+            INSERT INTO salary_payments (employee_id, amount, payment_date, description)
+            VALUES ($1, $2, $3, $4)
+        `, [employee_id, amount, date, description]);
+
+        // 2. Списываем деньги из общей кассы предприятия (как Наличные) с нулевым НДС
+        await client.query(`
+            INSERT INTO transactions (amount, transaction_type, category, description, vat_amount, payment_method)
+            VALUES ($1, 'expense', 'Зарплата и Авансы', $2, 0, 'Наличные')
+        `, [amount, `Выплата: ${description}`]);
+
+        await client.query('COMMIT');
+        res.json({ success: true });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).send(err.message);
+    } finally { client.release(); }
+});
+
+// ==========================================
+// ЗАКРЫТИЕ МЕСЯЦА (ПЕРЕНОС ОСТАТКОВ)
+// ==========================================
+app.post('/api/salary/close-month', async (req, res) => {
+    const { balances } = req.body; // Получаем массив { empId, balance }
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        for (let b of balances) {
+            // Перезаписываем остаток в профиле сотрудника на новую сумму
+            await client.query('UPDATE employees SET prev_balance = $1 WHERE id = $2', [b.balance, b.empId]);
+        }
+        await client.query('COMMIT');
+        res.json({ success: true });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).send(err.message);
+    } finally { client.release(); }
+});
+
+// Автоматическое обновление БД для модуля зарплат (Снапшоты и Налоги)
+pool.query(`
+    ALTER TABLE employees ADD COLUMN IF NOT EXISTS prev_balance NUMERIC(10, 2) DEFAULT 0;
+    ALTER TABLE employees ADD COLUMN IF NOT EXISTS tax_rate NUMERIC(5, 2) DEFAULT 13;
+    ALTER TABLE employees ADD COLUMN IF NOT EXISTS tax_withheld NUMERIC(10, 2) DEFAULT 2600;
+    
+    -- Устанавливаем базовые значения по ТЗ
+    UPDATE employees SET salary_official = 20000 WHERE salary_official = 0 OR salary_official IS NULL;
+    UPDATE employees SET tax_rate = 13 WHERE tax_rate IS NULL;
+    UPDATE employees SET tax_withheld = (salary_official * 0.13) WHERE tax_withheld IS NULL;
+
+    ALTER TABLE timesheets 
+    ADD COLUMN IF NOT EXISTS bonus NUMERIC(10, 2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS penalty NUMERIC(10, 2) DEFAULT 0;
+
+    CREATE TABLE IF NOT EXISTS salary_payments (
+        id SERIAL PRIMARY KEY, employee_id INTEGER REFERENCES employees(id),
+        amount NUMERIC(10, 2) NOT NULL, payment_date DATE NOT NULL,
+        payment_type VARCHAR(20) DEFAULT 'advance', description TEXT
+    );
+
+    -- Таблица "Слепков" окладов для сохранения истории прошлых месяцев
+    CREATE TABLE IF NOT EXISTS monthly_salary_stats (
+        id SERIAL PRIMARY KEY, employee_id INTEGER REFERENCES employees(id),
+        month_str VARCHAR(7) NOT NULL, -- Формат '2026-02'
+        salary_cash NUMERIC(10, 2), salary_official NUMERIC(10, 2),
+        tax_rate NUMERIC(5, 2), tax_withheld NUMERIC(10, 2),
+        UNIQUE(employee_id, month_str)
+    );
+`).then(() => console.log('✅ База Зарплат обновлена (добавлены налоги и исторические слепки)'))
+    .catch(err => console.error('Ошибка обновления БД:', err.message));
+
 app.listen(port, () => {
     console.log(`🚀 ERP Плиттекс Server запущен: http://localhost:${port}`);
 });

@@ -45,6 +45,7 @@
                 <div class="nav-item" onclick="switchModule('stock-mod', this)">📦 Склады и Сушилка</div>
                 <div class="nav-item" onclick="switchModule('purchase-mod', this)">🚚 Закупки (Склад №1)</div>
                 <div class="nav-item" onclick="switchModule('sales-mod', this)">🛒 Продажи</div>
+                <div class="nav-item" onclick="switchModule('salary-mod', this)">👷‍♂️ Кадры и Зарплата</div>
                 <div class="nav-item" id="nav-ref" onclick="switchModule('ref-mod', this)">📁 Справочники</div>
                 <div class="nav-item" id="nav-recipe" onclick="switchModule('recipe-mod', this)">🧪 Рецептуры</div>
             </div>
@@ -63,8 +64,9 @@
                             <%- include('modules/purchase') %>
                                 <%- include('modules/sales') %>
                                     <%- include('modules/finance') %>
-                                        <%- include('modules/references') %>
-                                            <%- include('modules/recipes') %>
+                                        <%- include('modules/salary') %>
+                                            <%- include('modules/references') %>
+                                                <%- include('modules/recipes') %>
             </div>
 
         </div>
@@ -80,6 +82,7 @@
     <script src="/js/inventory.js"></script>
     <script src="/js/sales.js"></script>
     <script src="/js/finance.js"></script>
+    <script src="/js/salary.js"></script>
     <script src="/js/dashboard.js"></script>
 
     <script>
@@ -139,6 +142,7 @@
                     initProduction();
                     initSales();
                     initFinance();
+                    initSalary();
 
                     // Загружаем начальные данные
                     loadProducts();
