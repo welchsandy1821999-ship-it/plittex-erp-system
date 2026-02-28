@@ -1,0 +1,156 @@
+<div id="prod-mod" class="module">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2>🔨 Модуль формовки и замесов</h2>
+        <div class="form-group">
+            <label>Дата смены:</label>
+            <input type="date" id="prod-date-filter" class="input-modern" onchange="loadDailyHistory()">
+        </div>
+    </div>
+
+    <div class="card" style="border-left: 4px solid var(--primary);">
+        <h3>🚜 Настройка замесов на смену</h3>
+        <div class="form-grid" style="grid-template-columns: 1fr 1fr; align-items: stretch;">
+
+            <div
+                style="padding: 15px; background: #f1f5f9; border-radius: 8px; display: flex; flex-direction: column; height: 100%;">
+                <h4 style="margin-top:0;">🐘 Большой замес (Основной слой)</h4>
+                <div class="form-group" style="margin-bottom: 10px;">
+                    <label>Количество замесов:</label>
+                    <input type="number" id="big-mix-count" class="input-modern" value="0">
+                </div>
+                <div id="big-mix-norms" style="font-size: 13px; color: var(--text-muted); flex-grow: 1;"></div>
+            </div>
+
+            <div
+                style="padding: 15px; background: #fff7ed; border-radius: 8px; display: flex; flex-direction: column; height: 100%;">
+                <h4 style="margin-top:0;">🎨 Маленький замес (Лицевой слой)</h4>
+                <div class="form-group" style="margin-bottom: 10px;">
+                    <label>Количество замесов:</label>
+                    <input type="number" id="small-mix-count" class="input-modern" value="0">
+                </div>
+                <div class="form-grid" style="grid-template-columns: 2fr 1fr; margin-bottom: 10px;">
+                    <div class="form-group">
+                        <label>Тип цемента:</label>
+                        <select id="small-mix-cement" class="input-modern">
+                            <option value="grey">М-600 (Серый)</option>
+                            <option value="white">Белый цемент</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Кг/замес:</label>
+                        <input type="number" id="small-mix-cement-qty" class="input-modern" value="50">
+                    </div>
+                </div>
+
+                <div id="small-mix-norms" style="font-size: 13px; color: var(--text-muted);"></div>
+
+                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #fdba74;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                        <span style="font-size: 13px; font-weight: 600;">Диоксид титана:</span>
+                        <input type="number" id="small-mix-dioxide" class="input-modern" value="0"
+                            style="width:70px; padding: 4px; font-size: 12px; font-weight:bold; color:var(--primary); text-align:right;">
+                    </div>
+
+                    <div style="margin-bottom: 8px;">
+                        <label style="font-size: 12px; font-weight: 600;">Пигмент 1:</label>
+                        <div style="display:flex; gap:5px; margin-top: 3px;">
+                            <select id="small-mix-pigment1-color" class="input-modern"
+                                style="padding: 4px; font-size: 12px; flex-grow: 1;">
+                                <option value="">-- Без пигмента --</option>
+                                <option value="Красный">Красный</option>
+                                <option value="Желтый">Желтый</option>
+                                <option value="Коричневый">Коричневый</option>
+                                <option value="Черный">Черный</option>
+                                <option value="Зеленый">Зеленый</option>
+                                <option value="Синий">Синий</option>
+                                <option value="Оранжевый">Оранжевый</option>
+                            </select>
+                            <input type="number" id="small-mix-pigment1-qty" class="input-modern" placeholder="кг"
+                                value="0" style="width:60px; padding: 4px; font-size: 12px; text-align:right;">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label style="font-size: 12px; font-weight: 600;">Пигмент 2 (Доп.):</label>
+                        <div style="display:flex; gap:5px; margin-top: 3px;">
+                            <select id="small-mix-pigment2-color" class="input-modern"
+                                style="padding: 4px; font-size: 12px; flex-grow: 1;">
+                                <option value="">-- Нет --</option>
+                                <option value="Красный">Красный</option>
+                                <option value="Желтый">Желтый</option>
+                                <option value="Коричневый">Коричневый</option>
+                                <option value="Черный">Черный</option>
+                                <option value="Зеленый">Зеленый</option>
+                                <option value="Синий">Синий</option>
+                                <option value="Оранжевый">Оранжевый</option>
+                            </select>
+                            <input type="number" id="small-mix-pigment2-qty" class="input-modern" placeholder="кг"
+                                value="0" style="width:60px; padding: 4px; font-size: 12px; text-align:right;">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card" style="border-left: 4px solid var(--success);">
+        <h3>🧱 Выпуск продукции</h3>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 15px;">Программа сама
+            рассчитает объем по рецепту. Нажмите "Добавить", чтобы внести плитку в текущую смену.</p>
+
+        <div
+            style="background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px dashed var(--primary); margin-bottom: 15px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
+            <div class="form-grid" style="grid-template-columns: 2fr 3fr 1.5fr 1fr; align-items: end;">
+                <div class="form-group">
+                    <label>1. Категория:</label>
+                    <select id="prod-category-select" class="input-modern"
+                        onchange="filterProductsByCategory()"></select>
+                </div>
+                <div class="form-group">
+                    <label>2. Продукция:</label>
+                    <select id="prod-item-select" class="input-modern" onchange="autoCalculateQty()"></select>
+                </div>
+                <div class="form-group">
+                    <label>3. Объем (кв.м):</label>
+                    <input type="number" id="prod-item-qty" class="input-modern" placeholder="0.00"
+                        style="font-weight: bold; color: var(--primary); font-size: 16px;">
+                </div>
+                <button class="btn btn-blue" onclick="addProdToSession()" style="height: 42px; width: 100%;">➕ В
+                    список</button>
+            </div>
+        </div>
+
+        <div id="session-products-list" style="margin-bottom: 20px; display: flex; flex-direction: column; gap: 8px;">
+            <div
+                style="color: var(--text-muted); font-size: 13px; text-align: center; padding: 15px; border: 1px dashed #cbd5e1; border-radius: 6px;">
+                Список пуст. Добавьте продукцию...</div>
+        </div>
+
+        <button class="btn btn-green"
+            style="width: 100%; padding: 15px; font-size: 16px; box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.2);"
+            onclick="submitDailyProduction()">💾 ЗАФИКСИРОВАТЬ СМЕНУ И СПИСАТЬ СЫРЬЕ</button>
+    </div>
+
+    <div class="card" style="border-left: 4px solid var(--text-muted);">
+        <h3>🕒 История формовок за выбранную дату</h3>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>№ Партии</th>
+                        <th>Продукция</th>
+                        <th>Объем</th>
+                        <th>Затраты на сырье</th>
+                        <th style="text-align: right;">Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="daily-history-table">
+                    <tr>
+                        <td colspan="5" style="text-align: center; color: var(--text-muted);">Загрузка
+                            истории...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

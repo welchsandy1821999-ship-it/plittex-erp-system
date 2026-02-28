@@ -1,173 +1,181 @@
-let refCurrentPage = 1;
-let refItemsPerPage = 50;
-let currentRefFilter = 'all';
-let currentRefSearch = '';
-let searchTimeout = null;
-let sortCol = 'id';
-let sortAsc = true;
-let allReferences = [];
+// === public/js/references.js ===
 
-function loadReferences() {
-    fetch(`/api/items?page=${refCurrentPage}&limit=${refItemsPerPage}&search=${currentRefSearch}&filter=${currentRefFilter}`)
+let currentRefPage = 1;
+let refSearchTimeout = null;
+
+// Инициализация при открытии приложения
+async function loadReferences(page = 1) {
+    currentRefPage = page;
+    
+    const search = document.getElementById('ref-search').value;
+    const itemType = document.getElementById('ref-filter-type').value;
+    const category = document.getElementById('ref-filter-category').value;
+    
+    try {
+        // 1. Обновляем список категорий в фильтрах (если это первая загрузка)
+        await updateCategoryFilters();
+
+        // 2. Загружаем сами товары
+        const url = `/api/items?page=${page}&limit=50&search=${encodeURIComponent(search)}&item_type=${itemType}&category=${encodeURIComponent(category)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        
+        renderRefTable(data.data);
+        document.getElementById('ref-page-info').innerText = `Страница ${data.currentPage} из ${data.totalPages} (Всего позиций: ${data.total})`;
+    } catch (e) { console.error("Ошибка загрузки справочников:", e); }
+}
+
+// Загрузка динамических категорий с сервера
+async function updateCategoryFilters() {
+    try {
+        const res = await fetch('/api/categories');
+        const categories = await res.json();
+        
+        // Обновляем фильтр-селект
+        const catSelect = document.getElementById('ref-filter-category');
+        const currentVal = catSelect.value;
+        catSelect.innerHTML = '<option value="">🌐 Все категории</option>';
+        categories.forEach(c => catSelect.add(new Option(c, c)));
+        catSelect.value = currentVal; // Сохраняем выбранное значение
+        
+        // Обновляем подсказки (Datalist) для формы добавления
+        const dataList = document.getElementById('dl-categories');
+        dataList.innerHTML = '';
+        categories.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c;
+            dataList.appendChild(opt);
+        });
+    } catch (e) {}
+}
+
+// Умный поиск (задержка 0.4 сек, чтобы не спамить сервер при каждом нажатии клавиши)
+function debounceRefLoad() {
+    clearTimeout(refSearchTimeout);
+    refSearchTimeout = setTimeout(() => {
+        loadReferences(1);
+    }, 400);
+}
+
+// Отрисовка таблицы
+function renderRefTable(items) {
+    const tbody = document.getElementById('ref-table-body');
+    if (items.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Ничего не найдено</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = items.map(item => `
+        <tr style="transition: 0.2s;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor=''">
+            <td style="color: var(--text-muted); font-size: 12px;">#${item.id}</td>
+            <td><span class="badge ${item.item_type === 'product' ? 'badge-prod' : 'badge-mat'}">${item.item_type === 'product' ? '📦 Продукция' : '🪨 Сырье'}</span></td>
+            <td><strong style="color: var(--text-muted);">${item.category || '-'}</strong></td>
+            <td style="font-weight: 600; color: var(--text-main); cursor: pointer;" onclick="editReference(${item.id})">${item.name}</td>
+            <td>${item.unit}</td>
+            <td><span style="color: var(--primary); font-weight: bold;">${parseFloat(item.current_price).toFixed(2)} ₽</span></td>
+            <td style="text-align: right;">
+                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; margin-right: 5px;" onclick="editReference(${item.id})">✏️</button>
+                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--danger); border-color: var(--danger);" onclick="deleteReference(${item.id}, '${item.name}')">❌</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// === УПРАВЛЕНИЕ ФОРМОЙ ===
+
+function openRefForm() {
+    document.getElementById('ref-form-container').style.display = 'block';
+    document.getElementById('ref-form-title').innerText = '✨ Добавление новой позиции';
+    clearRefForm();
+}
+
+function closeRefForm() {
+    document.getElementById('ref-form-container').style.display = 'none';
+    clearRefForm();
+}
+
+function clearRefForm() {
+    document.getElementById('ref-edit-id').value = '';
+    document.getElementById('ref-name').value = '';
+    document.getElementById('ref-category').value = '';
+    document.getElementById('ref-price').value = '0';
+    document.getElementById('ref-weight').value = '0';
+    document.getElementById('ref-type').value = 'product';
+    document.getElementById('ref-unit').value = 'кг';
+}
+
+// Загрузка данных в форму для редактирования
+function editReference(id) {
+    openRefForm();
+    document.getElementById('ref-form-title').innerText = '✏️ Редактирование позиции (ID: ' + id + ')';
+    
+    // Ищем товар в уже загруженной таблице (чтобы не делать лишний запрос)
+    fetch(`/api/items?search=&item_type=&category=`) // Небольшой хак: проще всего достать напрямую, но лучше сделаем запрос
         .then(res => res.json())
-        .then(response => {
-            allReferences = response.data;
-            sortReferencesArray(); 
-            renderReferences(allReferences);
-            updatePaginationUI(response.currentPage, response.totalPages, response.total);
-            if (currentRefSearch === '' && currentRefFilter === 'all' && refCurrentPage === 1) updateDatalists(response.data);
+        .then(data => {
+            const item = data.data.find(i => i.id === id);
+            if(item) {
+                document.getElementById('ref-edit-id').value = item.id;
+                document.getElementById('ref-name').value = item.name;
+                document.getElementById('ref-category').value = item.category || '';
+                document.getElementById('ref-unit').value = item.unit;
+                document.getElementById('ref-price').value = parseFloat(item.current_price);
+                document.getElementById('ref-weight').value = parseFloat(item.weight_kg);
+                document.getElementById('ref-type').value = item.item_type;
+                
+                // Прокручиваем наверх к форме
+                document.querySelector('.content-area').scrollTo({top: 0, behavior: 'smooth'});
+            }
         });
 }
 
-function updateDatalists(data) {
-    const cats = new Set(), units = new Set();
-    data.forEach(item => { if (item.category) cats.add(item.category); if (item.unit) units.add(item.unit); });
-    document.getElementById('dl-categories').innerHTML = Array.from(cats).map(c => `<option value="${c}">`).join('');
-    document.getElementById('dl-units').innerHTML = Array.from(units).map(u => `<option value="${u}">`).join('');
-}
-
-function sortRefs(col) {
-    if (sortCol === col) sortAsc = !sortAsc;
-    else { sortCol = col; sortAsc = true; }
-    sortReferencesArray();
-    renderReferences(allReferences);
-}
-
-function sortReferencesArray() {
-    allReferences.sort((a, b) => {
-        let valA = a[sortCol] !== null ? a[sortCol] : '';
-        let valB = b[sortCol] !== null ? b[sortCol] : '';
-        if (typeof valA === 'string') valA = valA.toLowerCase();
-        if (typeof valB === 'string') valB = valB.toLowerCase();
-        if (valA < valB) return sortAsc ? -1 : 1;
-        if (valA > valB) return sortAsc ? 1 : -1;
-        return 0;
-    });
-}
-
-function renderReferences(items) {
-    const tbody = document.getElementById('ref-table-body');
-    let htmlBuffer = '';
-    items.forEach(item => {
-        const priceStr = item.current_price ? `${item.current_price} ₽` : `<span class="badge badge-danger">Не указана</span>`;
-        const badgeType = item.item_type === 'product' ? `<span class="badge badge-prod">Продукция</span>` : `<span class="badge badge-mat">Сырье</span>`;
-        htmlBuffer += `
-            <tr id="row-${item.id}">
-                <td style="color: var(--text-muted);">${item.id}</td>
-                <td style="font-size: 13px; font-weight: 500;">${item.category || 'Без категории'}</td>
-                <td><div style="margin-bottom: 4px;">${badgeType}</div><strong style="color: var(--text-main);">${item.name}</strong></td>
-                <td>${item.unit}</td>
-                <td style="font-weight: 600;">${priceStr}</td>
-                <td>${item.weight_kg}</td>
-                <td style="text-align: right;">
-                    <button class="btn btn-outline" style="padding: 6px 10px;" onclick="editInline(${item.id}, '${item.name.replace(/"/g, '&quot;')}', '${item.category}', '${item.unit}', '${item.current_price || ''}', '${item.weight_kg}', '${item.item_type}')">✏️</button>
-                    <button class="btn btn-outline" style="padding: 6px 10px; color: var(--danger);" onclick="deleteReferenceItem(${item.id})">❌</button>
-                </td>
-            </tr>
-        `;
-    });
-    tbody.innerHTML = htmlBuffer;
-}
-
-function changeRefPage(step) {
-    refCurrentPage += step;
-    if (refCurrentPage < 1) refCurrentPage = 1;
-    loadReferences();
-}
-
-function updatePaginationUI(current, total, totalItems) {
-    document.getElementById('ref-page-info').innerText = `Страница ${current} из ${total} (Всего: ${totalItems})`;
-    document.getElementById('ref-btn-prev').disabled = current === 1;
-    document.getElementById('ref-btn-next').disabled = current === total;
-}
-
-function handleRefSearch() {
-    if (searchTimeout) clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(() => {
-        currentRefSearch = document.getElementById('ref-search').value;
-        refCurrentPage = 1; 
-        loadReferences();
-    }, 300);
-}
-
-function applyRefFilter(filterType, btnElem) {
-    currentRefFilter = filterType;
-    refCurrentPage = 1; 
-    document.querySelectorAll('#ref-mod .filter-row .filter-btn').forEach(b => b.classList.remove('active'));
-    if(btnElem) btnElem.classList.add('active');
-    loadReferences();
-}
-
-function toggleRefConstructor() {
-    const type = document.getElementById('ref-type').value;
-    document.getElementById('ref-tile-constructor').style.display = (type === 'product') ? 'grid' : 'none';
-}
-
-function editInline(id, name, cat, unit, price, weight, type) {
-    const tr = document.getElementById(`row-${id}`);
-    tr.innerHTML = `
-        <td style="color: var(--text-muted);">${id}</td>
-        <td><input type="text" id="inl-cat-${id}" list="dl-categories" class="input-modern" value="${cat !== 'null' ? cat : ''}"></td>
-        <td><input type="text" id="inl-name-${id}" class="input-modern" value="${name}"></td>
-        <td><input type="text" id="inl-unit-${id}" list="dl-units" class="input-modern" value="${unit}"></td>
-        <td><input type="number" id="inl-price-${id}" class="input-modern" value="${price}" step="0.01"></td>
-        <td><input type="number" id="inl-weight-${id}" class="input-modern" value="${weight}" step="0.01"></td>
-        <td style="text-align: right;">
-            <button class="btn btn-green" style="padding: 6px 10px;" onclick="saveInline(${id}, '${type}')">💾</button>
-            <button class="btn btn-outline" style="padding: 6px 10px;" onclick="loadReferences()">✖</button>
-        </td>
-    `;
-}
-
-function saveInline(id, itemType) {
-    const data = {
-        name: document.getElementById(`inl-name-${id}`).value,
-        item_type: itemType, category: document.getElementById(`inl-cat-${id}`).value,
-        unit: document.getElementById(`inl-unit-${id}`).value,
-        price: parseFloat(document.getElementById(`inl-price-${id}`).value) || null,
-        weight: parseFloat(document.getElementById(`inl-weight-${id}`).value) || 0
-    };
-    fetch(`/api/items/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-        .then(async res => { if (res.ok) { loadReferences(); loadProducts(); } else alert(await res.text()); });
-}
-
-function addRefSmart() {
+// Сохранение (Добавление / Обновление)
+async function saveReference() {
     const id = document.getElementById('ref-edit-id').value;
-    const type = document.getElementById('ref-type').value;
-    let finalName = document.getElementById('ref-name').value;
-    
-    if (type === 'product' && !id) {
-        const thick = document.getElementById('ref-thick').value;
-        const tex = document.getElementById('ref-texture').value;
-        const col = document.getElementById('ref-color').value;
-        if (thick || tex || col) finalName = `${finalName} ${thick ? thick+'мм' : ''} | ${tex} | ${col}`.replace(/  +/g, ' ').trim();
-    }
-    const data = {
-        name: finalName, item_type: type, category: document.getElementById('ref-category').value || 'Без категории',
-        unit: document.getElementById('ref-unit').value, price: parseFloat(document.getElementById('ref-price').value) || null,
+    const payload = {
+        name: document.getElementById('ref-name').value.trim(),
+        item_type: document.getElementById('ref-type').value,
+        category: document.getElementById('ref-category').value.trim(),
+        unit: document.getElementById('ref-unit').value.trim(),
+        price: parseFloat(document.getElementById('ref-price').value) || 0,
         weight: parseFloat(document.getElementById('ref-weight').value) || 0
     };
-    if (!data.name || !data.unit) return alert('Введите название и единицу измерения!');
 
-    const url = id ? `/api/items/${id}` : '/api/items';
+    if (!payload.name) return alert('Укажите название!');
+
     const method = id ? 'PUT' : 'POST';
-    fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-        .then(async res => {
-            if (res.ok) { loadReferences(); loadProducts(); cancelEdit(); } else alert('Ошибка: ' + await res.text());
+    const url = id ? `/api/items/${id}` : '/api/items';
+
+    try {
+        const res = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
         });
+        
+        if (res.ok) {
+            alert(id ? '✅ Позиция обновлена!' : '✅ Позиция добавлена!');
+            closeRefForm();
+            loadReferences(currentRefPage); // Перезагружаем текущую страницу
+            loadProducts(); // Обновляем списки продаж/замесов в других вкладках
+        } else {
+            alert('Ошибка: ' + await res.text());
+        }
+    } catch (e) { console.error(e); }
 }
 
-function cancelEdit() {
-    document.getElementById('ref-edit-id').value = ''; document.getElementById('ref-name').value = '';
-    document.getElementById('ref-price').value = ''; document.getElementById('ref-weight').value = '';
-    document.getElementById('ref-form-title').innerText = 'Добавление новой позиции';
-    document.getElementById('ref-save-btn').innerHTML = '➕ Добавить в базу';
-    document.getElementById('ref-cancel-btn').style.display = 'none';
+async function deleteReference(id, name) {
+    if (!confirm(`Точно удалить позицию "${name}"? Если она используется в рецептах или на складе, база данных заблокирует удаление для безопасности.`)) return;
+    try {
+        const res = await fetch(`/api/items/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+            loadReferences(currentRefPage);
+            loadProducts();
+        } else alert('Ошибка: ' + await res.text());
+    } catch (e) { console.error(e); }
 }
 
-function deleteReferenceItem(id) {
-    if (!confirm('Точно удалить эту позицию?')) return;
-    fetch('/api/items/' + id, { method: 'DELETE' }).then(async res => {
-        if (res.ok) { loadReferences(); loadProducts(); } else alert(await res.text()); 
-    });
+function changeRefPage(dir) {
+    const newPage = currentRefPage + dir;
+    if (newPage > 0) loadReferences(newPage);
 }

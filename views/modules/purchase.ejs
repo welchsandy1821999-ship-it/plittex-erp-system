@@ -1,0 +1,24 @@
+<div id="purchase-mod" class="module">
+    <h2>🚚 Закупки и приход сырья</h2>
+    <div class="card" style="border-left: 4px solid var(--primary);">
+        <div class="form-grid">
+            <div class="form-group" style="grid-column: span 2;"><label>Материал:</label><select
+                    id="purchase-material-select" class="input-modern" onchange="onPurchaseMaterialSelect()"></select>
+            </div>
+            <div class="form-group" style="grid-column: span 2;"><label>Поставщик:</label><input type="text"
+                    id="purchase-supplier" class="input-modern"></div>
+            <div class="form-group"><label>Количество:</label><input type="number" id="purchase-qty"
+                    class="input-modern" oninput="calculatePurchaseTotal()"></div>
+            <div class="form-group"><label>Цена за ед:</label><input type="number" id="purchase-price"
+                    class="input-modern" oninput="calculatePurchaseTotal()"></div>
+        </div>
+        <div
+            style="margin-top: 20px; padding: 15px; background: #f1f5f9; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-weight: 600;">Сумма к оплате:</span><span
+                style="font-size: 20px; font-weight: bold; color: var(--danger);"><span
+                    id="purchase-total-cost">0.00</span> ₽</span>
+        </div>
+        <button class="btn btn-blue" style="margin-top: 20px; width: 100%; padding: 14px;" onclick="submitPurchase()">📥
+            Оформить приход</button>
+    </div>
+</div>

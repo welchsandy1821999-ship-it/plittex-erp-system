@@ -4,6 +4,10 @@ const { Pool } = require('pg');
 const app = express();
 const port = 3000;
 
+// Указываем, что используем шаблонизатор EJS
+app.set('view engine', 'ejs');
+app.set('views', './views');
+
 const pool = new Pool({
     user: 'postgres',
     password: 'Plittex_2026_SQL',
@@ -14,6 +18,10 @@ const pool = new Pool({
 
 app.use(express.static('public'));
 app.use(express.json());
+//ЭТОТ МАРШРУТ (Отдача главной страницы)
+app.get('/', (req, res) => {
+    res.render('index');
+});
 
 // ==========================================
 // 1. АВТОРИЗАЦИЯ И СТАРЫЕ МАРШРУТЫ
@@ -33,7 +41,7 @@ app.post('/api/login', async (req, res) => {
 
 app.get('/api/products', async (req, res) => {
     try {
-        const result = await pool.query("SELECT id, name, weight_kg FROM items WHERE item_type = 'product' ORDER BY name");
+        const result = await pool.query("SELECT id, name, category, weight_kg FROM items WHERE item_type = 'product' ORDER BY category, name");
         res.json(result.rows);
     } catch (err) { res.status(500).send('Ошибка сервера'); }
 });
@@ -68,6 +76,163 @@ app.get('/api/report/finance', async (req, res) => {
         `);
         res.json(result.rows);
     } catch (err) { res.status(500).send('Ошибка аналитики'); }
+});
+
+// === web.js: Управление замесами ===
+
+// 1. Получение дефолтных норм замесов
+app.get('/api/mix-templates', async (req, res) => {
+    try {
+        // Здесь можно либо сделать таблицу в БД, либо хранить как константу
+        const templates = {
+            big: [
+                { name: 'Цемент М-600', qty: 250, unit: 'кг' },
+                { name: 'Песок основной', qty: 600, unit: 'кг' },
+                { name: 'Щебень', qty: 800, unit: 'кг' },
+                { name: 'Мурасан 16', qty: 2.5, unit: 'кг' }
+            ],
+            small: [
+                { name: 'Песок лицевой', qty: 200, unit: 'кг' },
+                { name: 'Щебень', qty: 300, unit: 'кг' },
+                { name: 'Мурасан 17', qty: 1.2, unit: 'кг' }
+            ]
+        };
+        res.json(templates);
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+// ==========================================
+// СОХРАНЕНИЕ ФОРМОВКИ ЗА ДЕНЬ (С УНИКАЛЬНЫМИ ПАРТИЯМИ И ПРОПОРЦИЯМИ)
+// ==========================================
+app.post('/api/production/daily', async (req, res) => {
+    const { date, bigMixes, smallMixes, products } = req.body;
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // 1. Собираем всё сырье и находим его цены в базе
+        const allMaterials = [...(bigMixes || []), ...(smallMixes || [])].filter(m => m.qty > 0);
+        const matDetails = [];
+
+        for (let mat of allMaterials) {
+            const itemRes = await client.query(`SELECT id, current_price FROM items WHERE name = $1 LIMIT 1`, [mat.name]);
+            if (itemRes.rows.length > 0) {
+                matDetails.push({
+                    id: itemRes.rows[0].id,
+                    name: mat.name,
+                    qty: mat.qty,
+                    price: parseFloat(itemRes.rows[0].current_price) || 0
+                });
+            }
+        }
+
+        const totalMaterialCost = matDetails.reduce((sum, m) => sum + (m.qty * m.price), 0);
+        const totalProductsQty = products.reduce((sum, p) => sum + parseFloat(p.qty), 0);
+
+        // 2. Узнаем, сколько партий УЖЕ БЫЛО создано в этот день (для уникальных номеров)
+        const countRes = await client.query(`SELECT COUNT(*) FROM production_batches WHERE created_at::date = $1`, [date]);
+        let batchCounter = parseInt(countRes.rows[0].count);
+
+        // 3. Распределяем материалы пропорционально объему каждой плитки
+        for (let p of products) {
+            const qty = parseFloat(p.qty);
+            if (qty <= 0) continue;
+
+            batchCounter++; // Увеличиваем номер партии
+            const batchNum = `${date}-СМЕНА-${batchCounter.toString().padStart(2, '0')}`;
+
+            // Считаем долю этой плитки от общего объема смены
+            const fraction = totalProductsQty > 0 ? (qty / totalProductsQty) : 0;
+            const batchCost = totalMaterialCost * fraction;
+
+            // Создаем партию
+            const batchRes = await client.query(`
+                INSERT INTO production_batches (batch_number, product_id, planned_quantity, mat_cost_total, status, created_at)
+                VALUES ($1, $2, $3, $4, 'in_drying', $5) RETURNING id
+            `, [batchNum, p.id, qty, batchCost, date]);
+            const batchId = batchRes.rows[0].id;
+
+            // Списываем сырье ИМЕННО НА ЭТУ ПАРТИЮ (умножаем на fraction)
+            for (let m of matDetails) {
+                const matQtyForBatch = m.qty * fraction;
+                await client.query(`
+                    INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, created_at)
+                    VALUES ($1, $2, 'production_expense', $3, 1, $4, $5)
+                `, [m.id, -matQtyForBatch, `Сырье на ${batchNum}`, batchId, date]);
+            }
+
+            // Отправляем плитку в сушилку
+            await client.query(`
+                INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, created_at)
+                VALUES ($1, $2, 'production_receipt', $3, 3, $4, $5)
+            `, [p.id, qty, `Формовка ${batchNum}`, batchId, date]);
+        }
+
+        await client.query('COMMIT');
+        res.send('Формовка успешно сохранена!');
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).send(err.message);
+    } finally { client.release(); }
+});
+
+// ==========================================
+// ПОЛУЧЕНИЕ ИСТОРИИ ПАРТИЙ ЗА ДЕНЬ
+// ==========================================
+app.get('/api/production/history', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT pb.id, pb.batch_number, i.name as product_name, pb.planned_quantity, pb.mat_cost_total, pb.created_at
+            FROM production_batches pb
+            JOIN items i ON pb.product_id = i.id
+            WHERE pb.created_at::date = $1
+            ORDER BY pb.id DESC
+        `, [req.query.date]);
+        res.json(result.rows);
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+// ==========================================
+// ОТМЕНА (УДАЛЕНИЕ) ФОРМОВКИ И ВОЗВРАТ МАТЕРИАЛОВ
+// ==========================================
+app.delete('/api/production/batch/:id', async (req, res) => {
+    const batchId = req.params.id;
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // 1. Удаляем все движения по складам (сырье возвращается на Склад 1, плитка исчезает из Склада 3)
+        await client.query('DELETE FROM inventory_movements WHERE batch_id = $1', [batchId]);
+
+        // 2. Удаляем саму партию
+        await client.query('DELETE FROM production_batches WHERE id = $1', [batchId]);
+
+        await client.query('COMMIT');
+        res.send('Формовка отменена, материалы возвращены на склад');
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).send(err.message);
+    } finally { client.release(); }
+});
+
+// ==========================================
+// ДЕТАЛИЗАЦИЯ СЫРЬЯ ПО КОНКРЕТНОЙ ПАРТИИ (С ГРУППИРОВКОЙ)
+// ==========================================
+app.get('/api/production/batch/:id/materials', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT i.name, 
+                   SUM(ABS(m.quantity)) as qty, 
+                   i.unit, 
+                   SUM(ABS(m.quantity) * i.current_price) as cost
+            FROM inventory_movements m
+            JOIN items i ON m.item_id = i.id
+            WHERE m.batch_id = $1 AND m.movement_type = 'production_expense'
+            GROUP BY i.name, i.unit
+            ORDER BY cost DESC
+        `, [req.params.id]);
+        res.json(result.rows);
+    } catch (err) { res.status(500).send(err.message); }
 });
 
 // ==========================================
@@ -258,38 +423,61 @@ app.get('/api/analytics/cost-deviation', async (req, res) => {
 });
 
 // ==========================================
-// 3. СПРАВОЧНИКИ (С серверной пагинацией)
+// 3. СПРАВОЧНИКИ (Умный поиск и фильтрация)
 // ==========================================
+
+// Получение списка уникальных категорий для фильтров
+app.get('/api/categories', async (req, res) => {
+    try {
+        const result = await pool.query(`SELECT DISTINCT category FROM items WHERE category IS NOT NULL AND category != '' ORDER BY category`);
+        res.json(result.rows.map(r => r.category));
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+// Умный поиск и получение товаров
 app.get('/api/items', async (req, res) => {
-    const { page = 1, limit = 50, search = '', filter = 'all' } = req.query;
+    const { page = 1, limit = 50, search = '', item_type = '', category = '' } = req.query;
     const offset = (page - 1) * limit;
+
     let whereClause = 'WHERE 1=1';
     let params = [];
     let paramIndex = 1;
 
+    // Фильтр по тексту (Название или Категория)
     if (search) {
         whereClause += ` AND (name ILIKE $${paramIndex} OR category ILIKE $${paramIndex})`;
         params.push(`%${search}%`);
         paramIndex++;
     }
-
-    if (filter === 'materials') whereClause += " AND item_type = 'material'";
-    else if (filter === 'products') whereClause += " AND item_type = 'product'";
-    else if (filter === 'smooth') whereClause += " AND item_type = 'product' AND name ILIKE '%Гладкая%'";
-    else if (filter === 'granite') whereClause += " AND item_type = 'product' AND name ILIKE '%Гранитная%' AND name NOT ILIKE '%Меланж%'";
-    else if (filter === 'melange') whereClause += " AND item_type = 'product' AND name ILIKE '%Меланж%' AND name NOT ILIKE '%Гранитная%'";
-    else if (filter === 'granite_melange') whereClause += " AND item_type = 'product' AND name ILIKE '%Гранитная меланж%'";
-    else if (filter === 'borders') whereClause += " AND item_type = 'product' AND category ILIKE '%Дорожные%'";
-    else if (filter === 'blocks') whereClause += " AND item_type = 'product' AND category ILIKE '%Стеновые%'";
+    // Фильтр по типу (Сырье / Продукция)
+    if (item_type) {
+        whereClause += ` AND item_type = $${paramIndex}`;
+        params.push(item_type);
+        paramIndex++;
+    }
+    // Фильтр по конкретной категории
+    if (category) {
+        whereClause += ` AND category = $${paramIndex}`;
+        params.push(category);
+        paramIndex++;
+    }
 
     try {
         const countRes = await pool.query(`SELECT COUNT(*) FROM items ${whereClause}`, params);
         const totalItems = parseInt(countRes.rows[0].count);
-        const dataRes = await pool.query(`SELECT * FROM items ${whereClause} ORDER BY category, name LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`, [...params, limit, offset]);
-        res.json({ data: dataRes.rows, total: totalItems, currentPage: parseInt(page), totalPages: Math.ceil(totalItems / limit) || 1 });
+        // Выводим с сортировкой: сначала Тип, затем Категория, затем Алфавит
+        const dataRes = await pool.query(`SELECT * FROM items ${whereClause} ORDER BY item_type, category, name LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`, [...params, limit, offset]);
+
+        res.json({
+            data: dataRes.rows,
+            total: totalItems,
+            currentPage: parseInt(page),
+            totalPages: Math.ceil(totalItems / limit) || 1
+        });
     } catch (err) { res.status(500).send(err.message); }
 });
 
+// Добавление новой позиции
 app.post('/api/items', async (req, res) => {
     const { name, item_type, category, unit, price, weight } = req.body;
     try {
@@ -298,6 +486,7 @@ app.post('/api/items', async (req, res) => {
     } catch (err) { res.status(500).send(err.message); }
 });
 
+// Обновление существующей позиции
 app.put('/api/items/:id', async (req, res) => {
     const { name, item_type, category, unit, price, weight } = req.body;
     try {
@@ -306,6 +495,7 @@ app.put('/api/items/:id', async (req, res) => {
     } catch (err) { res.status(500).send(err.message); }
 });
 
+// Удаление позиции
 app.delete('/api/items/:id', async (req, res) => {
     try {
         await pool.query(`DELETE FROM items WHERE id = $1`, [req.params.id]);
@@ -366,6 +556,44 @@ app.post('/api/recipes/save', async (req, res) => {
 });
 
 // ==========================================
+// МАССОВОЕ КОПИРОВАНИЕ РЕЦЕПТА (ШАБЛОНЫ)
+// ==========================================
+app.post('/api/recipes/mass-copy', async (req, res) => {
+    const { sourceProductId, targetProductIds } = req.body;
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        // 1. Получаем эталонный рецепт
+        const sourceRecipeRes = await client.query(`SELECT material_id, quantity_per_unit FROM recipes WHERE product_id = $1`, [sourceProductId]);
+        const sourceRecipe = sourceRecipeRes.rows;
+
+        if (sourceRecipe.length === 0) throw new Error('Эталонный рецепт пуст!');
+
+        // 2. Применяем ко всем целевым товарам
+        for (let targetId of targetProductIds) {
+            // Удаляем старый рецепт у цели
+            await client.query('DELETE FROM recipes WHERE product_id = $1', [targetId]);
+
+            // Вставляем копию эталона
+            for (let ing of sourceRecipe) {
+                await client.query(`
+                    INSERT INTO recipes (product_id, material_id, quantity_per_unit) 
+                    VALUES ($1, $2, $3)
+                `, [targetId, ing.material_id, ing.quantity_per_unit]);
+            }
+        }
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: `Шаблон применен к ${targetProductIds.length} позициям.` });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).send(err.message);
+    } finally { client.release(); }
+});
+
+// ==========================================
 // АВТО-СОЗДАНИЕ АДМИНИСТРАТОРА ПРИ ЗАПУСКЕ
 // ==========================================
 pool.query(`
@@ -382,6 +610,54 @@ pool.query(`
     DO UPDATE SET password_hash = '12345', role = 'admin', full_name = 'Директор (Администратор)';
 `).then(() => console.log('✅ База пользователей проверена. Логин: admin, Пароль: 12345'))
     .catch(err => console.error('❌ Ошибка создания пользователя:', err.message));
+
+// ==========================================
+// УМНАЯ СИНХРОНИЗАЦИЯ РЕЦЕПТОВ ПО ВЫБРАННЫМ ID
+// ==========================================
+app.post('/api/recipes/sync-category', async (req, res) => {
+    // Теперь принимаем конкретные ID товаров (targetProductIds)
+    const { targetProductIds, materials } = req.body;
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        if (!targetProductIds || targetProductIds.length === 0) {
+            await client.query('ROLLBACK');
+            return res.json({ message: 'Не выбраны товары для синхронизации.' });
+        }
+
+        // Обновляем базовые материалы для каждого выбранного товара
+        for (let targetId of targetProductIds) {
+            for (let mat of materials) {
+                const checkRes = await client.query(
+                    `SELECT 1 FROM recipes WHERE product_id = $1 AND material_id = $2`,
+                    [targetId, mat.materialId]
+                );
+
+                if (checkRes.rows.length > 0) {
+                    await client.query(
+                        `UPDATE recipes SET quantity_per_unit = $1 WHERE product_id = $2 AND material_id = $3`,
+                        [mat.qty, targetId, mat.materialId]
+                    );
+                } else {
+                    await client.query(
+                        `INSERT INTO recipes (product_id, material_id, quantity_per_unit) VALUES ($1, $2, $3)`,
+                        [targetId, mat.materialId, mat.qty]
+                    );
+                }
+            }
+        }
+
+        await client.query('COMMIT');
+        res.json({ message: `Успешно применено к ${targetProductIds.length} позициям.` });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).send(err.message);
+    } finally {
+        client.release();
+    }
+});
 
 app.listen(port, () => {
     console.log(`🚀 ERP Плиттекс Server запущен: http://localhost:${port}`);

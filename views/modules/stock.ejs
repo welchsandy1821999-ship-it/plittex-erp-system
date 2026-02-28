@@ -1,0 +1,29 @@
+<div id="stock-mod" class="module">
+    <h2>📦 Складской учет (Остатки по партиям)</h2>
+    <div class="filter-row"
+        style="background: var(--card-bg); padding: 15px; border-radius: 8px; border: 1px solid var(--border);">
+        <span style="font-size: 13px; font-weight: 600; color: var(--text-muted);">ВЫБЕРИТЕ
+            СКЛАД:</span>
+        <button class="filter-btn active" onclick="applyWarehouseFilter('all', this)">🌐 Все
+            склады</button>
+        <button class="filter-btn" onclick="applyWarehouseFilter('1', this)">Склад №1 (Сырье)</button>
+        <button class="filter-btn" onclick="applyWarehouseFilter('3', this)">Склад №3 (Сушилка)</button>
+        <button class="filter-btn" onclick="applyWarehouseFilter('4', this)">Склад №4 (Готовая)</button>
+        <button class="filter-btn" onclick="applyWarehouseFilter('5', this)">Склад №5 (2 сорт)</button>
+        <button class="filter-btn" onclick="applyWarehouseFilter('6', this)">Склад №6 (Утиль)</button>
+    </div>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th width="15%">Склад</th>
+                    <th width="15%">Партия</th>
+                    <th width="45%">Наименование</th>
+                    <th width="15%">Остаток</th>
+                    <th width="10%">Ед.</th>
+                </tr>
+            </thead>
+            <tbody id="inventory-table"></tbody>
+        </table>
+    </div>
+</div>

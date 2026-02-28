@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Плиттекс ERP - Управление предприятием</title>
+    <link rel="icon" href="data:,">
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+
+<body>
+    <div id="toast-container"></div>
+
+    <div id="app-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span id="app-modal-title">Внимание</span>
+                <button style="background:none; border:none; font-size:20px; cursor:pointer; color:var(--text-muted);"
+                    onclick="UI.closeModal()">×</button>
+            </div>
+            <div class="modal-body" id="app-modal-body">Текст...</div>
+            <div class="modal-footer" id="app-modal-footer"></div>
+        </div>
+    </div>
+
+    <div id="login-screen">
+        <div class="login-box">
+            <h2 style="border:none;">ERP Плиттекс</h2>
+            <input type="text" id="login-user" placeholder="Логин">
+            <input type="password" id="login-pass" placeholder="Пароль">
+            <button class="btn btn-blue" id="login-btn" style="width: 100%; margin-top: 15px;">Войти в систему</button>
+        </div>
+    </div>
+
+    <div id="app-screen">
+
+        <div class="sidebar">
+            <div class="sidebar-header">ПЛИТТЕКС</div>
+            <div class="nav-menu">
+                <div class="nav-item active" onclick="switchModule('dashboard-mod', this)">📊 Дашборд</div>
+                <div class="nav-item" onclick="switchModule('prod-mod', this)">🔨 Формовка (Производство)</div>
+                <div class="nav-item" onclick="switchModule('stock-mod', this)">📦 Склады и Сушилка</div>
+                <div class="nav-item" onclick="switchModule('purchase-mod', this)">🚚 Закупки (Склад №1)</div>
+                <div class="nav-item" onclick="switchModule('sales-mod', this)">🛒 Продажи</div>
+                <div class="nav-item" id="nav-ref" onclick="switchModule('ref-mod', this)">📁 Справочники</div>
+                <div class="nav-item" id="nav-recipe" onclick="switchModule('recipe-mod', this)">🧪 Рецептуры</div>
+            </div>
+        </div>
+
+        <div class="main-wrapper">
+            <div class="topbar">
+                <div class="user-info" id="topbar-user">Пользователь: Загрузка...</div>
+                <button class="btn btn-red" onclick="location.reload()">Выйти</button>
+            </div>
+
+            <div class="content-area">
+                <%- include('modules/dashboard') %>
+                    <%- include('modules/production') %>
+                        <%- include('modules/stock') %>
+                            <%- include('modules/purchase') %>
+                                <%- include('modules/sales') %>
+                                    <%- include('modules/finance') %>
+                                        <%- include('modules/references') %>
+                                            <%- include('modules/recipes') %>
+            </div>
+
+        </div>
+    </div>
+
+    <button id="scroll-top-btn"
+        onclick="document.querySelector('.content-area').scrollTo({top: 0, behavior: 'smooth'})">↑</button>
+
+    <script src="/js/references.js"></script>
+    <script src="/js/recipes.js"></script>
+    <script src="/js/purchases.js"></script>
+    <script src="/js/production.js"></script>
+    <script src="/js/inventory.js"></script>
+    <script src="/js/sales.js"></script>
+    <script src="/js/finance.js"></script>
+    <script src="/js/dashboard.js"></script>
+
+    <script>
+        // ГЛОБАЛЬНОЕ УПРАВЛЕНИЕ ИНТЕРФЕЙСОМ
+        function switchModule(moduleId, navElement) {
+            document.querySelectorAll('.module').forEach(mod => mod.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+            const target = document.getElementById(moduleId);
+            if (target) {
+                target.classList.add('active');
+                if (navElement) navElement.classList.add('active');
+            }
+        }
+
+        // === ГЛОБАЛЬНЫЙ ДВИЖОК КРАСИВЫХ УВЕДОМЛЕНИЙ (UI) ===
+        const UI = {
+            toast: (msg, type = 'success') => {
+                const container = document.getElementById('toast-container');
+                const toast = document.createElement('div');
+                toast.className = `toast ${type}`;
+                const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️';
+                toast.innerHTML = `<span>${icon}</span> <div>${msg}</div>`;
+                container.appendChild(toast);
+                setTimeout(() => {
+                    toast.style.animation = 'fadeOut 0.3s forwards';
+                    setTimeout(() => toast.remove(), 300);
+                }, 4000);
+            },
+            showModal: (title, htmlBody, buttonsHtml) => {
+                document.getElementById('app-modal-title').innerHTML = title;
+                document.getElementById('app-modal-body').innerHTML = htmlBody;
+                document.getElementById('app-modal-footer').innerHTML = buttonsHtml;
+                document.getElementById('app-modal').classList.add('active');
+            },
+            closeModal: () => {
+                document.getElementById('app-modal').classList.remove('active');
+            }
+        };
+
+        // ВХОД В СИСТЕМУ
+        document.getElementById('login-btn').addEventListener('click', () => {
+            const user = document.getElementById('login-user').value;
+            const pass = document.getElementById('login-pass').value;
+
+            fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: user, password: pass })
+            }).then(async res => {
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('login-screen').style.display = 'none';
+                    document.getElementById('app-screen').style.display = 'flex';
+                    document.getElementById('topbar-user').innerText = `👤 ${data.user.full_name}`;
+
+                    // Инициализируем все модули
+                    initProduction();
+                    initSales();
+                    initFinance();
+
+                    // Загружаем начальные данные
+                    loadProducts();
+                    loadTable();
+                    loadReferences();
+                    loadRecipeModuleData();
+                    loadPurchaseMaterials();
+                    loadDashboard();
+                } else alert('Ошибка входа');
+            });
+        });
+
+        // Кнопка скролла (общая логика)
+        document.querySelector('.content-area').addEventListener('scroll', function () {
+            const btn = document.getElementById('scroll-top-btn');
+            if (btn) btn.style.display = this.scrollTop > 300 ? 'block' : 'none';
+        });
+    </script>
+</body>
+
+</html>

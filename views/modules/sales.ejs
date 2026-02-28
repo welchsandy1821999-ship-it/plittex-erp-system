@@ -1,0 +1,19 @@
+<div id="sales-mod" class="module">
+    <h2>🛒 Оформление продаж</h2>
+    <div class="card">
+        <div class="form-grid">
+            <div class="form-group" style="grid-column: span 2;"><label>Что продаем (Склад
+                    №4):</label><select id="sale-product-select" class="input-modern"></select></div>
+            <div class="form-group"><label>Кол-во:</label><input type="number" id="sale-qty" class="input-modern"
+                    value="1"></div>
+            <div class="form-group"><label>Цена за ед:</label><input type="number" id="sale-price" class="input-modern"
+                    value="900"></div>
+        </div>
+        <div
+            style="margin-top: 15px; padding: 10px; background: #fff3cd; border-radius: 5px; color: #856404; font-weight: bold; margin-bottom: 15px;">
+            ⚖️ Общий вес отгрузки: <span id="total-weight">0</span> кг (<span id="total-tons">0</span>
+            т)
+        </div>
+        <button class="btn btn-blue" id="sale-btn" style="width: 100%;">💳 Оформить продажу</button>
+    </div>
+</div>

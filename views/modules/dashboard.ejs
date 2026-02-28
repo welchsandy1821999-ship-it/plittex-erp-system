@@ -1,0 +1,14 @@
+<div id="dashboard-mod" class="module active">
+    <h2>📊 Сводная аналитика производства</h2>
+
+    <div class="card" style="border-left: 4px solid var(--primary);">
+        <h3 style="margin-top:0;">📈 График отклонения себестоимости (План vs Факт)</h3>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 20px;">
+            Синее — сколько 1 кв.м должен стоить по рецепту. Красное — сколько он стоил реально (с
+            учетом брака и потерь).
+        </p>
+        <div style="height: 400px; width: 100%;">
+            <canvas id="costChart"></canvas>
+        </div>
+    </div>
+</div>
