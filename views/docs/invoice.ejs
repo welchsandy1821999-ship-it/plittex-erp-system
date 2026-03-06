@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Счет на оплату №<%= invoiceNum %></title>
+    <style>
+        body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #000; background: #fff; padding: 40px; max-width: 900px; margin: auto; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        th, td { border: 1px solid #000; padding: 6px 8px; vertical-align: top; }
+        .no-border, .no-border td { border: none; padding: 4px 0; }
+        .header-text { font-size: 18px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #000; padding-bottom: 10px; }
+        @media print { body { padding: 0; } .no-print { display: none; } }
+    </style>
+</head>
+<body>
+    <button class="no-print" onclick="window.print()" style="padding:10px 20px; background:#2563eb; color:#fff; border:none; cursor:pointer; margin-bottom:20px; border-radius:5px; font-weight:bold;">🖨️ Распечатать / Сохранить в PDF</button>
+    
+    <table class="no-border">
+        <tr>
+            <td width="50%" style="padding-bottom: 10px;"><u><b><%= myCompany.name %></b></u></td>
+            <td align="right" valign="bottom" style="padding-bottom: 10px;"><b>Образец заполнения платежного поручения</b></td>
+        </tr>
+    </table>
+
+    <table>
+        <tr>
+            <td width="30%">ИНН <%= myCompany.inn %></td>
+            <td width="30%">КПП <%= myCompany.kpp %></td>
+            <td width="10%" rowspan="2" align="center" style="vertical-align: middle;">Сч. №</td>
+            <td width="30%" rowspan="2" style="vertical-align: middle;"><%= myBank.account %></td>
+        </tr>
+        <tr>
+            <td colspan="2">Получатель<br><%= myCompany.name %></td>
+        </tr>
+        <tr>
+            <td colspan="2">Банк получателя<br><%= myBank.name %></td>
+            <td align="center">БИК<br>Сч. №</td>
+            <td><%= myBank.bik %><br><%= myBank.corr %></td>
+        </tr>
+    </table>
+
+    <div class="header-text">Счет на оплату № <%= invoiceNum %> от <%= dateLong %></div>
+    
+    <table class="no-border" style="margin-bottom: 20px;">
+        <tr>
+            <td width="15%" style="vertical-align: top; padding-right: 10px;">Поставщик<br>(Исполнитель):</td>
+            <td style="vertical-align: top; font-weight: bold;"><%= myCompany.name %>, ИНН <%= myCompany.inn %>, КПП <%= myCompany.kpp %>, <%= myCompany.address %></td>
+        </tr>
+        <tr>
+            <td style="vertical-align: top; padding-right: 10px; padding-top: 5px;">Покупатель<br>(Заказчик):</td>
+            <td style="vertical-align: top; font-weight: bold; padding-top: 5px;"><%= client.name %>, ИНН <%= client.inn || '_______' %><% if(client.kpp) { %>, КПП <%= client.kpp %><% } %><% if(client.legal_address) { %>, <%= client.legal_address %><% } %></td>
+        </tr>
+    </table>
+
+    <table style="border: 2px solid #000;">
+        <tr style="font-weight: bold; text-align: center;">
+            <td width="5%">№</td>
+            <td width="55%">Товары (работы, услуги)</td>
+            <td width="10%">Кол-во</td>
+            <td width="5%">Ед.</td>
+            <td width="10%">Цена</td>
+            <td width="15%">Сумма</td>
+        </tr>
+        <tr>
+            <td align="center">1</td>
+            <td><%= desc %></td>
+            <td align="center">1</td>
+            <td align="center">шт</td>
+            <td align="right"><%= parseFloat(amount).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) %></td>
+            <td align="right"><%= parseFloat(amount).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) %></td>
+        </tr>
+    </table>
+
+    <table class="no-border" style="width: 100%; font-weight: bold; margin-bottom: 10px;">
+        <tr>
+            <td style="text-align: right; padding-right: 15px;">Итого:</td>
+            <td width="15%" style="text-align: right; border: 1px solid #000; padding: 6px 8px;"><%= parseFloat(baseAmount).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) %></td>
+        </tr>
+        <tr>
+            <td style="text-align: right; padding-right: 15px;">В том числе НДС 22%:</td>
+            <td width="15%" style="text-align: right; border: 1px solid #000; padding: 6px 8px;"><%= parseFloat(vatAmount).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) %></td>
+        </tr>
+        <tr>
+            <td style="text-align: right; padding-right: 15px;">Всего к оплате:</td>
+            <td width="15%" style="text-align: right; border: 1px solid #000; padding: 6px 8px;"><%= parseFloat(amount).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) %></td>
+        </tr>
+    </table>
+
+    <div style="font-size: 13px; margin-bottom: 25px;">
+        Всего наименований 1, на сумму <%= parseFloat(amount).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) %> руб.<br>
+        <b><%= amountWords %></b>
+    </div>
+    
+    <div style="font-size: 13px; line-height: 1.4; margin-bottom: 25px;">
+        Оплатить не позднее <%= payUntil %><br>
+        Оплата данного счета означает согласие с условиями поставки товара.<br>
+        Уведомление об оплате обязательно, в противном случае не гарантируется наличие товара на складе.<br>
+        Товар отпускается по факту прихода денег на р/с Поставщика, самовывозом, при наличии доверенности и<br>
+        паспорта.
+    </div>
+
+    <hr style="border-top: 2px solid #000; margin-bottom: 30px;">
+    
+    <div style="display: flex; justify-content: space-between; font-weight: bold; margin-top: 10px; padding-right: 50px;">
+        <div>Руководитель _________________ /Марченко С. М./</div>
+        <div>Бухгалтер _________________ /Москвичева И.Ю./</div>
+    </div>
+</body>
+</html>

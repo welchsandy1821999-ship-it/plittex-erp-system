@@ -1,19 +1,263 @@
 <div id="sales-mod" class="module">
-    <h2>🛒 Оформление продаж</h2>
-    <div class="card">
-        <div class="form-grid">
-            <div class="form-group" style="grid-column: span 2;"><label>Что продаем (Склад
-                    №4):</label><select id="sale-product-select" class="input-modern"></select></div>
-            <div class="form-group"><label>Кол-во:</label><input type="number" id="sale-qty" class="input-modern"
-                    value="1"></div>
-            <div class="form-group"><label>Цена за ед:</label><input type="number" id="sale-price" class="input-modern"
-                    value="900"></div>
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
+        <div>
+            <h2 style="margin: 0 0 5px 0;">🛒 Отгрузка и Продажи</h2>
+            <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Оформление расходных накладных</p>
         </div>
-        <div
-            style="margin-top: 15px; padding: 10px; background: #fff3cd; border-radius: 5px; color: #856404; font-weight: bold; margin-bottom: 15px;">
-            ⚖️ Общий вес отгрузки: <span id="total-weight">0</span> кг (<span id="total-tons">0</span>
-            т)
+        <div>
+            <button class="btn btn-outline" onclick="openPriceListModal()"
+                style="padding: 8px 16px; border-color: #10b981; color: #10b981;">
+                📋 Установка Прайс-листа
+            </button>
         </div>
-        <button class="btn btn-blue" id="sale-btn" style="width: 100%;">💳 Оформить продажу</button>
+    </div>
+
+    <div class="form-grid" style="grid-template-columns: 1fr 2fr; gap: 20px; align-items: start;">
+
+        <div class="card" style="margin: 0; border-top: 4px solid var(--primary);">
+            <h3 style="margin-top: 0;">1. Выбор продукции</h3>
+
+            <div class="form-group">
+                <label>Клиент (Контрагент):</label>
+                <select id="sale-client" class="input-modern" onchange="onClientChange()"></select>
+            </div>
+
+            <div class="form-group" id="sale-contract-group"
+                style="display: none; margin-top: 15px; padding: 10px; background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0;">
+                <label style="color: #475569; font-size: 12px;">Основание (Договор / Спецификация):</label>
+                <div style="display: flex; gap: 5px;">
+                    <select id="sale-contract" class="input-modern"
+                        style="flex-grow: 1; border-color: #cbd5e1;"></select>
+                    <button class="btn btn-outline" onclick="printSelectedContract()" title="Распечатать этот договор"
+                        style="padding: 0 12px; border-color: #0ea5e9; color: #0ea5e9;">🖨️ Договор</button>
+                    <button class="btn btn-outline" onclick="openContractManager()"
+                        title="Управление договорами клиента"
+                        style="padding: 0 12px; border-color: #cbd5e1;">⚙️</button>
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-top: 20px; padding-top: 15px; border-top: 1px dashed var(--border);">
+                <label style="color: #d97706; font-weight: bold;">Склад для поиска:</label>
+                <select id="sale-warehouse" class="input-modern" onchange="changeSaleWarehouse()">
+                    <option value="4">🟢 Склад №4 (Готовая продукция - 1 сорт)</option>
+                    <option value="5">🟡 Склад №5 (Уценка - 2 сорт)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Поиск (Начни вводить название):</label>
+                <input type="text" id="sale-product-input" class="input-modern" list="sale-products-datalist"
+                    placeholder="Например: Прямоугольник..." autocomplete="off" oninput="updateSaleMaxQty()">
+                <datalist id="sale-products-datalist"></datalist>
+            </div>
+
+            <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px; align-items: start;">
+                <div class="form-group" style="margin: 0;">
+                    <label>Кол-во <span id="sale-unit-label"
+                            style="color: var(--primary); font-weight: bold;"></span>:</label>
+                    <input type="number" id="sale-qty" class="input-modern" value="1" min="0.1" step="0.1">
+                    <div style="min-height: 16px; margin-top: 4px;">
+                        <small id="sale-max-qty" style="color: var(--text-muted); font-size: 11px;">Остаток: 0</small>
+                    </div>
+                </div>
+                <div class="form-group" style="margin: 0;">
+                    <label>Цена за ед (₽):</label>
+                    <input type="number" id="sale-price" class="input-modern" value="0">
+                    <div style="min-height: 16px; margin-top: 4px;"></div>
+                </div>
+            </div>
+            <button class="btn btn-outline" onclick="createBlankOrder()"
+                style="width: 100%; border-color: #8b5cf6; color: #8b5cf6; margin-top: 10px; margin-bottom: 5px;">
+                📝 Оформить Бланк-заказ (Резерв)
+            </button>
+            <button class="btn btn-outline" onclick="addToCart()"
+                style="width: 100%; border-color: var(--primary); color: var(--primary); margin-top: 10px;">
+                ⬇️ Добавить в чек
+            </button>
+        </div>
+
+        <div class="card" style="margin: 0; display: flex; flex-direction: column; min-height: 100%;">
+            <h3 style="margin-top: 0;">2. Состав отгрузки (Чек)</h3>
+
+            <div
+                style="flex-grow: 1; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-bottom: 15px;">
+                <table style="margin: 0; width: 100%;">
+                    <thead style="background: #f1f5f9;">
+                        <tr>
+                            <th style="padding: 10px;">Сорт</th>
+                            <th style="padding: 10px;">Наименование</th>
+                            <th style="padding: 10px; text-align: center;">Кол-во</th>
+                            <th style="padding: 10px; text-align: right;">Сумма</th>
+                            <th style="padding: 10px; text-align: center;">✖</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cart-table">
+                        <tr>
+                            <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">Корзина
+                                пуста</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div
+                style="background: #f8fafc; padding: 15px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <span style="font-size: 14px;">Скидка на чек (%):</span>
+                    <input type="number" id="sale-discount" class="input-modern"
+                        style="width: 80px; text-align: right; padding: 4px;" value="0" min="0" max="100"
+                        oninput="renderCart()">
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 5px;">
+                    <span>Общий вес:</span>
+                    <strong><span id="cart-total-weight">0</span> кг</strong>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 18px; color: var(--primary);">
+                    <span>Итого к оплате:</span>
+                    <div>
+                        <s id="cart-original-sum"
+                            style="color: #94a3b8; font-size: 14px; display: none; margin-right: 10px;">0 ₽</s>
+                        <strong><span id="cart-total-sum">0</span> ₽</strong>
+                    </div>
+                </div>
+            </div>
+
+<div style="margin-bottom: 15px; border-bottom: 1px dashed var(--border); padding-bottom: 15px;">
+                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+                    <div class="form-group" style="margin: 0;">
+                        <label>ФИО Водителя:</label>
+                        <input type="text" id="sale-driver" class="input-modern" placeholder="Иванов И.И.">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label>Автомобиль:</label>
+                        <input type="text" id="sale-auto" class="input-modern" placeholder="Гос. номер (Е123КХ)">
+                    </div>
+                </div>
+
+                <div style="background: #f8fafc; padding: 10px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                        <label style="font-weight: bold; color: #475569; font-size: 13px;">Доверенность на получение:</label>
+                        <label style="font-size: 12px; display: flex; align-items: center; gap: 5px; cursor: pointer; color: #ef4444; font-weight: bold;">
+                            <input type="checkbox" id="sale-no-poa" onchange="togglePoaMode()"> Отгрузка без доверенности
+                        </label>
+                    </div>
+                    
+                    <div id="poa-select-group" style="display: flex; gap: 5px;">
+                        <select id="sale-poa" class="input-modern" style="flex-grow: 1; border-color: #cbd5e1;">
+                            <option value="">-- Выберите клиента --</option>
+                        </select>
+                        <button class="btn btn-outline" onclick="openPoaManager()" title="Добавить доверенность" style="padding: 0 12px; border-color: #cbd5e1;">➕</button>
+                    </div>
+
+                    <div id="poa-comment-group" style="display: none; margin-top: 10px;">
+                        <input type="text" id="sale-poa-comment" class="input-modern" placeholder="Кто разрешил? (Например: Лично директор)" style="border-color: #ef4444; background: #fef2f2;">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Способ оплаты:</label>
+                <select id="sale-payment-method" class="input-modern" onchange="togglePaymentAccount()">
+                    <option value="debt">⏳ В долг / Оплата по счету (Создать счет)</option>
+                    <option value="paid">💰 Оплачено сразу (Выбрать кассу/счет)</option>
+                </select>
+            </div>
+
+            <div class="form-group" id="sale-account-group" style="display: none;">
+                <label>Куда поступили деньги:</label>
+                <select id="sale-account" class="input-modern"></select>
+            </div>
+
+            <button class="btn btn-blue" onclick="processCheckout()"
+                style="width: 100%; padding: 12px; font-size: 16px;">
+                🚚 Подтвердить отгрузку
+            </button>
+        </div>
+    </div>
+    <div style="margin-top: 20px;">
+        <h3 style="margin: 0; cursor: pointer; background: #f8fafc; padding: 15px; border-radius: 6px; border: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #8b5cf6; transition: 0.2s;"
+            onmouseover="this.style.backgroundColor='#f3e8ff'" onmouseout="this.style.backgroundColor='#f8fafc'"
+            onclick="const boContent = document.getElementById('blank-orders-content'); const boIcon = document.getElementById('bo-icon'); if(boContent.style.display==='none'){boContent.style.display='block'; boIcon.innerText='▲ Свернуть';}else{boContent.style.display='none'; boIcon.innerText='▼ Развернуть';}">
+            <span style="font-size: 16px;">📝 Открытые Бланк-заказы (Ожидают резерва / оплаты)</span>
+            <span id="bo-icon" style="color: #8b5cf6; font-size: 13px; font-weight: normal;">▼ Развернуть</span>
+        </h3>
+
+        <div id="blank-orders-content" class="card"
+            style="display: none; border-top: none; border-top-left-radius: 0; border-top-right-radius: 0; margin-top: -4px;">
+            <div style="margin-bottom: 15px;">
+                <input type="text" id="bo-search" class="input-modern"
+                    placeholder="🔍 Поиск по номеру заказа, клиенту или продукции..." oninput="onBlankOrderSearch()">
+            </div>
+            <div class="table-container" style="margin: 0;">
+                <table style="width: 100%;">
+                    <thead style="background: #f1f5f9;">
+                        <tr>
+                            <th style="width: 15%;">Дата</th>
+                            <th style="width: 15%;">Документ</th>
+                            <th style="width: 25%;">Клиент</th>
+                            <th style="width: 20%;">Продукция</th>
+                            <th style="width: 10%; text-align: center;">Объем</th>
+                            <th style="width: 15%; text-align: right;">Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="blank-orders-table">
+                        <tr>
+                            <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">
+                                Загрузка...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid var(--border);">
+                <button class="btn btn-outline" onclick="changeBlankOrderPage(-1)">⬅ Назад</button>
+                <span style="font-size: 13px; color: var(--text-muted);" id="bo-page-info">Страница 1 из 1</span>
+                <button class="btn btn-outline" onclick="changeBlankOrderPage(1)">Вперед ➡</button>
+            </div>
+        </div>
+    </div>
+
+    <div style="margin-top: 15px;">
+        <h3 style="margin: 0; cursor: pointer; background: #f8fafc; padding: 15px; border-radius: 6px; border: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; border-left: 4px solid var(--primary); transition: 0.2s;"
+            onmouseover="this.style.backgroundColor='#e0f2fe'" onmouseout="this.style.backgroundColor='#f8fafc'"
+            onclick="const histContent = document.getElementById('history-content'); const histIcon = document.getElementById('hist-icon'); if(histContent.style.display==='none'){histContent.style.display='block'; histIcon.innerText='▲ Свернуть';}else{histContent.style.display='none'; histIcon.innerText='▼ Развернуть';}">
+            <span style="font-size: 16px;">📜 Недавние отгрузки</span>
+            <span id="hist-icon" style="color: var(--primary); font-size: 13px; font-weight: normal;">▼
+                Развернуть</span>
+        </h3>
+
+        <div id="history-content" class="card"
+            style="display: none; border-top: none; border-top-left-radius: 0; border-top-right-radius: 0; margin-top: -4px;">
+            <div style="margin-bottom: 15px;">
+                <input type="text" id="hist-search" class="input-modern"
+                    placeholder="🔍 Поиск по номеру накладной или клиенту..." oninput="onHistorySearch()">
+            </div>
+            <div class="table-container" style="margin: 0;">
+                <table style="width: 100%;">
+                    <thead style="background: #f1f5f9;">
+                        <tr>
+                            <th style="width: 15%;">Дата</th>
+                            <th style="width: 15%;">Документ</th>
+                            <th style="width: 25%;">Клиент</th>
+                            <th style="width: 15%; text-align: center;">Объем (ед.)</th>
+                            <th style="width: 15%; text-align: right;">Сумма</th>
+                            <th style="width: 15%; text-align: right;">Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sales-history-table">
+                        <tr>
+                            <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">
+                                Загрузка...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid var(--border);">
+                <button class="btn btn-outline" onclick="changeHistoryPage(-1)">⬅ Назад</button>
+                <span style="font-size: 13px; color: var(--text-muted);" id="hist-page-info">Страница 1 из 1</span>
+                <button class="btn btn-outline" onclick="changeHistoryPage(1)">Вперед ➡</button>
+            </div>
+        </div>
     </div>
 </div>

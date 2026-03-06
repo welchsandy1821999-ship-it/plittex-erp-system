@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Бланк Заказа №<%= order.doc_number %></title>
+    <style>
+        body { font-family: 'Times New Roman', Times, serif; padding: 40px; color: #000; max-width: 900px; margin: auto; font-size: 11pt; line-height: 1.3; }
+        h2 { text-align: center; font-size: 14pt; font-weight: bold; margin-bottom: 25px; letter-spacing: 1px; }
+        .info-block { margin-bottom: 25px; }
+        .info-row { display: flex; margin-bottom: 6px; align-items: flex-end; }
+        .info-label { width: 220px; font-weight: normal; }
+        .info-value { flex-grow: 1; border-bottom: 1px solid #000; font-weight: bold; padding-left: 10px; }
+        
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 11pt; }
+        th, td { border: 1px solid #000; padding: 6px; text-align: center; }
+        th { font-weight: normal; }
+        .text-left { text-align: left; }
+        .text-right { text-align: right; }
+        .bold { font-weight: bold; }
+        
+        .footer-text { margin-top: 30px; font-size: 11pt; }
+        .action-buttons { text-align: right; margin-bottom: 20px; font-family: sans-serif; }
+        .btn-print { padding: 8px 16px; font-size: 14px; cursor: pointer; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 5px; margin-right: 10px; }
+        .btn-word { padding: 8px 16px; font-size: 14px; cursor: pointer; background: #8b5cf6; color: white; border: none; border-radius: 5px; }
+        
+        @media print { .action-buttons { display: none; } body { padding: 0; } }
+    </style>
+</head>
+<body>
+    <div class="action-buttons">
+        <button class="btn-print" onclick="window.print()">🖨️ Распечатать (PDF)</button>
+        <button class="btn-word" onclick="Export2Word('Бланк_Заказа_Плиттекс_№<%= order.doc_number %>')">📄 Скачать в Word</button>
+    </div>
+
+    <div id="doc-content">
+        <h2>БЛАНК ИНДИВИДУАЛЬНОГО ЗАКАЗА</h2>
+        
+        <div class="info-block">
+            <div class="info-row">
+                <div class="info-label">Дата</div>
+                <div class="info-value"><%= order.date_formatted %></div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">Заказчик:</div>
+                <div class="info-value"><%= order.client_name %></div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">Адрес:</div>
+                <div class="info-value"><%= order.legal_address || order.address || '' %></div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">Телефон:</div>
+                <div class="info-value"><%= order.phone || '' %></div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">ИНН заказчика:</div>
+                <div class="info-value"><%= order.inn || '' %></div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">ФИО представителя; тел.:</div>
+                <div class="info-value"><%= order.director_name || '' %></div>
+            </div>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 5%;">№</th>
+                    <th style="width: 38%;">Наименование продукции</th>
+                    <th style="width: 10%;">Кол-во</th>
+                    <th style="width: 10%;">Ед.изм</th>
+                    <th style="width: 12%;">Цена</th>
+                    <th style="width: 15%;">Сумма</th>
+                    <th style="width: 10%;">Отгружено</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>1</td>
+                    <td class="text-left"><%= order.item_name %></td>
+                    <td class="bold"><%= parseFloat(order.quantity).toLocaleString('ru-RU') %></td>
+                    <td><%= order.unit || 'шт' %></td>
+                    <td class="text-right"><%= parseFloat(order.price).toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
+                    <td class="text-right bold"><%= (parseFloat(order.quantity) * parseFloat(order.price)).toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
+                    <td></td>
+                </tr>
+                
+                <% for(let i=2; i<=15; i++) { %>
+                <tr>
+                    <td><%= i %></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                </tr>
+                <% } %>
+                
+                <tr>
+                    <td colspan="5" class="bold text-right" style="border: none; padding-right: 15px;">ИТОГО</td>
+                    <td class="bold text-right" style="border: 2px solid #000;"><%= (parseFloat(order.quantity) * parseFloat(order.price)).toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
+                    <td style="border: none;"></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="footer-text">
+            <p>С заказом ознакомлен &nbsp;&nbsp;&nbsp;__________________________________________________________________</p>
+            <p>Поддоны-возвратная тара __________________________________________________________________</p>
+            <p style="font-size: 9pt; margin-top: 25px; text-align: justify; color: #444;">
+                Допускаемые отклонения размеров плит и качества лицевой поверхности от ГОСТ 13330-2016, СП 82.13330.2016. Тон тротуарной плитки из разных партий может отличаться. Допускается потертость при транспортировке, образование "высолов", запыленность не могут являться претензией. Возврат продукции осуществляется при условии целостности заводской упаковки.
+            </p>
+        </div>
+    </div>
+
+    <script>
+        function Export2Word(filename = '') {
+            var preHtml = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Export HTML To Doc</title></head><body>";
+            var postHtml = "</body></html>";
+            var html = preHtml + document.getElementById('doc-content').innerHTML + postHtml;
+
+            var blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+            var url = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(html);
+            var downloadLink = document.createElement("a");
+            
+            document.body.appendChild(downloadLink);
+            if(navigator.msSaveOrOpenBlob ){
+                navigator.msSaveOrOpenBlob(blob, filename+'.doc');
+            }else{
+                downloadLink.href = url;
+                downloadLink.download = filename+'.doc';
+                downloadLink.click();
+            }
+            document.body.removeChild(downloadLink);
+        }
+    </script>
+</body>
+</html>

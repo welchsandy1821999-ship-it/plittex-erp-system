@@ -1,4 +1,143 @@
 <div id="fin-mod" class="module">
-    <h2>💰 Финансы и Налоги</h2>
-    <button class="btn btn-blue" id="finance-btn">Сформировать отчет по НДС</button>
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
+        <div>
+            <h2>💰 Финансы и Касса</h2>
+            <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Учет доходов, расходов и общая аналитика
+            </p>
+        </div>
+
+        <div
+            style="display: flex; gap: 10px; align-items: center; background: #fff; padding: 5px 15px; border-radius: 8px; border: 1px solid var(--border); flex-wrap: wrap;">
+            <label style="font-weight: bold; font-size: 13px; color: var(--text-muted);">Период:</label>
+            <div style="display: flex; gap: 5px;">
+                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px;"
+                    onclick="setFinanceDateRange('today')">Сегодня</button>
+                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px;"
+                    onclick="setFinanceDateRange('week')">Неделя</button>
+                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px;"
+                    onclick="setFinanceDateRange('month')">Месяц</button>
+                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px;"
+                    onclick="setFinanceDateRange('quarter')">Квартал</button>
+                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px;"
+                    onclick="setFinanceDateRange('year')">Год</button>
+            </div>
+            <input type="text" id="finance-date-filter" class="input-modern"
+                style="border: none; background: #f8fafc; font-weight: bold; width: 190px; cursor: pointer; border-radius: 4px; padding: 4px 8px; font-size: 13px;"
+                placeholder="Произвольный...">
+            <button class="btn btn-outline"
+                style="padding: 4px 8px; font-size: 12px; color: var(--danger); border-color: var(--danger);"
+                onclick="resetFinanceFilter()">✖ Сброс</button>
+        </div>
+    </div>
+
+    <div class="form-grid" style="grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 25px;"
+        id="accounts-container"></div>
+    <div class="form-grid" style="grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px;"
+        id="finance-summary-boxes"></div>
+    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 25px;">
+        <div class="card" style="margin-bottom: 0; padding: 15px;">
+            <h4 style="margin-top: 0; font-size: 14px; color: var(--text-muted);">Динамика денежных потоков</h4>
+            <div style="height: 250px;"><canvas id="chart-finance-flow"></canvas></div>
+        </div>
+        <div class="card" style="margin-bottom: 0; padding: 15px;">
+            <h4 style="margin-top: 0; font-size: 14px; color: var(--text-muted);">Статьи расходов</h4>
+            <div style="height: 250px;"><canvas id="chart-finance-categories"></canvas></div>
+        </div>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+        <div style="display: flex; gap: 10px;">
+            <button class="btn btn-blue" onclick="openTransactionModal()">➕ Добавить операцию</button>
+            <button class="btn btn-outline" onclick="openTransferModal()"
+                style="border-color: var(--primary); color: var(--primary);">🔄 Перевод</button>
+            <button class="btn btn-outline" onclick="openBankImportModal()"
+                style="border-color: #6366f1; color: #6366f1;">🏦 Выписка (1С)</button>
+            <button class="btn btn-outline" onclick="exportFinanceToExcel()"
+                style="border-color: #10b981; color: #10b981;">📥 в Excel</button>
+            <button class="btn btn-outline" onclick="openPnlReportModal()"
+                style="border-color: #8b5cf6; color: #8b5cf6;">📊 Отчет P&L</button>
+            <button class="btn btn-outline" onclick="openPaymentCalendarModal()"
+                style="border-color: #f59e0b; color: #f59e0b; font-weight: bold;">📅 Календарь платежей</button>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <button class="btn btn-outline" onclick="openCounterpartiesModal()">👥 Контрагенты</button>
+            <button class="btn btn-outline" onclick="openCategoriesModal()">⚙️ Статьи ДДС</button>
+        </div>
+    </div>
+
+    <div id="invoices-container" style="margin-bottom: 25px; display: none;">
+        <h3 style="margin-bottom: 10px; color: var(--text-main); font-size: 16px;">🟡 Ожидаемые платежи (Счета)</h3>
+        <div class="table-container" style="border-left: 4px solid #f59e0b;">
+            <table id="invoices-table">
+                <thead style="background: #fffbeb;">
+                    <tr>
+                        <th width="10%">Дата</th>
+                        <th width="10%">№ Счета</th>
+                        <th width="25%">Клиент</th>
+                        <th width="25%">Назначение</th>
+                        <th width="15%" style="text-align: right;">Сумма (₽)</th>
+                        <th width="15%" style="text-align: center;">Действие</th>
+                    </tr>
+                </thead>
+                <tbody id="invoices-table-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="bulk-actions-panel"
+        style="display: none; background: #fee2e2; border: 1px solid #fca5a5; padding: 10px 15px; border-radius: 8px; margin-bottom: 10px; align-items: center; justify-content: space-between;">
+        <div style="font-weight: bold; color: #991b1b;">Выбрано платежей: <span id="bulk-selected-count">0</span></div>
+        <button class="btn btn-blue" style="background: #ef4444; border-color: #ef4444; padding: 5px 15px;"
+            onclick="executeBulkDelete()">🗑️ Удалить выбранные</button>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <h3 style="margin: 0; color: var(--text-main); font-size: 16px;">📋 История операций</h3>
+        <input type="text" id="finance-search" class="input-modern" style="width: 350px; padding: 6px 12px; margin: 0;"
+            placeholder="🔍 Поиск по ИНН, имени или назначению..." oninput="triggerFinanceSearch()">
+    </div>
+
+    <div class="table-container">
+        <table id="transactions-table" style="width: 100%; table-layout: fixed; word-break: break-word;">
+            <thead style="background: #f8fafc;">
+                <tr>
+                    <th style="width: 4%; text-align: center;"><input type="checkbox" id="selectAllCheckbox"
+                            onchange="toggleSelectAll(this)"></th>
+                    <th style="width: 12%;">Дата и Время</th>
+                    <th style="width: 9%;">Тип</th>
+                    <th style="width: 20%;">Контрагент / Категория</th>
+                    <th style="width: 25%;">Основание (Комментарий)</th>
+                    <th style="width: 15%;">Способ оплаты</th>
+                    <th style="width: 10%; text-align: right;">Сумма (₽)</th>
+                    <th style="width: 8%; text-align: center;">⚙️</th>
+                </tr>
+            </thead>
+            <tbody id="transactions-table-body">
+                <tr>
+                    <td colspan="8" style="text-align: center; padding: 30px; color: var(--text-muted);">Загрузка...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div
+        style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid var(--border);">
+        <button class="btn btn-outline" onclick="changeFinancePage(-1)">⬅ Назад</button>
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <span style="font-weight: bold; font-size: 14px; color: var(--text-main);" id="finance-page-info">Страница 1
+                из 1</span>
+            <div style="display: flex; align-items: center; gap: 5px;">
+                <span style="font-size: 12px; color: var(--text-muted);">Показывать по:</span>
+                <select id="finance-limit" class="input-modern"
+                    style="padding: 2px 10px; font-size: 13px; min-height: 30px;" onchange="changeFinanceLimit()">
+                    <option value="20">20</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                    <option value="500">500</option>
+                </select>
+            </div>
+        </div>
+        <button class="btn btn-outline" onclick="changeFinancePage(1)">Вперед ➡</button>
+    </div>
 </div>

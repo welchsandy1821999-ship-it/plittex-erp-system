@@ -8,6 +8,10 @@
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ru.js"></script>
+
     <link rel="stylesheet" href="/css/style.css">
 </head>
 
@@ -41,6 +45,7 @@
             <div class="sidebar-header">ПЛИТТЕКС</div>
             <div class="nav-menu">
                 <div class="nav-item active" onclick="switchModule('dashboard-mod', this)">📊 Дашборд</div>
+                <div class="nav-item" onclick="switchModule('fin-mod', this); initFinance();">💰 Финансы и Касса</div>
                 <div class="nav-item" onclick="switchModule('prod-mod', this)">🔨 Формовка (Производство)</div>
                 <div class="nav-item" onclick="switchModule('stock-mod', this)">📦 Склады и Сушилка</div>
                 <div class="nav-item" onclick="switchModule('purchase-mod', this)">🚚 Закупки (Склад №1)</div>
@@ -48,6 +53,7 @@
                 <div class="nav-item" onclick="switchModule('salary-mod', this)">👷‍♂️ Кадры и Зарплата</div>
                 <div class="nav-item" id="nav-ref" onclick="switchModule('ref-mod', this)">📁 Справочники</div>
                 <div class="nav-item" id="nav-recipe" onclick="switchModule('recipe-mod', this)">🧪 Рецептуры</div>
+                <div class="nav-item" onclick="switchModule('equipment-mod', this)">⚙️ Оборудование</div>
             </div>
         </div>
 
@@ -59,14 +65,15 @@
 
             <div class="content-area">
                 <%- include('modules/dashboard') %>
-                    <%- include('modules/production') %>
-                        <%- include('modules/stock') %>
-                            <%- include('modules/purchase') %>
-                                <%- include('modules/sales') %>
-                                    <%- include('modules/finance') %>
-                                        <%- include('modules/salary') %>
-                                            <%- include('modules/references') %>
-                                                <%- include('modules/recipes') %>
+                <%- include('modules/production') %>
+                <%- include('modules/inventory') %>
+                <%- include('modules/purchase') %>
+                <%- include('modules/sales') %>
+                <%- include('modules/finance') %>
+                <%- include('modules/salary') %>
+                <%- include('modules/references') %>
+                <%- include('modules/recipes') %>
+                <%- include('modules/equipment') %>
             </div>
 
         </div>
@@ -84,6 +91,7 @@
     <script src="/js/finance.js"></script>
     <script src="/js/salary.js"></script>
     <script src="/js/dashboard.js"></script>
+    <script src="/js/equipment.js"></script>
 
     <script>
         // ГЛОБАЛЬНОЕ УПРАВЛЕНИЕ ИНТЕРФЕЙСОМ
@@ -99,6 +107,7 @@
             // === УМНОЕ АВТО-ОБНОВЛЕНИЕ ДАННЫХ ПРИ ПЕРЕХОДЕ ===
             if (moduleId === 'stock-mod' && typeof loadTable === 'function') loadTable();
             if (moduleId === 'salary-mod' && typeof loadMonthlyTimesheet === 'function') loadMonthlyTimesheet();
+            if (moduleId === 'equipment-mod' && typeof loadEquipment === 'function') loadEquipment();
         }
 
         // === ГЛОБАЛЬНЫЙ ДВИЖОК КРАСИВЫХ УВЕДОМЛЕНИЙ (UI) ===
@@ -149,12 +158,12 @@
                     initSalary();
 
                     // Загружаем начальные данные
-                    loadProducts();
+                   // loadProducts();
                     loadTable();
                     loadReferences();
                     loadRecipeModuleData();
                     loadPurchaseMaterials();
-                    loadDashboard();
+                  //  loadDashboard();
                 } else alert('Ошибка входа');
             });
         });

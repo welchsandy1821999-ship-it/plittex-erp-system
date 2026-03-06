@@ -6,16 +6,18 @@ let refSearchTimeout = null;
 // Инициализация при открытии приложения
 async function loadReferences(page = 1) {
     currentRefPage = page;
-
     const search = document.getElementById('ref-search').value;
-    const itemType = document.getElementById('ref-filter-type').value;
+    let itemType = document.getElementById('ref-filter-type').value;
+
+    // ИСПРАВЛЕНИЕ: Если выбраны "Все виды", сбрасываем фильтр для сервера
+    if (itemType === 'all') {
+        itemType = '';
+    }
+
     const category = document.getElementById('ref-filter-category').value;
 
     try {
-        // 1. Обновляем список категорий в фильтрах (если это первая загрузка)
         await updateCategoryFilters();
-
-        // 2. Загружаем сами товары
         const url = `/api/items?page=${page}&limit=50&search=${encodeURIComponent(search)}&item_type=${itemType}&category=${encodeURIComponent(category)}`;
         const res = await fetch(url);
         const data = await res.json();
@@ -25,20 +27,16 @@ async function loadReferences(page = 1) {
     } catch (e) { console.error("Ошибка загрузки справочников:", e); }
 }
 
-// Загрузка динамических категорий с сервера
 async function updateCategoryFilters() {
     try {
         const res = await fetch('/api/categories');
         const categories = await res.json();
-
-        // Обновляем фильтр-селект
         const catSelect = document.getElementById('ref-filter-category');
         const currentVal = catSelect.value;
         catSelect.innerHTML = '<option value="">🌐 Все категории</option>';
         categories.forEach(c => catSelect.add(new Option(c, c)));
-        catSelect.value = currentVal; // Сохраняем выбранное значение
+        catSelect.value = currentVal;
 
-        // Обновляем подсказки (Datalist) для формы добавления
         const dataList = document.getElementById('dl-categories');
         dataList.innerHTML = '';
         categories.forEach(c => {
@@ -49,15 +47,11 @@ async function updateCategoryFilters() {
     } catch (e) { }
 }
 
-// Умный поиск (задержка 0.4 сек, чтобы не спамить сервер при каждом нажатии клавиши)
 function debounceRefLoad() {
     clearTimeout(refSearchTimeout);
-    refSearchTimeout = setTimeout(() => {
-        loadReferences(1);
-    }, 400);
+    refSearchTimeout = setTimeout(() => { loadReferences(1); }, 400);
 }
 
-// Отрисовка таблицы
 function renderRefTable(items) {
     const tbody = document.getElementById('ref-table-body');
     if (items.length === 0) {
@@ -81,12 +75,14 @@ function renderRefTable(items) {
     `).join('');
 }
 
-// === УПРАВЛЕНИЕ ФОРМОЙ ===
+// === УПРАВЛЕНИЕ ФОРМОЙ И МАТРИЦАМИ ===
 
 function openRefForm() {
     document.getElementById('ref-form-container').style.display = 'block';
     document.getElementById('ref-form-title').innerText = '✨ Добавление новой позиции';
     clearRefForm();
+    loadMoldsForRefs(); // Загружаем матрицы при открытии
+    document.getElementById('ref-type').dispatchEvent(new Event('change'));
 }
 
 function closeRefForm() {
@@ -102,15 +98,18 @@ function clearRefForm() {
     document.getElementById('ref-weight').value = '0';
     document.getElementById('ref-type').value = 'product';
     document.getElementById('ref-unit').value = 'кг';
+    document.getElementById('ref-qty-cycle').value = '1';
+    const moldSel = document.getElementById('ref-mold-id');
+    if (moldSel) moldSel.value = '';
+    const gostEl = document.getElementById('ref-gost');
+    if (gostEl) gostEl.value = '';
 }
 
-// Загрузка данных в форму для редактирования
 function editReference(id) {
     openRefForm();
     document.getElementById('ref-form-title').innerText = '✏️ Редактирование позиции (ID: ' + id + ')';
 
-    // Ищем товар в уже загруженной таблице (чтобы не делать лишний запрос)
-    fetch(`/api/items?search=&item_type=&category=`) // Небольшой хак: проще всего достать напрямую, но лучше сделаем запрос
+    fetch(`/api/items?limit=1000`)
         .then(res => res.json())
         .then(data => {
             const item = data.data.find(i => i.id === id);
@@ -122,14 +121,22 @@ function editReference(id) {
                 document.getElementById('ref-price').value = parseFloat(item.current_price);
                 document.getElementById('ref-weight').value = parseFloat(item.weight_kg);
                 document.getElementById('ref-type').value = item.item_type;
+                document.getElementById('ref-qty-cycle').value = item.qty_per_cycle || 1;
+                const gostEl = document.getElementById('ref-gost');
+                if (gostEl) gostEl.value = item.gost_mark || '';
 
-                // Прокручиваем наверх к форме
+                // Ставим таймаут, чтобы дать матрицам долю секунды на загрузку с сервера
+                setTimeout(() => {
+                    const moldSel = document.getElementById('ref-mold-id');
+                    if (moldSel) moldSel.value = item.mold_id || '';
+                }, 100);
+
+                document.getElementById('ref-type').dispatchEvent(new Event('change'));
                 document.querySelector('.content-area').scrollTo({ top: 0, behavior: 'smooth' });
             }
         });
 }
 
-// Сохранение (Добавление / Обновление)
 async function saveReference() {
     const id = document.getElementById('ref-edit-id').value;
     const payload = {
@@ -138,10 +145,13 @@ async function saveReference() {
         category: document.getElementById('ref-category').value.trim(),
         unit: document.getElementById('ref-unit').value.trim(),
         price: parseFloat(document.getElementById('ref-price').value) || 0,
-        weight: parseFloat(document.getElementById('ref-weight').value) || 0
+        weight: parseFloat(document.getElementById('ref-weight').value) || 0,
+        qty_per_cycle: parseFloat(document.getElementById('ref-qty-cycle').value) || 1,
+        mold_id: document.getElementById('ref-mold-id').value || null,
+        gost_mark: document.getElementById('ref-gost') ? document.getElementById('ref-gost').value.trim() : ''
     };
 
-    if (!payload.name) return UI.toast('Укажите название позиции!', 'error'); // Замена alert
+    if (!payload.name) return UI.toast('Укажите название позиции!', 'error');
 
     const method = id ? 'PUT' : 'POST';
     const url = id ? `/api/items/${id}` : '/api/items';
@@ -196,3 +206,36 @@ function changeRefPage(dir) {
     const newPage = currentRefPage + dir;
     if (newPage > 0) loadReferences(newPage);
 }
+
+// Загрузка списка матриц с сервера
+async function loadMoldsForRefs() {
+    try {
+        const res = await fetch('/api/equipment');
+        const eq = await res.json();
+        const sel = document.getElementById('ref-mold-id');
+        if (!sel) return;
+
+        sel.innerHTML = '<option value="">-- Без матрицы --</option>';
+        eq.filter(e => e.equipment_type === 'mold').forEach(m => {
+            const amort = (parseFloat(m.purchase_cost) / parseInt(m.planned_cycles)).toFixed(2);
+            sel.add(new Option(`${m.name} (${amort} ₽/удар)`, m.id));
+        });
+    } catch (e) { console.error("Ошибка загрузки матриц", e); }
+}
+
+// Слушатель переключения видимости полей (Сырье или Продукция)
+document.addEventListener('DOMContentLoaded', () => {
+    const typeSelect = document.getElementById('ref-type');
+    if (typeSelect) {
+        typeSelect.addEventListener('change', function () {
+            const isProd = this.value === 'product';
+            const groupQty = document.getElementById('group-qty-cycle');
+            const groupMold = document.getElementById('group-mold-select');
+            const groupGost = document.getElementById('group-gost');
+
+            if (groupQty) groupQty.style.display = isProd ? 'block' : 'none';
+            if (groupMold) groupMold.style.display = isProd ? 'block' : 'none';
+            if (groupGost) groupGost.style.display = isProd ? 'block' : 'none';
+        });
+    }
+});

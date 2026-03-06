@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Спецификация</title>
+    <style>
+        body { font-family: 'Times New Roman', Times, serif; padding: 40px; color: #000; max-width: 850px; margin: auto; font-size: 11pt; line-height: 1.15; }
+        .right-header { text-align: right; margin-bottom: 20px; font-size: 11pt; }
+        h3 { text-align: center; font-size: 12pt; margin-bottom: 15px; font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 11pt; }
+        th, td { border: 1px solid #000; padding: 6px; text-align: left; }
+        th { font-weight: bold; text-align: center; }
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
+        .bold { font-weight: bold; }
+        .req-table { width: 100%; border-collapse: collapse; margin-top: 40px; font-size: 10pt; }
+        .req-table td { border: none; padding: 5px 15px 5px 0; vertical-align: top; width: 50%; }
+        
+        .action-buttons { text-align: right; margin-bottom: 20px; font-family: sans-serif; }
+        .btn-print { padding: 8px 16px; font-size: 14px; cursor: pointer; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 5px; margin-right: 10px; }
+        .btn-word { padding: 8px 16px; font-size: 14px; cursor: pointer; background: #d97706; color: white; border: none; border-radius: 5px; }
+        
+        @media print { .action-buttons { display: none; } body { padding: 0; } }
+    </style>
+</head>
+<body>
+    <div class="action-buttons">
+        <button class="btn-print" onclick="window.print()">🖨️ Распечатать (PDF)</button>
+        <button class="btn-word" onclick="Export2Word('Спецификация_Плиттекс_№<%= docNum.split('-')[1] %>')">📄 Скачать в Word</button>
+    </div>
+
+    <div id="doc-content">
+        <% 
+            // Парсим строку договора, чтобы вытащить номер и дату
+            let cNum = '_______'; let cDate = '_______';
+            if(contractInfo && contractInfo.includes('от')) {
+                let parts = contractInfo.split('от');
+                cNum = parts[0].replace('Договор №', '').trim();
+                cDate = parts[1].trim();
+            }
+        %>
+        <div class="right-header">
+            Приложение № 1<br>
+            К договору № <%= cNum %> от <%= cDate %><br>
+            Бланк заказа № <%= docNum.split('-')[1] %> от <%= date %>
+        </div>
+
+        <h3>СПЕЦИФИКАЦИЯ № <%= docNum.split('-')[1] %></h3>
+        <p><b>1. Цена товара составляет:</b></p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 5%;">№</th>
+                    <th style="width: 45%;">Наименование</th>
+                    <th style="width: 15%;">Ед. измерения</th>
+                    <th style="width: 10%;">Количество</th>
+                    <th style="width: 10%;">Цена</th>
+                    <th style="width: 15%;">Сумма руб.</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% items.forEach(function(item, index) { %>
+                    <tr>
+                        <td class="text-center"><%= index + 1 %></td>
+                        <td><%= item.name %></td>
+                        <td class="text-center"><%= item.unit %></td>
+                        <td class="text-center"><%= parseFloat(item.qty).toLocaleString('ru-RU') %></td>
+                        <td class="text-right"><%= parseFloat(item.price).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) %></td>
+                        <td class="text-right"><%= (parseFloat(item.qty) * parseFloat(item.price)).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) %></td>
+                    </tr>
+                <% }); %>
+                <tr>
+                    <td colspan="5" class="bold text-right">ИТОГО</td>
+                    <td class="bold text-right"><%= parseFloat(totalAmount).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) %></td>
+                </tr>
+                <tr>
+                    <td colspan="5" class="text-right">В том числе НДС</td>
+                    <td class="text-right"><%= (parseFloat(totalAmount) * 22 / 120).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) %></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p><b>2. Оплата за товар производится в следующем порядке:</b></p>
+        <p>- ________________ рублей в т.ч. НДС 22%, Покупатель перечисляет Поставщику в качестве аванса в день подписания Договора.</p>
+        <p>- оставшуюся сумму от общей стоимости товара в размере ________________ рубля в т.ч. НДС 22%, Покупатель осуществляет в течение 10 (Десяти) календарных дней с момента приема-передачи Товара, путем перечисления стоимости продукции на расчетный счет Поставщика.</p>
+
+        <table class="req-table">
+            <tr>
+                <td>
+                    <b>Поставщик</b><br>
+                    ООО «ПЛИТТЕКС»<br>
+                    Юридический адрес: 352244, РФ, Краснодарский край, г. Новокубанск, ул. Кузнечная, № 1, офис № 2<br>
+                    Фактический адрес: 352244, РФ, Краснодарский край, г. Новокубанск, ул. Кузнечная, № 1, офис № 2<br>
+                    ИНН 2372029123 КПП 237201001<br>
+                    ОГРН 1212300040083<br>
+                    Р/с 40702810901500100003<br>
+                    Банк: ООО «Банк Точка» г. Москва<br>
+                    БИК 044525104<br>
+                    Корр. счёт 30101810745374525104<br>
+                    E-mail: plittex@bk.ru<br>
+                    Тел.: 8 (988) 888-05-06<br><br>
+                    Генеральный директор<br><br>
+                    _______________________ С.М. Марченко
+                </td>
+                <td>
+                    <b>Покупатель</b><br>
+                    <%= clientName %><br>
+                    <br><br><br><br><br><br><br><br><br><br><br><br>
+                    Директор<br><br>
+                    _______________________ _______________
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    <script>
+        function Export2Word(filename = '') {
+            var preHtml = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Export HTML To Doc</title></head><body>";
+            var postHtml = "</body></html>";
+            var html = preHtml + document.getElementById('doc-content').innerHTML + postHtml;
+
+            var blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+            var url = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(html);
+            var downloadLink = document.createElement("a");
+            
+            document.body.appendChild(downloadLink);
+            if(navigator.msSaveOrOpenBlob ){
+                navigator.msSaveOrOpenBlob(blob, filename+'.doc');
+            }else{
+                downloadLink.href = url;
+                downloadLink.download = filename+'.doc';
+                downloadLink.click();
+            }
+            document.body.removeChild(downloadLink);
+        }
+    </script>
+</body>
+</html>

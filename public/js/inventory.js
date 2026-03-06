@@ -2,6 +2,7 @@
 
 let allInventory = [];
 let currentWarehouseFilter = 'all';
+let isAuditMode = false; // Флаг режима инвентаризации
 
 function loadTable() {
     fetch('/api/inventory')
@@ -13,11 +14,82 @@ function loadTable() {
 }
 
 function applyWarehouseFilter(id, btn) {
+    // Если переключили склад, сбрасываем режим инвентаризации
+    if (isAuditMode) toggleAuditMode();
+
     currentWarehouseFilter = id;
     document.querySelectorAll('#stock-mod .filter-btn').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');
     renderInventoryTable();
 }
+
+// === РЕЖИМ ИНВЕНТАРИЗАЦИИ ===
+window.toggleAuditMode = function () {
+    if (currentWarehouseFilter === 'all' && !isAuditMode) {
+        return UI.toast('Для инвентаризации выберите конкретный склад (например, Склад №4)!', 'warning');
+    }
+
+    isAuditMode = !isAuditMode;
+    const btnMode = document.getElementById('btn-audit-mode');
+    const btnSave = document.getElementById('btn-audit-save');
+
+    if (isAuditMode) {
+        btnMode.classList.replace('btn-outline', 'btn-red');
+        btnMode.innerText = '❌ Отменить инвентаризацию';
+        btnSave.style.display = 'inline-block';
+        UI.toast('Режим инвентаризации включен. Введите фактические остатки.', 'info');
+    } else {
+        btnMode.classList.replace('btn-red', 'btn-outline');
+        btnMode.innerText = '📋 Инвентаризация';
+        btnSave.style.display = 'none';
+    }
+    renderInventoryTable();
+};
+
+window.saveAudit = async function () {
+    const inputs = document.querySelectorAll('.audit-qty-input');
+    let adjustments = [];
+
+    inputs.forEach(input => {
+        const newQty = parseFloat(input.value);
+        const oldQty = parseFloat(input.getAttribute('data-old-qty'));
+        const diffQty = newQty - oldQty;
+
+        // Если цифра изменилась - записываем корректировку
+        if (diffQty !== 0 && !isNaN(diffQty)) {
+            adjustments.push({
+                itemId: input.getAttribute('data-item-id'),
+                batchId: input.getAttribute('data-batch-id') || null,
+                diffQty: diffQty
+            });
+        }
+    });
+
+    if (adjustments.length === 0) {
+        toggleAuditMode();
+        return UI.toast('Нет изменений. Остатки верны.', 'success');
+    }
+
+    try {
+        const res = await fetch('/api/inventory/audit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                warehouseId: currentWarehouseFilter,
+                adjustments: adjustments
+            })
+        });
+
+        if (res.ok) {
+            UI.toast('✅ Инвентаризация успешно проведена!', 'success');
+            toggleAuditMode();
+            loadTable();
+        } else {
+            UI.toast('Ошибка сохранения: ' + await res.text(), 'error');
+        }
+    } catch (e) { console.error(e); }
+};
+
 
 function renderInventoryTable() {
     const tbody = document.getElementById('inventory-table');
@@ -31,31 +103,135 @@ function renderInventoryTable() {
     });
 
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">На складе нет остатков</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 30px;">На складе нет остатков</td></tr>';
         return;
     }
 
     filtered.forEach(item => {
         let actionHtml = '';
+        let qtyHtml = `<td style="font-weight: bold; font-size: 15px; text-align: right;">${parseFloat(item.total).toLocaleString('ru-RU')}</td>`;
 
-        // ДОБАВЛЯЕМ КНОПКУ РАСПАЛУБКИ ТОЛЬКО ДЛЯ СУШИЛКИ (Склад №3)
-        if (item.warehouse_id === 3) {
-            actionHtml = `<button class="btn btn-blue" style="padding: 4px 8px; font-size: 12px;" 
-                            onclick="openDemoldingModal(${item.batch_id}, '${item.batch_number || 'Б/Н'}', ${item.item_id}, '${item.item_name}', ${item.total})">
-                            📦 Распалубить
-                          </button>`;
+        // Если включена инвентаризация - рисуем поля ввода вместо текста
+        if (isAuditMode) {
+            qtyHtml = `<td style="text-align: right;">
+                <input type="number" class="input-modern audit-qty-input" 
+                       data-item-id="${item.item_id}" 
+                       data-batch-id="${item.batch_id || ''}" 
+                       data-old-qty="${item.total}" 
+                       value="${parseFloat(item.total)}" 
+                       style="width: 100px; padding: 4px; text-align: right; font-weight: bold; border: 2px solid var(--primary); margin: 0; background: #fff;"
+                       onfocus="this.select()">
+            </td>`;
+        } else {
+            // Если обычный режим - рисуем кнопки действий
+            if (isAuditMode) {
+                qtyHtml = `<td style="text-align: right;">
+                <input type="number" class="input-modern audit-qty-input" 
+                       data-item-id="${item.item_id}" 
+                       data-batch-id="${item.batch_id || ''}" 
+                       data-old-qty="${item.total}" 
+                       value="${parseFloat(item.total)}" 
+                       style="width: 100px; padding: 4px; text-align: right; font-weight: bold; border: 2px solid var(--primary); margin: 0; background: #fff;"
+                       onfocus="this.select()">
+            </td>`;
+            } else {
+                // Кнопки действий зависят от склада
+                if (item.warehouse_id === 3) {
+                    actionHtml = `<button class="btn btn-blue" style="padding: 4px 8px; font-size: 12px;" 
+                                onclick="openDemoldingModal(${item.batch_id}, '${item.batch_number || 'Б/Н'}', ${item.item_id}, '${item.item_name}', ${item.total})">
+                                📦 Распалубить
+                              </button>`;
+                } else if (item.warehouse_id === 5 || item.warehouse_id === 6) {
+                    // На складах брака и утиля - кнопка безвозвратного удаления
+                    actionHtml = `<button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: #991b1b; border-color: #fca5a5; background: #fef2f2;" 
+                                onclick="openDisposeModal(${item.item_id}, '${item.item_name}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
+                                🗑️ Утилизировать (в 0)
+                              </button>`;
+                } else {
+                    // Склад 1 и 4 - Списать в брак
+                    actionHtml = `<button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--danger); border-color: var(--danger);" 
+                                onclick="openScrapModal(${item.item_id}, '${item.item_name}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
+                                ↘️ Переместить
+                              </button>`;
+                }
+            }
         }
-
-        tbody.innerHTML += `<tr>
-            <td><span class="badge" style="background: #e2e8f0; color: #475569;">${item.warehouse_name}</span></td>
-            <td style="color: var(--primary); font-weight: bold;">${item.batch_number ? '#' + item.batch_number : (item.batch_id ? '#' + item.batch_id : '-')}</td>
-            <td><strong>${item.item_name}</strong></td>
-            <td style="font-weight: bold; font-size: 15px;">${parseFloat(item.total).toLocaleString('ru-RU')}</td>
-            <td style="color: var(--text-muted);">${item.unit}</td>
-            <td style="text-align: center;">${actionHtml}</td>
-        </tr>`;
+        tbody.innerHTML += `
+            <tr style="transition: 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor=''">
+                <td><span class="badge" style="background: #e2e8f0; color: #475569;">${item.warehouse_name}</span></td>
+                <td style="color: var(--primary); font-weight: bold;">${item.batch_number ? '#' + item.batch_number : (item.batch_id ? '#' + item.batch_id : '-')}</td>
+                <td><strong>${item.item_name}</strong></td>
+                ${qtyHtml}
+                <td style="color: var(--text-muted);">${item.unit}</td>
+                <td style="text-align: right;">${actionHtml}</td>
+            </tr>`;
     });
 }
+
+// === СПИСАНИЕ БОЯ И БРАКА ===
+window.openScrapModal = function (itemId, itemName, batchId, batchNum, warehouseId, currentQty) {
+    const html = `
+        <div style="background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 20px;">
+            <div style="font-size: 15px;">Продукция: <b>${itemName}</b></div>
+            ${batchNum ? `<div style="margin-top: 5px;">Партия: <span style="color: var(--primary); font-weight: bold;">${batchNum}</span></div>` : ''}
+            <div style="margin-top: 5px; color: var(--text-muted);">Текущий остаток: <b style="font-size: 16px; color: var(--text-main);">${currentQty}</b> ед.</div>
+        </div>
+
+        <input type="hidden" id="scrap-item-id" value="${itemId}">
+        <input type="hidden" id="scrap-batch-id" value="${batchId || ''}">
+        <input type="hidden" id="scrap-warehouse-id" value="${warehouseId}">
+        
+        <div class="form-group">
+            <label style="color: var(--danger); font-weight: bold;">Количество брака/боя:</label>
+            <input type="number" id="scrap-qty" class="input-modern" placeholder="Сколько разбилось?" max="${currentQty}" onfocus="this.select()">
+        </div>
+        <div class="form-group">
+            <label>Причина списания:</label>
+            <input type="text" id="scrap-desc" class="input-modern" placeholder="Например: Разбили при погрузке вилочником" value="Списание боя/брака со склада">
+            <small style="color: var(--text-muted); margin-top: 5px; display: block;">Списанный объем переместится на Склад №6 (Изолятор брака) для учета мусора.</small>
+        </div>
+    `;
+
+    const buttons = `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-red" onclick="executeScrap()">🔨 Списать в утиль</button>
+    `;
+
+    UI.showModal('Списание брака', html, buttons);
+};
+
+window.executeScrap = async function () {
+    const itemId = document.getElementById('scrap-item-id').value;
+    const batchId = document.getElementById('scrap-batch-id').value;
+    const warehouseId = document.getElementById('scrap-warehouse-id').value;
+    const scrapQty = parseFloat(document.getElementById('scrap-qty').value);
+    const desc = document.getElementById('scrap-desc').value;
+
+    if (!scrapQty || scrapQty <= 0) return UI.toast('Введите корректное количество', 'warning');
+
+    try {
+        const res = await fetch('/api/inventory/scrap', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                itemId: itemId,
+                batchId: batchId || null,
+                warehouseId: warehouseId,
+                scrapQty: scrapQty,
+                description: desc
+            })
+        });
+
+        if (res.ok) {
+            UI.closeModal();
+            UI.toast('Брак успешно списан', 'success');
+            loadTable();
+        } else {
+            UI.toast('Ошибка списания', 'error');
+        }
+    } catch (e) { console.error(e); }
+};
+
 
 // === ОКНО РАСПАЛУБКИ ===
 window.openDemoldingModal = function (batchId, batchNum, tileId, productName, plannedQty) {
@@ -119,9 +295,73 @@ window.executeDemolding = async function (batchId, tileId, currentWipQty) {
         if (res.ok) {
             UI.closeModal();
             UI.toast('Партия успешно распределена по складам!', 'success');
-            loadTable(); // Моментально обновляем главную таблицу (сушилка опустеет, Склад №4 пополнится)
+            loadTable();
         } else {
             UI.toast('Ошибка при распалубке', 'error');
         }
+    } catch (e) { console.error(e); }
+};
+
+// === ПЕРЕМЕЩЕНИЕ В УЦЕНКУ (5) ИЛИ УТИЛЬ (6) ===
+window.openScrapModal = function (itemId, itemName, batchId, batchNum, warehouseId, currentQty) {
+    const html = `
+        <div style="background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 20px;">
+            <div style="font-size: 15px;">Продукция: <b>${itemName}</b></div>
+            ${batchNum ? `<div style="margin-top: 5px;">Партия: <span style="color: var(--primary); font-weight: bold;">${batchNum}</span></div>` : ''}
+            <div style="margin-top: 5px; color: var(--text-muted);">Остаток: <b style="font-size: 16px; color: var(--text-main);">${currentQty}</b> ед.</div>
+        </div>
+
+        <input type="hidden" id="scrap-item-id" value="${itemId}">
+        <input type="hidden" id="scrap-batch-id" value="${batchId || ''}">
+        <input type="hidden" id="scrap-warehouse-id" value="${warehouseId}">
+        
+        <div class="form-group">
+            <label style="font-weight: bold;">Куда перемещаем?</label>
+            <select id="scrap-target-wh" class="input-modern" style="border-color: #d97706;">
+                <option value="5">🟡 На Склад №5 (Уценка / 2-й сорт)</option>
+                <option value="6">🔴 На Склад №6 (Утиль / На выброс)</option>
+            </select>
+        </div>
+
+        <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
+            <div class="form-group">
+                <label>Количество:</label>
+                <input type="number" id="scrap-qty" class="input-modern" max="${currentQty}" placeholder="0" onfocus="this.select()">
+            </div>
+            <div class="form-group">
+                <label>Причина:</label>
+                <input type="text" id="scrap-desc" class="input-modern" value="Отбраковка">
+            </div>
+        </div>
+    `;
+
+    const buttons = `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-blue" onclick="executeScrap()">➡️ Выполнить перемещение</button>
+    `;
+    UI.showModal('Перемещение продукции', html, buttons);
+};
+
+window.executeScrap = async function () {
+    const itemId = document.getElementById('scrap-item-id').value;
+    const batchId = document.getElementById('scrap-batch-id').value;
+    const warehouseId = document.getElementById('scrap-warehouse-id').value;
+    const targetWh = document.getElementById('scrap-target-wh').value;
+    const scrapQty = parseFloat(document.getElementById('scrap-qty').value);
+    const desc = document.getElementById('scrap-desc').value;
+
+    if (!scrapQty || scrapQty <= 0) return UI.toast('Введите количество', 'warning');
+
+    try {
+        const res = await fetch('/api/inventory/scrap', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ itemId, batchId: batchId || null, warehouseId, targetWarehouseId: targetWh, scrapQty, description: desc })
+        });
+        if (res.ok) {
+            UI.closeModal();
+            UI.toast('Успешно перемещено!', 'success');
+            loadTable();
+        } else UI.toast('Ошибка списания', 'error');
     } catch (e) { console.error(e); }
 };

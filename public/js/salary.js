@@ -38,42 +38,53 @@ async function loadEmployees() {
         renderEmployeesTable();
     } catch (e) { console.error(e); }
 }
+
 function renderEmployeesTable() {
-    const tbody = document.getElementById('employees-table-body');
+    const tbodyActive = document.getElementById('employees-table-body');
+    const tbodyFired = document.getElementById('fired-employees-table-body');
     const searchTerm = (document.getElementById('emp-search-input')?.value || '').toLowerCase();
     const depFilter = document.getElementById('emp-dep-filter')?.value || 'all';
 
-    // Фильтруем массив сотрудников
+    // Базовый поиск
     const filtered = currentEmployees.filter(emp => {
         const matchSearch = emp.full_name.toLowerCase().includes(searchTerm) || emp.position.toLowerCase().includes(searchTerm);
         const matchDep = depFilter === 'all' || emp.department === depFilter;
         return matchSearch && matchDep;
     });
 
-    if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 20px;">Сотрудники не найдены</td></tr>';
-        return;
-    }
+    // Разделяем на работающих и уволенных
+    const activeEmps = filtered.filter(e => e.status !== 'fired');
+    const firedEmps = filtered.filter(e => e.status === 'fired');
 
-    tbody.innerHTML = filtered.map(emp => `
-        <tr style="${emp.status === 'fired' ? 'opacity: 0.6; background: #f1f5f9;' : ''}">
-            <td style="font-weight: 600;">
-                ${emp.full_name}
-                ${emp.status === 'fired' ? '<span class="badge" style="background: var(--danger); color: white; margin-left: 5px;">Уволен</span>' : ''}
-            </td>
-            <td style="color: var(--text-muted);">${emp.position}</td>
-            <td><span class="badge" style="background: #e2e8f0; color: #475569;">${emp.department}</span> <b>${emp.schedule_type}</b></td>
-            <td style="text-align: right; color: var(--success); font-weight: bold;">${parseFloat(emp.salary_cash).toLocaleString('ru-RU')} ₽</td>
-            <td style="text-align: right; color: var(--text-muted);">${parseFloat(emp.salary_official).toLocaleString('ru-RU')} ₽</td>
-            <td style="text-align: right; color: var(--danger); font-weight: 600;">-${parseFloat(emp.tax_withheld || 0).toLocaleString('ru-RU')} ₽</td>
-            <td style="text-align: right; color: ${parseFloat(emp.prev_balance || 0) >= 0 ? 'var(--primary)' : 'var(--danger)'}; font-weight: bold;">
-                ${parseFloat(emp.prev_balance || 0) > 0 ? '+' : ''}${parseFloat(emp.prev_balance || 0).toLocaleString('ru-RU')} ₽
-            </td>
-            <td style="text-align: center;">
-                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px;" onclick="editEmployee(${emp.id})">✏️ Ред.</button>
-            </td>
-        </tr>
-    `).join('');
+    // Функция-генератор строк
+    const generateRows = (emps) => {
+        if (emps.length === 0) return '<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 20px;">Список пуст</td></tr>';
+        return emps.map(emp => `
+            <tr style="${emp.status === 'fired' ? 'background: #f8fafc;' : ''}">
+                <td style="font-weight: 600;">
+                    ${emp.full_name}
+                    ${emp.status === 'fired' ? '<span class="badge" style="background: var(--danger); color: white; margin-left: 5px;">Уволен</span>' : ''}
+                </td>
+                <td style="color: var(--text-muted);">${emp.position}</td>
+                <td><span class="badge" style="background: #e2e8f0; color: #475569;">${emp.department}</span> <b>${emp.schedule_type}</b></td>
+                <td style="text-align: right; color: var(--success); font-weight: bold;">${parseFloat(emp.salary_cash).toLocaleString('ru-RU')} ₽</td>
+                <td style="text-align: right; color: var(--text-muted);">${parseFloat(emp.salary_official).toLocaleString('ru-RU')} ₽</td>
+                <td style="text-align: right; color: var(--danger); font-weight: 600;">-${parseFloat(emp.tax_withheld || 0).toLocaleString('ru-RU')} ₽</td>
+                <td style="text-align: right; color: ${parseFloat(emp.prev_balance || 0) >= 0 ? 'var(--primary)' : 'var(--danger)'}; font-weight: bold;">
+                    ${parseFloat(emp.prev_balance || 0) > 0 ? '+' : ''}${parseFloat(emp.prev_balance || 0).toLocaleString('ru-RU')} ₽
+                </td>
+                <td style="text-align: center;">
+                    <div style="display: flex; gap: 5px; justify-content: center;">
+                        <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px;" onclick="editEmployee(${emp.id})">✏️ Ред.</button>
+                        ${emp.status === 'fired' ? `<button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--danger); border-color: var(--danger);" onclick="deleteEmployee(${emp.id}, '${emp.full_name}')" title="Удалить">❌</button>` : ''}
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+    };
+
+    if (tbodyActive) tbodyActive.innerHTML = generateRows(activeEmps);
+    if (tbodyFired) tbodyFired.innerHTML = generateRows(firedEmps);
 }
 
 // Авто-расчет удержания в окне (ОСТАВЛЯЕМ КАК ЕСТЬ)
@@ -86,10 +97,14 @@ window.calcTaxWithheld = function () {
 function openEmployeeModal(emp = null) {
     const isEdit = !!emp;
     const html = `
-        <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
-            <div class="form-group" style="grid-column: span 2;">
+            <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
+            <div class="form-group">
                 <label>ФИО сотрудника:</label>
                 <input type="text" id="emp-name" class="input-modern" value="${isEdit ? emp.full_name : ''}">
+            </div>
+            <div class="form-group">
+                <label>Должность:</label>
+                <input type="text" id="emp-pos" class="input-modern" value="${isEdit ? emp.position : ''}" placeholder="Например: Разнорабочий">
             </div>
             <div class="form-group">
                 <label>Отдел:</label>
@@ -141,8 +156,6 @@ function openEmployeeModal(emp = null) {
                     <option value="fired" ${isEdit && emp.status === 'fired' ? 'selected' : ''}>🔴 УВОЛЕН</option>
                 </select>
             </div>
-
-            <input type="hidden" id="emp-pos" value="${isEdit ? emp.position : 'Сотрудник'}">
         </div>
     `;
 
@@ -217,11 +230,9 @@ async function loadMonthlyTimesheet() {
 // === ОТРИСОВКА МАТРИЦЫ И ВЫПЛАТ ===
 function renderTimesheetMatrix(year, month) {
     const daysInMonth = new Date(year, month, 0).getDate();
-    const daysOfWeek = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
     const now = new Date();
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-    // 1. Нормы дней/смен
     let normDays52 = 0;
     for (let d = 1; d <= daysInMonth; d++) {
         const dow = new Date(year, month - 1, d).getDay();
@@ -229,48 +240,55 @@ function renderTimesheetMatrix(year, month) {
     }
     const normShifts13 = daysInMonth / 4;
 
-    // 2. Шапка матрицы
+    // Отрисовка заголовка (Дни месяца)
     const thead = document.getElementById('monthly-ts-head');
-    let headHtml = `<tr><th style="min-width: 200px; position: sticky; left: 0; background: #f8fafc; z-index: 20;">Сотрудник</th>`;
+    let headHtml = `<tr>
+        <th style="position: sticky; left: 0; background: #f8fafc; z-index: 20; border-right: 2px solid var(--border); min-width: 250px;">Сотрудник</th>`;
     for (let day = 1; day <= daysInMonth; day++) {
-        const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         const dow = new Date(year, month - 1, day).getDay();
         const isWeekend = dow === 0 || dow === 6;
-        const isToday = dateStr === todayStr;
+        const isToday = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}` === todayStr;
 
-        let thStyle = `text-align: center; padding: 6px 2px; min-width: 32px; `;
-        if (isWeekend) thStyle += `color: var(--danger); background: #fef2f2; `;
-        if (isToday) thStyle += `border: 2px solid var(--primary); background: #eff6ff; border-bottom: none; `;
+        let thStyle = `text-align: center; padding: 10px 4px; min-width: 35px; border-bottom: 2px solid var(--border); `;
+        if (isWeekend) thStyle += `background: #f1f5f9; color: var(--danger); `;
+        if (isToday) thStyle += `background: #eff6ff; color: var(--primary); font-weight: 800; border-bottom: 2px solid var(--primary);`;
 
-        headHtml += `<th style="${thStyle}"><div style="font-size: 11px; font-weight: normal; opacity: 0.8;">${daysOfWeek[dow]}</div><div style="font-size: 14px;">${day}</div></th>`;
+        headHtml += `<th style="${thStyle}">${day}</th>`;
     }
-    headHtml += `<th style="text-align: right; min-width: 140px; background: #f1f5f9;">Итоги месяца (Нал)</th></tr>`;
-    thead.innerHTML = headHtml;
+    headHtml += `<th style="text-align: right; background: #f8fafc; border-left: 2px solid var(--border);">Итого (Дни / ₽)</th></tr>`;
+    if (thead) thead.innerHTML = headHtml;
 
-    // 3. Строки матрицы
+    // Отрисовка тела
     const tbody = document.getElementById('monthly-ts-body');
     let bodyHtml = '';
-    const departments = ['Офис', 'Цех', 'Охрана'];
+
+    const depFilter = document.getElementById('emp-dep-filter')?.value || 'all';
+    const departments = depFilter === 'all' ? ['Офис', 'Цех', 'Охрана'] : [depFilter];
 
     departments.forEach(dep => {
-        // ИСПРАВЛЕНИЕ: В табеле уволенный отображается ТОЛЬКО если у него есть отметки (рабочие дни) в ЭТОМ месяце.
-        // Долги здесь больше не учитываем (должники будут видны только внизу, в таблице Кассы).
-        const depEmps = currentEmployees.filter(e => e.department === dep && (e.status !== 'fired' || currentMonthRecords.some(r => r.employee_id === e.id)));
+        const depEmps = currentEmployees.filter(e => {
+            if (e.department !== dep) return false;
+            if (e.status !== 'fired') return true;
+            return currentMonthRecords.some(r => r.employee_id === e.id && ['present', 'sick', 'vacation'].includes(r.status));
+        });
+
         if (depEmps.length === 0) return;
-        bodyHtml += `<tr><td colspan="${daysInMonth + 2}" style="background: #e2e8f0; font-weight: bold; padding: 6px 16px; font-size: 12px; position: sticky; left: 0;">📁 ${dep.toUpperCase()}</td></tr>`;
+
+        bodyHtml += `<tr><td colspan="${daysInMonth + 2}" style="background: #e2e8f0; font-weight: bold; padding: 8px 15px; color: #334155;">Отдел: ${dep.toUpperCase()}</td></tr>`;
 
         depEmps.forEach(emp => {
-            // Берем слепок данных (для защиты истории)
             const empStat = currentMonthStats.find(s => s.employee_id === emp.id) || emp;
             const baseSalary = parseFloat(empStat.salary_cash) || 0;
             const dailyCost = emp.schedule_type === '5/2' ? Math.round(baseSalary / normDays52) : Math.round(baseSalary / normShifts13);
 
-            bodyHtml += `<tr>`;
-            bodyHtml += `<td style="position: sticky; left: 0; background: #fff; z-index: 10; border-right: 2px solid var(--border);"><div style="font-weight: 600; font-size: 14px;">${emp.full_name}</div><div style="font-size: 11px; color: var(--text-muted);">${emp.position} (${emp.schedule_type})</div></td>`;
+            bodyHtml += `<tr style="transition: 0.15s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor=''">
+                <td style="position: sticky; left: 0; background: #fff; z-index: 10; border-right: 2px solid var(--border); padding: 8px 15px;">
+                    <div style="font-weight: 600;">${emp.full_name} ${emp.status === 'fired' ? '<span class="badge" style="background: var(--danger); color: white; padding: 2px 6px; font-size: 10px;">Уволен</span>' : ''}</div>
+                    <div style="font-size: 11px; color: var(--text-muted);">${emp.position} | Оклад: ${baseSalary.toLocaleString()} ₽ | График: <b>${emp.schedule_type}</b></div>
+                </td>`;
 
             let worked = 0, sick = 0, vacation = 0, absent = 0;
-            let totalBonus = 0, totalPenalty = 0;
-            let earnedBase = 0;
+            let earnedBase = 0, totalBonus = 0, totalPenalty = 0;
 
             for (let day = 1; day <= daysInMonth; day++) {
                 const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -284,10 +302,20 @@ function renderTimesheetMatrix(year, month) {
                 let cellBonus = 0;
                 let cellPenalty = 0;
 
+                let cellBaseRate = dailyCost;
+                let ktuText = '';
+
                 if (record) {
                     status = record.status;
                     cellBonus = parseFloat(record.bonus) || 0;
                     cellPenalty = parseFloat(record.penalty) || 0;
+
+                    if (record.custom_rate !== null && record.custom_rate !== undefined) {
+                        cellBaseRate = parseFloat(record.custom_rate);
+                    }
+                    if (record.ktu && parseFloat(record.ktu) !== 1.0) {
+                        ktuText = ` (КТУ ${parseFloat(record.ktu)})`;
+                    }
                 } else {
                     if (emp.schedule_type === '5/2' && !isWeekend) status = 'weekend';
                     if (emp.schedule_type === '5/2' && isWeekend) status = 'weekend';
@@ -296,7 +324,7 @@ function renderTimesheetMatrix(year, month) {
 
                 if (status === 'present') {
                     worked++;
-                    earnedBase += dailyCost;
+                    earnedBase += cellBaseRate;
                 } else if (status === 'sick') sick++;
                 else if (status === 'vacation') vacation++;
                 else if (status === 'absent') absent++;
@@ -312,28 +340,26 @@ function renderTimesheetMatrix(year, month) {
                 if (cellBonus > 0) extraIcons += '<div style="position:absolute; top:-2px; right:-2px; width:6px; height:6px; background:var(--success); border-radius:50%; box-shadow: 0 0 2px rgba(0,0,0,0.3);"></div>';
                 if (cellPenalty > 0) extraIcons += '<div style="position:absolute; bottom:-2px; right:-2px; width:6px; height:6px; background:var(--danger); border-radius:50%; box-shadow: 0 0 2px rgba(0,0,0,0.3);"></div>';
 
-                // БЛОКИРУЕМ редактирование, если сотрудник уволен
                 const clickAction = emp.status === 'fired'
                     ? `onclick="UI.toast('Сотрудник уволен. Редактирование дней запрещено.', 'warning')"`
                     : `onclick="openCellEditModal(${emp.id}, '${emp.full_name}', '${dateStr}', '${status}', ${cellBonus}, ${cellPenalty}, ${dailyCost})"`;
 
-                // Делаем пустые ячейки уволенных визуально более тусклыми
                 const opacityStyle = (emp.status === 'fired' && status === 'weekend') ? 'opacity: 0.4;' : '';
 
                 bodyHtml += `
                     <td style="${tdStyle}">
                         <div style="position: relative; width: max-content; margin: 0 auto; ${opacityStyle}">
                             <div class="ts-cell status-${status}" 
-                                 title="${emp.full_name} | ${dateStr}\nОклад: ${dailyCost}₽/д\nПремия: ${cellBonus}₽ | Штраф: ${cellPenalty}₽"
-                                 ${clickAction}
-                                 style="${emp.status === 'fired' ? 'cursor: not-allowed;' : ''}">
+                                title="${emp.full_name} | ${dateStr}\nОклад (Факт): ${cellBaseRate}₽/д${ktuText}\nПремия: ${cellBonus}₽ | Штраф: ${cellPenalty}₽"
+                                ${clickAction}
+                                style="${emp.status === 'fired' ? 'cursor: not-allowed;' : ''}">
                                 ${day}
                             </div>
                             ${extraIcons}
                         </div>
                     </td>
                 `;
-            }
+            } // конец цикла for(day)
 
             const totalEarned = earnedBase + totalBonus - totalPenalty;
 
@@ -354,7 +380,7 @@ function renderTimesheetMatrix(year, month) {
         });
     });
 
-    tbody.innerHTML = bodyHtml;
+    if (tbody) tbody.innerHTML = bodyHtml;
 
     /// --- 4. РАСЧЕТ ИТОГОВ НА СЕГОДНЯ И ТАБЛИЦЫ ВЫПЛАТ ---
     let sumTotal = { 'Офис': 0, 'Цех': 0, 'Охрана': 0, 'Всего': 0 };
@@ -372,7 +398,6 @@ function renderTimesheetMatrix(year, month) {
         const officialSalary = parseFloat(empStat.salary_official) || 0;
         const taxRate = parseFloat(empStat.tax_rate) || 0;
 
-        // Убрали отсюда прибавление в totalMonthTaxes!
         let taxWithheld = parseFloat(empStat.tax_withheld) || 0;
         const prevBalance = parseFloat(emp.prev_balance) || 0;
 
@@ -381,7 +406,6 @@ function renderTimesheetMatrix(year, month) {
 
         for (let day = 1; day <= todayNum; day++) {
             const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-            const dow = new Date(year, month - 1, day).getDay();
             const record = currentMonthRecords.find(r => r.employee_id === emp.id && r.record_date.startsWith(dateStr));
 
             let status = record ? record.status : 'weekend';
@@ -401,26 +425,19 @@ function renderTimesheetMatrix(year, month) {
             });
         }
 
-        // === ИСПРАВЛЕННАЯ ЛОГИКА НАЛОГОВ ===
         let finalTax = taxWithheld;
-
-        // Налог 0, если человек ничего не заработал (пустой табель, отпуск или уволен)
         if (earnedToday <= 0) {
             finalTax = 0;
         } else {
-            // Если заработок есть, добавляем его официальный налог в общую копилку предприятия
             const officialTaxes = Math.round(officialSalary * (taxRate / 100));
             totalMonthTaxes += officialTaxes;
         }
 
         const adjSum = currentMonthAdjustments.filter(a => a.employee_id === emp.id).reduce((s, a) => s + parseFloat(a.amount), 0);
-
         const availableToPay = earnedToday - finalTax + prevBalance - advances + adjSum;
 
-        // Скрываем из кассы, если уволен и нули по всем фронтам
         if (emp.status === 'fired' && earnedToday === 0 && prevBalance === 0 && advances === 0 && adjSum === 0) return;
 
-        // === СУММИРУЕМ ВЕРХНИЕ КАРТОЧКИ (ФОТ) ===
         sumTotal[emp.department] += availableToPay;
         sumTotal['Всего'] += availableToPay;
         currentMonthBalances.push({ empId: emp.id, balance: availableToPay });
@@ -520,13 +537,18 @@ window.openAdvancesDetails = function (empId, empName) {
                     </tr>
                 </thead>
                 <tbody>
-                    ${empPayments.map(p => `
-                        <tr>
-                            <td style="font-weight: 600;">${p.payment_date}</td>
-                            <td style="text-align: right; font-weight: bold; color: var(--danger);">${parseFloat(p.amount).toLocaleString()} ₽</td>
-                            <td style="color: var(--text-muted); font-size: 13px;">${p.description}</td>
-                        </tr>
-                    `).join('')}
+
+${empPayments.map(p => `
+    <tr>
+        <td style="font-weight: 600;">${p.payment_date}</td>
+        <td style="text-align: right; font-weight: bold; color: var(--danger);">${parseFloat(p.amount).toLocaleString()} ₽</td>
+        <td style="color: var(--text-muted); font-size: 13px;">${p.description}</td>
+<td style="text-align: center;">
+            <button class="btn btn-outline" style="padding:2px 6px; color:var(--danger); border-color:var(--danger);" 
+                    onclick="deleteSalaryPayment(${p.id})">🗑️</button>
+        </td>
+    </tr>
+`).join('')}
                 </tbody>
             </table>
         </div>
@@ -608,46 +630,81 @@ async function saveCellStatus(empId, dateStr) {
     } catch (e) { console.error(e); }
 }
 
-// === ВЫДАЧА ДЕНЕГ (АВАНСЫ / ЗАРПЛАТА) ===
-function openPayoutModal(empId, empName, availableAmount) {
+// === ОКНО ВЫДАЧИ ДЕНЕГ С ВЫБОРОМ СЧЕТА (ОБНОВЛЕНО) ===
+window.openPayoutModal = function (empId, empName, availableAmount) {
     const today = new Date().toISOString().split('T')[0];
     const defaultAmount = availableAmount > 0 ? availableAmount : 0;
 
+    // Подтягиваем счета из модуля Финансов
+    const options = (typeof currentAccounts !== 'undefined' && currentAccounts.length > 0)
+        ? currentAccounts.map(acc => `<option value="${acc.id}">${acc.name} (баланс: ${parseFloat(acc.balance).toLocaleString()} ₽)</option>`).join('')
+        : '<option disabled>Сначала откройте вкладку Финансы</option>';
+
     const html = `
-        <p>Выдача наличных из кассы для: <b>${empName}</b></p>
+        <div style="background: #f0fdf4; padding: 15px; border-radius: 8px; border: 1px solid #bbf7d0; margin-bottom: 15px;">
+            <p style="margin:0;">Выдача денег для: <b>${empName}</b></p>
+            <p style="margin:5px 0 0 0; font-size: 12px; color: #166534;">Доступно к выдаче: ${availableAmount.toLocaleString()} ₽</p>
+        </div>
+
         <div class="form-group" style="margin-bottom: 15px;">
             <label>Сумма к выдаче (₽):</label>
             <input type="number" id="payout-amount" class="input-modern" style="font-size: 18px; font-weight: bold; color: var(--success);" value="${defaultAmount}">
         </div>
+
+        <div class="form-group" style="margin-bottom: 15px;">
+            <label>Списать со счета / Кассы:</label>
+            <select id="payout-account-id" class="input-modern" style="font-weight: bold; border-color: var(--primary);">${options}</select>
+        </div>
+
         <div class="form-group" style="margin-bottom: 15px;">
             <label>Дата выдачи:</label>
             <input type="date" id="payout-date" class="input-modern" value="${today}">
         </div>
+
         <div class="form-group">
-            <label>Комментарий (назначение):</label>
-            <input type="text" id="payout-desc" class="input-modern" value="Аванс за ${document.getElementById('ts-month-picker').value}">
+            <label>Комментарий:</label>
+            <input type="text" id="payout-desc" class="input-modern" value="Зарплата за ${document.getElementById('ts-month-picker').value}">
         </div>
     `;
-    const buttons = `<button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button><button class="btn btn-blue" onclick="executePayout(${empId}, '${empName}')">💸 Подтвердить выдачу</button>`;
-    UI.showModal('💳 Выдача Зарплаты / Аванса', html, buttons);
+
+    UI.showModal('💳 Выплата (Зарплата / Аванс)', html, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-blue" onclick="executePayout(${empId}, '${empName}')">💸 Подтвердить и списать</button>
+    `);
 }
 
-async function executePayout(empId, empName) {
+window.executePayout = async function (empId, empName) {
     const amount = parseFloat(document.getElementById('payout-amount').value);
+    const account_id = document.getElementById('payout-account-id').value;
     const date = document.getElementById('payout-date').value;
     const desc = document.getElementById('payout-desc').value;
 
-    if (!amount || amount <= 0) return UI.toast('Введите корректную сумму!', 'error');
+    if (!amount || amount <= 0) return UI.toast('Введите сумму!', 'error');
+    if (!account_id) return UI.toast('Выберите счет для списания!', 'error');
+
     try {
         const res = await fetch('/api/salary/pay', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ employee_id: empId, amount, date, description: `${empName} - ${desc}` })
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                employee_id: empId,
+                amount,
+                date,
+                description: `${empName} - ${desc}`,
+                account_id: account_id
+            })
         });
+
         if (res.ok) {
             UI.closeModal();
-            UI.toast('Деньги успешно выданы и списаны из кассы!', 'success');
-            loadMonthlyTimesheet();
-        } else UI.toast('Ошибка при выдаче', 'error');
+            UI.toast('✅ Деньги выданы, баланс счета обновлен!', 'success');
+
+            loadMonthlyTimesheet(); // 
+            if (typeof loadFinanceData === 'function') loadFinanceData(); // 
+        } else {
+            const err = await res.text();
+            UI.toast('Ошибка: ' + err, 'error');
+        }
     } catch (e) { console.error(e); }
 }
 
@@ -899,115 +956,180 @@ window.loadPieceRateData = async function () {
     const date = document.getElementById('piece-date').value;
     if (!date) return;
 
-    document.getElementById('piece-rate-content').innerHTML = '<p style="text-align: center; color: var(--text-muted);">Загрузка данных с производства...</p>';
+    // Рассчитываем норму дней/смен для вычисления дневной ставки
+    const dateObj = new Date(date);
+    const year = dateObj.getFullYear();
+    const month = dateObj.getMonth() + 1;
+    const daysInMonth = new Date(year, month, 0).getDate();
+    let normDays52 = 0;
+    for (let d = 1; d <= daysInMonth; d++) {
+        const dow = new Date(year, month - 1, d).getDay();
+        if (dow !== 0 && dow !== 6) normDays52++;
+    }
+    const normShifts13 = daysInMonth / 4;
+
+    document.getElementById('piece-rate-content').innerHTML = '<p style="text-align: center; color: var(--text-muted);">Загрузка данных...</p>';
 
     try {
-        // 1. Спрашиваем производство: "Сколько плитки сделали в этот день?"
         const resStats = await fetch(`/api/production/daily-stats?date=${date}`);
         const stats = await resStats.json();
         const totalProduced = parseFloat(stats.total) || 0;
 
-        // 2. Ищем работников ЦЕХА, которые были на смене
         const workshopEmps = currentEmployees.filter(e => e.department === 'Цех');
         let empsHtml = '';
         let activeCount = 0;
 
         workshopEmps.forEach(emp => {
             const record = currentMonthRecords.find(r => r.employee_id === emp.id && r.record_date.startsWith(date));
-
-            // Проверяем, стояла ли галочка "Был" в табеле
             let isPresent = false;
             if (record && record.status === 'present') isPresent = true;
-            if (!record) { // Если табель еще пустой, предполагаем по графику 5/2
+            if (!record) {
                 const dow = new Date(date).getDay();
                 if (emp.schedule_type === '5/2' && dow !== 0 && dow !== 6) isPresent = true;
             }
 
             if (isPresent) {
                 activeCount++;
+                // Вычисляем базовую дневную ставку сотрудника
+                const empStat = currentMonthStats.find(s => s.employee_id === emp.id) || emp;
+                const baseSalary = parseFloat(empStat.salary_cash) || 0;
+                const dailyCost = emp.schedule_type === '5/2' ? Math.round(baseSalary / normDays52) : Math.round(baseSalary / normShifts13);
+
+                // Подтягиваем старые данные, если они уже есть
+                const currentKtu = record && record.ktu ? parseFloat(record.ktu) : 1.0;
+                const currentRate = record && record.custom_rate !== null ? parseFloat(record.custom_rate) : dailyCost;
+
                 empsHtml += `
-                    <label style="display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 5px; cursor: pointer; background: #fff;">
-                        <input type="checkbox" class="piece-emp-checkbox" value="${emp.id}" checked onchange="recalcPieceRate(${totalProduced})">
-                        <span><b>${emp.full_name}</b> <span style="color: var(--text-muted); font-size: 12px;">(${emp.position})</span></span>
-                    </label>
+                    <tr style="border-bottom: 1px solid var(--border); background: #fff;">
+                        <td style="padding: 8px;">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" class="piece-emp-checkbox" value="${emp.id}" checked onchange="recalcPieceRate()">
+                                <span style="font-size: 13px;"><b>${emp.full_name}</b><br><span style="color: var(--text-muted); font-size: 11px;">${emp.position}</span></span>
+                            </label>
+                        </td>
+                        <td style="padding: 8px; text-align: center;">
+                            <input type="number" id="ktu-${emp.id}" class="input-modern" value="${currentKtu}" step="0.1" min="0" style="width: 60px; text-align: center; font-weight: bold;" oninput="recalcPieceRate()">
+                        </td>
+                        <td style="padding: 8px;">
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <input type="number" id="rate-${emp.id}" class="input-modern" value="${currentRate}" style="width: 75px; text-align: right;" oninput="recalcPieceRate()">
+                                <div style="display: flex; flex-direction: column; gap: 2px;">
+                                    <button class="btn btn-outline" style="padding: 1px 4px; font-size: 10px;" onclick="setRate(${emp.id}, ${dailyCost})" title="100% Оклад">100%</button>
+                                    <button class="btn btn-outline" style="padding: 1px 4px; font-size: 10px;" onclick="setRate(${emp.id}, ${Math.round(dailyCost / 2)})" title="50% Оклад">50%</button>
+                                    <button class="btn btn-outline" style="padding: 1px 4px; font-size: 10px; color: var(--danger); border-color: var(--danger);" onclick="setRate(${emp.id}, 0)" title="Только Сделка">0</button>
+                                </div>
+                            </div>
+                        </td>
+                        <td id="bonus-${emp.id}" style="padding: 8px; text-align: right; color: var(--success); font-weight: bold; font-size: 14px;">0 ₽</td>
+                        <td id="total-${emp.id}" style="padding: 8px; text-align: right; font-weight: bold; font-size: 15px;">0 ₽</td>
+                    </tr>
                 `;
             }
         });
 
-        if (activeCount === 0) {
-            empsHtml = '<p style="color: var(--danger); font-weight: bold;">В этот день не найдено работающих сотрудников цеха (или табель заполнен как выходной).</p>';
-        }
+        if (activeCount === 0) empsHtml = '<tr><td colspan="5" style="padding: 15px; text-align: center; color: var(--danger);">В этот день нет работающих сотрудников цеха.</td></tr>';
 
-        // Рисуем интерфейс калькулятора
         document.getElementById('piece-rate-content').innerHTML = `
             <div style="background: #eff6ff; border: 1px solid #bfdbfe; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div>
-                        <div style="font-size: 13px; color: var(--text-muted);">Выпущено годной продукции:</div>
-                        <div style="font-size: 22px; font-weight: bold; color: var(--primary);">${totalProduced} шт/кв.м</div>
+                        <div style="font-size: 13px; color: var(--text-muted);">Выпущено продукции:</div>
+                        <input type="number" id="piece-total-produced" class="input-modern" value="${totalProduced}" style="font-size: 18px; font-weight: bold; width: 120px;" oninput="recalcPieceRate()">
                     </div>
-                    <div style="width: 150px;">
-                        <label style="font-size: 12px;">Расценка за 1 ед (₽):</label>
-                        <input type="number" id="piece-rate-price" class="input-modern" value="0" style="font-size: 16px; font-weight: bold; color: var(--success);" oninput="recalcPieceRate(${totalProduced})">
+                    <div>
+                        <div style="font-size: 12px;">Расценка за 1 ед (₽):</div>
+                        <input type="number" id="piece-rate-price" class="input-modern" value="0" style="font-size: 18px; font-weight: bold; color: var(--success); width: 120px;" oninput="recalcPieceRate()">
                     </div>
-                </div>
-                <div style="margin-top: 15px; padding-top: 10px; border-top: 1px dashed #bfdbfe; display: flex; justify-content: space-between; align-items: flex-end;">
-                    <div><span style="font-size: 12px; color: var(--text-muted);">Общий фонд:</span><br><b id="piece-fund" style="color: var(--text-main); font-size: 16px;">0 ₽</b></div>
-                    <div style="text-align: right;"><span style="font-size: 12px; color: var(--primary);">Премия на 1 человека:</span><br><b id="piece-per-person" style="background: var(--success); color: white; padding: 4px 8px; border-radius: 4px; font-size: 16px;">0 ₽</b></div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 12px; color: var(--primary);">Сдельный фонд:</div>
+                        <b id="piece-fund" style="color: var(--primary); font-size: 20px;">0 ₽</b>
+                    </div>
                 </div>
             </div>
             
-            <h4 style="margin-bottom: 10px;">Бригада на смене (между кем делим деньги):</h4>
-            <div style="max-height: 200px; overflow-y: auto; background: #f8fafc; padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
-                ${empsHtml}
+            <h4 style="margin-bottom: 10px;">Бригада на смене (Распределение КТУ):</h4>
+            <div style="max-height: 250px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;">
+                <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                    <thead style="background: #f8fafc; position: sticky; top: 0; z-index: 10;">
+                        <tr>
+                            <th style="padding: 8px; text-align: left;">Сотрудник</th>
+                            <th style="padding: 8px; text-align: center;">КТУ</th>
+                            <th style="padding: 8px; text-align: left;">Оклад (Смена)</th>
+                            <th style="padding: 8px; text-align: right;">Сделка</th>
+                            <th style="padding: 8px; text-align: right;">Итого день</th>
+                        </tr>
+                    </thead>
+                    <tbody>${empsHtml}</tbody>
+                </table>
             </div>
         `;
 
-        const buttons = `
+        document.getElementById('app-modal-footer').innerHTML = `
             <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-            <button class="btn btn-blue" id="piece-save-btn" onclick="savePieceRate('${date}')" disabled>💸 Начислить премию в табель</button>
+            <button class="btn btn-blue" id="piece-save-btn" onclick="savePieceRate('${date}')" disabled>💸 Начислить и Сохранить</button>
         `;
-        document.getElementById('app-modal-footer').innerHTML = buttons;
-
+        recalcPieceRate();
     } catch (e) { console.error(e); }
 };
 
-window.recalcPieceRate = function (totalProduced) {
+window.setRate = function (empId, value) {
+    document.getElementById(`rate-${empId}`).value = value;
+    recalcPieceRate();
+};
+
+window.recalcPieceRate = function () {
     const price = parseFloat(document.getElementById('piece-rate-price').value) || 0;
-    const fund = totalProduced * price; // Общий фонд
+    const totalProduced = parseFloat(document.getElementById('piece-total-produced').value) || 0;
+    const fund = totalProduced * price;
 
-    // Считаем галочки (сколько человек в бригаде)
     const checkboxes = document.querySelectorAll('.piece-emp-checkbox:checked');
-    const count = checkboxes.length;
+    let totalKtu = 0;
 
-    // Делим деньги поровну
-    const perPerson = count > 0 ? Math.round(fund / count) : 0;
+    checkboxes.forEach(cb => {
+        totalKtu += parseFloat(document.getElementById(`ktu-${cb.value}`).value) || 0;
+    });
 
-    document.getElementById('piece-fund').innerText = fund.toLocaleString('ru-RU') + ' ₽';
-    document.getElementById('piece-per-person').innerText = '+ ' + perPerson.toLocaleString('ru-RU') + ' ₽';
+    const fundPerKtu = totalKtu > 0 ? (fund / totalKtu) : 0;
 
-    // Кнопка активна только если есть деньги и выбраны люди
-    document.getElementById('piece-save-btn').disabled = (fund <= 0 || count === 0);
-    window._currentPieceRatePerPerson = perPerson; // Запоминаем для сохранения
+    checkboxes.forEach(cb => {
+        const id = cb.value;
+        const ktu = parseFloat(document.getElementById(`ktu-${id}`).value) || 0;
+        const rate = parseFloat(document.getElementById(`rate-${id}`).value) || 0;
+        const bonus = ktu * fundPerKtu;
+
+        document.getElementById(`bonus-${id}`).innerText = '+' + Math.round(bonus).toLocaleString() + ' ₽';
+        document.getElementById(`total-${id}`).innerText = Math.round(rate + bonus).toLocaleString() + ' ₽';
+    });
+
+    document.getElementById('piece-fund').innerText = Math.round(fund).toLocaleString() + ' ₽';
+    document.getElementById('piece-save-btn').disabled = (checkboxes.length === 0);
 };
 
 window.savePieceRate = async function (date) {
     const checkboxes = document.querySelectorAll('.piece-emp-checkbox:checked');
-    const empIds = Array.from(checkboxes).map(cb => cb.value); // Собираем ID выбранных рабочих
-    const bonusPerPerson = window._currentPieceRatePerPerson || 0;
+    const empData = [];
+    let totalBonusFund = 0;
 
-    if (empIds.length === 0 || bonusPerPerson <= 0) return;
+    checkboxes.forEach(cb => {
+        const id = cb.value;
+        const ktu = parseFloat(document.getElementById(`ktu-${id}`).value) || 0;
+        const custom_rate = parseFloat(document.getElementById(`rate-${id}`).value) || 0;
+        const bonus = parseFloat(document.getElementById(`bonus-${id}`).innerText.replace(/\D/g, '')) || 0;
+
+        totalBonusFund += bonus;
+        empData.push({ id, custom_rate, ktu, bonus });
+    });
 
     try {
         const res = await fetch('/api/timesheet/mass-bonus', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ date, empIds, bonusPerPerson })
+            body: JSON.stringify({ date, empData, totalBonusFund })
         });
 
         if (res.ok) {
             UI.closeModal();
-            UI.toast('Сдельная премия успешно начислена бригаде!', 'success');
-            loadMonthlyTimesheet(); // Перерисовываем матрицу и итоги
+            UI.toast('Сдельная премия и ставки успешно зафиксированы!', 'success');
+            loadMonthlyTimesheet();
         }
     } catch (e) { console.error(e); }
 };
@@ -1176,4 +1298,66 @@ window.fillTodayBySchedule = async function () {
             loadMonthlyTimesheet();
         }
     } catch (e) { console.error(e); }
+};
+
+window.deleteSalaryPayment = function (paymentId) {
+    const html = `
+        <div style="text-align: center;">
+            <p style="font-size: 16px; margin-bottom: 10px;">Вы действительно хотите аннулировать эту выплату?</p>
+            <p style="font-size: 13px; color: var(--text-muted);">Деньги вернутся в кассу, а долг сотрудника будет пересчитан. Это действие нельзя отменить.</p>
+        </div>
+    `;
+
+    UI.showModal('⚠️ Подтверждение удаления', html, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-outline" style="color: var(--danger); border-color: var(--danger);" onclick="executeDeleteSalaryPayment(${paymentId})">🗑️ Да, удалить</button>
+    `);
+};
+
+window.executeDeleteSalaryPayment = async function (paymentId) {
+    try {
+        const res = await fetch(`/api/salary/payment/${paymentId}`, { method: 'DELETE' });
+        if (res.ok) {
+            UI.closeModal();
+            UI.toast('✅ Выплата успешно аннулирована', 'success');
+            loadMonthlyTimesheet(); // Обновляем Кадры
+            if (typeof loadFinanceData === 'function') loadFinanceData(); // Обновляем Финансы
+        } else {
+            UI.toast('Ошибка при удалении', 'error');
+        }
+    } catch (e) { console.error(e); }
+};
+
+// === УДАЛЕНИЕ СОТРУДНИКА ===
+window.deleteEmployee = function (id, name) {
+    const html = `
+        <p style="font-size: 15px;">Вы уверены, что хотите безвозвратно удалить сотрудника <strong style="color: var(--primary);">${name}</strong>?</p>
+        <p style="font-size: 13px; color: var(--danger); margin-top: 10px; background: #fef2f2; padding: 10px; border-radius: 6px;">
+            ⚠️ <b>Внимание:</b> Удаление сработает только если сотрудник был добавлен по ошибке. Если у него уже есть финансовая история в системе, база данных заблокирует удаление для сохранения бухгалтерии.
+        </p>
+    `;
+    const buttons = `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-red" onclick="confirmDeleteEmployee(${id})">🗑️ Да, удалить</button>
+    `;
+    UI.showModal('Удаление сотрудника', html, buttons);
+};
+
+window.confirmDeleteEmployee = async function (id) {
+    try {
+        const res = await fetch(`/api/employees/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+            UI.closeModal();
+            UI.toast('Сотрудник успешно удален', 'success');
+            loadEmployees();
+        } else {
+            const errText = await res.text();
+            UI.toast(errText, 'error');
+            UI.closeModal();
+        }
+    } catch (e) {
+        console.error(e);
+        UI.toast('Ошибка связи с сервером', 'error');
+        UI.closeModal();
+    }
 };

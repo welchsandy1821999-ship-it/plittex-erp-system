@@ -1,0 +1,96 @@
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Акт сверки - <%= cp.name %></title>
+    <style>
+        body { font-family: Arial, sans-serif; font-size: 13px; color: #000; background: #fff; padding: 40px; max-width: 900px; margin: auto; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; margin-bottom: 20px; font-size: 12px; }
+        th, td { border: 1px solid #000; padding: 6px; text-align: left; vertical-align: middle; }
+        th { background: #f8fafc; text-align: center; font-weight: bold; }
+        .header-title { text-align: center; font-size: 16px; font-weight: bold; margin-bottom: 20px; text-transform: uppercase; }
+        .signature-block { display: flex; justify-content: space-between; margin-top: 40px; page-break-inside: avoid; }
+        .signature-box { width: 45%; }
+        .signature-line { border-bottom: 1px solid #000; margin-top: 30px; margin-bottom: 5px; }
+        @media print { body { padding: 0; } .no-print { display: none; } }
+    </style>
+</head>
+<body>
+    <button class="no-print" onclick="window.print()" style="padding:10px 20px; background:#2563eb; color:#fff; border:none; cursor:pointer; margin-bottom:20px; border-radius:5px; font-weight:bold;">🖨️ Печать / Сохранить в PDF</button>
+
+    <div class="header-title">
+        АКТ СВЕРКИ ВЗАИМНЫХ РАСЧЕТОВ<br>
+        <span style="font-size: 14px; font-weight: normal; text-transform: none;">
+            за период с начала сотрудничества по <%= new Date().toLocaleDateString('ru-RU') %>
+        </span>
+    </div>
+
+    <p style="text-align: justify; line-height: 1.5;">
+        Мы, нижеподписавшиеся, <b>ООО "ПЛИТТЕКС"</b> с одной стороны, и <b><%= cp.name %></b> с другой стороны, 
+        составили настоящий акт сверки в том, что состояние взаимных расчетов по данным учета следующее:
+    </p>
+
+    <table>
+        <thead>
+            <tr>
+                <th width="10%">Дата</th>
+                <th width="40%">Документ / Операция</th>
+                <th width="25%">Приход (Дебет), ₽</th>
+                <th width="25%">Расход (Кредит), ₽</th>
+            </tr>
+        </thead>
+        <tbody>
+            <% 
+            let totalIncome = 0; 
+            let totalExpense = 0; 
+            transactions.forEach(t => { 
+                const isInc = t.transaction_type === 'income';
+                if (isInc) totalIncome += parseFloat(t.amount);
+                else totalExpense += parseFloat(t.amount);
+            %>
+            <tr>
+                <td style="text-align: center;"><%= t.date %></td>
+                <td><%= t.description || t.category %></td>
+                <td style="text-align: right;"><%= isInc ? parseFloat(t.amount).toLocaleString('ru-RU', {minimumFractionDigits: 2}) : '' %></td>
+                <td style="text-align: right;"><%= !isInc ? parseFloat(t.amount).toLocaleString('ru-RU', {minimumFractionDigits: 2}) : '' %></td>
+            </tr>
+            <% }); %>
+            
+            <tr style="font-weight: bold; background: #f8fafc;">
+                <td colspan="2" style="text-align: right;">ОБОРОТЫ:</td>
+                <td style="text-align: right;"><%= totalIncome.toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
+                <td style="text-align: right;"><%= totalExpense.toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <% 
+        const diff = totalIncome - totalExpense;
+        let diffText = diff >= 0 
+            ? `Задолженность в пользу ООО "ПЛИТТЕКС" составляет: ${diff.toLocaleString('ru-RU', {minimumFractionDigits: 2})} руб.` 
+            : `Задолженность в пользу ${cp.name} составляет: ${Math.abs(diff).toLocaleString('ru-RU', {minimumFractionDigits: 2})} руб.`;
+        if (diff === 0) diffText = "Сальдо равно нулю. Задолженность отсутствует.";
+    %>
+
+    <div style="font-size: 14px; font-weight: bold; margin-bottom: 10px;">
+        ИСХОДЯЩЕЕ САЛЬДО НА <%= new Date().toLocaleDateString('ru-RU') %>:
+    </div>
+    <div style="font-size: 14px; margin-bottom: 30px; text-decoration: underline;">
+        <%= diffText %>
+    </div>
+
+    <div class="signature-block">
+        <div class="signature-box">
+            <b>От лица ООО "ПЛИТТЕКС"</b><br>
+            <div class="signature-line"></div>
+            <div style="font-size: 11px; text-align: center; color: #555;">(М.П. / Подпись / Расшифровка)</div>
+        </div>
+        <div class="signature-box">
+            <b>От лица <%= cp.name %></b><br>
+            <div class="signature-line"></div>
+            <div style="font-size: 11px; text-align: center; color: #555;">(М.П. / Подпись / Расшифровка)</div>
+        </div>
+    </div>
+</body>
+</html>

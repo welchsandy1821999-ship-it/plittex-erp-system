@@ -1,0 +1,54 @@
+<div id="stock-mod" class="module">
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
+        <div>
+            <h2 style="margin: 0 0 5px 0;">📦 Склад и Остатки</h2>
+            <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Контроль запасов сырья, сушилки и готовой
+                продукции</p>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <button class="btn btn-green" id="btn-audit-save" onclick="saveAudit()"
+                style="display: none; padding: 8px 16px;">💾 Сохранить факт</button>
+            <button class="btn btn-outline" id="btn-audit-mode" onclick="toggleAuditMode()"
+                style="padding: 8px 16px;">📋 Инвентаризация</button>
+
+            <button class="btn btn-blue" onclick="loadTable()" style="padding: 8px 16px;">🔄 Обновить остатки</button>
+        </div>
+    </div>
+
+    <div
+        style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid var(--border);">
+        <button class="btn btn-outline filter-btn active" onclick="applyWarehouseFilter('all', this)">🌐 Все
+            склады</button>
+        <button class="btn btn-outline filter-btn" onclick="applyWarehouseFilter('1', this)">Склад №1 (Сырье)</button>
+        <button class="btn btn-outline filter-btn" onclick="applyWarehouseFilter('3', this)">Склад №3 (Сушилка)</button>
+        <button class="btn btn-outline filter-btn" onclick="applyWarehouseFilter('4', this)">Склад №4 (Готовая
+            продукция)</button>
+        <button class="btn btn-outline filter-btn" onclick="applyWarehouseFilter('5', this)">Склад №5 (Уценка и
+            Брак)</button>
+        <button class="btn btn-outline filter-btn" onclick="applyWarehouseFilter('6', this)">Склад №6 (Утиль)</button>
+    </div>
+
+    <div class="card" style="margin: 0; padding: 0; overflow: hidden; border: 1px solid var(--border);">
+        <div class="table-container" style="margin: 0;">
+            <table style="width: 100%; margin: 0;">
+                <thead style="background: #f1f5f9;">
+                    <tr>
+                        <th style="width: 15%;">Склад</th>
+                        <th style="width: 15%;">№ Партии</th>
+                        <th style="width: 35%;">Наименование (Сырье / Продукция)</th>
+                        <th style="width: 10%; text-align: right;">Остаток</th>
+                        <th style="width: 10%;">Ед. изм.</th>
+                        <th style="width: 15%; text-align: right;">Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="inventory-table">
+                    <tr>
+                        <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 30px;">
+                            Загрузка остатков...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
