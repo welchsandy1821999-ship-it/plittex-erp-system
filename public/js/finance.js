@@ -718,42 +718,101 @@ window.executeDeleteCounterparty = async function (id) {
     } catch (e) { console.error(e); }
 };
 
-// === ГЕНЕРАЦИЯ СЧЕТА С ВЫБОРОМ БАНКА И НОМЕРОМ ===
-window.openInvoiceModal = function (cp_id) {
-    const cp = financeCounterparties.find(c => c.id === cp_id);
-    if (!cp.inn) UI.toast('У клиента не заполнен ИНН, счет будет неполным!', 'warning');
+// === УМНОЕ ВЫСТАВЛЕНИЕ СЧЕТА ИЗ ФИНАНСОВ ===
+window.toggleFinInvoiceType = function () {
+    const type = document.getElementById('fin-invoice-type').value;
+    document.getElementById('fin-general-block').style.display = type === 'general' ? 'block' : 'none';
+    document.getElementById('fin-order-block').style.display = type === 'order' ? 'block' : 'none';
+};
 
-    // Автоматически предлагаем номер счета (Год-СлучайноеЧисло), но его можно стереть и написать свой
-    const defaultNum = `${new Date().getFullYear()}-${Math.floor(Math.random() * 900) + 100}`;
+window.openFinanceInvoiceModal = async function (cpId, cpName) {
+    // Подтягиваем активные заказы этого клиента, чтобы заполнить выпадающий список
+    let ordersHtml = '<option value="">-- У клиента нет активных заказов --</option>';
+    try {
+        const res = await fetch('/api/sales/orders');
+        const allOrders = await res.json();
+        const clientOrders = allOrders.filter(o => o.counterparty_id === cpId);
+        if (clientOrders.length > 0) {
+            ordersHtml = clientOrders.map(o => `<option value="${o.doc_number}">Заказ №${o.doc_number} (на ${parseFloat(o.total_amount).toLocaleString('ru-RU')} ₽)</option>`).join('');
+        }
+    } catch (e) { console.error(e); }
 
     const html = `
-        <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 10px;">
-            <div class="form-group" style="grid-column: span 2;">
-                <label>Назначение платежа (За что платим):</label>
-                <input type="text" id="inv-desc" class="input-modern" value='Оплата за партию Тротуарной плитки'>
+        <div style="padding: 10px;">
+            <h4 style="margin-top:0; color:var(--primary); margin-bottom: 15px;">Контрагент: ${cpName}</h4>
+
+            <div class="form-group" style="margin-bottom: 15px;">
+                <label style="color: #d97706; font-weight: bold;">Тип счета:</label>
+                <select id="fin-invoice-type" class="input-modern" onchange="toggleFinInvoiceType()">
+                    <option value="general">Свободный счет (Пополнение баланса / Аванс)</option>
+                    <option value="order">Привязать к существующему Заказу</option>
+                </select>
             </div>
-            <div class="form-group">
-                <label>Номер счета:</label>
-                <input type="text" id="inv-num" class="input-modern" value="${defaultNum}" style="font-weight: bold;">
+
+            <div id="fin-general-block" style="background: #f8fafc; padding: 10px; border-radius: 6px; border: 1px solid var(--border);">
+                <div class="form-group">
+                    <label>Сумма счета (₽):</label>
+                    <input type="number" id="fin-invoice-amount" class="input-modern" placeholder="Например: 150000">
+                </div>
+                <div class="form-group" style="margin-top: 10px;">
+                    <label>Назначение платежа в счете:</label>
+                    <input type="text" id="fin-invoice-desc" class="input-modern" value="Оплата за строительные материалы (аванс)">
+                </div>
             </div>
-            <div class="form-group">
-                <label>Сумма счета (₽) - <b>с учетом НДС</b>:</label>
-                <input type="number" id="inv-amount" class="input-modern" placeholder="Например: 50000">
+
+            <div id="fin-order-block" style="display: none; background: #eff6ff; padding: 10px; border-radius: 6px; border: 1px solid #bfdbfe;">
+                <div class="form-group">
+                    <label>Выберите заказ для оплаты:</label>
+                    <select id="fin-invoice-order" class="input-modern">
+                        ${ordersHtml}
+                    </select>
+                    <span style="font-size: 11px; color: #64748b; margin-top: 5px; display: block;">Сумма подтянется автоматически из заказа.</span>
+                </div>
             </div>
-            <div class="form-group" style="grid-column: span 2; background: #eff6ff; padding: 10px; border-radius: 6px; border: 1px solid #bfdbfe;">
-                <label style="color: var(--primary); font-weight: bold;">🏦 Куда клиент должен перевести деньги?</label>
-                <select id="inv-bank" class="input-modern" style="margin-top: 5px;">
-                    <option value="tochka">ООО "Банк Точка" (Расчетный)</option>
-                    <option value="alfa">АО «Альфа-Банк»</option>
+
+            <div class="form-group" style="margin-top: 15px; border-top: 1px dashed var(--border); padding-top: 15px;">
+                <label>Выберите наши реквизиты (Банк):</label>
+                <select id="fin-invoice-bank" class="input-modern">
+                    <option value="tochka">ООО "Банк Точка"</option>
+                    <option value="alfa">АО "Альфа-Банк"</option>
                 </select>
             </div>
         </div>
     `;
 
-    UI.showModal(`📄 Выставление счета для: ${cp.name}`, html, `
+    UI.showModal('Выставление счета', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-        <button class="btn btn-blue" onclick="generateInvoice(${cp_id})">🖨️ Создать счет</button>
+        <button class="btn btn-blue" onclick="executeFinanceInvoice(${cpId})">🖨️ Сгенерировать PDF</button>
     `);
+};
+
+window.executeFinanceInvoice = function (cpId) {
+    const type = document.getElementById('fin-invoice-type').value;
+    const bank = document.getElementById('fin-invoice-bank').value;
+
+    if (type === 'general') {
+        const amount = document.getElementById('fin-invoice-amount').value;
+        const desc = document.getElementById('fin-invoice-desc').value;
+        if (!amount || amount <= 0) return UI.toast('Введите корректную сумму', 'warning');
+        window.open(`/print/invoice?cp_id=${cpId}&amount=${amount}&desc=${encodeURIComponent(desc)}&bank=${bank}`, '_blank');
+    } else {
+        const docNum = document.getElementById('fin-invoice-order').value;
+        if (!docNum) return UI.toast('Выберите заказ из списка', 'warning');
+        window.open(`/print/invoice?docNum=${docNum}&bank=${bank}`, '_blank');
+    }
+
+    UI.closeModal();
+
+    // === НОВОЕ: Авто-обновление списка через полсекунды (чтобы сервер успел записать) ===
+    setTimeout(() => {
+        if (typeof loadFinanceData === 'function') loadFinanceData();
+    }, 600);
+};
+
+window.executePrintInvoice = function (docNum) {
+    const bank = document.getElementById('invoice-bank').value;
+    window.open(`/print/invoice?docNum=${docNum}&bank=${bank}`, '_blank');
+    UI.closeModal();
 };
 
 // === ЛОГИКА ОЖИДАЕМЫХ ПЛАТЕЖЕЙ (СЧЕТОВ) ===
@@ -1289,92 +1348,6 @@ function renderFinanceCharts(transactions) {
     });
 }
 
-// === КАРТОЧКА КОНТРАГЕНТА (CRM) ===
-window.openCounterpartyProfile = async function (id) {
-    UI.toast('Загрузка профиля...', 'info');
-    try {
-        const res = await fetch(`/api/counterparties/${id}/profile`);
-        if (!res.ok) throw new Error('Ошибка загрузки');
-        const data = await res.json();
-        const cp = data.info;
-
-        // Генерация истории операций
-        const transHtml = data.transactions.map(t => `
-            <div style="display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px;">
-                <div><b style="color:var(--text-main);">${t.date}</b><br><span style="color:var(--text-muted);">${t.category}</span></div>
-                <div style="text-align: right; width: 50%;">${t.description}</div>
-                <div style="font-weight: bold; color: ${t.transaction_type === 'income' ? 'var(--success)' : 'var(--danger)'}">
-                    ${t.transaction_type === 'income' ? '+' : '-'}${parseFloat(t.amount).toLocaleString('ru-RU')} ₽
-                </div>
-            </div>
-        `).join('') || '<div style="padding:15px; text-align:center; color:gray;">Операций нет</div>';
-
-        // Генерация счетов
-        const invHtml = data.invoices.map(i => `
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px;">
-                <div><b>Счет №${i.invoice_number}</b> от ${i.date}<br><span style="color: gray;">${i.description}</span></div>
-                <div style="font-weight: bold;">${parseFloat(i.amount).toLocaleString('ru-RU')} ₽</div>
-                <div><span class="badge" style="background: ${i.status === 'paid' ? '#dcfce3' : '#fef3c7'}; color: ${i.status === 'paid' ? '#166534' : '#b45309'};">${i.status === 'paid' ? 'Оплачен' : 'Ожидает'}</span></div>
-            </div>
-        `).join('') || '<div style="padding:15px; text-align:center; color:gray;">Счетов нет</div>';
-
-        const html = `
-            <style>.modal-content { max-width: 1000px !important; width: 95% !important; }</style>
-            <div style="display: flex; gap: 20px; align-items: flex-start;">
-                <div style="flex: 1;">
-                    <div style="background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 15px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                            <span class="badge" style="background: #e0e7ff; color: #3730a3;">${cp.type}</span>
-                            <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px;" onclick="editCounterparty(${cp.id})">✏️ Изменить реквизиты</button>
-                        </div>
-                        <h3 style="margin: 0 0 10px 0;">${cp.name}</h3>
-                        <div style="font-size: 12px; color: var(--text-muted); line-height: 1.6;">
-                            <b>ИНН:</b> ${cp.inn || '—'} | <b>КПП:</b> ${cp.kpp || '—'}<br>
-                            <b>Телефон:</b> ${cp.phone || '—'}<br>
-                            <b>Юр. адрес:</b> ${cp.legal_address || '—'}<br>
-                            <b>Банк:</b> ${cp.bank_name || '—'} (Р/С: ${cp.checking_account || '—'})
-                        </div>
-                    </div>
-
-                    <h4 style="margin: 0 0 10px 0;">📄 Документы и печать</h4>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
-                        <button class="btn btn-outline" style="border-color: #f59e0b; color: #d97706;" onclick="openInvoiceModal(${cp.id})">
-                            Выставить Счет
-                        </button>
-                        <button class="btn btn-outline" style="border-color: #3b82f6; color: #2563eb;" onclick="window.open('/print/act?cp_id=${cp.id}', '_blank')">
-                            Акт сверки (Фин.)
-                        </button>
-                        <button class="btn btn-outline" style="border-color: #10b981; color: #059669;" onclick="UI.toast('Будет доступно после обновления модуля Склада!', 'warning')">
-                            Товарная накладная
-                        </button>
-                        <button class="btn btn-outline" style="border-color: #6366f1; color: #4f46e5;" onclick="UI.toast('Будет доступно после обновления модуля Склада!', 'warning')">
-                            Бланк-Заказ
-                        </button>
-                    </div>
-                    
-                    <h4 style="margin: 0 0 10px 0;">🟡 Счета</h4>
-                    <div style="border: 1px solid var(--border); border-radius: 8px; max-height: 200px; overflow-y: auto;">
-                        ${invHtml}
-                    </div>
-                </div>
-
-                <div style="flex: 1;">
-                    <h4 style="margin: 0 0 10px 0;">💸 Финансовая история</h4>
-                    <div style="border: 1px solid var(--border); border-radius: 8px; max-height: 500px; overflow-y: auto; background: #fff;">
-                        ${transHtml}
-                    </div>
-                </div>
-            </div>
-        `;
-
-        // Мы не закрываем предыдущее окно (со списком), а открываем поверх!
-        // (UI.showModal у тебя заменяет содержимое, что тоже нормально)
-        UI.showModal(`Карточка: ${cp.name}`, html, `<button class="btn btn-outline" onclick="openCounterpartiesModal()">🔙 Назад к списку</button>`);
-    } catch (e) {
-        console.error(e);
-        UI.toast('Ошибка загрузки', 'error');
-    }
-};
 
 // === ЗАГРУЗКА И УДАЛЕНИЕ ЧЕКОВ ===
 window.uploadReceipt = async function (id, input) {
@@ -1498,104 +1471,6 @@ window.openPnlReportModal = async function (customStart = '', customEnd = '') {
     } catch (e) { console.error(e); UI.toast('Ошибка построения P&L', 'error'); }
 };
 
-// === КАРТОЧКА КОНТРАГЕНТА (CRM) ===
-window.openCounterpartyProfile = async function (id) {
-    UI.toast('Загрузка профиля...', 'info');
-    try {
-        const res = await fetch(`/api/counterparties/${id}/profile`);
-        if (!res.ok) throw new Error('Ошибка загрузки');
-        const data = await res.json();
-        const cp = data.info;
-
-        // Генерация истории операций
-        const transHtml = data.transactions.map(t => `
-            <div style="display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px;">
-                <div><b style="color:var(--text-main);">${t.date}</b><br><span style="color:var(--text-muted);">${t.category}</span></div>
-                <div style="text-align: right; width: 50%;">${t.description}</div>
-                <div style="font-weight: bold; color: ${t.transaction_type === 'income' ? 'var(--success)' : 'var(--danger)'}">
-                    ${t.transaction_type === 'income' ? '+' : '-'}${parseFloat(t.amount).toLocaleString('ru-RU')} ₽
-                </div>
-            </div>
-        `).join('') || '<div style="padding:15px; text-align:center; color:gray;">Операций нет</div>';
-
-        // Генерация счетов
-        const invHtml = data.invoices.map(i => `
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px;">
-                <div><b>Счет №${i.invoice_number}</b> от ${i.date}<br><span style="color: gray;">${i.description}</span></div>
-                <div style="font-weight: bold;">${parseFloat(i.amount).toLocaleString('ru-RU')} ₽</div>
-                <div><span class="badge" style="background: ${i.status === 'paid' ? '#dcfce3' : '#fef3c7'}; color: ${i.status === 'paid' ? '#166534' : '#b45309'};">${i.status === 'paid' ? 'Оплачен' : 'Ожидает'}</span></div>
-            </div>
-        `).join('') || '<div style="padding:15px; text-align:center; color:gray;">Счетов нет</div>';
-
-        // НОВОЕ: Генерация списка договоров (с кнопкой удаления)
-        const contractsHtml = data.contracts.map(c => `
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px;">
-                <div><b>Договор №${c.number}</b> от ${c.date}</div>
-                <div style="display: flex; gap: 5px;">
-                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: #0ea5e9; border-color: #0ea5e9;" onclick="window.open('/print/contract?id=${c.id}', '_blank')" title="Распечатать">🖨️</button>
-                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--danger); border-color: var(--danger);" onclick="deleteContract(${c.id}, ${cp.id})" title="Удалить договор">❌</button>
-                </div>
-            </div>
-        `).join('') || '<div style="padding:15px; text-align:center; color:gray;">Договоров нет</div>';
-
-        const html = `
-            <style>.modal-content { max-width: 1000px !important; width: 95% !important; }</style>
-            <div style="display: flex; gap: 20px; align-items: flex-start;">
-                <div style="flex: 1;">
-                    <div style="background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 15px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                            <span class="badge" style="background: #e0e7ff; color: #3730a3;">${cp.type}</span>
-                            <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px;" onclick="editCounterparty(${cp.id})">✏️ Изменить реквизиты</button>
-                        </div>
-                        <h3 style="margin: 0 0 10px 0;">${cp.name}</h3>
-                        <div style="font-size: 12px; color: var(--text-muted); line-height: 1.6;">
-                            <b>ИНН:</b> ${cp.inn || '—'} | <b>КПП:</b> ${cp.kpp || '—'}<br>
-                            <b>Телефон:</b> ${cp.phone || '—'}<br>
-                            <b>Юр. адрес:</b> ${cp.legal_address || '—'}<br>
-                            <b>Банк:</b> ${cp.bank_name || '—'} (Р/С: ${cp.checking_account || '—'})
-                        </div>
-                    </div>
-
-                        <div style="margin-bottom: 15px;">
-                        <h4 style="margin: 0 0 5px 0; cursor: pointer; background: #f8fafc; padding: 10px; border-radius: 6px; border: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; transition: 0.2s;"
-                            onmouseover="this.style.backgroundColor='#e0f2fe'" onmouseout="this.style.backgroundColor='#f8fafc'"
-                            onclick="const c = document.getElementById('cp-contracts-list'); const i = document.getElementById('cp-contracts-icon'); if(c.style.display==='none'){c.style.display='block'; i.innerText='▲ Свернуть';}else{c.style.display='none'; i.innerText='▼ Развернуть';}">
-                            <span>📑 Договоры клиента</span>
-                            <span id="cp-contracts-icon" style="color: var(--primary); font-size: 12px; font-weight: normal;">▼ Развернуть</span>
-                        </h4>
-                        <div id="cp-contracts-list" style="display: none; border: 1px solid var(--border); border-radius: 8px; max-height: 200px; overflow-y: auto; background: #fff;">
-                            ${contractsHtml}
-                        </div>
-                    </div>
-                    
-                    <h4 style="margin: 0 0 10px 0;">🟡 Счета на оплату</h4>
-                    <div style="border: 1px solid var(--border); border-radius: 8px; max-height: 150px; overflow-y: auto; background: #fff; margin-bottom: 15px;">
-                        ${invHtml}
-                    </div>
-
-                    <h4 style="margin: 0 0 10px 0;">📄 Прочие документы</h4>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
-                        <button class="btn btn-outline" style="border-color: #f59e0b; color: #d97706;" onclick="openInvoiceModal(${cp.id})">Выставить Счет</button>
-                        <button class="btn btn-outline" style="border-color: #3b82f6; color: #2563eb;" onclick="window.open('/print/act?cp_id=${cp.id}', '_blank')">Акт сверки (Фин.)</button>
-                    </div>
-                </div>
-
-                <div style="flex: 1;">
-                    <h4 style="margin: 0 0 10px 0;">💸 Финансовая история</h4>
-                    <div style="border: 1px solid var(--border); border-radius: 8px; max-height: 600px; overflow-y: auto; background: #fff;">
-                        ${transHtml}
-                    </div>
-                </div>
-            </div>
-        `;
-
-        UI.showModal(`Карточка: ${cp.name}`, html, `<button class="btn btn-outline" onclick="openCounterpartiesModal()">🔙 Назад к списку</button>`);
-    } catch (e) {
-        console.error(e);
-        UI.toast('Ошибка загрузки', 'error');
-    }
-};
-
 window.addPlannedExpense = async function () {
     const data = {
         date: document.getElementById('plan-date').value,
@@ -1630,14 +1505,112 @@ window.deletePlannedExpense = async function (id) {
     } catch (e) { console.error(e); }
 };
 
+// === КАРТОЧКА КОНТРАГЕНТА (CRM) ===
+window.openCounterpartyProfile = async function (id) {
+    UI.toast('Загрузка профиля...', 'info');
+    try {
+        const res = await fetch(`/api/counterparties/${id}/profile`);
+        if (!res.ok) throw new Error('Ошибка загрузки');
+        const data = await res.json();
+        const cp = data.info; // <-- Вот наша правильная переменная
+
+        // Генерация истории операций
+        const transHtml = data.transactions.map(t => `
+            <div style="display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px;">
+                <div><b style="color:var(--text-main);">${t.date}</b><br><span style="color:var(--text-muted);">${t.category}</span></div>
+                <div style="text-align: right; width: 50%;">${t.description}</div>
+                <div style="font-weight: bold; color: ${t.transaction_type === 'income' ? 'var(--success)' : 'var(--danger)'}">
+                    ${t.transaction_type === 'income' ? '+' : '-'}${parseFloat(t.amount).toLocaleString('ru-RU')} ₽
+                </div>
+            </div>
+        `).join('') || '<div style="padding:15px; text-align:center; color:gray;">Операций нет</div>';
+
+        // Генерация счетов
+        const invHtml = data.invoices.map(i => `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px;">
+                <div><b>Счет №${i.invoice_number}</b> от ${i.date}<br><span style="color: gray;">${i.description}</span></div>
+                <div style="font-weight: bold;">${parseFloat(i.amount).toLocaleString('ru-RU')} ₽</div>
+                <div><span class="badge" style="background: ${i.status === 'paid' ? '#dcfce3' : '#fef3c7'}; color: ${i.status === 'paid' ? '#166534' : '#b45309'};">${i.status === 'paid' ? 'Оплачен' : 'Ожидает'}</span></div>
+            </div>
+        `).join('') || '<div style="padding:15px; text-align:center; color:gray;">Счетов нет</div>';
+
+        // Генерация списка договоров
+        const contractsHtml = data.contracts.map(c => `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px;">
+                <div><b>Договор №${c.number}</b> от ${c.date}</div>
+                <div style="display: flex; gap: 5px;">
+                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: #0ea5e9; border-color: #0ea5e9;" onclick="window.open('/print/contract?id=${c.id}', '_blank')" title="Распечатать">🖨️</button>
+                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--danger); border-color: var(--danger);" onclick="deleteContract(${c.id}, ${cp.id})" title="Удалить договор">❌</button>
+                </div>
+            </div>
+        `).join('') || '<div style="padding:15px; text-align:center; color:gray;">Договоров нет</div>';
+
+        const html = `
+            <style>.modal-content { max-width: 1000px !important; width: 95% !important; }</style>
+            <div style="display: flex; gap: 20px; align-items: flex-start;">
+                <div style="flex: 1;">
+                    <div style="background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 15px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <span class="badge" style="background: #e0e7ff; color: #3730a3;">${cp.type}</span>
+                            <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px;" onclick="editCounterparty(${cp.id})">✏️ Изменить реквизиты</button>
+                        </div>
+                        <h3 style="margin: 0 0 10px 0;">${cp.name}</h3>
+                        <div style="font-size: 12px; color: var(--text-muted); line-height: 1.6;">
+                            <b>ИНН:</b> ${cp.inn || '—'} | <b>КПП:</b> ${cp.kpp || '—'}<br>
+                            <b>Телефон:</b> ${cp.phone || '—'}<br>
+                            <b>Юр. адрес:</b> ${cp.legal_address || '—'}<br>
+                            <b>Банк:</b> ${cp.bank_name || '—'} (Р/С: ${cp.checking_account || '—'})
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 15px;">
+                        <h4 style="margin: 0 0 5px 0; cursor: pointer; background: #f8fafc; padding: 10px; border-radius: 6px; border: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; transition: 0.2s;"
+                            onmouseover="this.style.backgroundColor='#e0f2fe'" onmouseout="this.style.backgroundColor='#f8fafc'"
+                            onclick="const c = document.getElementById('cp-contracts-list'); const i = document.getElementById('cp-contracts-icon'); if(c.style.display==='none'){c.style.display='block'; i.innerText='▲ Свернуть';}else{c.style.display='none'; i.innerText='▼ Развернуть';}">
+                            <span>📑 Договоры клиента</span>
+                            <span id="cp-contracts-icon" style="color: var(--primary); font-size: 12px; font-weight: normal;">▼ Развернуть</span>
+                        </h4>
+                        <div id="cp-contracts-list" style="display: none; border: 1px solid var(--border); border-radius: 8px; max-height: 200px; overflow-y: auto; background: #fff;">
+                            ${contractsHtml}
+                        </div>
+                    </div>
+                    
+                    <h4 style="margin: 0 0 10px 0;">🟡 Счета на оплату</h4>
+                    <div style="border: 1px solid var(--border); border-radius: 8px; max-height: 150px; overflow-y: auto; background: #fff; margin-bottom: 15px;">
+                        ${invHtml}
+                    </div>
+
+                    <h4 style="margin: 0 0 10px 0;">📄 Прочие документы</h4>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
+                        <button class="btn btn-outline" style="border-color: #f59e0b; color: #d97706;" onclick="openFinanceInvoiceModal(${cp.id}, '${cp.name.replace(/'/g, "\\'")}')">🖨️ Выставить Счет</button>
+                        <button class="btn btn-outline" style="border-color: #3b82f6; color: #2563eb;" onclick="window.open('/print/act?cp_id=${cp.id}', '_blank')">Акт сверки (Фин.)</button>
+                    </div>
+                </div>
+
+                <div style="flex: 1;">
+                    <h4 style="margin: 0 0 10px 0;">💸 Финансовая история</h4>
+                    <div style="border: 1px solid var(--border); border-radius: 8px; max-height: 600px; overflow-y: auto; background: #fff;">
+                        ${transHtml}
+                    </div>
+                </div>
+            </div>
+        `;
+
+        UI.showModal(`Карточка: ${cp.name}`, html, `<button class="btn btn-outline" onclick="openCounterpartiesModal()">🔙 Назад к списку</button>`);
+    } catch (e) {
+        console.error(e);
+        UI.toast('Ошибка загрузки', 'error');
+    }
+};
+
 // === УДАЛЕНИЕ ДОГОВОРА ===
-window.deleteContract = function(contractId, cpId) {
+window.deleteContract = function (contractId, cpId) {
     const html = `
         <div style="padding: 15px; text-align: center; font-size: 15px;">
             Вы уверены, что хотите удалить этот договор?<br>
             <small style="color: var(--danger);">Все привязанные к нему спецификации также будут удалены!</small>
         </div>`;
-    
+
     // Показываем поверх текущего окна
     UI.showModal('⚠️ Удаление договора', html, `
         <button class="btn btn-outline" onclick="openCounterpartyProfile(${cpId})">Отмена</button>
@@ -1645,7 +1618,7 @@ window.deleteContract = function(contractId, cpId) {
     `);
 };
 
-window.executeDeleteContract = async function(contractId, cpId) {
+window.executeDeleteContract = async function (contractId, cpId) {
     try {
         const res = await fetch(`/api/contracts/${contractId}`, { method: 'DELETE' });
         if (res.ok) {
@@ -1657,5 +1630,100 @@ window.executeDeleteContract = async function(contractId, cpId) {
     } catch (e) {
         console.error(e);
         UI.toast('Ошибка сети', 'error');
+    }
+};
+
+// === КАЛЕНДАРЬ ПЛАТЕЖЕЙ ===
+window.openPaymentCalendarModal = async function () {
+    try {
+        const res = await fetch('/api/finance/planned-expenses');
+        const expenses = await res.json();
+
+        let tbody = expenses.map(e => `
+            <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 10px;"><b>${e.date}</b></td>
+                <td style="padding: 10px;">${e.category}</td>
+                <td style="padding: 10px; color: var(--text-muted);">${e.description || '-'}</td>
+                <td style="padding: 10px; color: var(--danger); font-weight: bold;">-${parseFloat(e.amount).toLocaleString('ru-RU')} ₽</td>
+                <td style="padding: 10px; text-align: right;">
+                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 11px; color: var(--success); border-color: var(--success);" onclick="executePlannedExpense(${e.id}, ${e.amount})" title="Провести платеж">✅ Оплатить</button>
+                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 11px; color: var(--danger); border-color: var(--danger); margin-left: 5px;" onclick="deletePlannedExpense(${e.id})" title="Отменить план">❌</button>
+                </td>
+            </tr>
+        `).join('') || '<tr><td colspan="5" style="text-align:center; color:gray; padding: 20px;">Нет запланированных платежей</td></tr>';
+
+        const html = `
+            <div style="padding: 10px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                    <thead style="background: #f8fafc; text-align: left;">
+                        <tr>
+                            <th style="padding: 10px;">Дата</th>
+                            <th style="padding: 10px;">Категория</th>
+                            <th style="padding: 10px;">Назначение</th>
+                            <th style="padding: 10px;">Сумма</th>
+                            <th style="padding: 10px; text-align: right;">Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>${tbody}</tbody>
+                </table>
+            </div>
+        `;
+
+        UI.showModal('📅 Календарь платежей', html, `<button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>`);
+    } catch (e) {
+        console.error(e);
+        UI.toast('Ошибка загрузки календаря', 'error');
+    }
+};
+
+// === ЛОГИКА ПРОВЕДЕНИЯ ПЛАНОВОГО ПЛАТЕЖА ===
+
+window.executePlannedExpense = function (id, amount) {
+    // Формируем список счетов для выбора
+    const options = currentAccounts.map(acc =>
+        `<option value="${acc.id}">${acc.name} (баланс: ${parseFloat(acc.balance).toLocaleString()} ₽)</option>`
+    ).join('');
+
+    const html = `
+        <div style="padding: 10px;">
+            <p style="margin-bottom: 15px;">Провести оплату на сумму <b>${parseFloat(amount).toLocaleString('ru-RU')} ₽</b>?</p>
+            <div class="form-group">
+                <label style="font-weight: bold; color: var(--primary);">Выберите счет для списания:</label>
+                <select id="pay-planned-account" class="input-modern" style="margin-top: 5px;">
+                    ${options}
+                </select>
+            </div>
+        </div>
+    `;
+
+    UI.showModal('Подтверждение оплаты', html, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-blue" onclick="confirmPlannedPay(${id})">✅ Подтвердить списание</button>
+    `);
+};
+
+window.confirmPlannedPay = async function (id) {
+    const accId = document.getElementById('pay-planned-account').value;
+    if (!accId) return UI.toast('Выберите счет!', 'warning');
+
+    try {
+        const res = await fetch(`/api/finance/planned-expenses/${id}/pay`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ account_id: accId })
+        });
+
+        if (res.ok) {
+            UI.closeModal();
+            UI.toast('✅ Платеж успешно проведен и списан с баланса', 'success');
+            loadFinanceData(); // Обновить общие балансы и таблицы
+            openPaymentCalendarModal(); // Обновить сам календарь
+        } else {
+            const err = await res.text();
+            UI.toast('Ошибка: ' + err, 'error');
+        }
+    } catch (e) {
+        console.error(e);
+        UI.toast('Ошибка связи с сервером', 'error');
     }
 };

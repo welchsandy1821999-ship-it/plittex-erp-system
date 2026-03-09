@@ -46,7 +46,7 @@
             </div>
             <div class="info-row">
                 <div class="info-label">Адрес:</div>
-                <div class="info-value"><%= order.legal_address || order.address || '' %></div>
+                <div class="info-value"><%= order.legal_address || '' %></div>
             </div>
             <div class="info-row">
                 <div class="info-label">Телефон:</div>
@@ -66,41 +66,63 @@
             <thead>
                 <tr>
                     <th style="width: 5%;">№</th>
-                    <th style="width: 38%;">Наименование продукции</th>
+                    <th style="width: 48%;">Наименование продукции</th>
                     <th style="width: 10%;">Кол-во</th>
                     <th style="width: 10%;">Ед.изм</th>
                     <th style="width: 12%;">Цена</th>
                     <th style="width: 15%;">Сумма</th>
-                    <th style="width: 10%;">Отгружено</th>
                 </tr>
             </thead>
             <tbody>
-                <tr>
-                    <td>1</td>
-                    <td class="text-left"><%= order.item_name %></td>
-                    <td class="bold"><%= parseFloat(order.quantity).toLocaleString('ru-RU') %></td>
-                    <td><%= order.unit || 'шт' %></td>
-                    <td class="text-right"><%= parseFloat(order.price).toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
-                    <td class="text-right bold"><%= (parseFloat(order.quantity) * parseFloat(order.price)).toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
-                    <td></td>
-                </tr>
+                <% let totalAmount = 0; %>
+                <% items.forEach(function(item, index) { %>
+                    <% 
+                        let qty = parseFloat(item.qty || item.quantity || 0);
+                        let price = parseFloat(item.price || 0);
+                        let sum = qty * price;
+                        totalAmount += sum;
+                    %>
+                    <tr>
+                        <td><%= index + 1 %></td>
+                        <td class="text-left"><%= item.name || item.item_name %></td>
+                        <td class="bold"><%= qty.toLocaleString('ru-RU') %></td>
+                        <td><%= item.unit || 'шт' %></td>
+                        <td class="text-right"><%= price.toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
+                        <td class="text-right bold"><%= sum.toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
+                    </tr>
+                <% }); %>
                 
-                <% for(let i=2; i<=15; i++) { %>
+                <% for(let i = items.length + 1; i <= Math.max(15, items.length); i++) { %>
                 <tr>
                     <td><%= i %></td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
+                    <td></td><td></td><td></td><td></td><td></td>
                 </tr>
                 <% } %>
                 
+                <% if (typeof discount !== 'undefined' && discount > 0) { %>
+                    <% totalAmount = totalAmount * (1 - (discount/100)); %>
+                    <tr>
+                        <td colspan="5" class="text-right" style="border: none; padding-right: 15px;">Скидка:</td>
+                        <td class="text-right"><%= discount %>%</td>
+                    </tr>
+                <% } %>
+                <% if (typeof logistics !== 'undefined' && logistics > 0) { %>
+                    <% totalAmount += parseFloat(logistics); %>
+                    <tr>
+                        <td colspan="5" class="text-right" style="border: none; padding-right: 15px;">Логистика:</td>
+                        <td class="text-right"><%= parseFloat(logistics).toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
+                    </tr>
+                <% } %>
+
                 <tr>
                     <td colspan="5" class="bold text-right" style="border: none; padding-right: 15px;">ИТОГО</td>
-                    <td class="bold text-right" style="border: 2px solid #000;"><%= (parseFloat(order.quantity) * parseFloat(order.price)).toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
-                    <td style="border: none;"></td>
+                    <td class="bold text-right" style="border: 2px solid #000;"><%= totalAmount.toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
+                </tr>
+                
+                <% let vatAmount = (totalAmount * 22) / 122; %>
+                <tr>
+                    <td colspan="5" class="text-right" style="border: none; padding-right: 15px;">В том числе НДС 22%:</td>
+                    <td class="text-right" style="border: none; font-size: 10pt;"><%= vatAmount.toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
                 </tr>
             </tbody>
         </table>
@@ -120,7 +142,7 @@
             var postHtml = "</body></html>";
             var html = preHtml + document.getElementById('doc-content').innerHTML + postHtml;
 
-            var blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+            var blob = new Blob(['\\ufeff', html], { type: 'application/msword' });
             var url = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(html);
             var downloadLink = document.createElement("a");
             

@@ -1,184 +1,93 @@
 <!DOCTYPE html>
 <html lang="ru">
-
 <head>
     <meta charset="UTF-8">
-    <title>Накладная <%= docNum %>
-    </title>
+    <title>Расходная накладная № <%= docNum %></title>
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            padding: 40px;
-            color: #333;
-            max-width: 900px;
-            margin: auto;
-        }
-
-        h1 {
-            text-align: center;
-            border-bottom: 2px solid #333;
-            padding-bottom: 10px;
-            margin-bottom: 30px;
-            font-size: 24px;
-        }
-
-        .info-block {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 30px;
-            font-size: 15px;
-        }
-
-        .info-block div {
-            width: 48%;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 30px;
-            font-size: 14px;
-        }
-
-        th,
-        td {
-            border: 1px solid #000;
-            padding: 10px;
-            text-align: left;
-        }
-
-        th {
-            background-color: #f1f5f9;
-            font-weight: bold;
-        }
-
-        .text-right {
-            text-align: right;
-        }
-
-        .text-center {
-            text-align: center;
-        }
-
-        .total-row {
-            font-weight: bold;
-            font-size: 16px;
-            border: none;
-        }
-
-        .total-row td {
-            border: none;
-            padding-top: 15px;
-        }
-
-        .signatures {
-            display: flex;
-            justify-content: space-between;
-            margin-top: 60px;
-            font-size: 15px;
-        }
-
-        .sign-line {
-            border-bottom: 1px solid #000;
-            width: 250px;
-            display: inline-block;
-            margin-left: 10px;
-        }
-
-        @media print {
-            body {
-                padding: 0;
-            }
-
-            button {
-                display: none;
-            }
+        body { font-family: 'Arial', sans-serif; font-size: 13px; color: #000; padding: 20px; max-width: 800px; margin: auto; }
+        .header { text-align: center; margin-bottom: 20px; }
+        h1 { font-size: 18px; margin: 0 0 10px 0; border-bottom: 2px solid #000; padding-bottom: 10px; }
+        .info-block { margin-bottom: 20px; line-height: 1.6; }
+        .info-block strong { display: inline-block; width: 140px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        th, td { border: 1px solid #000; padding: 8px; text-align: left; }
+        th { background-color: #f0f0f0; font-weight: bold; text-align: center; }
+        .total { text-align: right; font-size: 14px; font-weight: bold; margin-top: 10px; }
+        .signatures { display: flex; justify-content: space-between; margin-top: 50px; }
+        .sign-box { width: 45%; }
+        .line { border-bottom: 1px solid #000; margin-top: 30px; }
+        .no-print { text-align: right; margin-bottom: 20px; }
+        @media print { 
+            body { padding: 0; } 
+            .no-print { display: none; } 
         }
     </style>
 </head>
+<body onload="window.print()">
 
-<body>
-
-    <div style="text-align: right; margin-bottom: 20px;">
-        <button onclick="window.print()"
-            style="padding: 10px 20px; font-size: 16px; cursor: pointer; background: #0ea5e9; color: white; border: none; border-radius: 5px;">🖨️
-            Распечатать</button>
+    <div class="no-print">
+        <button onclick="window.print()" style="padding: 8px 16px; font-size: 14px; cursor: pointer; background: #0ea5e9; color: white; border: none; border-radius: 5px;">🖨️ Распечатать / PDF</button>
     </div>
 
-    <h1>Расходная накладная № <%= docNum %> от <%= date %>
-    </h1>
+    <div class="header">
+        <h1>РАСХОДНАЯ НАКЛАДНАЯ № <%= docNum %></h1>
+        <p>от <%= date %></p>
+    </div>
 
     <div class="info-block">
-        <div>
-            <p><strong>Поставщик:</strong> ООО "ПЛИТТЕКС"</p>
-            <p><strong>Склад отгрузки:</strong> Основной склад готовой продукции</p>
-            <% if(transportInfo) { %>
-                <p><strong>Доставка:</strong>
-                    <%= transportInfo %>
-                </p>
-                <% } %>
-        </div>
-        <div>
-            <p><strong>Покупатель (Грузополучатель):</strong>
-                <%= clientName %>
-            </p>
-            <p><strong>Основание:</strong>
-                <%= contractInfo %>
-            </p>
-        </div>
+        <div><strong>Поставщик:</strong> ООО "Плиттекс" (ИНН: 2372029123 / КПП: 237201001)</div>
+        <div><strong>Грузополучатель:</strong> <%= clientName %></div>
+        <div><strong>Основание:</strong> <%= contractInfo %></div>
+        <% if(transportInfo) { %>
+            <div><strong>Транспорт / Водитель:</strong> <%= transportInfo %></div>
+        <% } %>
     </div>
 
     <table>
         <thead>
             <tr>
                 <th style="width: 5%;">№</th>
-                <th style="width: 60%;">Наименование продукции</th>
-                <th style="width: 15%;" class="text-center">Кол-во</th>
-                <th style="width: 20%;" class="text-center">Ед. изм.</th>
+                <th style="width: 55%;">Наименование товара</th>
+                <th style="width: 10%;">Ед. изм.</th>
+                <th style="width: 15%;">Количество</th>
             </tr>
         </thead>
         <tbody>
-            <% items.forEach(function(item, index) { %>
+            <% let totalQty = 0; %>
+            <% items.forEach((item, index) => { %>
+                <% totalQty += parseFloat(item.qty); %>
                 <tr>
-                    <td class="text-center">
-                        <%= index + 1 %>
-                    </td>
-                    <td>
-                        <%= item.name %>
-                    </td>
-                    <td class="text-center"><strong>
-                            <%= parseFloat(item.qty).toLocaleString('ru-RU') %>
-                        </strong></td>
-                    <td class="text-center">
-                        <%= item.unit %>
-                    </td>
+                    <td style="text-align: center;"><%= index + 1 %></td>
+                    <td><%= item.name %></td>
+                    <td style="text-align: center;"><%= item.unit %></td>
+                    <td style="text-align: center;"><strong><%= parseFloat(item.qty).toLocaleString('ru-RU') %></strong></td>
                 </tr>
-                <% }); %>
+            <% }) %>
         </tbody>
     </table>
 
-    <table style="border: none;">
+    <div class="total">
         <% if(discountInfo) { %>
-            <tr class="total-row" style="font-size: 14px; font-weight: normal; color: #64748b;">
-                <td class="text-right" style="width: 80%;">Скидка по чеку:</td>
-                <td class="text-right">
-                    <%= discountInfo %>
-                </td>
-            </tr>
-            <% } %>
-                <tr class="total-row">
-                    <td class="text-right" style="width: 80%;">Итого к оплате (Руб):</td>
-                    <td class="text-right" style="border-bottom: 2px solid #000;"><strong>
-                            <%= parseFloat(totalAmount).toLocaleString('ru-RU') %> ₽
-                        </strong></td>
-                </tr>
-    </table>
+            <div style="font-weight: normal; font-size: 13px; color: #555;">Скидка по чеку: <%= discountInfo %></div>
+        <% } %>
+        <div>Всего отпущено единиц: <%= totalQty.toLocaleString('ru-RU') %></div>
+        <% if(totalAmount > 0) { %>
+            <div style="margin-top: 5px;">На сумму: <%= parseFloat(totalAmount).toLocaleString('ru-RU') %> руб.</div>
+        <% } %>
+    </div>
 
     <div class="signatures">
-        <div>Отпустил (Подпись): <span class="sign-line"></span></div>
-        <div>Получил (Подпись): <span class="sign-line"></span></div>
+        <div class="sign-box">
+            <b>Отпустил (Поставщик):</b>
+            <div class="line"></div>
+            <p style="text-align: center; font-size: 10px;">М.П.</p>
+        </div>
+        <div class="sign-box">
+            <b>Принял (Покупатель/Водитель):</b>
+            <div class="line"></div>
+            <p style="text-align: center; font-size: 10px;">(Подпись / ФИО)</p>
+        </div>
     </div>
 
 </body>
-
 </html>
