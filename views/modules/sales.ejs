@@ -38,6 +38,61 @@
         display: block;
     }
 
+    .action-dropdown {
+        position: relative;
+        display: inline-block;
+        /* Создаем невидимый мостик для мышки, чтобы она не проваливалась */
+        padding-bottom: 10px;
+        margin-bottom: -10px;
+    }
+
+    .action-dropdown-content {
+        display: none;
+        position: absolute;
+        right: 0;
+        top: 100%;
+        background-color: #fff;
+        min-width: 230px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+        /* Чуть усилили тень для красоты */
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        z-index: 100;
+        overflow: hidden;
+        /* Убрали margin-top, который создавал обрыв для мышки */
+        animation: fadeIn 0.2s ease-in-out;
+    }
+
+    .action-dropdown-content button {
+        width: 100%;
+        text-align: left;
+        padding: 12px 15px;
+        background: none;
+        border: none;
+        border-bottom: 1px solid #f1f5f9;
+        cursor: pointer;
+        color: #475569;
+        font-size: 13px;
+        transition: 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .action-dropdown-content button:hover {
+        background-color: #f8fafc;
+        color: var(--primary);
+        padding-left: 20px;
+    }
+
+    .action-dropdown-content button:last-child {
+        border-bottom: none;
+    }
+
+    .action-dropdown:hover .action-dropdown-content {
+        display: block;
+    }
+
     @keyframes fadeIn {
         from {
             opacity: 0;
@@ -52,24 +107,39 @@
 </style>
 
 <div id="sales-mod" class="module">
-    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
+    <div
+        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
         <div>
             <h2 style="margin: 0 0 5px 0;">🛒 Отгрузка и Продажи</h2>
             <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Управление заказами (OMS) и реализация</p>
         </div>
-        <div style="display: flex; gap: 10px;">
+
+        <div style="display: flex; gap: 10px; align-items: center;">
+
             <button class="btn btn-outline" onclick="openClientDocsModal()"
                 style="padding: 8px 16px; border-color: #0ea5e9; color: #0ea5e9;">
                 🖨️ Документы клиенту
             </button>
             <button class="btn btn-outline" onclick="openReturnModal()"
                 style="padding: 8px 16px; border-color: #f59e0b; color: #f59e0b;">
-                🔙 Возврат (Тара / Товар)
+                🔙 Возврат
             </button>
-            <button class="btn btn-outline" onclick="openPriceListModal()"
-                style="padding: 8px 16px; border-color: #10b981; color: #10b981;">
-                📋 Установка Прайс-листа
-            </button>
+
+            <div class="action-dropdown">
+                <button class="btn btn-outline"
+                    style="padding: 8px 15px; display: flex; align-items: center; gap: 8px; font-weight: bold; background: #f8fafc;">
+                    ⚙️ Инструменты и Отчеты <span style="font-size: 10px;">▼</span>
+                </button>
+                <div class="action-dropdown-content">
+                    <button onclick="openSalesDashboard()">📊 Дашборд продаж</button>
+                    <button onclick="openLogisticsCalendar()">🚚 Календарь логиста</button>
+                    <button onclick="openPalletsReport()">📦 Отчет по таре</button>
+                    <button onclick="openPriceListModal()">📋 Установка Прайс-листа</button>
+                    <button style="color: #10b981; font-weight: bold; background: #ecfdf5;"
+                        onclick="openExport1CModal()">📥 Выгрузить в 1С (Excel)</button>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -141,7 +211,7 @@
                     <div class="form-group" style="margin: 0;">
                         <label>Кол-во <span id="sale-unit-label"
                                 style="color: var(--primary); font-weight: bold;"></span>:</label>
-                        <input type="number" id="sale-qty" class="input-modern" value="1" min="0.1" step="0.1">
+                        <input type="number" id="sale-qty" class="input-modern" placeholder="1" min="0.1" step="0.1">
                         <div style="min-height: 16px; margin-top: 4px;">
                             <small id="sale-max-qty" style="color: var(--text-muted); font-size: 11px;">Остаток:
                                 0</small>
@@ -149,7 +219,8 @@
                     </div>
                     <div class="form-group" style="margin: 0;">
                         <label>Цена за ед (₽):</label>
-                        <input type="number" id="sale-price" class="input-modern" value="0">
+                        <input type="number" id="sale-price" class="input-modern" placeholder="0"
+                            onfocus="this.select()">
                     </div>
                 </div>
                 <button class="btn btn-outline" onclick="addToCart()"
@@ -168,6 +239,8 @@
                                 <th style="padding: 10px;">Сорт</th>
                                 <th style="padding: 10px;">Наименование</th>
                                 <th style="padding: 10px; text-align: center;">Кол-во</th>
+                                <th style="padding: 10px; text-align: center;">Цена (₽)</th>
+                                <th style="padding: 10px; text-align: center; color: var(--danger);">Скидка (%)</th>
                                 <th style="padding: 10px; text-align: right;">Сумма</th>
                                 <th style="padding: 10px; text-align: center;">✖</th>
                             </tr>
@@ -186,8 +259,8 @@
                     <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 10px;">
                         <div>
                             <span style="font-size: 13px; color: var(--text-muted);">Скидка на чек (%):</span>
-                            <input type="number" id="sale-discount" class="input-modern" style="padding: 6px;" value="0"
-                                min="0" max="100" oninput="renderCart()">
+                            <input type="number" id="sale-discount" class="input-modern" style="padding: 6px;"
+                                placeholder="0" min="0" max="100" oninput="renderCart()">
                         </div>
                         <div>
                             <span style="font-size: 13px; color: var(--text-muted);">Стоимость доставки (₽):</span>
@@ -307,13 +380,38 @@
 
     <div id="tab-active-orders" class="sales-tab-content">
         <div class="card" style="margin: 0; min-height: 400px;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
-                <input type="text" id="bo-search" class="input-modern" style="width: 300px;"
-                    placeholder="🔍 Поиск заказа..." oninput="onBlankOrderSearch()">
-                <button class="btn btn-outline" style="color: #8b5cf6; border-color: #8b5cf6;"
-                    onclick="UI.toast('Функция управления резервами в разработке', 'info')">
-                    🔄 Перераспределить резервы
-                </button>
+
+            <div
+                style="background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 15px;">
+                <div class="form-grid"
+                    style="grid-template-columns: 2fr 1.5fr 1.5fr 1.5fr auto; gap: 10px; align-items: end;">
+                    <div class="form-group" style="margin: 0;">
+                        <label>🔍 Текст (Номер, Адрес):</label>
+                        <input type="text" id="bo-search" class="input-modern" placeholder="Поиск..."
+                            oninput="applyOrderFilters()">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label>👤 Клиент:</label>
+                        <select id="bo-client-filter" class="input-modern" onchange="applyOrderFilters()">
+                            <option value="">🌐 Все клиенты</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label>📦 В составе есть (Товар):</label>
+                        <input type="text" id="bo-product-filter" class="input-modern" placeholder="Название..."
+                            oninput="applyOrderFilters()">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label>🚦 Статус оплаты:</label>
+                        <select id="bo-status-filter" class="input-modern" onchange="applyOrderFilters()">
+                            <option value="">Все статусы</option>
+                            <option value="debt">🔴 Есть долг</option>
+                            <option value="paid">🟢 Оплачено 100%</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-outline" onclick="resetOrderFilters()" title="Сбросить фильтры"
+                        style="padding: 8px 12px; height: 38px;">🔄</button>
+                </div>
             </div>
             <div class="table-container" style="margin: 0;">
                 <table style="width: 100%;">
@@ -346,9 +444,46 @@
 
     <div id="tab-history" class="sales-tab-content">
         <div class="card" style="margin: 0; min-height: 400px;">
-            <div style="margin-bottom: 15px;">
-                <input type="text" id="hist-search" class="input-modern" style="width: 300px;"
-                    placeholder="🔍 Поиск по номеру накладной..." oninput="onHistorySearch()">
+
+            <div
+                style="background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 15px;">
+                <div class="form-grid"
+                    style="grid-template-columns: 2fr 1.5fr 2.5fr auto; gap: 10px; align-items: end;">
+                    <div class="form-group" style="margin: 0;">
+                        <label>🔍 Номер документа:</label>
+                        <input type="text" id="hist-search" class="input-modern" placeholder="Поиск..."
+                            oninput="applyHistoryFilters()">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label>👤 Клиент:</label>
+                        <select id="hist-client-filter" class="input-modern" onchange="applyHistoryFilters()">
+                            <option value="">🌐 Все клиенты</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" style="margin: 0;">
+                        <label style="display: flex; justify-content: space-between; align-items: baseline;">
+                            <span>📅 Период отгрузки:</span>
+                            <span style="font-size: 11px;">
+                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('today')"
+                                    style="color: var(--primary); text-decoration: none; padding: 0 3px;">Сегодня</a> |
+                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('week')"
+                                    style="color: var(--primary); text-decoration: none; padding: 0 3px;">Неделя</a> |
+                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('month')"
+                                    style="color: var(--primary); text-decoration: none; padding: 0 3px;">Месяц</a> |
+                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('quarter')"
+                                    style="color: var(--primary); text-decoration: none; padding: 0 3px;">Квартал</a> |
+                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('year')"
+                                    style="color: var(--primary); text-decoration: none; padding: 0 3px;">Год</a>
+                            </span>
+                        </label>
+                        <input type="text" id="hist-date-filter" class="input-modern"
+                            placeholder="Выберите 1 день или период..." style="background: #fff; cursor: pointer;">
+                    </div>
+
+                    <button class="btn btn-outline" onclick="resetHistoryFilters()" title="Сбросить фильтры"
+                        style="padding: 8px 12px; height: 38px;">🔄</button>
+                </div>
             </div>
             <div class="table-container" style="margin: 0;">
                 <table style="width: 100%;">

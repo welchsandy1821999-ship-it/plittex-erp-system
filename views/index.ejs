@@ -65,15 +65,15 @@
 
             <div class="content-area">
                 <%- include('modules/dashboard') %>
-                <%- include('modules/production') %>
-                <%- include('modules/inventory') %>
-                <%- include('modules/purchase') %>
-                <%- include('modules/sales') %>
-                <%- include('modules/finance') %>
-                <%- include('modules/salary') %>
-                <%- include('modules/references') %>
-                <%- include('modules/recipes') %>
-                <%- include('modules/equipment') %>
+                    <%- include('modules/production') %>
+                        <%- include('modules/inventory') %>
+                            <%- include('modules/purchase') %>
+                                <%- include('modules/sales') %>
+                                    <%- include('modules/finance') %>
+                                        <%- include('modules/salary') %>
+                                            <%- include('modules/references') %>
+                                                <%- include('modules/recipes') %>
+                                                    <%- include('modules/equipment') %>
             </div>
 
         </div>
@@ -94,23 +94,80 @@
     <script src="/js/equipment.js"></script>
 
     <script>
-        // ГЛОБАЛЬНОЕ УПРАВЛЕНИЕ ИНТЕРФЕЙСОМ
+        // === 1. ГЛОБАЛЬНЫЙ ПЕРЕХВАТЧИК ЗАПРОСОВ (МАГИЯ АВТОРИЗАЦИИ) ===
+        const originalFetch = window.fetch;
+        window.fetch = async function (resource, config = {}) {
+            if (typeof resource === 'string' && resource.startsWith('/api') && resource !== '/api/login') {
+                const token = localStorage.getItem('jwtToken');
+                if (token) {
+                    config.headers = { ...config.headers, 'Authorization': `Bearer ${token}` };
+                }
+            }
+
+            const response = await originalFetch(resource, config);
+
+            // 🚀 ИСПРАВЛЕНИЕ: Перехватываем 401 ТОЛЬКО если это не попытка входа!
+            // Если это логин, пропускаем ответ дальше, чтобы показать alert('Неверный пароль')
+            if ((response.status === 401 || response.status === 403) && resource !== '/api/login') {
+                localStorage.removeItem('jwtToken');
+                localStorage.removeItem('userName');
+                document.getElementById('app-screen').style.display = 'none';
+                document.getElementById('login-screen').style.display = 'flex';
+                if (typeof UI !== 'undefined') UI.toast('Сессия истекла. Пожалуйста, войдите заново.', 'error');
+
+                return Promise.reject(new Error('Требуется авторизация (401)'));
+            }
+
+            return response;
+        };
+
+        // === ГЛОБАЛЬНОЕ УПРАВЛЕНИЕ ИНТЕРФЕЙСОМ И ПАМЯТЬЮ ===
         function switchModule(moduleId, navElement) {
+            // 1. Переключаем визуал (вкладки)
             document.querySelectorAll('.module').forEach(mod => mod.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+
             const target = document.getElementById(moduleId);
             if (target) {
                 target.classList.add('active');
                 if (navElement) navElement.classList.add('active');
             }
 
-            // === УМНОЕ АВТО-ОБНОВЛЕНИЕ ДАННЫХ ПРИ ПЕРЕХОДЕ ===
+            // === 2. 🧹 УМНАЯ ОЧИСТКА ПАМЯТИ (GARBAGE COLLECTOR) ===
+            // Очищаем тяжелые массивы данных тех модулей, которые сейчас скрыты с экрана.
+            // Используем .length = 0, чтобы гарантированно очистить ОЗУ, не сломав привязки переменных в других файлах.
+
+            if (moduleId !== 'finance-mod') {
+                if (typeof allTransactions !== 'undefined') allTransactions.length = 0;
+                if (typeof financeInvoices !== 'undefined') financeInvoices.length = 0;
+            }
+
+            if (moduleId !== 'sales-mod') {
+                if (typeof salesOrders !== 'undefined') salesOrders.length = 0;
+                // Не трогаем справочник клиентов (clients), он нужен для отрисовки имен везде
+            }
+
+            if (moduleId !== 'stock-mod') {
+                if (typeof allInventory !== 'undefined') allInventory.length = 0;
+            }
+
+            // ВАЖНО: Мы НЕ очищаем корзину покупок и сессию производства (sessionProducts), 
+            // чтобы бригадир или менеджер мог переключиться на вкладку Склада (проверить остатки), 
+            // вернуться обратно в свой модуль и продолжить оформление без потери введенных данных.
+
+
+            // === 3. 🔄 АВТО-ВОССТАНОВЛЕНИЕ ДАННЫХ ПРИ ВХОДЕ В МОДУЛЬ ===
+            // Так как мы стерли данные из памяти при уходе, их нужно запросить у базы заново при возвращении
             if (moduleId === 'stock-mod' && typeof loadTable === 'function') loadTable();
             if (moduleId === 'salary-mod' && typeof loadMonthlyTimesheet === 'function') loadMonthlyTimesheet();
             if (moduleId === 'equipment-mod' && typeof loadEquipment === 'function') loadEquipment();
+
+            // Добавляем авто-обновление для главных тяжелых модулей
+            if (moduleId === 'finance-mod' && typeof loadFinanceData === 'function') loadFinanceData();
+            if (moduleId === 'sales-mod' && typeof loadSalesData === 'function') loadSalesData();
         }
 
-        // === ГЛОБАЛЬНЫЙ ДВИЖОК КРАСИВЫХ УВЕДОМЛЕНИЙ (UI) ===
+        // === 3. ГЛОБАЛЬНЫЙ ДВИЖОК КРАСИВЫХ УВЕДОМЛЕНИЙ (UI) ===
         const UI = {
             toast: (msg, type = 'success') => {
                 const container = document.getElementById('toast-container');
@@ -130,12 +187,27 @@
                 document.getElementById('app-modal-footer').innerHTML = buttonsHtml;
                 document.getElementById('app-modal').classList.add('active');
             },
-            closeModal: () => {
-                document.getElementById('app-modal').classList.remove('active');
-            }
+            closeModal: () => document.getElementById('app-modal').classList.remove('active')
         };
 
-        // ВХОД В СИСТЕМУ
+        // === 4. ЦЕНТРАЛИЗОВАННЫЙ ЗАПУСК СИСТЕМЫ ===
+        function startApp(userFullName) {
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('app-screen').style.display = 'flex';
+            if (userFullName) document.getElementById('topbar-user').innerText = `👤 ${userFullName}`;
+
+            // Запускаем подгрузку всех данных ТОЛЬКО после того, как мы точно внутри
+            if (typeof initProduction === 'function') initProduction();
+            if (typeof initSales === 'function') initSales();
+            if (typeof initFinance === 'function') initFinance();
+            if (typeof initSalary === 'function') initSalary();
+            if (typeof loadTable === 'function') loadTable();
+            if (typeof loadReferences === 'function') loadReferences();
+            if (typeof loadRecipeModuleData === 'function') loadRecipeModuleData();
+            if (typeof loadPurchaseMaterials === 'function') loadPurchaseMaterials();
+        }
+
+        // === 5. ВХОД В СИСТЕМУ ПО КНОПКЕ ===
         document.getElementById('login-btn').addEventListener('click', () => {
             const user = document.getElementById('login-user').value;
             const pass = document.getElementById('login-pass').value;
@@ -147,28 +219,32 @@
             }).then(async res => {
                 if (res.ok) {
                     const data = await res.json();
-                    document.getElementById('login-screen').style.display = 'none';
-                    document.getElementById('app-screen').style.display = 'flex';
-                    document.getElementById('topbar-user').innerText = `👤 ${data.user.full_name}`;
+                    localStorage.setItem('jwtToken', data.token);
+                    localStorage.setItem('userName', data.user.full_name);
 
-                    // Инициализируем все модули
-                    initProduction();
-                    initSales();
-                    initFinance();
-                    initSalary();
-
-                    // Загружаем начальные данные
-                   // loadProducts();
-                    loadTable();
-                    loadReferences();
-                    loadRecipeModuleData();
-                    loadPurchaseMaterials();
-                  //  loadDashboard();
-                } else alert('Ошибка входа');
-            });
+                    startApp(data.user.full_name);
+                } else {
+                    alert('Ошибка входа: Неверный логин или пароль');
+                }
+            }).catch(err => console.error("Ошибка сети при логине:", err));
         });
 
-        // Кнопка скролла (общая логика)
+        // 🚀 НОВОЕ: АВТОВХОД ПРИ ПЕРЕЗАГРУЗКЕ СТРАНИЦЫ
+        window.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('jwtToken');
+            const userName = localStorage.getItem('userName');
+
+            if (token) {
+                // Если пропуск уже лежит в кармане (в памяти), запускаем приложение без экрана логина
+                startApp(userName);
+            } else {
+                // Если пропуска нет, принудительно показываем экран входа
+                document.getElementById('app-screen').style.display = 'none';
+                document.getElementById('login-screen').style.display = 'flex';
+            }
+        });
+
+        // === 6. КНОПКА СКРОЛЛА ===
         document.querySelector('.content-area').addEventListener('scroll', function () {
             const btn = document.getElementById('scroll-top-btn');
             if (btn) btn.style.display = this.scrollTop > 300 ? 'block' : 'none';

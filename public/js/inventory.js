@@ -90,7 +90,6 @@ window.saveAudit = async function () {
     } catch (e) { console.error(e); }
 };
 
-
 function renderInventoryTable() {
     const tbody = document.getElementById('inventory-table');
     if (!tbody) return;
@@ -109,10 +108,10 @@ function renderInventoryTable() {
 
     filtered.forEach(item => {
         let actionHtml = '';
-        let qtyHtml = `<td style="font-weight: bold; font-size: 15px; text-align: right;">${parseFloat(item.total).toLocaleString('ru-RU')}</td>`;
+        let qtyHtml = '';
 
-        // Если включена инвентаризация - рисуем поля ввода вместо текста
         if (isAuditMode) {
+            // РЕЖИМ ИНВЕНТАРИЗАЦИИ: Поле ввода
             qtyHtml = `<td style="text-align: right;">
                 <input type="number" class="input-modern audit-qty-input" 
                        data-item-id="${item.item_id}" 
@@ -123,39 +122,28 @@ function renderInventoryTable() {
                        onfocus="this.select()">
             </td>`;
         } else {
-            // Если обычный режим - рисуем кнопки действий
-            if (isAuditMode) {
-                qtyHtml = `<td style="text-align: right;">
-                <input type="number" class="input-modern audit-qty-input" 
-                       data-item-id="${item.item_id}" 
-                       data-batch-id="${item.batch_id || ''}" 
-                       data-old-qty="${item.total}" 
-                       value="${parseFloat(item.total)}" 
-                       style="width: 100px; padding: 4px; text-align: right; font-weight: bold; border: 2px solid var(--primary); margin: 0; background: #fff;"
-                       onfocus="this.select()">
-            </td>`;
+            // ОБЫЧНЫЙ РЕЖИМ: Просто текст
+            qtyHtml = `<td style="font-weight: bold; font-size: 15px; text-align: right;">${parseFloat(item.total).toLocaleString('ru-RU')}</td>`;
+
+            // Кнопки действий зависят от склада
+            if (item.warehouse_id === 3) {
+                actionHtml = `<button class="btn btn-blue" style="padding: 4px 8px; font-size: 12px;" 
+                            onclick="openDemoldingModal(${item.batch_id}, '${item.batch_number || 'Б/Н'}', ${item.item_id}, '${item.item_name}', ${item.total})">
+                            🧱 Распалубить
+                          </button>`;
+            } else if (item.warehouse_id === 5 || item.warehouse_id === 6) {
+                actionHtml = `<button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: #991b1b; border-color: #fca5a5; background: #fef2f2;" 
+                            onclick="openDisposeModal(${item.item_id}, '${item.item_name}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
+                            🗑️ Утилизировать
+                          </button>`;
             } else {
-                // Кнопки действий зависят от склада
-                if (item.warehouse_id === 3) {
-                    actionHtml = `<button class="btn btn-blue" style="padding: 4px 8px; font-size: 12px;" 
-                                onclick="openDemoldingModal(${item.batch_id}, '${item.batch_number || 'Б/Н'}', ${item.item_id}, '${item.item_name}', ${item.total})">
-                                📦 Распалубить
-                              </button>`;
-                } else if (item.warehouse_id === 5 || item.warehouse_id === 6) {
-                    // На складах брака и утиля - кнопка безвозвратного удаления
-                    actionHtml = `<button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: #991b1b; border-color: #fca5a5; background: #fef2f2;" 
-                                onclick="openDisposeModal(${item.item_id}, '${item.item_name}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
-                                🗑️ Утилизировать (в 0)
-                              </button>`;
-                } else {
-                    // Склад 1 и 4 - Списать в брак
-                    actionHtml = `<button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--danger); border-color: var(--danger);" 
-                                onclick="openScrapModal(${item.item_id}, '${item.item_name}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
-                                ↘️ Переместить
-                              </button>`;
-                }
+                actionHtml = `<button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--danger); border-color: var(--danger);" 
+                            onclick="openScrapModal(${item.item_id}, '${item.item_name}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
+                            ↘️ Переместить
+                          </button>`;
             }
         }
+
         tbody.innerHTML += `
             <tr style="transition: 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor=''">
                 <td><span class="badge" style="background: #e2e8f0; color: #475569;">${item.warehouse_name}</span></td>
@@ -364,4 +352,75 @@ window.executeScrap = async function () {
             loadTable();
         } else UI.toast('Ошибка списания', 'error');
     } catch (e) { console.error(e); }
+};
+
+// =========================================================
+// БЕЗВОЗВРАТНАЯ УТИЛИЗАЦИЯ (ВЫВОЗ НА СВАЛКУ ИЗ СКЛАДОВ 5 И 6)
+// =========================================================
+
+window.openDisposeModal = function (itemId, itemName, batchId, batchNum, warehouseId, maxQty) {
+    const html = `
+        <div style="padding: 10px;">
+            <p style="margin-top: 0; color: var(--text-muted);">
+                Списание брака/утиля <b>${itemName}</b> ${batchNum ? '(Партия #' + batchNum + ')' : ''} со склада. Эта операция безвозвратна.
+            </p>
+            <div class="form-group">
+                <label>Количество для списания (макс: ${maxQty}):</label>
+                <input type="number" id="dispose-qty" class="input-modern" max="${maxQty}" value="${maxQty}" style="font-weight: bold; color: #dc2626;">
+                
+                <input type="hidden" id="dispose-item-id" value="${itemId}">
+                <input type="hidden" id="dispose-batch-id" value="${batchId || ''}">
+                <input type="hidden" id="dispose-warehouse-id" value="${warehouseId}">
+            </div>
+            <div class="form-group">
+                <label>Причина / Комментарий:</label>
+                <input type="text" id="dispose-desc" class="input-modern" value="Безвозвратная утилизация (вывоз на свалку)">
+            </div>
+        </div>
+    `;
+
+    const buttons = `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-blue" style="background: #dc2626; border-color: #dc2626;" onclick="executeDispose()">🗑️ Списать навсегда</button>
+    `;
+    UI.showModal('⚠️ Безвозвратная утилизация', html, buttons);
+};
+
+window.executeDispose = async function () {
+    const itemId = document.getElementById('dispose-item-id').value;
+    const batchId = document.getElementById('dispose-batch-id').value;
+    const warehouseId = document.getElementById('dispose-warehouse-id').value;
+    const disposeQty = parseFloat(document.getElementById('dispose-qty').value);
+    const desc = document.getElementById('dispose-desc').value;
+
+    if (!disposeQty || disposeQty <= 0) return UI.toast('Введите количество больше нуля!', 'warning');
+
+    UI.toast('⏳ Выполняется списание...', 'info');
+
+    try {
+        const res = await fetch('/api/inventory/dispose', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                itemId: itemId, 
+                batchId: batchId || null, 
+                warehouseId: warehouseId, 
+                disposeQty: disposeQty, 
+                description: desc 
+            })
+        });
+        
+        const data = await res.json();
+        
+        if (res.ok) {
+            UI.closeModal();
+            UI.toast(data.message || '✅ Успешно утилизировано', 'success');
+            loadTable(); // Автоматически обновляем таблицу остатков
+        } else {
+            UI.toast(data.error || 'Ошибка при утилизации', 'error');
+        }
+    } catch (e) {
+        console.error(e);
+        UI.toast('Критическая ошибка связи с сервером', 'error');
+    }
 };

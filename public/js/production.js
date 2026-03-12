@@ -273,7 +273,7 @@ function renderSessionProducts() {
     `).join('');
 }
 
-// === ОТПРАВКА НА СЕРВЕР ===
+// === ОТПРАВКА НА СЕРВЕР (С ОБРАБОТКОЙ ОШИБОК ЧЕРЕЗ TOAST) ===
 window.submitDailyProduction = async function () {
     const shiftName = document.getElementById('prod-shift-name').value.trim();
     if (!shiftName) return UI.toast('Выберите бригадира!', 'warning');
@@ -293,23 +293,35 @@ window.submitDailyProduction = async function () {
         date: document.getElementById('prod-date-filter').value,
         shiftName: shiftName,
         products: sessionProducts,
-        materialsUsed: aggregatedMaterials // Это спишется со склада и пойдет в себестоимость
+        materialsUsed: aggregatedMaterials
     };
+
+    UI.toast('⏳ Сохранение смены и проверка остатков...', 'info');
 
     try {
         const res = await fetch('/api/production', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
         });
 
+        const result = await res.json(); // Ждем JSON от сервера
+
         if (res.ok) {
-            UI.toast('✅ Смена зафиксирована, сырье списано!', 'success');
+            // ✅ УСПЕХ
+            UI.toast(result.message || '✅ Смена зафиксирована, сырье списано!', 'success');
             sessionProducts = [];
             renderSessionProducts();
             loadDailyHistory();
         } else {
-            UI.toast('Ошибка сервера', 'error');
+            // ❌ ОШИБКА (например, не хватило цемента)
+            // Сервер пришлет JSON вида { error: "Недостаточно: Цемент..." }
+            UI.toast(result.error || 'Ошибка при сохранении смены', 'error');
         }
-    } catch (e) { console.error(e); }
+    } catch (e) {
+        console.error(e);
+        UI.toast('Критическая ошибка связи с сервером', 'error');
+    }
 };
 
 // === РЕДАКТОР ШАБЛОНОВ (ТЕПЕРЬ 9 ШТУК) ===

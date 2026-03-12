@@ -11,16 +11,87 @@ let boSearch = '';
 let allSalesHistory = [];
 let historyPage = 1;
 let historySearch = '';
+let historyDateRange = { start: '', end: '' };
 
 function initSales() {
-    // Принудительно читаем реальное значение из интерфейса при старте
     const whSelect = document.getElementById('sale-warehouse');
     if (whSelect) currentSalesWarehouse = whSelect.value;
+
+    // --- НОВОЕ: Инициализация крутого календаря Flatpickr ---
+    const dateInput = document.getElementById('hist-date-filter');
+    if (dateInput && !dateInput._flatpickr) {
+        flatpickr(dateInput, {
+            mode: "range",
+            dateFormat: "Y-m-d",
+            altInput: true,
+            altFormat: "d.m.Y",
+            locale: "ru", // Русский язык
+            onChange: function (selectedDates, dateStr, instance) {
+                if (selectedDates.length === 1) {
+                    // Выбран только 1 день
+                    historyDateRange.start = instance.formatDate(selectedDates[0], "Y-m-d");
+                    historyDateRange.end = instance.formatDate(selectedDates[0], "Y-m-d");
+                } else if (selectedDates.length === 2) {
+                    // Выбран период (от и до)
+                    historyDateRange.start = instance.formatDate(selectedDates[0], "Y-m-d");
+                    historyDateRange.end = instance.formatDate(selectedDates[1], "Y-m-d");
+                } else {
+                    historyDateRange = { start: '', end: '' }; // Очищено
+                }
+                applyHistoryFilters(); // Авто-обновление таблицы
+            }
+        });
+    }
 
     loadSalesData(true);
     loadSalesHistory();
     if (typeof loadActiveOrders === 'function') loadActiveOrders();
 }
+
+// === ЛОГИКА БЫСТРЫХ КНОПОК ПЕРИОДА ===
+window.setHistoryDateRange = function (type) {
+    const fpEl = document.getElementById('hist-date-filter');
+    if (!fpEl || !fpEl._flatpickr) return;
+    const picker = fpEl._flatpickr;
+
+    const today = new Date();
+    let start = new Date();
+    let end = new Date();
+
+    switch (type) {
+        case 'today':
+            break;
+        case 'week':
+            const day = today.getDay();
+            const diff = today.getDate() - day + (day === 0 ? -6 : 1); // Понедельник
+            start = new Date(today); // Клонируем today
+            start.setDate(diff);     // Меняем только start
+            end = new Date(start);
+            end.setDate(start.getDate() + 6); // Воскресенье
+            break;
+        case 'month':
+            start = new Date(today.getFullYear(), today.getMonth(), 1);
+            end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+            break;
+        case 'quarter':
+            const q = Math.floor(today.getMonth() / 3);
+            start = new Date(today.getFullYear(), q * 3, 1);
+            end = new Date(today.getFullYear(), q * 3 + 3, 0);
+            break;
+        case 'year':
+            start = new Date(today.getFullYear(), 0, 1);
+            end = new Date(today.getFullYear(), 11, 31);
+            break;
+    }
+
+    // Устанавливаем даты в календарь визуально
+    picker.setDate([start, end]);
+
+    // Записываем в системные переменные и фильтруем
+    historyDateRange.start = picker.formatDate(start, "Y-m-d");
+    historyDateRange.end = picker.formatDate(end, "Y-m-d");
+    applyHistoryFilters();
+};
 
 window.changeSaleWarehouse = function () {
     currentSalesWarehouse = document.getElementById('sale-warehouse').value;
@@ -59,8 +130,13 @@ window.onClientChange = async function () {
     loadClientContracts();
     loadClientPoas();
 
-    const cpId = document.getElementById('sale-client').value;
+    const clientSelect = document.getElementById('sale-client');
+    const cpId = clientSelect.value;
     const infoBox = document.getElementById('sale-client-info');
+
+    // Обновляем цены в поиске при смене клиента
+    if (typeof updateDatalistUI === 'function') updateDatalistUI();
+    updateSaleMaxQty();
 
     if (!cpId) {
         infoBox.style.display = 'none';
@@ -68,7 +144,6 @@ window.onClientChange = async function () {
     }
 
     try {
-        // Запрашиваем полный профиль клиента (включая неоплаченные счета и поддоны)
         const res = await fetch(`/api/counterparties/${cpId}/profile`);
         if (!res.ok) return;
         const data = await res.json();
@@ -76,15 +151,38 @@ window.onClientChange = async function () {
         const client = data.info;
         const invoices = data.invoices || [];
 
-        // Считаем сумму неоплаченных счетов
         let totalDebt = 0;
         invoices.forEach(inv => {
-            if (inv.status === 'pending') {
-                totalDebt += parseFloat(inv.amount);
-            }
+            if (inv.status === 'pending') totalDebt += parseFloat(inv.amount);
         });
 
-        // Выводим данные
+        // 🚀 НОВАЯ ШАПКА: ИМЯ КЛИЕНТА, БЕЙДЖ "ДИЛЕР" И КНОПКА "КАРТОЧКА"
+        const priceLevel = client.price_level || 'basic';
+        const badgeHtml = priceLevel === 'dealer'
+            ? `<span style="background: #ede9fe; color: #8b5cf6; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; border: 1px solid #ddd6fe;">👑 ДИЛЕР</span>`
+            : `<span style="background: #f1f5f9; color: #64748b; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; border: 1px solid #e2e8f0;">👤 Розница</span>`;
+
+        const headerHtml = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px dashed #f472b6;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-weight: bold; font-size: 14px; color: #831843;">${client.name}</span>
+                    ${badgeHtml}
+                </div>
+                <button class="btn btn-outline" style="padding: 4px 10px; font-size: 11px; border-color: #db2777; color: #db2777; background: #fff;" onclick="openClientEditor(${cpId})">
+                    ⚙️ Карточка
+                </button>
+            </div>
+        `;
+
+        let statusDiv = document.getElementById('sale-client-status');
+        if (!statusDiv) {
+            statusDiv = document.createElement('div');
+            statusDiv.id = 'sale-client-status';
+            infoBox.insertBefore(statusDiv, infoBox.firstChild);
+        }
+        statusDiv.innerHTML = headerHtml;
+
+        // Выводим данные долгов
         document.getElementById('sale-client-debt').innerText = totalDebt > 0 ? `${totalDebt.toLocaleString('ru-RU')} ₽` : 'Нет долгов 🟢';
         document.getElementById('sale-client-debt').style.color = totalDebt > 0 ? '#e11d48' : '#16a34a';
 
@@ -94,6 +192,116 @@ window.onClientChange = async function () {
 
         infoBox.style.display = 'block';
     } catch (e) { console.error('Ошибка загрузки профиля', e); }
+};
+
+// === ОТКРЫТИЕ CRM-КАРТОЧКИ КЛИЕНТА ПРЯМО ИЗ ПРОДАЖ ===
+window.openClientEditor = async function (id) {
+    try {
+        const res = await fetch(`/api/counterparties/${id}/profile`);
+        const data = await res.json();
+        const c = data.info;
+
+        const isDealer = c.price_level === 'dealer';
+        const badgeHtml = isDealer
+            ? `<div style="background: #ede9fe; color: #8b5cf6; padding: 12px; border-radius: 6px; text-align: center; font-size: 14px; font-weight: bold; margin-bottom: 15px; border: 1px dashed #c4b5fd;">👑 ТЕКУЩИЙ СТАТУС: ДИЛЕР (Оптовые цены)</div>`
+            : `<div style="background: #f8fafc; color: #64748b; padding: 12px; border-radius: 6px; text-align: center; font-size: 14px; font-weight: bold; margin-bottom: 15px; border: 1px dashed #cbd5e1;">👤 ТЕКУЩИЙ СТАТУС: БАЗОВЫЙ ПРАЙС (Розница)</div>`;
+
+        const html = `
+            <div style="padding: 10px; max-height: 70vh; overflow-y: auto;">
+                ${badgeHtml}
+                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
+                    <div class="form-group" style="grid-column: span 2;">
+                        <label>Наименование клиента:</label>
+                        <input type="text" id="edit-cp-name" class="input-modern" value="${c.name || ''}">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Уровень цен (Прайс):</label>
+                        <select id="edit-cp-level" class="input-modern" style="border-color: #8b5cf6; color: #5b21b6; font-weight: bold;">
+                            <option value="basic" ${!isDealer ? 'selected' : ''}>Основная (Розница)</option>
+                            <option value="dealer" ${isDealer ? 'selected' : ''}>Дилерская (Опт)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Тип контрагента:</label>
+                        <select id="edit-cp-type" class="input-modern">
+                            <option value="Покупатель" ${c.type === 'Покупатель' ? 'selected' : ''}>Покупатель</option>
+                            <option value="Поставщик" ${c.type === 'Поставщик' ? 'selected' : ''}>Поставщик</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group"><label>ИНН:</label><input type="text" id="edit-cp-inn" class="input-modern" value="${c.inn || ''}"></div>
+                    <div class="form-group"><label>КПП:</label><input type="text" id="edit-cp-kpp" class="input-modern" value="${c.kpp || ''}"></div>
+                    
+                    <div class="form-group"><label>Телефон:</label><input type="text" id="edit-cp-phone" class="input-modern" value="${c.phone || ''}"></div>
+                    <div class="form-group"><label>Email:</label><input type="text" id="edit-cp-email" class="input-modern" value="${c.email || ''}"></div>
+                    
+                    <div class="form-group" style="grid-column: span 2;"><label>Адрес (Юр. / Факт.):</label><input type="text" id="edit-cp-address" class="input-modern" value="${c.legal_address || ''}"></div>
+                    <div class="form-group" style="grid-column: span 2;"><label>Директор (ФИО):</label><input type="text" id="edit-cp-director" class="input-modern" value="${c.director_name || ''}"></div>
+                    
+                    <h4 style="grid-column: span 2; margin: 10px 0 0 0; color: var(--primary); border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">💳 Реквизиты (Для счетов)</h4>
+                    <div class="form-group"><label>ОГРН:</label><input type="text" id="edit-cp-ogrn" class="input-modern" value="${c.ogrn || ''}"></div>
+                    <div class="form-group"><label>БИК Банка:</label><input type="text" id="edit-cp-bik" class="input-modern" value="${c.bik || ''}"></div>
+                    <div class="form-group" style="grid-column: span 2;"><label>Название банка:</label><input type="text" id="edit-cp-bank" class="input-modern" value="${c.bank_name || ''}"></div>
+                    <div class="form-group" style="grid-column: span 2;"><label>Расчетный счет:</label><input type="text" id="edit-cp-account" class="input-modern" value="${c.checking_account || ''}"></div>
+                </div>
+            </div>
+        `;
+
+        UI.showModal(`Редактирование: ${c.name}`, html, `
+            <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+            <button class="btn btn-blue" onclick="saveClientProfile(${id})">💾 Сохранить изменения</button>
+        `);
+    } catch (e) {
+        console.error(e);
+        UI.toast('Ошибка загрузки карточки', 'error');
+    }
+};
+
+window.saveClientProfile = async function (id) {
+    const data = {
+        name: document.getElementById('edit-cp-name').value.trim(),
+        price_level: document.getElementById('edit-cp-level').value,
+        type: document.getElementById('edit-cp-type').value,
+        inn: document.getElementById('edit-cp-inn').value.trim(),
+        kpp: document.getElementById('edit-cp-kpp').value.trim(),
+        phone: document.getElementById('edit-cp-phone').value.trim(),
+        email: document.getElementById('edit-cp-email').value.trim(),
+        legal_address: document.getElementById('edit-cp-address').value.trim(),
+        director_name: document.getElementById('edit-cp-director').value.trim(),
+        ogrn: document.getElementById('edit-cp-ogrn').value.trim(),
+        bik: document.getElementById('edit-cp-bik').value.trim(),
+        bank_name: document.getElementById('edit-cp-bank').value.trim(),
+        checking_account: document.getElementById('edit-cp-account').value.trim()
+    };
+
+    if (!data.name) return UI.toast('Наименование обязательно!', 'error');
+
+    try {
+        const res = await fetch(`/api/counterparties/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+
+        if (res.ok) {
+            UI.closeModal();
+            UI.toast('✅ Карточка успешно обновлена', 'success');
+
+            // Перезагружаем список клиентов и обновляем интерфейс, не сбрасывая выбранного
+            const currentId = document.getElementById('sale-client').value;
+            await loadSalesData(true);
+            if (currentId) {
+                document.getElementById('sale-client').value = currentId;
+                onClientChange(); // Обновляем розовый блок и цены в поиске
+            }
+        } else {
+            UI.toast('Ошибка при сохранении', 'error');
+        }
+    } catch (e) {
+        console.error(e);
+        UI.toast('Ошибка соединения', 'error');
+    }
 };
 
 window.printClientAct = function () {
@@ -178,21 +386,46 @@ window.printSelectedContract = function () {
 async function loadSalesData(fullLoad = true) {
     try {
         if (fullLoad) {
+            // --- 1. БЕЗОПАСНАЯ ЗАГРУЗКА КЛИЕНТОВ ---
             const cpRes = await fetch('/api/counterparties');
             const clients = await cpRes.json();
             const clientSel = document.getElementById('sale-client');
-            clientSel.innerHTML = '<option value="">-- Выберите клиента --</option>';
-            clients.forEach(c => clientSel.add(new Option(c.name, c.id)));
 
+            if (clientSel) {
+                clientSel.innerHTML = '<option value="">-- Выберите клиента --</option>';
+                clients.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.id;
+                    opt.textContent = c.name;
+                    // Сохраняем уровень цен (Дилер/Розница)
+                    opt.setAttribute('data-level', c.price_level || 'basic');
+                    clientSel.appendChild(opt);
+                });
+            }
+
+            // --- 2. БЕЗОПАСНАЯ ЗАГРУЗКА КАСС/СЧЕТОВ ---
             const accRes = await fetch('/api/accounts');
             const accounts = await accRes.json();
             const accSel = document.getElementById('sale-account');
-            accSel.innerHTML = '';
-            accounts.forEach(a => accSel.add(new Option(`${a.name} (${a.balance} ₽)`, a.id)));
 
+            if (accSel) {
+                accSel.innerHTML = '';
+                accounts.forEach(a => {
+                    accSel.add(new Option(`${a.name} (${a.balance} ₽)`, a.id));
+                });
+            }
+
+            // --- 3. БЕЗОПАСНАЯ ЗАГРУЗКА ТОВАРОВ ---
             const prodRes = await fetch('/api/products');
             const products = await prodRes.json();
-            salesProductsInfo = {};
+
+            // Если объект еще не существует, создаем его
+            if (typeof salesProductsInfo === 'undefined') {
+                window.salesProductsInfo = {};
+            } else {
+                salesProductsInfo = {}; // Очищаем старые данные
+            }
+
             products.forEach(p => salesProductsInfo[String(p.id)] = p);
         }
 
@@ -215,30 +448,56 @@ async function loadSalesData(fullLoad = true) {
         // УМНОЕ ФОРМИРОВАНИЕ СПИСКА ПОИСКА
         Object.values(salesProductsInfo).forEach(p => {
             const price = parseFloat(p.price || p.current_price || p.base_price || 0);
+
+            // 🚀 ИСПРАВЛЕНИЕ: Читаем дилерскую цену из базы
+            const dealerPrice = parseFloat(p.dealer_price || 0);
+
             const stock4 = inventoryMap[p.name] ? inventoryMap[p.name]['4'] : 0;
             const stock5 = inventoryMap[p.name] ? inventoryMap[p.name]['5'] : 0;
 
             if (currentSalesWarehouse === 'all') {
-                // РЕЖИМ 1: Весь справочник (Автораспределение)
-                stockMap[p.name] = { id: p.id, warehouseId: 4, name: p.name, unit: p.unit, qty: stock4, price: price, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Авто', allowProduction: true };
+                // РЕЖИМ 1: Весь справочник (Добавили dealer_price)
+                stockMap[p.name] = { id: p.id, warehouseId: 4, name: p.name, unit: p.unit, qty: stock4, price: price, dealer_price: dealerPrice, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Авто', allowProduction: true };
             } else if (currentSalesWarehouse === '4' && stock4 > 0) {
-                // РЕЖИМ 2: Строго наличие 1 сорта (Скрываем то, чего нет)
-                stockMap[p.name] = { id: p.id, warehouseId: 4, name: p.name, unit: p.unit, qty: stock4, price: price, weight: parseFloat(p.weight_kg || 0), sortLabel: '1 сорт', allowProduction: false };
+                // РЕЖИМ 2: Строго наличие 1 сорта (Добавили dealer_price)
+                stockMap[p.name] = { id: p.id, warehouseId: 4, name: p.name, unit: p.unit, qty: stock4, price: price, dealer_price: dealerPrice, weight: parseFloat(p.weight_kg || 0), sortLabel: '1 сорт', allowProduction: false };
             } else if (currentSalesWarehouse === '5' && stock5 > 0) {
-                // РЕЖИМ 3: Строго наличие Уценки (Скрываем то, чего нет, и даем скидку)
-                stockMap[p.name] = { id: p.id, warehouseId: 5, name: p.name, unit: p.unit, qty: stock5, price: Math.floor(price * 0.7), weight: parseFloat(p.weight_kg || 0), sortLabel: 'Уценка', allowProduction: false };
+                // РЕЖИМ 3: Строго наличие Уценки
+                stockMap[p.name] = { id: p.id, warehouseId: 5, name: p.name, unit: p.unit, qty: stock5, price: Math.floor(price * 0.7), dealer_price: Math.floor(dealerPrice * 0.7), weight: parseFloat(p.weight_kg || 0), sortLabel: 'Уценка', allowProduction: false };
             }
         });
 
-        Object.values(stockMap).forEach(item => {
-            const opt = document.createElement('option');
-            opt.value = item.name;
-            opt.textContent = `В наличии: ${item.qty} ${item.unit} | Цена: ${item.price} ₽`;
-            datalist.appendChild(opt);
-        });
+        // 🚀 ВЫЗЫВАЕМ НОВУЮ ФУНКЦИЮ ОТРИСОВКИ
+        updateDatalistUI();
+
     } catch (e) { console.error(e); }
 }
 
+// === НОВАЯ ФУНКЦИЯ: ОБНОВЛЕНИЕ ЦЕН В ВЫПАДАЮЩЕМ СПИСКЕ ПОИСКА ===
+window.updateDatalistUI = function () {
+    const datalist = document.getElementById('sale-products-datalist');
+    if (!datalist) return;
+    datalist.innerHTML = '';
+
+    // Смотрим, какой клиент сейчас выбран
+    const clientSelect = document.getElementById('sale-client');
+    const selectedOption = clientSelect && clientSelect.selectedIndex >= 0 ? clientSelect.options[clientSelect.selectedIndex] : null;
+    const priceLevel = selectedOption ? selectedOption.getAttribute('data-level') : 'basic';
+
+    Object.values(stockMap).forEach(item => {
+        const opt = document.createElement('option');
+        opt.value = item.name;
+
+        // Если клиент дилер и у товара есть оптовая цена, показываем её в подсказке
+        let displayPrice = item.price;
+        if (priceLevel === 'dealer' && item.dealer_price > 0) {
+            displayPrice = item.dealer_price;
+        }
+
+        opt.textContent = `В наличии: ${item.qty} ${item.unit} | Цена: ${displayPrice} ₽`;
+        datalist.appendChild(opt);
+    });
+};
 window.updateSaleMaxQty = function () {
     const inputVal = document.getElementById('sale-product-input').value.trim();
     currentSelectedItem = stockMap[inputVal];
@@ -246,13 +505,30 @@ window.updateSaleMaxQty = function () {
     if (!currentSelectedItem) {
         document.getElementById('sale-unit-label').innerText = '';
         document.getElementById('sale-max-qty').innerText = `Остаток: 0`;
-        document.getElementById('sale-price').value = 0;
+        document.getElementById('sale-price').value = '';
         return;
     }
 
     document.getElementById('sale-unit-label').innerText = `(${currentSelectedItem.unit})`;
     document.getElementById('sale-max-qty').innerText = `В наличии: ${currentSelectedItem.qty} ${currentSelectedItem.unit}`;
-    document.getElementById('sale-price').value = currentSelectedItem.price;
+
+    // === НОВАЯ ЛОГИКА: ПОДСТАНОВКА ДИЛЕРСКОЙ ИЛИ БАЗОВОЙ ЦЕНЫ ===
+    const clientSelect = document.getElementById('sale-client');
+    const selectedOption = clientSelect.options[clientSelect.selectedIndex];
+
+    // Получаем уровень цен клиента (если не выбран, по умолчанию 'basic')
+    const priceLevel = selectedOption ? selectedOption.getAttribute('data-level') : 'basic';
+
+    // Берем базовую цену (которая записана в current_price или price)
+    let finalPrice = parseFloat(currentSelectedItem.price || currentSelectedItem.current_price) || 0;
+
+    // Если клиент Дилер, и у товара реально задана дилерская цена (> 0)
+    if (priceLevel === 'dealer' && currentSelectedItem.dealer_price && parseFloat(currentSelectedItem.dealer_price) > 0) {
+        finalPrice = parseFloat(currentSelectedItem.dealer_price);
+    }
+
+    // Вставляем правильную цену в поле ввода
+    document.getElementById('sale-price').value = finalPrice;
 };
 
 window.addToCart = function () {
@@ -288,8 +564,8 @@ window.addToCart = function () {
     currentSelectedItem = null;
     document.getElementById('sale-unit-label').innerText = '';
     document.getElementById('sale-max-qty').innerText = `Остаток: 0`;
-    document.getElementById('sale-price').value = 0;
-
+    document.getElementById('sale-price').value = ''; // ИСПРАВЛЕНО (было 0)
+    document.getElementById('sale-qty').value = '';   // ИСПРАВЛЕНО (Очищаем поле количества)
     renderCart();
 };
 
@@ -298,153 +574,155 @@ window.removeFromCart = function (index) {
     renderCart();
 };
 
+// Функция пересчета при изменении значения прямо в таблице
+window.updateCartItem = function (index, field, value) {
+    cart[index][field] = parseFloat(value) || 0;
+    renderCart();
+};
+
 window.renderCart = function () {
     const tbody = document.getElementById('cart-table');
-    let totalSum = 0; let totalWeight = 0;
-
     if (cart.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">Корзина пуста</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">Корзина пуста</td></tr>';
         document.getElementById('cart-total-sum').innerText = '0';
-        document.getElementById('cart-total-weight').innerText = '0';
-        document.getElementById('cart-original-sum').style.display = 'none';
         return;
     }
 
-    tbody.innerHTML = cart.map((c, index) => {
-        const sum = c.qty * c.price;
-        totalSum += sum; totalWeight += c.weight;
-        const color = c.warehouseId === 5 ? '#d97706' : '#16a34a';
+    let subtotal = 0; let totalWeight = 0;
 
-        // ВИЗУАЛИЗАЦИЯ ДЕФИЦИТА ДЛЯ МЕНЕДЖЕРА
-        let deficitHtml = '';
-        if (c.allowProduction && c.qty > c.stockAvailable) {
-            const reserved = Math.min(c.qty, c.stockAvailable);
-            const prodQty = c.qty - reserved;
-            deficitHtml = `<br><span style="font-size: 11px; color: #d97706; font-weight: normal;">(Резерв со склада: ${reserved}, В производство: ${prodQty})</span>`;
-        }
+    tbody.innerHTML = cart.map((item, index) => {
+        const qty = parseFloat(item.qty) || 0;
+        const basePrice = parseFloat(item.price) || 0;
+        const discount = parseFloat(item.discount) || 0;
+
+        // Считаем индивидуальную скидку
+        const finalPrice = basePrice * (1 - discount / 100);
+        const sum = qty * finalPrice;
+
+        subtotal += sum;
+        totalWeight += qty * (item.weight || 0);
 
         return `
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 8px; font-weight: bold; color: ${color}; font-size: 12px;">${c.sortLabel}</td>
-                <td style="padding: 8px;"><b>${c.name}</b>${deficitHtml}</td>
-                <td style="padding: 8px; text-align: center;"><b>${c.qty}</b> <span style="font-size:11px;">${c.unit}</span></td>
-                <td style="padding: 8px; text-align: right; color: var(--primary);"><b>${sum.toLocaleString('ru-RU')} ₽</b></td>
-                <td style="padding: 8px; text-align: center;">
-                    <button class="btn btn-outline" style="padding: 2px 6px; font-size: 10px; color: var(--danger); border-color: var(--danger);" onclick="removeFromCart(${index})">❌</button>
+            <tr style="border-bottom: 1px solid #f1f5f9;">
+                <td>1 Сорт</td>
+                <td><b>${item.name}</b></td>
+                <td style="text-align: center;">${qty} ${item.unit}</td>
+                <td style="text-align: center;">
+                    <input type="number" class="input-modern" style="width: 70px; padding: 4px; text-align: center;" value="${basePrice}" onchange="updateCartItem(${index}, 'price', this.value)">
                 </td>
+                <td style="text-align: center;">
+                    <input type="number" class="input-modern" style="width: 60px; padding: 4px; text-align: center; color: var(--danger);" value="${discount}" min="0" max="100" onchange="updateCartItem(${index}, 'discount', this.value)">
+                </td>
+                <td style="text-align: right; font-weight: bold; color: var(--primary);">${sum.toFixed(2)} ₽</td>
+                <td style="text-align: center;"><button style="background: none; border: none; color: red; cursor: pointer; font-size: 16px;" onclick="removeFromCart(${index})">✖</button></td>
             </tr>
         `;
     }).join('');
 
-    const discountPct = parseFloat(document.getElementById('sale-discount').value) || 0;
+    const globalDiscount = parseFloat(document.getElementById('sale-discount').value) || 0;
     const logistics = parseFloat(document.getElementById('sale-logistics-cost').value) || 0;
-    const sumWithDiscount = totalSum * (1 - (discountPct / 100));
-    const finalSum = sumWithDiscount + logistics;
+    const finalTotal = (subtotal * (1 - globalDiscount / 100)) + logistics;
 
-    document.getElementById('cart-total-weight').innerText = totalWeight.toLocaleString('ru-RU');
-    document.getElementById('cart-total-sum').innerText = finalSum.toLocaleString('ru-RU');
-
-    const origSumEl = document.getElementById('cart-original-sum');
-    if (discountPct > 0) {
-        origSumEl.innerText = totalSum.toLocaleString('ru-RU') + ' ₽';
-        origSumEl.style.display = 'inline-block';
-    } else {
-        origSumEl.style.display = 'none';
-    }
+    document.getElementById('cart-total-weight').innerText = totalWeight.toFixed(1);
+    document.getElementById('cart-total-sum').innerText = finalTotal.toLocaleString('ru-RU');
 };
 
+// === ОФОРМЛЕНИЕ ЗАКАЗА (ОТПРАВКА НА СЕРВЕР) ===
 window.processCheckout = async function () {
-    let poaInfo = '';
-    const clientId = document.getElementById('sale-client').value;
-    const method = document.getElementById('sale-payment-method').value;
-    const accId = document.getElementById('sale-account').value;
-    const discount = document.getElementById('sale-discount').value;
-    const driver = document.getElementById('sale-driver').value.trim();
-    const auto = document.getElementById('sale-auto').value.trim();
-    const contractInfo = document.getElementById('sale-contract') ? document.getElementById('sale-contract').value : 'Основной договор';
-    const isNoPoa = document.getElementById('sale-no-poa').checked;
+    if (cart.length === 0) return UI.toast('Корзина пуста', 'error');
 
-    // НОВЫЕ ПОЛЯ ЛОГИСТИКИ И ЗАКАЗА
-    const logisticsCost = parseFloat(document.getElementById('sale-logistics-cost').value) || 0;
-    const deliveryAddress = document.getElementById('sale-delivery-address').value.trim();
-    const plannedDate = document.getElementById('sale-planned-date').value;
-    const palletsQty = parseInt(document.getElementById('sale-pallets').value) || 0;
+    const client_id = document.getElementById('sale-client').value;
+    if (!client_id) return UI.toast('Выберите контрагента', 'error');
 
-    let advanceAmount = 0;
-    if (method === 'partial') {
-        advanceAmount = parseFloat(document.getElementById('sale-advance-amount').value);
-        if (!advanceAmount || advanceAmount <= 0) return UI.toast('Укажите корректную сумму аванса!', 'warning');
-    }
+    const payment_method = document.getElementById('sale-payment-method').value;
+    const account_id = document.getElementById('sale-account') ? document.getElementById('sale-account').value : null;
+    const advance_amount = document.getElementById('sale-advance-amount') ? document.getElementById('sale-advance-amount').value : 0;
 
-    if (isNoPoa) {
-        const comment = document.getElementById('sale-poa-comment').value.trim();
-        if (!comment) return UI.toast('Укажите, кто разрешил отгрузку без доверенности!', 'error');
-        poaInfo = `ОТГРУЗКА БЕЗ ДОВЕРЕННОСТИ (Основание: ${comment})`;
-    } else {
-        const poaSelect = document.getElementById('sale-poa');
-        if (!poaSelect.value) return UI.toast('Выберите доверенность или поставьте галочку "Без доверенности"!', 'warning');
-        poaInfo = `Доверенность: ${poaSelect.value}`;
-    }
+    // Собираем остальные поля формы
+    const discount = parseFloat(document.getElementById('sale-discount').value) || 0; // Глобальная скидка на весь чек
+    const logistics_cost = parseFloat(document.getElementById('sale-logistics-cost').value) || 0;
+    const delivery_address = document.getElementById('sale-delivery-address').value;
+    const planned_shipment_date = document.getElementById('sale-planned-date').value;
+    const pallets_qty = parseInt(document.getElementById('sale-pallets').value) || 0;
+    const driver = document.getElementById('sale-driver').value;
+    const auto = document.getElementById('sale-auto').value;
 
-    if (!clientId) return UI.toast('Выберите контрагента!', 'warning');
-    if (cart.length === 0) return UI.toast('Корзина пуста!', 'warning');
-    if ((method === 'paid' || method === 'partial') && !accId) return UI.toast('Выберите счет для зачисления денег!', 'warning');
+    // Получаем инфо о договоре (если он выбран)
+    const contractSelect = document.getElementById('sale-contract');
+    const contract_info = contractSelect && contractSelect.value ? contractSelect.options[contractSelect.selectedIndex].text : '';
+
+    // === 🚀 ВОТ ТОТ САМЫЙ БЛОК: ПЕРЕСЧЕТ ЦЕН ПЕРЕД ОТПРАВКОЙ ===
+    // Мы берем нашу корзину (cart) и создаем новый массив, где цена уже уменьшена на % индивидуальной скидки
+    const finalItemsToSend = cart.map(item => ({
+        id: item.id,
+        qty: item.qty,
+        allow_production: item.allow_production,
+        warehouse_id: item.warehouse_id,
+        // Формула: Цена * (1 - Скидка / 100)
+        price: parseFloat(item.price) * (1 - (parseFloat(item.discount) || 0) / 100)
+    }));
+    // ==============================================================
+
+    const btn = document.querySelector('button[onclick="processCheckout()"]');
+    const originalText = btn.innerText;
+    btn.disabled = true;
+    btn.innerText = '⏳ Оформление...';
 
     try {
         const res = await fetch('/api/sales/checkout', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                counterparty_id: clientId,
-                payment_method: method,
-                account_id: accId,
-                advance_amount: advanceAmount,
-                discount: discount,
-                driver: driver,
-                auto: auto,
-                contract_info: contractInfo,
-                poa_info: poaInfo,
-                delivery_address: deliveryAddress,
-                logistics_cost: logisticsCost,
-                planned_shipment_date: plannedDate,
-                pallets_qty: palletsQty,
-                // ВОТ ЗДЕСЬ ДОБАВЛЕН allow_production:
-                items: cart.map(c => ({
-                    id: c.id,
-                    qty: c.qty,
-                    price: c.price,
-                    warehouse_id: c.warehouseId,
-                    allow_production: c.allowProduction
-                }))
+                counterparty_id: client_id,
+                items: finalItemsToSend, // <-- Передаем наш пересчитанный массив!
+                payment_method,
+                account_id,
+                advance_amount,
+                discount, // Это общая скидка на весь чек (если есть)
+                driver,
+                auto,
+                contract_info,
+                delivery_address,
+                logistics_cost,
+                planned_shipment_date,
+                pallets_qty
             })
         });
 
         if (res.ok) {
-            const data = await res.json();
-            const msg = data.type === 'reserve' ? `📦 Заказ ${data.docNum} успешно оформлен!` : `✅ Отгрузка ${data.docNum} успешно завершена!`;
-            UI.toast(msg, 'success');
+            const result = await res.json();
+            UI.toast(`✅ Заказ ${result.docNum} успешно оформлен!`, 'success');
 
-            // Полная очистка формы
+            // Очищаем форму после успеха
             cart = [];
-            document.getElementById('sale-discount').value = '0';
+            document.getElementById('sale-product-input').value = '';
+            document.getElementById('sale-qty').value = '';
+            document.getElementById('sale-price').value = '';
+            document.getElementById('sale-discount').value = '';
             document.getElementById('sale-logistics-cost').value = '0';
-            document.getElementById('sale-delivery-address').value = '';
-            document.getElementById('sale-planned-date').value = '';
             document.getElementById('sale-pallets').value = '';
-            document.getElementById('sale-driver').value = '';
-            document.getElementById('sale-auto').value = '';
-            if (document.getElementById('sale-advance-amount')) document.getElementById('sale-advance-amount').value = '';
 
             renderCart();
-            loadSalesData(false);
-            loadSalesHistory();
             if (typeof loadActiveOrders === 'function') loadActiveOrders();
-            if (typeof loadTable === 'function') loadTable();
-            onClientChange();
+            switchSalesTab('tab-active-orders', document.querySelectorAll('.sales-tab-btn')[1]);
+
+            if (typeof onClientChange === 'function') onClientChange();
+
+            // Если нужно, предлагаем сразу распечатать счет
+            if (payment_method === 'debt' || payment_method === 'partial') {
+                setTimeout(() => openInvoiceModal(result.docNum, result.totalAmount), 1000);
+            }
         } else {
-            UI.toast('Ошибка оформления: ' + await res.text(), 'error');
+            const err = await res.text();
+            UI.toast('Ошибка сервера: ' + err, 'error');
         }
-    } catch (e) { console.error(e); UI.toast('Ошибка связи с сервером', 'error'); }
+    } catch (e) {
+        console.error(e);
+        UI.toast('Ошибка сети при оформлении заказа', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerText = originalText;
+    }
 };
 
 // ==========================================
@@ -455,17 +733,11 @@ async function loadActiveOrders() {
         const res = await fetch('/api/sales/orders');
         if (res.ok) {
             allActiveOrders = await res.json();
+            populateSalesFilters(); // <--- ДОБАВЛЕНО
             renderBlankOrdersTable();
         }
     } catch (e) { console.error(e); }
 }
-
-window.onBlankOrderSearch = function () {
-    boSearch = document.getElementById('bo-search').value.toLowerCase();
-    boPage = 1;
-    renderBlankOrdersTable();
-};
-
 window.changeBlankOrderPage = function (dir) {
     boPage += dir;
     renderBlankOrdersTable();
@@ -476,13 +748,34 @@ function renderBlankOrdersTable() {
     if (!tbody) return;
 
     let filtered = allActiveOrders;
-    if (boSearch) {
-        filtered = filtered.filter(o =>
-            (o.doc_number && o.doc_number.toLowerCase().includes(boSearch)) ||
-            (o.client_name && o.client_name.toLowerCase().includes(boSearch)) ||
-            (o.delivery_address && o.delivery_address.toLowerCase().includes(boSearch))
-        );
-    }
+    // === МУЛЬТИ-ФИЛЬТРАЦИЯ АКТИВНЫХ ЗАКАЗОВ ===
+    const searchVal = (document.getElementById('bo-search') ? document.getElementById('bo-search').value.toLowerCase() : '');
+    const clientVal = (document.getElementById('bo-client-filter') ? document.getElementById('bo-client-filter').value : '');
+    const productVal = (document.getElementById('bo-product-filter') ? document.getElementById('bo-product-filter').value.toLowerCase() : '');
+    const statusVal = (document.getElementById('bo-status-filter') ? document.getElementById('bo-status-filter').value : '');
+
+    filtered = allActiveOrders.filter(o => {
+        let matchSearch = !searchVal ||
+            (o.doc_number && o.doc_number.toLowerCase().includes(searchVal)) ||
+            (o.client_name && o.client_name.toLowerCase().includes(searchVal)) ||
+            (o.delivery_address && o.delivery_address.toLowerCase().includes(searchVal));
+
+        let matchClient = !clientVal || o.client_name === clientVal;
+
+        let matchProduct = !productVal || (o.items_list && o.items_list.toLowerCase().includes(productVal));
+
+        let matchStatus = true;
+        if (statusVal) {
+            const totalAmt = parseFloat(o.total_amount) || 0;
+            const paidAmt = parseFloat(o.paid_amount) || 0;
+            const debtAmt = parseFloat(o.pending_debt) || 0;
+
+            if (statusVal === 'debt') matchStatus = debtAmt > 0;
+            if (statusVal === 'paid') matchStatus = paidAmt >= totalAmt && totalAmt > 0;
+        }
+
+        return matchSearch && matchClient && matchProduct && matchStatus;
+    });
 
     const maxPage = Math.ceil(filtered.length / 5) || 1;
     if (boPage > maxPage) boPage = maxPage;
@@ -499,40 +792,84 @@ function renderBlankOrdersTable() {
     }
 
     tbody.innerHTML = paginated.map(o => {
-        // Вычисляем процент выполнения заказа
+        // --- 1. СТАТУС ОТГРУЗКИ ---
         const ordered = parseFloat(o.total_ordered) || 0;
         const shipped = parseFloat(o.total_shipped) || 0;
+        let statusBadge = shipped > 0 && shipped < ordered
+            ? `<span style="background: #e0f2fe; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: #0284c7; border: 1px solid #bae6fd;">🔵 Отгружается (${Math.round((shipped / ordered) * 100)}%)</span>`
+            : `<span style="background: #fef08a; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: #854d0e; border: 1px solid #fde047;">🟡 В очереди</span>`;
 
-        let statusBadge = '';
-        if (shipped > 0 && shipped < ordered) {
-            const percent = Math.round((shipped / ordered) * 100);
-            statusBadge = `<span style="background: #e0f2fe; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: #0284c7; border: 1px solid #bae6fd;">🔵 Отгружается (${percent}%)</span>`;
+        // --- 2. СТАТУС ОПЛАТЫ ИМЕННО ЭТОГО ЗАКАЗА ---
+        const totalAmt = parseFloat(o.total_amount) || 0;
+        const paidAmt = parseFloat(o.paid_amount) || 0;
+        const debtAmt = parseFloat(o.pending_debt) || 0;
+        let finBadge = '';
+        if (paidAmt >= totalAmt) {
+            finBadge = `<span style="background: #dcfce3; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: #166534; border: 1px solid #bbf7d0; display: inline-block; margin-top: 5px;">🟢 Оплачен 100%</span>`;
+        } else if (debtAmt > 0) {
+            finBadge = `<span style="background: #fee2e2; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: #b91c1c; border: 1px solid #fecaca; display: inline-block; margin-top: 5px;">🔴 Долг: ${debtAmt.toLocaleString('ru-RU')} ₽</span>`;
+        } else if (paidAmt > 0) {
+            finBadge = `<span style="background: #fef3c7; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: #b45309; border: 1px solid #fde68a; display: inline-block; margin-top: 5px;">🟡 Аванс: ${paidAmt.toLocaleString('ru-RU')} ₽</span>`;
         } else {
-            statusBadge = `<span style="background: #fef08a; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: #854d0e; border: 1px solid #fde047;">🟡 В очереди</span>`;
+            finBadge = `<span style="background: #f1f5f9; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: #64748b; border: 1px solid #e2e8f0; display: inline-block; margin-top: 5px;">⚪ Не оплачен</span>`;
         }
 
+        // --- 3. ОБЩИЙ БАЛАНС КЛИЕНТА (ПО ФАКТУ ОТГРУЗКИ) ---
+        const clientBalance = parseFloat(o.client_balance) || 0;
+        let clientBalanceBadge = '';
+        if (clientBalance > 0) {
+            clientBalanceBadge = `<div style="margin-top: 5px; font-size: 11px; color: #059669; font-weight: bold; background: #d1fae5; display: inline-block; padding: 3px 6px; border-radius: 4px; border: 1px solid #34d399;">💰 Переплата (Аванс): +${clientBalance.toLocaleString('ru-RU')} ₽</div>`;
+        } else if (clientBalance < 0) {
+            clientBalanceBadge = `<div style="margin-top: 5px; font-size: 11px; color: #dc2626; font-weight: bold; background: #fee2e2; display: inline-block; padding: 3px 6px; border-radius: 4px; border: 1px solid #f87171;">📉 Общий долг: ${Math.abs(clientBalance).toLocaleString('ru-RU')} ₽</div>`;
+        } else {
+            clientBalanceBadge = `<div style="margin-top: 5px; font-size: 11px; color: #475569; font-weight: bold; background: #f1f5f9; display: inline-block; padding: 3px 6px; border-radius: 4px; border: 1px solid #cbd5e1;">⚖️ Взаиморасчеты: 0 ₽</div>`;
+        }
+
+        // --- 4. ПРОГНОЗ БАЛАНСА (С УЧЕТОМ ВСЕХ ЗАКАЗОВ) ---
+        const projected = parseFloat(o.projected_balance) || 0;
+        const projHtml = `<div style="font-size: 10px; color: #94a3b8; margin-top: 2px;">Итог по всем заказам: <b style="color: ${projected < 0 ? '#ef4444' : '#10b981'}">${projected.toLocaleString('ru-RU')} ₽</b></div>`;
+
+        // --- 5. КНОПКА ВЗАИМОЗАЧЕТА (ЕСЛИ ЕСТЬ ПЕРЕПЛАТА И ДОЛГ ПО ЭТОМУ ЗАКАЗУ) ---
+        let offsetBtn = '';
+        if (clientBalance > 0 && debtAmt > 0) {
+            const offsetAmount = Math.min(clientBalance, debtAmt);
+            offsetBtn = `<button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: #059669; border-color: #059669;" onclick="offsetOrderAdvance('${o.doc_number}', ${offsetAmount})" title="Зачесть аванс в счет заказа">💸 Зачесть</button>`;
+        }
+
+        // --- РЕНДЕР СТРОКИ ---
         return `
         <tr style="transition: 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor=''">
             <td style="color: var(--text-muted); font-size: 13px;">
                 ${o.date_formatted}<br>
                 <span style="color: #d97706; font-weight: bold;">до ${o.deadline || 'Не указан'}</span>
             </td>
-            <td><strong style="color: #8b5cf6;">${o.doc_number}</strong></td>
-            <td><b>${o.client_name || 'Неизвестный клиент'}</b><br><span style="font-size: 11px; color: var(--text-muted);">📍 ${o.delivery_address || 'Самовывоз'}</span></td>
-            <td style="font-size: 12px; max-width: 250px;">${o.items_list || 'Пусто'}</td>
-            <td style="text-align: center;">
-                ${statusBadge}
+            <td>
+                <strong style="color: #8b5cf6; font-size: 14px;">${o.doc_number}</strong><br>
+                <span style="font-size: 12px; font-weight: bold; color: var(--text-main);">${totalAmt.toLocaleString('ru-RU')} ₽</span>
             </td>
-            <td style="text-align: right; min-width: 250px;">
+            <td style="vertical-align: top;">
+                <b>${o.client_name || 'Неизвестный клиент'}</b><br>
+                <span style="font-size: 11px; color: var(--text-muted);">📍 ${o.delivery_address || 'Самовывоз'}</span><br>
+                ${clientBalanceBadge}
+                ${projHtml}
+            </td>
+            <td style="font-size: 12px; max-width: 250px; vertical-align: top;">${o.items_list || 'Пусто'}</td>
+            <td style="text-align: center; vertical-align: middle;">
+                ${statusBadge}<br>
+                ${finBadge}
+            </td>
+            <td style="text-align: right; min-width: 250px; vertical-align: middle;">
                 <div style="display: flex; justify-content: flex-end; gap: 5px; align-items: center;">
-                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: #0284c7; border-color: #0284c7;" onclick="openInvoiceModal('${o.doc_number}')" title="Счет на оплату">🖨️ Счет</button>
+                    ${offsetBtn}
+                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: #0284c7; border-color: #0284c7;" onclick="openInvoiceModal('${o.doc_number}', ${debtAmt > 0 ? debtAmt : totalAmt})" title="Счет на оплату">🖨️ Счет</button>
                     <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: #8b5cf6; border-color: #8b5cf6;" onclick="openOrderManager(${o.id})">⚙️ Управл.</button>
                     <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--danger); border-color: var(--danger);" onclick="confirmDeleteOrder(${o.id}, '${o.doc_number}')" title="Отменить и удалить заказ">❌</button>
                 </div>
             </td>
         </tr>
         `;
-    }).join(''); // <- ВОТ ТА САМАЯ ПОТЕРЯННАЯ СКОБКА
+    }).join('');
+
 }
 
 window.confirmDeleteOrder = function (orderId, docNum) {
@@ -569,16 +906,11 @@ async function loadSalesHistory() {
         const res = await fetch('/api/sales/history');
         if (res.ok) {
             allSalesHistory = await res.json();
+            populateSalesFilters(); // <--- ДОБАВЛЕНО
             renderHistoryTable();
         }
     } catch (e) { console.error(e); }
 }
-
-window.onHistorySearch = function () {
-    historySearch = document.getElementById('hist-search').value.toLowerCase();
-    historyPage = 1;
-    renderHistoryTable();
-};
 
 window.changeHistoryPage = function (dir) {
     historyPage += dir;
@@ -590,12 +922,34 @@ function renderHistoryTable() {
     if (!tbody) return;
 
     let filtered = allSalesHistory;
-    if (historySearch) {
-        filtered = filtered.filter(h =>
-            (h.doc_num && h.doc_num.toLowerCase().includes(historySearch)) ||
-            (h.client_name && h.client_name.toLowerCase().includes(historySearch))
-        );
-    }
+    // === МУЛЬТИ-ФИЛЬТРАЦИЯ ИСТОРИИ ===
+    const searchVal = (document.getElementById('hist-search') ? document.getElementById('hist-search').value.toLowerCase() : '');
+    const clientVal = (document.getElementById('hist-client-filter') ? document.getElementById('hist-client-filter').value : '');
+    const dateFrom = historyDateRange.start; // Берем из календаря
+    const dateTo = historyDateRange.end;
+
+    filtered = allSalesHistory.filter(h => {
+        let matchSearch = !searchVal ||
+            (h.doc_num && h.doc_num.toLowerCase().includes(searchVal)) ||
+            (h.client_name && h.client_name.toLowerCase().includes(searchVal));
+
+        let matchClient = !clientVal || h.client_name === clientVal;
+
+        let matchDate = true;
+        if (dateFrom || dateTo) {
+            // Превращаем формат ДД.ММ.ГГГГ в ГГГГ-ММ-ДД для правильного сравнения
+            if (h.date_formatted) {
+                const dateParts = h.date_formatted.split(' ')[0].split('.');
+                if (dateParts.length === 3) {
+                    const rowDateStr = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
+                    if (dateFrom && rowDateStr < dateFrom) matchDate = false;
+                    if (dateTo && rowDateStr > dateTo) matchDate = false;
+                }
+            }
+        }
+
+        return matchSearch && matchClient && matchDate;
+    });
 
     const maxPage = Math.ceil(filtered.length / 5) || 1;
     if (historyPage > maxPage) historyPage = maxPage;
@@ -611,22 +965,31 @@ function renderHistoryTable() {
         return;
     }
 
-    tbody.innerHTML = paginated.map(h => `
+    tbody.innerHTML = paginated.map(h => {
+        // 🚀 НОВОЕ: Умный поиск цены (бэкенд может называть её по-разному)
+        const rowSum = parseFloat(h.amount || h.total_amount || h.total_sum || h.sum || 0);
+        const sumText = rowSum > 0 ? rowSum.toLocaleString('ru-RU') + ' ₽' : '-';
+
+        return `
         <tr style="transition: 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor=''">
             <td style="color: var(--text-muted); font-size: 13px;">${h.date_formatted}</td>
             <td><strong style="color: var(--primary);">${h.doc_num}</strong></td>
             <td><b>${h.client_name || 'Неизвестный клиент'}</b><br><span style="font-size: 11px; color: var(--text-muted);">${h.payment || ''}</span></td>
             <td style="text-align: center; font-weight: bold;">${parseFloat(h.total_qty).toLocaleString('ru-RU')}</td>
-            <td style="text-align: right; color: var(--success); font-weight: bold;">${h.amount ? parseFloat(h.amount).toLocaleString('ru-RU') + ' ₽' : '-'}</td>
+            
+            <td style="text-align: right; color: var(--success); font-weight: bold;">${sumText}</td>
+            
             <td style="text-align: right; min-width: 250px;">
-                <div style="display: flex; justify-content: flex-end; gap: 5px; align-items: center;">
-                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: #d97706; border-color: #d97706;" onclick="window.open('/print/specification?docNum=${h.doc_num}', '_blank')" title="Спецификация">🖨️ Спец.</button>
-                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--primary); border-color: var(--primary);" onclick="window.open('/print/waybill?docNum=${h.doc_num}', '_blank')" title="Накладная">🖨️ Накладная</button>
-                    <button class="btn btn-outline" style="color: var(--danger); border-color: var(--danger); padding: 4px 8px; font-size: 12px;" onclick="cancelShipment('${h.doc_num}')" title="Отменить">❌</button>
-                </div>
+            <div style="display: flex; justify-content: flex-end; gap: 5px; align-items: center;">
+                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: #8b5cf6; border-color: #8b5cf6;" onclick="window.open('/print/upd?docNum=${h.doc_num}', '_blank')" title="УПД и Пропуск на выезд">🖨️ УПД + Пропуск</button>
+                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: #d97706; border-color: #d97706;" onclick="window.open('/print/specification?docNum=${h.doc_num}', '_blank')" title="Спецификация">🖨️ Спец.</button>
+                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--primary); border-color: var(--primary);" onclick="window.open('/print/waybill?docNum=${h.doc_num}', '_blank')" title="Накладная">🖨️ Накладная</button>
+                <button class="btn btn-outline" style="color: var(--danger); border-color: var(--danger); padding: 4px 8px; font-size: 12px;" onclick="cancelShipment('${h.doc_num}')" title="Отменить">❌</button>
+            </div>
             </td>
         </tr>
-    `).join('');
+        `;
+    }).join('');
 }
 window.cancelShipment = function (docNum) {
     const html = `<p>Отменить накладную <b>${docNum}</b>?<br><small style="color: var(--danger);">Плитка вернется на склады, финансы аннулируются.</small></p>`;
@@ -659,63 +1022,91 @@ window.executeCancelShipment = async function (docNum) {
     } catch (e) { console.error(e); }
 };
 
+
 // ==========================================
 // === ПРОЧИЕ МОДУЛИ (ПРАЙС И ДОГОВОРЫ) ===
 // ==========================================
 window.openPriceListModal = async function () {
+    UI.toast('Загрузка прайс-листа...', 'info');
     try {
         const res = await fetch('/api/products');
         const products = await res.json();
 
+        let tbody = products.map(p => `
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+                <td style="padding: 8px;">
+                    <span class="badge" style="background: #f1f5f9; color: #475569; font-size: 11px; margin-right: 8px; font-family: monospace;">${p.article || 'НЕТ АРТИКУЛА'}</span>
+                    <b>${p.name}</b> <span style="font-size: 10px; color: gray;">(${p.unit})</span>
+                </td>
+                <td style="padding: 8px; text-align: center;">
+                    <input type="number" class="input-modern price-basic" data-id="${p.id}" value="${p.current_price}" style="width: 90px; text-align: center;">
+                </td>
+                <td style="padding: 8px; text-align: center;">
+                    <input type="number" class="input-modern price-dealer" data-id="${p.id}" value="${p.dealer_price || 0}" style="width: 90px; text-align: center; border-color: #8b5cf6;">
+                </td>
+            </tr>
+        `).join('');
+
         const html = `
-            <div style="max-height: 60vh; overflow-y: auto; padding-right: 10px; border: 1px solid var(--border); border-radius: 6px;">
-                <table style="width: 100%; border-collapse: collapse; margin: 0;">
-                    <thead style="background: #f8fafc; position: sticky; top: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+            <style>.modal-content { max-width: 700px !important; }</style>
+            <div style="max-height: 60vh; overflow-y: auto; padding-right: 10px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                    <thead style="background: #f8fafc; position: sticky; top: 0;">
                         <tr>
-                            <th style="padding: 12px; text-align: left; font-size: 13px; color: var(--text-muted);">Наименование продукции</th>
-                            <th style="padding: 12px; text-align: right; width: 160px; font-size: 13px; color: var(--text-muted);">Базовая цена (₽)</th>
+                            <th style="padding: 10px; text-align: left;">Товар</th>
+                            <th style="padding: 10px; text-align: center; color: var(--text-main);">Основная (Розница)</th>
+                            <th style="padding: 10px; text-align: center; color: #8b5cf6;">Дилерская (Опт)</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        ${products.map(p => {
-            const currentPrice = parseFloat(p.price || p.current_price || p.base_price || 0);
-            return `
-                            <tr style="border-bottom: 1px solid #eee; transition: 0.2s;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor=''">
-                                <td style="padding: 10px 12px; font-weight: 500;">${p.name}</td>
-                                <td style="padding: 10px 12px; text-align: right;">
-                                    <input type="number" class="input-modern price-update-input" data-id="${p.id}" value="${currentPrice}" style="width: 120px; text-align: right; font-weight: bold; color: var(--primary); border: 1px solid #cbd5e1;" onfocus="this.select()">
-                                </td>
-                            </tr>
-                            `;
-        }).join('')}
-                    </tbody>
+                    <tbody>${tbody}</tbody>
                 </table>
             </div>
-            <p style="font-size: 12px; color: var(--text-muted); margin-top: 10px;">* Цены для 2-го сорта (Уценка) будут автоматически рассчитываться со скидкой 30% от этих базовых цен.</p>
         `;
-        UI.showModal('Управление Прайс-листом', html, `
-            <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-            <button class="btn btn-green" onclick="savePriceList()">💾 Сохранить цены</button>
+
+        // Добавьте эту кнопку рядом с "Сохранить цены" в функции openPriceListModal
+        UI.showModal('📋 Установка Прайс-листа', html, `
+            <div style="display: flex; gap: 10px; width: 100%; justify-content: space-between; flex-wrap: wrap;">
+                <div style="display: flex; gap: 10px;">
+                    <label class="btn btn-outline" style="cursor: pointer; border-color: var(--primary); color: var(--primary); font-size: 12px; padding: 6px 12px;">
+                        📥 Загрузить Базовый (Розница)
+                        <input type="file" accept=".csv" style="display: none;" onchange="handleBasicCsvImport(event)">
+                    </label>
+                    <label class="btn btn-outline" style="cursor: pointer; border-color: #8b5cf6; color: #8b5cf6; font-size: 12px; padding: 6px 12px;">
+                        📥 Загрузить Дилерский (Опт)
+                        <input type="file" accept=".csv" style="display: none;" onchange="handleDealerCsvImport(event)">
+                    </label>
+                </div>
+                <div>
+                    <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+                    <button class="btn btn-blue" onclick="savePriceList()">💾 Сохранить</button>
+                </div>
+            </div>
         `);
-    } catch (e) { console.error(e); UI.toast('Ошибка загрузки товаров', 'error'); }
+    } catch (e) { console.error(e); }
 };
 
 window.savePriceList = async function () {
-    const inputs = document.querySelectorAll('.price-update-input');
-    const prices = Array.from(inputs).map(inp => ({ id: inp.getAttribute('data-id'), price: parseFloat(inp.value) || 0 }));
+    const prices = [];
+    document.querySelectorAll('.price-basic').forEach(input => {
+        const id = input.getAttribute('data-id');
+        const dealerInput = document.querySelector(`.price-dealer[data-id="${id}"]`);
+        prices.push({
+            id: id,
+            price: parseFloat(input.value) || 0,
+            dealer_price: parseFloat(dealerInput.value) || 0
+        });
+    });
+
     try {
         const res = await fetch('/api/products/update-prices', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prices })
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prices })
         });
         if (res.ok) {
             UI.closeModal();
-            UI.toast('Прайс-лист успешно обновлен!', 'success');
-            loadSalesData();
-        } else {
-            UI.toast('Ошибка сохранения: ' + await res.text(), 'error');
+            UI.toast('✅ Прайс-лист успешно обновлен', 'success');
+            if (typeof loadSalesData === 'function') loadSalesData(false);
         }
-    } catch (e) { console.error(e); UI.toast('Ошибка связи с сервером', 'error'); }
+    } catch (e) { console.error(e); }
 };
 
 window.openContractManager = function () {
@@ -850,6 +1241,7 @@ window.openOrderManager = async function (orderId) {
                     <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
                         <div class="form-group" style="margin: 0;"><input type="text" id="ship-driver" class="input-modern" placeholder="ФИО Водителя"></div>
                         <div class="form-group" style="margin: 0;"><input type="text" id="ship-auto" class="input-modern" placeholder="Гос. номер авто"></div>
+                        <div class="form-group" style="margin: 0; grid-column: span 2;"><input type="number" id="ship-pallets" class="input-modern" placeholder="Количество поддонов в этой машине (шт)" min="0"></div>
                     </div>
                     <div class="form-group" style="margin: 0;">
                         <input type="text" id="ship-poa" class="input-modern" placeholder="Номер доверенности или кто разрешил (если нужно)">
@@ -889,12 +1281,13 @@ window.executePartialShipment = async function (orderId) {
     const driver = document.getElementById('ship-driver').value.trim();
     const auto = document.getElementById('ship-auto').value.trim();
     const poa_info = document.getElementById('ship-poa').value.trim();
+    const pallets = parseInt(document.getElementById('ship-pallets').value) || 0;
 
     try {
         const res = await fetch(`/api/sales/orders/${orderId}/ship`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ items_to_ship, driver, auto, poa_info })
+            body: JSON.stringify({ items_to_ship, driver, auto, poa_info, pallets })
         });
 
         if (res.ok) {
@@ -909,7 +1302,9 @@ window.executePartialShipment = async function (orderId) {
             // Обновляем таблицы
             loadActiveOrders();
             loadSalesHistory();
+
             if (typeof loadTable === 'function') loadTable(); // Обновляем остатки на складах
+            if (typeof onClientChange === 'function') onClientChange();
         } else {
             UI.toast('Ошибка отгрузки: ' + await res.text(), 'error');
         }
@@ -969,7 +1364,7 @@ window.openReturnModal = async function () {
                     </div>
                     <div class="form-group" style="margin: 0;">
                         <label>Сумма к возврату клиенту (₽):</label>
-                        <input type="number" id="ret-amount" class="input-modern" value="0">
+                        <input type="number" id="ret-amount" class="input-modern" placeholder="0">
                     </div>
                 </div>
 
@@ -1159,11 +1554,16 @@ window.generateKP = function () {
     document.body.removeChild(form);
 };
 
-// === ВЫСТАВЛЕНИЕ СЧЕТА НА ОПЛАТУ ===
-window.openInvoiceModal = function (docNum) {
+// === ВЫСТАВЛЕНИЕ СЧЕТА НА ОПЛАТУ (С РЕДАКТИРОВАНИЕМ СУММЫ) ===
+window.openInvoiceModal = function (docNum, debtAmt) {
     const html = `
         <div style="padding: 10px;">
-            <p style="margin-top: 0; color: #475569; font-size: 13px;">Счет будет автоматически сформирован на <b>остаток долга</b> по заказу <b>${docNum}</b></p>
+            <p style="margin-top: 0; color: #475569; font-size: 13px;">Счет для заказа <b>${docNum}</b>.</p>
+            <div class="form-group" style="margin-bottom: 15px;">
+                <label style="font-weight: bold; color: var(--primary);">Сумма счета (₽):</label>
+                <input type="number" id="invoice-custom-amount" class="input-modern" placeholder="${debtAmt}" step="0.01">
+                <span style="font-size: 11px; color: gray;">Оставьте поле пустым, чтобы выставить счет на весь остаток долга.</span>
+            </div>
             <div class="form-group">
                 <label>Выберите наши реквизиты (Банк):</label>
                 <select id="invoice-bank" class="input-modern">
@@ -1181,6 +1581,409 @@ window.openInvoiceModal = function (docNum) {
 
 window.executePrintInvoice = function (docNum) {
     const bank = document.getElementById('invoice-bank').value;
-    window.open(`/print/invoice?docNum=${docNum}&bank=${bank}`, '_blank');
+    const customAmt = document.getElementById('invoice-custom-amount').value;
+    window.open(`/print/invoice?docNum=${docNum}&bank=${bank}&custom_amount=${customAmt}`, '_blank');
     UI.closeModal();
+    setTimeout(() => { if (typeof loadActiveOrders === 'function') loadActiveOrders(); }, 600);
+};
+
+// МАГИЯ ВЗАИМОЗАЧЕТА
+window.offsetOrderAdvance = function (docNum, amount) {
+    UI.showModal('Взаимозачет аванса', `
+        <div style="padding: 10px; font-size: 14px; text-align: center;">
+            На балансе клиента есть свободные средства.<br>
+            Зачесть <b>${amount.toLocaleString('ru-RU')} ₽</b> в счет оплаты заказа <b>${docNum}</b>?
+        </div>`, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-blue" style="background: #059669; border-color: #059669;" onclick="executeOffset('${docNum}', ${amount})">✅ Провести зачет</button>
+    `);
+};
+
+window.executeOffset = async function (docNum, amount) {
+    try {
+        await fetch('/api/sales/orders/offset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ docNum, amount })
+        });
+        UI.closeModal();
+        UI.toast('Взаимозачет успешно проведен!', 'success');
+        loadActiveOrders(); // Обновляем доску
+
+        if (typeof onClientChange === 'function') onClientChange();
+    } catch (e) { console.error(e); }
+};
+
+// === ОТЧЕТ: ДОЛЖНИКИ ПО ТАРЕ (ПОДДОНЫ) ===
+window.openPalletsReport = async function () {
+    try {
+        const res = await fetch('/api/sales/pallets-report');
+        const data = await res.json();
+
+        let tbody = data.map(c => `
+            <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 10px;"><b>${c.name}</b></td>
+                <td style="padding: 10px; color: var(--text-muted);">${c.phone || 'Нет телефона'}</td>
+                <td style="padding: 10px; text-align: right; color: #d97706; font-weight: bold; font-size: 16px;">${c.pallets_balance} шт.</td>
+            </tr>
+        `).join('');
+
+        if (data.length === 0) tbody = '<tr><td colspan="3" style="text-align: center; padding: 20px; color: gray;">Нет должников по таре 🎉</td></tr>';
+
+        const totalPallets = data.reduce((sum, c) => sum + parseInt(c.pallets_balance), 0);
+
+        const html = `
+            <div style="padding: 10px;">
+                <div style="background: #fffbeb; padding: 15px; border-radius: 8px; border: 1px solid #fde68a; margin-bottom: 15px; text-align: center;">
+                    <span style="color: #b45309; font-size: 14px;">Всего деревянных поддонов зависло у клиентов:</span><br>
+                    <strong style="font-size: 26px; color: #d97706;">${totalPallets} шт.</strong>
+                </div>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead style="background: #f8fafc; text-align: left;">
+                        <tr>
+                            <th style="padding: 10px;">Клиент</th>
+                            <th style="padding: 10px;">Телефон для связи</th>
+                            <th style="padding: 10px; text-align: right;">Долг (шт)</th>
+                        </tr>
+                    </thead>
+                    <tbody>${tbody}</tbody>
+                </table>
+            </div>
+        `;
+        UI.showModal('📦 Контроль возвратной тары', html, `<button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>`);
+    } catch (e) { console.error(e); }
+};
+
+// === 1. ДАШБОРД: АНАЛИТИКА ПРОДАЖ ===
+window.openSalesDashboard = async function () {
+    try {
+        UI.toast('Загрузка аналитики...', 'info');
+        const res = await fetch('/api/sales/analytics');
+        const data = await res.json();
+
+        const formatSum = (sum) => parseFloat(sum).toLocaleString('ru-RU') + ' ₽';
+        const maxItemSum = data.topItems.length > 0 ? parseFloat(data.topItems[0].total_sum) : 1;
+
+        // Рисуем бары для товаров
+        let itemsHtml = data.topItems.map((i, idx) => `
+            <div style="margin-bottom: 12px;">
+                <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
+                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 65%;"><b>${idx + 1}.</b> ${i.name} (${i.total_qty} шт)</span>
+                    <span style="font-weight: bold; color: #059669;">${formatSum(i.total_sum)}</span>
+                </div>
+                <div style="background: #e2e8f0; height: 8px; border-radius: 4px; overflow: hidden;">
+                    <div style="background: linear-gradient(90deg, #38bdf8, #3b82f6); width: ${(parseFloat(i.total_sum) / maxItemSum) * 100}%; height: 100%; border-radius: 4px;"></div>
+                </div>
+            </div>
+        `).join('');
+
+        // Рисуем список клиентов
+        let clientsHtml = data.topClients.map((c, idx) => `
+            <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px;">
+                <span><b style="color: #64748b;">${idx + 1}.</b> ${c.name}</span>
+                <strong style="color: #0284c7;">${formatSum(c.total_sum)}</strong>
+            </div>
+        `).join('');
+
+        const html = `
+            <style>.modal-content { max-width: 800px !important; }</style>
+            <div style="padding: 10px;">
+                <div style="background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: white; padding: 25px; border-radius: 12px; text-align: center; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                    <div style="font-size: 14px; opacity: 0.9; text-transform: uppercase; letter-spacing: 1px;">Выручка за текущий месяц</div>
+                    <div style="font-size: 42px; font-weight: 900; margin-top: 5px;">${formatSum(data.monthRevenue)}</div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 20px; border-radius: 12px;">
+                        <h4 style="margin-top: 0; color: #0f172a; margin-bottom: 20px;">🏆 Топ-5 товаров</h4>
+                        ${itemsHtml || '<div style="color: gray; text-align: center;">Нет продаж в этом месяце</div>'}
+                    </div>
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 20px; border-radius: 12px;">
+                        <h4 style="margin-top: 0; color: #0f172a; margin-bottom: 10px;">🥇 Топ-5 клиентов</h4>
+                        ${clientsHtml || '<div style="color: gray; text-align: center;">Нет продаж в этом месяце</div>'}
+                    </div>
+                </div>
+            </div>
+        `;
+        UI.showModal('📊 Аналитика продаж', html, `<button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>`);
+    } catch (e) { console.error(e); }
+};
+
+// === 2. КАЛЕНДАРЬ ОТГРУЗОК (ЛОГИСТИКА) ===
+window.openLogisticsCalendar = function () {
+    if (!allActiveOrders || allActiveOrders.length === 0) return UI.toast('Нет активных заказов', 'warning');
+
+    // Группируем заказы по датам отгрузки
+    const grouped = {};
+    allActiveOrders.forEach(o => {
+        const d = o.deadline || 'Без даты (Самовывоз)';
+        if (!grouped[d]) grouped[d] = [];
+        grouped[d].push(o);
+    });
+
+    // Сортируем даты по возрастанию
+    const dates = Object.keys(grouped).sort((a, b) => {
+        if (a.includes('Без даты')) return 1; if (b.includes('Без даты')) return -1;
+        const [d1, m1, y1] = a.split('.'); const [d2, m2, y2] = b.split('.');
+        return new Date(y1, m1 - 1, d1) - new Date(y2, m2 - 1, d2);
+    });
+
+    // Генерируем колонки Kanban-доски
+    let html = '<style>.modal-content { max-width: 1200px !important; width: 95% !important; }</style>';
+    html += '<div style="padding: 10px; display: flex; gap: 15px; overflow-x: auto; padding-bottom: 20px;">';
+
+    dates.forEach(date => {
+        const isToday = date === new Date().toLocaleDateString('ru-RU');
+        html += `
+            <div style="min-width: 320px; max-width: 320px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; flex-shrink: 0;">
+                <h4 style="margin-top: 0; color: #0f172a; border-bottom: 3px solid ${isToday ? '#ef4444' : '#38bdf8'}; padding-bottom: 8px; margin-bottom: 15px;">
+                    ${isToday ? '🔥 СЕГОДНЯ' : '📅 ' + date} <span style="font-weight: normal; font-size: 12px; color: gray; float: right;">${grouped[date].length} маш.</span>
+                </h4>`;
+
+        grouped[date].forEach(o => {
+            const ordered = parseFloat(o.total_ordered) || 0;
+            const shipped = parseFloat(o.total_shipped) || 0;
+            const percent = ordered > 0 ? Math.round((shipped / ordered) * 100) : 0;
+
+            html += `
+                <div style="background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); cursor: pointer;" onclick="openOrderManager(${o.id})">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <strong style="color: #8b5cf6;">${o.doc_number}</strong>
+                        <span style="font-size: 10px; font-weight: bold; background: ${percent === 100 ? '#dcfce3' : (percent > 0 ? '#e0f2fe' : '#fef08a')}; color: ${percent === 100 ? '#166534' : (percent > 0 ? '#0284c7' : '#854d0e')}; padding: 3px 6px; border-radius: 4px;">Собрано: ${percent}%</span>
+                    </div>
+                    <div style="font-size: 13px; font-weight: bold; margin-bottom: 5px;">${o.client_name || 'Неизвестно'}</div>
+                    <div style="font-size: 11px; color: #64748b; margin-bottom: 8px; background: #f1f5f9; padding: 5px; border-radius: 4px;">📍 ${o.delivery_address || 'Самовывоз со склада'}</div>
+                    <div style="font-size: 11px; color: #475569; padding-top: 8px; border-top: 1px dashed #e2e8f0; line-height: 1.5;">📦 ${o.items_list}</div>
+                </div>`;
+        });
+        html += `</div>`;
+    });
+    html += '</div>';
+
+    UI.showModal('🚚 Календарь отгрузок (План логиста)', html, `<button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>`);
+};
+
+// === ЭКСПОРТ В 1С (ВЫГРУЗКА В EXCEL) ===
+window.openExport1CModal = function () {
+    const today = new Date();
+    const currentMonth = String(today.getMonth() + 1).padStart(2, '0');
+    const currentYear = today.getFullYear();
+
+    const html = `
+        <div style="padding: 10px; text-align: center;">
+            <p style="color: #475569; font-size: 13px; margin-top: 0;">Выберите период для выгрузки реестра отгрузок. Файл скачается в формате CSV (Excel), оптимизированном для загрузки в 1С Бухгалтерию.</p>
+            <div style="display: flex; gap: 10px; justify-content: center; margin-top: 20px;">
+                <div class="form-group" style="margin: 0;">
+                    <label>Месяц</label>
+                    <select id="export-month" class="input-modern" style="min-width: 150px;">
+                        <option value="01" ${currentMonth === '01' ? 'selected' : ''}>Январь</option>
+                        <option value="02" ${currentMonth === '02' ? 'selected' : ''}>Февраль</option>
+                        <option value="03" ${currentMonth === '03' ? 'selected' : ''}>Март</option>
+                        <option value="04" ${currentMonth === '04' ? 'selected' : ''}>Апрель</option>
+                        <option value="05" ${currentMonth === '05' ? 'selected' : ''}>Май</option>
+                        <option value="06" ${currentMonth === '06' ? 'selected' : ''}>Июнь</option>
+                        <option value="07" ${currentMonth === '07' ? 'selected' : ''}>Июль</option>
+                        <option value="08" ${currentMonth === '08' ? 'selected' : ''}>Август</option>
+                        <option value="09" ${currentMonth === '09' ? 'selected' : ''}>Сентябрь</option>
+                        <option value="10" ${currentMonth === '10' ? 'selected' : ''}>Октябрь</option>
+                        <option value="11" ${currentMonth === '11' ? 'selected' : ''}>Ноябрь</option>
+                        <option value="12" ${currentMonth === '12' ? 'selected' : ''}>Декабрь</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin: 0;">
+                    <label>Год</label>
+                    <input type="number" id="export-year" class="input-modern" value="${currentYear}" style="max-width: 100px;">
+                </div>
+            </div>
+        </div>
+    `;
+
+    UI.showModal('📥 Экспорт для 1С (Отгрузки)', html, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-blue" style="background: #10b981; border-color: #10b981;" onclick="executeExport1C()">Скачать Excel</button>
+    `);
+};
+
+window.executeExport1C = function () {
+    const m = document.getElementById('export-month').value;
+    const y = document.getElementById('export-year').value;
+
+    // Открываем маршрут скачивания файла
+    window.open(`/api/sales/export-1c?month=${m}&year=${y}`, '_blank');
+    UI.closeModal();
+    UI.toast('Файл скачивается...', 'success');
+};
+
+window.handleDealerCsvImport = function (event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.readAsText(file, 'windows-1251');
+    reader.onload = function (e) {
+        const text = e.target.result;
+        const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+
+        if (lines.length < 2) return UI.toast('Файл пуст или нет данных', 'error');
+
+        // Умное определение разделителя
+        const delimiter = lines[0].includes(';') ? ';' : ',';
+
+        // Читаем заголовки колонок (ищем, где артикул, а где цена)
+        const headers = lines[0].split(delimiter).map(h => h.trim().toUpperCase().replace(/^"|"$/g, ''));
+
+        const articleIdx = headers.findIndex(h => h.includes('АРТИКУЛ'));
+        const priceIdx = headers.findIndex(h => h.includes('ЦЕНА') || h.includes('ДИЛЕР'));
+
+        if (articleIdx === -1 || priceIdx === -1) {
+            console.error("Найденные колонки:", headers);
+            return UI.toast('❌ В первой строке файла обязательно должны быть заголовки "Артикул" и "Цена"', 'error');
+        }
+
+        let matchCount = 0;
+
+        // Пропускаем 1-ю строку (заголовки) и читаем данные
+        for (let i = 1; i < lines.length; i++) {
+            const cols = lines[i].split(delimiter).map(c => c.trim().replace(/^"|"$/g, ''));
+            if (cols.length <= Math.max(articleIdx, priceIdx)) continue;
+
+            const csvArticle = cols[articleIdx];
+            const priceRaw = cols[priceIdx].replace(/\s/g, '').replace(',', '.');
+            const price = parseFloat(priceRaw);
+
+            if (csvArticle && !isNaN(price) && price > 0) {
+                // Ищем товар в базе СТРОГО ПО АРТИКУЛУ
+                const dbItem = Object.values(salesProductsInfo).find(item => item.article === csvArticle);
+
+                if (dbItem) {
+                    const input = document.querySelector(`.price-dealer[data-id="${dbItem.id}"]`);
+                    if (input) {
+                        input.value = price;
+                        input.style.backgroundColor = '#dcfce3'; // Зеленая подсветка
+                        input.style.border = '1px solid #22c55e';
+                        matchCount++;
+                    }
+                }
+            }
+        }
+
+        if (matchCount > 0) {
+            UI.toast(`✅ Идеально! Подтянуто цен: ${matchCount}. Нажмите "Сохранить".`, 'success');
+        } else {
+            UI.toast('❌ Совпадений по артикулам не найдено. Проверьте файл.', 'warning');
+        }
+    };
+};
+
+window.handleBasicCsvImport = function (event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.readAsText(file, 'windows-1251');
+    reader.onload = function (e) {
+        const text = e.target.result;
+        const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+        let matchCount = 0;
+
+        const colorConfig = [
+            { name: 'СЕР', col: 5 },
+            { name: 'КРАСН', col: 6 }, { name: 'КОРИЧН', col: 6 }, { name: 'ЧЕРН', col: 6 },
+            { name: 'БЕЛ', col: 7 },
+            { name: 'ЖЕЛТ', col: 8 }, { name: 'ОРАНЖ', col: 8 }
+        ];
+
+        lines.forEach((line) => {
+            const delimiter = line.includes(';') ? ';' : ',';
+            const cols = line.split(delimiter).map(c => c.trim().replace(/^"|"$/g, ''));
+            if (cols.length < 6) return;
+
+            const csvName = cols[0].toUpperCase();
+            if (csvName.includes('НАИМЕНОВАНИЕ') || csvName.includes('ГОСТ') || !csvName) return;
+
+            const modelMatch = csvName.match(/(\d\.[А-Я]\.\d+)/);
+            const coreModel = modelMatch ? modelMatch[0] : csvName;
+
+            const dbProducts = typeof salesProductsInfo !== 'undefined' ? Object.values(salesProductsInfo) : [];
+
+            dbProducts.forEach(dbItem => {
+                const dbName = dbItem.name.toUpperCase();
+
+                if (dbName.includes(coreModel) || csvName.includes(dbName.split(' ')[0])) {
+                    colorConfig.forEach(cfg => {
+                        if (dbName.includes(cfg.name)) {
+                            const priceRaw = cols[cfg.col] ? cols[cfg.col].replace(/\s/g, '').replace(',', '.') : '';
+                            const price = parseFloat(priceRaw);
+
+                            if (!isNaN(price) && price > 0) {
+                                // ВАЖНО: Здесь ищем input базовой цены (.price-basic)
+                                const input = document.querySelector(`.price-basic[data-id="${dbItem.id}"]`);
+                                if (input) {
+                                    input.value = price;
+                                    input.style.backgroundColor = '#eff6ff'; // Голубая подсветка для розницы
+                                    input.style.border = '1px solid #3b82f6';
+                                    matchCount++;
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+        });
+
+        if (matchCount > 0) {
+            UI.toast(`✅ Базовый прайс: подтянуто цен - ${matchCount}.`, 'success');
+        } else {
+            UI.toast('Совпадений не найдено. Проверьте формат.', 'error');
+        }
+    };
+};
+
+// === СБОРКА ВЫПАДАЮЩИХ СПИСКОВ И СБРОС ФИЛЬТРОВ ===
+function populateSalesFilters() {
+    // Собираем уникальных клиентов из заказов
+    const orderClients = new Set();
+    allActiveOrders.forEach(o => { if (o.client_name) orderClients.add(o.client_name); });
+
+    const boSelect = document.getElementById('bo-client-filter');
+    if (boSelect) {
+        const currentVal = boSelect.value;
+        boSelect.innerHTML = '<option value="">🌐 Все клиенты</option>';
+        Array.from(orderClients).sort().forEach(c => boSelect.add(new Option(c, c)));
+        boSelect.value = currentVal; // сохраняем выбор при автообновлении
+    }
+
+    // Собираем уникальных клиентов из истории
+    const histClients = new Set();
+    allSalesHistory.forEach(h => { if (h.client_name) histClients.add(h.client_name); });
+
+    const histSelect = document.getElementById('hist-client-filter');
+    if (histSelect) {
+        const currentVal = histSelect.value;
+        histSelect.innerHTML = '<option value="">🌐 Все клиенты</option>';
+        Array.from(histClients).sort().forEach(c => histSelect.add(new Option(c, c)));
+        histSelect.value = currentVal;
+    }
+}
+
+window.applyOrderFilters = function () { boPage = 1; renderBlankOrdersTable(); };
+window.applyHistoryFilters = function () { historyPage = 1; renderHistoryTable(); };
+
+window.resetOrderFilters = function () {
+    document.getElementById('bo-search').value = '';
+    document.getElementById('bo-client-filter').value = '';
+    document.getElementById('bo-product-filter').value = '';
+    document.getElementById('bo-status-filter').value = '';
+    applyOrderFilters();
+};
+
+window.resetHistoryFilters = function () {
+    document.getElementById('hist-search').value = '';
+    document.getElementById('hist-client-filter').value = '';
+
+    // Очищаем умный календарь
+    const fpEl = document.getElementById('hist-date-filter');
+    if (fpEl && fpEl._flatpickr) fpEl._flatpickr.clear();
+    historyDateRange = { start: '', end: '' };
+
+    applyHistoryFilters();
 };

@@ -149,6 +149,13 @@ function renderTransactionsTable() {
     tbody.innerHTML = allTransactions.map(t => {
         const isIncome = t.transaction_type === 'income';
         const isChecked = selectedTransIds.has(t.id) ? 'checked' : '';
+        
+        // УМНОЕ ФОРМАТИРОВАНИЕ ДАТЫ ДЛЯ ТАБЛИЦЫ
+        let safeDate = t.date_formatted;
+        if (!safeDate && t.transaction_date) {
+            const d = new Date(t.transaction_date);
+            if (!isNaN(d)) safeDate = d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        }
 
         let receiptHtml = t.receipt_url
             ? `<a href="${t.receipt_url}" target="_blank" style="text-decoration:none; font-size:16px;" title="Смотреть документ">📄</a>
@@ -160,7 +167,7 @@ function renderTransactionsTable() {
         return `
         <tr onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor=''">
             <td style="text-align: center;"><input type="checkbox" class="trans-checkbox" value="${t.id}" onchange="toggleRowSelect(this)" ${isChecked}></td>
-            <td style="font-weight: bold; color: var(--text-muted); font-size: 13px;">${t.date_formatted}</td>
+            <td style="font-weight: bold; color: var(--text-muted); font-size: 13px;">${safeDate || '-'}</td>
             <td><span class="badge" style="background: ${isIncome ? '#dcfce3' : '#fee2e2'}; color: ${isIncome ? 'var(--success)' : 'var(--danger)'};">${isIncome ? 'Поступление' : 'Списание'}</span></td>
             <td style="font-weight: 600;">
                 ${t.counterparty_name ? `<div style="color: var(--primary); font-size: 14px;">👤 ${t.counterparty_name}</div>` : ''}
@@ -623,7 +630,7 @@ window.openCounterpartyEditor = function (id = null) {
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; max-height: 70vh; overflow-y: auto; padding: 5px;">
             <div class="form-group" style="grid-column: span 2;">
                 <label><b>Полное или краткое наименование:</b></label>
-                <input type="text" id="cp-name" class="input-modern" value="${cp.name || ''}" placeholder='ООО "Плиттекс-Групп"'>
+                <input type="text" id="cp-name" class="input-modern" value='${cp.name || ''}' placeholder='ООО "Плиттекс-Групп"'>
             </div>
             
             <div class="form-group">
@@ -631,6 +638,13 @@ window.openCounterpartyEditor = function (id = null) {
                 <select id="cp-type" class="input-modern">
                     <option value="Покупатель" ${cp.type === 'Покупатель' ? 'selected' : ''}>Покупатель</option>
                     <option value="Поставщик" ${cp.type === 'Поставщик' ? 'selected' : ''}>Поставщик</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Колонка цен:</label>
+                <select id="cp-price-level" class="input-modern" style="border-color: #8b5cf6; color: #5b21b6; font-weight: bold;">
+                    <option value="basic" ${cp.price_level === 'basic' ? 'selected' : ''}>Основная (Розница)</option>
+                    <option value="dealer" ${cp.price_level === 'dealer' ? 'selected' : ''}>Дилерская (Опт)</option>
                 </select>
             </div>
             <div class="form-group">
@@ -681,7 +695,8 @@ window.saveCounterparty = async function () {
         checking_account: document.getElementById('cp-account').value.trim(),
         director_name: document.getElementById('cp-director').value.trim(),
         phone: document.getElementById('cp-phone').value.trim(),
-        email: document.getElementById('cp-email').value.trim()
+        email: document.getElementById('cp-email').value.trim(),
+        price_level: document.getElementById('cp-price-level').value
     };
 
     if (!data.name) return UI.toast('Введите название организации!', 'error');
@@ -763,10 +778,11 @@ window.openFinanceInvoiceModal = async function (cpId, cpName) {
             <div id="fin-order-block" style="display: none; background: #eff6ff; padding: 10px; border-radius: 6px; border: 1px solid #bfdbfe;">
                 <div class="form-group">
                     <label>Выберите заказ для оплаты:</label>
-                    <select id="fin-invoice-order" class="input-modern">
-                        ${ordersHtml}
-                    </select>
-                    <span style="font-size: 11px; color: #64748b; margin-top: 5px; display: block;">Сумма подтянется автоматически из заказа.</span>
+                    <select id="fin-invoice-order" class="input-modern">${ordersHtml}</select>
+                </div>
+                <div class="form-group" style="margin-top: 10px;">
+                    <label>Сумма счета (₽):</label>
+                    <input type="number" id="fin-order-custom-amount" class="input-modern" placeholder="Оставьте пустым для всего остатка">
                 </div>
             </div>
 
@@ -797,8 +813,9 @@ window.executeFinanceInvoice = function (cpId) {
         window.open(`/print/invoice?cp_id=${cpId}&amount=${amount}&desc=${encodeURIComponent(desc)}&bank=${bank}`, '_blank');
     } else {
         const docNum = document.getElementById('fin-invoice-order').value;
+        const customAmt = document.getElementById('fin-order-custom-amount').value; // Новое поле
         if (!docNum) return UI.toast('Выберите заказ из списка', 'warning');
-        window.open(`/print/invoice?docNum=${docNum}&bank=${bank}`, '_blank');
+        window.open(`/print/invoice?docNum=${docNum}&bank=${bank}&custom_amount=${customAmt}`, '_blank');
     }
 
     UI.closeModal();
@@ -1067,7 +1084,14 @@ window.processBankImport = async function () {
 
         const result = await res.json();
         UI.closeModal();
-        UI.toast(`✅ Успешно добавлено: ${result.count} платежей. Дубликаты пропущены.`, 'success');
+
+        let msg = `✅ Успешно загружено: ${result.count} платежей.`;
+        // Если сервер нашел и закрыл счета, гордо сообщаем об этом!
+        if (result.autoPaid > 0) {
+            msg += `\n🎯 Автоматически закрыто счетов: ${result.autoPaid}!`;
+        }
+
+        UI.toast(msg, 'success');
         loadFinanceData();
 
     } catch (e) {
@@ -1243,11 +1267,18 @@ window.exportFinanceToExcel = async function () {
 
         data.data.forEach(t => {
             const type = t.transaction_type === 'income' ? 'Поступление' : 'Списание';
+            // Умное форматирование даты для выгрузки
+            let safeDate = t.date_formatted;
+            if (!safeDate && t.transaction_date) {
+                const d = new Date(t.transaction_date);
+                if (!isNaN(d)) safeDate = d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+            }
+            
             // Функция для защиты от запятых, кавычек и переносов строк внутри комментариев
             const escapeCSV = (str) => `"${String(str || '').replace(/"/g, '""').replace(/\n/g, ' ')}"`;
 
             // Склеиваем колонки через точку с запятой (стандарт для русского Excel)
-            csvContent += `${t.date_formatted};${type};${t.amount};${escapeCSV(t.counterparty_name)};${escapeCSV(t.category)};${escapeCSV(t.account_name)};${escapeCSV(t.payment_method)};${escapeCSV(t.description)}\n`;
+            csvContent += `${safeDate || '-'};${type};${t.amount};${escapeCSV(t.counterparty_name)};${escapeCSV(t.category)};${escapeCSV(t.account_name)};${escapeCSV(t.payment_method)};${escapeCSV(t.description)}\n`;
         });
 
         // 4. Генерируем файл и скачиваем его
@@ -1311,10 +1342,20 @@ function renderFinanceCharts(transactions) {
     });
 
     // 4. ГРАФИК ПОТОКОВ (Доход vs Расход по датам)
-    // Группируем суммы по датам
+    // Группируем суммы по датам с умной защитой формата дат
     const flowMap = {};
     transactions.forEach(t => {
-        const date = t.date_formatted.split(' ')[0]; // Берем только дату без времени
+        const rawDateStr = t.transaction_date || t.date_formatted;
+        let date = 'Неизвестно';
+        if (rawDateStr) {
+            const dObj = new Date(rawDateStr);
+            if (!isNaN(dObj)) {
+                date = dObj.toISOString().split('T')[0];
+            } else if (typeof rawDateStr === 'string') {
+                date = rawDateStr.split(' ')[0];
+            }
+        }
+
         if (!flowMap[date]) flowMap[date] = { inc: 0, exp: 0 };
         if (t.transaction_type === 'income') flowMap[date].inc += parseFloat(t.amount);
         else flowMap[date].exp += parseFloat(t.amount);
@@ -1394,6 +1435,7 @@ window.executeDeleteReceipt = async function (id) {
         UI.toast('❌ Ошибка сети', 'error');
     }
 };
+
 // === ОКНО ОТЧЕТА P&L ===
 window.openPnlReportModal = async function (customStart = '', customEnd = '') {
     UI.toast('Сбор финансовых данных...', 'info');

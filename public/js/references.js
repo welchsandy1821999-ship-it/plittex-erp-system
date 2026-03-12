@@ -64,6 +64,11 @@ function renderRefTable(items) {
             <td style="color: var(--text-muted); font-size: 12px;">#${item.id}</td>
             <td><span class="badge ${item.item_type === 'product' ? 'badge-prod' : 'badge-mat'}">${item.item_type === 'product' ? '📦 Продукция' : '🪨 Сырье'}</span></td>
             <td><strong style="color: var(--text-muted);">${item.category || '-'}</strong></td>
+            
+            <td style="font-family: monospace; font-size: 13px; font-weight: bold; color: var(--primary);">
+                ${item.article || '<span style="color: #cbd5e1; font-weight: normal;">—</span>'}
+            </td>
+
             <td style="font-weight: 600; color: var(--text-main); cursor: pointer;" onclick="editReference(${item.id})">${item.name}</td>
             <td>${item.unit}</td>
             <td><span style="color: var(--primary); font-weight: bold;">${parseFloat(item.current_price).toFixed(2)} ₽</span></td>
@@ -92,6 +97,7 @@ function closeRefForm() {
 
 function clearRefForm() {
     document.getElementById('ref-edit-id').value = '';
+    document.getElementById('ref-article').value = '';
     document.getElementById('ref-name').value = '';
     document.getElementById('ref-category').value = '';
     document.getElementById('ref-price').value = '0';
@@ -115,6 +121,7 @@ function editReference(id) {
             const item = data.data.find(i => i.id === id);
             if (item) {
                 document.getElementById('ref-edit-id').value = item.id;
+                document.getElementById('ref-article').value = item.article || '';
                 document.getElementById('ref-name').value = item.name;
                 document.getElementById('ref-category').value = item.category || '';
                 document.getElementById('ref-unit').value = item.unit;
@@ -141,6 +148,7 @@ async function saveReference() {
     const id = document.getElementById('ref-edit-id').value;
     const payload = {
         name: document.getElementById('ref-name').value.trim(),
+        article: document.getElementById('ref-article').value.trim(),
         item_type: document.getElementById('ref-type').value,
         category: document.getElementById('ref-category').value.trim(),
         unit: document.getElementById('ref-unit').value.trim(),

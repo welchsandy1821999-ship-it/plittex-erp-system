@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>УПД - <%= docNum %></title>
+    <style>
+        body { font-family: 'Arial', sans-serif; font-size: 10px; color: #000; margin: 0; padding: 15px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 9px; }
+        th, td { border: 1px solid #000; padding: 4px; text-align: left; }
+        th { text-align: center; font-weight: normal; }
+        .header { text-align: left; margin-bottom: 15px; }
+        .title { font-size: 14px; font-weight: bold; margin: 10px 0; }
+        @media print { .page-break { page-break-before: always; } body { padding: 0; } }
+        /* Стили пропуска сохранены */
+        .pass-box { border: 4px solid #000; padding: 40px; border-radius: 15px; text-align: center; margin-top: 50px; }
+        .pass-title { font-size: 40px; font-weight: 900; margin: 0 0 10px 0; text-transform: uppercase; }
+        .pass-field { font-size: 20px; margin: 15px 0; border-bottom: 1px dashed #000; padding-bottom: 5px; text-align: left; }
+    </style>
+</head>
+<body onload="window.print()">
+
+    <div class="header">
+        <div style="text-align: right; font-size: 9px;">Приложение №1 к Постановлению Правительства РФ...<br>Универсальный передаточный документ</div>
+        <div style="font-size: 14px; margin-top: 10px;"><b>Статус: 1</b> (Счет-фактура и передаточный документ)</div>
+    </div>
+
+    <div class="title">Счет-фактура № <%= docNum %> от <%= date %></div>
+
+    <div style="display: flex; justify-content: space-between; margin-bottom: 15px; line-height: 1.4;">
+        <div style="width: 48%;">
+            <b>Продавец:</b> ООО "ПЛИТТЕКС"<br>
+            <b>ИНН/КПП:</b> 2372029123 / 237201001<br>
+            <b>Адрес:</b> 352244, Краснодарский край, г. Новокубанск, ул. Кузнечная, д. 1 оф.2
+        </div>
+        <div style="width: 48%;">
+            <b>Покупатель:</b> <%= clientName %><br>
+            <b>ИНН/КПП:</b> <%= cpInfo.inn || '_________' %> / <%= cpInfo.kpp || '_________' %><br>
+            <b>Адрес:</b> <%= cpInfo.legal_address || '___________________________' %>
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th rowspan="2" style="width: 3%;">№</th>
+                <th rowspan="2">Наименование товара (услуги)</th>
+                <th rowspan="2" style="width: 5%;">Ед. изм.</th>
+                <th rowspan="2" style="width: 6%;">Кол-во</th>
+                <th rowspan="2" style="width: 8%;">Цена (руб.)<br>без НДС</th>
+                <th rowspan="2" style="width: 9%;">Стоимость<br>без НДС</th>
+                <th rowspan="2" style="width: 5%;">В т.ч.<br>акциз</th>
+                <th rowspan="2" style="width: 5%;">Налог.<br>ставка</th>
+                <th rowspan="2" style="width: 8%;">Сумма<br>налога</th>
+                <th rowspan="2" style="width: 9%;">Стоимость<br>с НДС</th>
+            </tr>
+            <tr></tr> </thead>
+        <tbody>
+            <% 
+            let num = 1; let totalQty = 0; 
+            let grandTotalNoVat = 0; let grandTotalVat = 0; let grandTotal = 0;
+            const VAT_RATE = 0.22;
+            
+            items.forEach(function(item) { 
+                totalQty += parseFloat(item.qty); 
+                
+                // Обратная математика: выкручиваем НДС 22% из конечной цены
+                const priceWithVat = parseFloat(item.price) || 0;
+                const costWithVat = parseFloat(item.qty) * priceWithVat;
+                
+                const priceNoVat = priceWithVat / (1 + VAT_RATE);
+                const costNoVat = costWithVat / (1 + VAT_RATE);
+                const vatAmount = costWithVat - costNoVat;
+
+                grandTotalNoVat += costNoVat;
+                grandTotalVat += vatAmount;
+                grandTotal += costWithVat;
+            %>
+            <tr>
+                <td style="text-align: center;"><%= num++ %></td>
+                <td><%= item.name %></td>
+                <td style="text-align: center;"><%= item.unit %></td>
+                <td style="text-align: center;"><%= item.qty %></td>
+                <td style="text-align: right;"><%= priceNoVat.toFixed(2) %></td>
+                <td style="text-align: right;"><%= costNoVat.toFixed(2) %></td>
+                <td style="text-align: center;">Без акциза</td>
+                <td style="text-align: center;">22%</td>
+                <td style="text-align: right;"><%= vatAmount.toFixed(2) %></td>
+                <td style="text-align: right;"><%= costWithVat.toFixed(2) %></td>
+            </tr>
+            <% }); %>
+            <tr style="font-weight: bold;">
+                <td colspan="3" style="text-align: right;">Всего к оплате:</td>
+                <td style="text-align: center;"><%= totalQty %></td>
+                <td></td>
+                <td style="text-align: right;"><%= grandTotalNoVat.toFixed(2) %></td>
+                <td></td>
+                <td></td>
+                <td style="text-align: right;"><%= grandTotalVat.toFixed(2) %></td>
+                <td style="text-align: right;"><%= grandTotal.toFixed(2) %></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div style="margin-top: 30px; display: flex; justify-content: space-between;">
+        <div style="width: 45%;">
+            <b>Руководитель организации:</b> ___________________ / Иванов И.И.<br>
+            <span style="font-size: 8px; color: gray;">(подпись) (ф.и.о.)</span>
+        </div>
+        <div style="width: 45%;">
+            <b>Главный бухгалтер:</b> ___________________ / ___________________<br>
+            <span style="font-size: 8px; color: gray;">(подпись) (ф.и.о.)</span>
+        </div>
+    </div>
+
+    <div class="page-break"></div>
+
+    <div class="pass-box">
+        <div class="pass-title">ПРОПУСК НА ВЫЕЗД № <%= docNum.replace(/[^0-9]/g, '') %></div>
+        <div style="font-size: 18px; margin-bottom: 30px;">ООО "ПЛИТТЕКС" (Производственная база)</div>
+        
+        <div class="pass-field"><b>Дата и время отгрузки:</b> <%= date %> <b><%= time %></b></div>
+        <div class="pass-field"><b>Клиент:</b> <%= clientName %></div>
+        <div class="pass-field"><b>Транспорт (Авто / Водитель):</b> <span style="font-size: 24px; font-weight: bold;"><%= transportInfo %></span></div>
+        <div class="pass-field">
+            <b>К выезду разрешено (всего мест):</b> <%= totalQty %> 
+            <span style="font-size: 14px; color: gray;">(Включая тару: <%= palletsQty || 0 %> шт.)</span>
+        </div>
+
+        <div style="margin-top: 60px; display: flex; justify-content: space-between; font-size: 20px;">
+            <div><b>Отгрузил (Кладовщик):</b> ______________</div>
+            <div><b>Выезд разрешил (Охрана):</b> ______________</div>
+        </div>
+    </div>
+
+</body>
+</html>
