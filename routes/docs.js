@@ -31,7 +31,7 @@ function numberToWordsRu(num) {
     return words.charAt(0).toUpperCase() + words.slice(1).trim() + ' ' + String(kopecks).padStart(2, '0') + ' копеек';
 }
 
-module.exports = function(pool, getNextDocNumber) {
+module.exports = function (pool, getNextDocNumber) {
 
     // ВАЖНО: Маршрут использует express.urlencoded локально
     router.post('/print/kp', express.urlencoded({ extended: true }), async (req, res) => {
@@ -100,6 +100,14 @@ module.exports = function(pool, getNextDocNumber) {
                     await pool.query(`INSERT INTO invoices (invoice_number, counterparty_id, amount, description, status) VALUES ($1, $2, $3, $4, 'pending')`, [finalData.invoiceNum, finalData.cp.id || cp_id, finalData.amount, docNum ? `Оплата по заказу ${docNum}` : (desc || 'Аванс')]);
                 }
             }
+            // === ГЕНЕРАЦИЯ ГОСТ QR-КОДА ДЛЯ ОПЛАТЫ ЧЕРЕЗ БАНК ===
+            const sumInKopecks = Math.round(finalData.amount * 100); // Сумма в копейках
+            const purpose = docNum ? `Оплата по заказу ${docNum}` : (desc || 'Аванс');
+            // Строка по стандарту Сбербанка/ГОСТ
+            const gostStr = `ST00012|Name=${finalData.myCompany.name}|PersonalAcc=${finalData.myBank.account}|BankName=${finalData.myBank.name}|BIC=${finalData.myBank.bik}|CorrespAcc=${finalData.myBank.corr}|PayeeINN=${finalData.myCompany.inn}|KPP=${finalData.myCompany.kpp}|Purpose=${purpose}|Sum=${sumInKopecks}`;
+
+            // Используем бесплатный API для генерации картинки QR-кода
+            finalData.qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(gostStr)}`;
             res.render('docs/invoice', finalData);
         } catch (err) { res.status(500).send(err.message); }
     });
@@ -109,7 +117,7 @@ module.exports = function(pool, getNextDocNumber) {
             let clientName = 'Неизвестный клиент'; let totalAmount = 0; let transportInfo = ''; let discountInfo = ''; let contractInfo = 'Основной договор';
             const { docNum } = req.query;
             const txRes = await pool.query(`SELECT t.amount, c.name FROM transactions t LEFT JOIN counterparties c ON t.counterparty_id = c.id WHERE t.description LIKE $1`, [`%${docNum}%`]);
-            if (txRes.rows.length > 0) { totalAmount = txRes.rows[0].amount; clientName = txRes.rows[0].name; } 
+            if (txRes.rows.length > 0) { totalAmount = txRes.rows[0].amount; clientName = txRes.rows[0].name; }
             else {
                 const invRes = await pool.query(`SELECT i.amount, c.name FROM invoices i LEFT JOIN counterparties c ON i.counterparty_id = c.id WHERE i.invoice_number = $1`, [docNum]);
                 if (invRes.rows.length > 0) { totalAmount = invRes.rows[0].amount; clientName = invRes.rows[0].name; }
@@ -157,7 +165,7 @@ module.exports = function(pool, getNextDocNumber) {
         try {
             const { docNum } = req.query; let clientName = 'Неизвестный клиент'; let totalAmount = 0; let contractInfo = 'Основной договор';
             const txRes = await pool.query(`SELECT t.amount, c.name FROM transactions t LEFT JOIN counterparties c ON t.counterparty_id = c.id WHERE t.description LIKE $1`, [`%${docNum}%`]);
-            if (txRes.rows.length > 0) { totalAmount = txRes.rows[0].amount; clientName = txRes.rows[0].name; } 
+            if (txRes.rows.length > 0) { totalAmount = txRes.rows[0].amount; clientName = txRes.rows[0].name; }
             else {
                 const invRes = await pool.query(`SELECT i.amount, c.name FROM invoices i LEFT JOIN counterparties c ON i.counterparty_id = c.id WHERE i.invoice_number = $1`, [docNum]);
                 if (invRes.rows.length > 0) { totalAmount = invRes.rows[0].amount; clientName = invRes.rows[0].name; }

@@ -41,6 +41,52 @@ app.set('views', './views');
 app.use(express.static('public'));
 app.use(express.json({ limit: '50mb' }));
 
+
+// ==========================================
+// 🛠️ ВРЕМЕННЫЙ МАРШРУТ СБРОСА (БЕЗ АВТОРИЗАЦИИ)
+// ==========================================
+app.get('/debug/reset-bank', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        
+        // 1. Удаляем все банковские выписки
+        await client.query("DELETE FROM transactions WHERE payment_method = 'Безналичный расчет (Импорт)'");
+        
+        // 2. Пересчитываем балансы счетов
+        await client.query(`
+            UPDATE accounts a
+            SET balance = COALESCE((
+                SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE -amount END)
+                FROM transactions t 
+                WHERE t.account_id = a.id
+            ), 0)
+        `);
+        
+        await client.query('COMMIT');
+        res.send(`
+            <div style="font-family: sans-serif; padding: 40px; text-align: center;">
+                <h1 style="color: #4CAF50;">✅ База очищена!</h1>
+                <p style="font-size: 18px;">Старые импорты удалены. Баланс пересчитан.</p>
+                <b style="font-size: 20px;">Закройте вкладку и загрузите 4 файла заново.</b>
+            </div>
+        `);
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).send("Ошибка: " + err.message);
+    } finally {
+        client.release();
+    }
+});
+
+app.get('/debug/upgrade-db', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false;');
+        res.send('<h1 style="color:green; padding:50px;">✅ База обновлена: добавлена Корзина (is_deleted)!</h1>');
+    } finally { client.release(); }
+});
+
 // ==========================================
 // 2. ЯДРО: ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 // ==========================================
@@ -106,6 +152,26 @@ app.post('/api/login', async (req, res) => {
 app.use('/api', (req, res, next) => {
     if (req.path === '/login') return next();
     authenticateToken(req, res, next);
+});
+
+// ==========================================
+// 🏦 ПЕРЕИМЕНОВАНИЕ СЧЕТОВ / КАСС (Шестеренка на плашке)
+// ==========================================
+app.put('/api/accounts/:id', async (req, res) => {
+    const { name } = req.body;
+    const accountId = req.params.id;
+    const client = await pool.connect();
+    
+    try {
+        // Записываем новое имя в базу данных
+        await client.query('UPDATE accounts SET name = $1 WHERE id = $2', [name, accountId]);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Ошибка переименования счета:', err);
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
 });
 
 // ==========================================

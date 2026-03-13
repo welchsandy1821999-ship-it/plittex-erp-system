@@ -108,7 +108,7 @@
 
             // 🚀 ИСПРАВЛЕНИЕ: Перехватываем 401 ТОЛЬКО если это не попытка входа!
             // Если это логин, пропускаем ответ дальше, чтобы показать alert('Неверный пароль')
-            if ((response.status === 401 || response.status === 403) && resource !== '/api/login') {
+            if ((response.status === 401 || response.status === 403) && typeof resource === 'string' && resource.startsWith('/api') && resource !== '/api/login') {
                 localStorage.removeItem('jwtToken');
                 localStorage.removeItem('userName');
                 document.getElementById('app-screen').style.display = 'none';
