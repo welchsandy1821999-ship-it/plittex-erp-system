@@ -274,7 +274,11 @@ function renderSessionProducts() {
 }
 
 // === ОТПРАВКА НА СЕРВЕР (С ОБРАБОТКОЙ ОШИБОК ЧЕРЕЗ TOAST) ===
+let isSubmittingProduction = false; // 🚨 Глобальный флаг защиты от двойного клика
+
 window.submitDailyProduction = async function () {
+    if (isSubmittingProduction) return; // 🚨 ЗАЩИТА: Если уже отправляем - игнорируем новые клики
+
     const shiftName = document.getElementById('prod-shift-name').value.trim();
     if (!shiftName) return UI.toast('Выберите бригадира!', 'warning');
     if (sessionProducts.length === 0) return UI.toast('Добавьте продукцию в партию!', 'error');
@@ -296,6 +300,7 @@ window.submitDailyProduction = async function () {
         materialsUsed: aggregatedMaterials
     };
 
+    isSubmittingProduction = true; // 🚨 БЛОКИРУЕМ кнопку (начинаем процесс)
     UI.toast('⏳ Сохранение смены и проверка остатков...', 'info');
 
     try {
@@ -314,13 +319,14 @@ window.submitDailyProduction = async function () {
             renderSessionProducts();
             loadDailyHistory();
         } else {
-            // ❌ ОШИБКА (например, не хватило цемента)
-            // Сервер пришлет JSON вида { error: "Недостаточно: Цемент..." }
+            // ❌ ОШИБКА
             UI.toast(result.error || 'Ошибка при сохранении смены', 'error');
         }
     } catch (e) {
         console.error(e);
         UI.toast('Критическая ошибка связи с сервером', 'error');
+    } finally {
+        isSubmittingProduction = false; // 🚨 СНИМАЕМ БЛОКИРОВКУ в любом случае (даже при ошибке)
     }
 };
 

@@ -1,35 +1,114 @@
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
     <meta charset="UTF-8">
-    <title>Счет на оплату №<%= invoiceNum %></title>
+    <title>Счет на оплату №<%= invoiceNum %>
+    </title>
     <style>
-        body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #000; background: #fff; padding: 40px; max-width: 900px; margin: auto; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-        th, td { border: 1px solid #000; padding: 6px 8px; vertical-align: top; }
-        .no-border, .no-border td { border: none; padding: 4px 0; }
-        .header-text { font-size: 18px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #000; padding-bottom: 10px; }
-        
-        /* Стили для кнопок управления */
-        .action-buttons { display: flex; gap: 10px; justify-content: flex-end; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px dashed #ccc; }
-        .btn { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; color: white; font-size: 13px; transition: 0.2s; }
-        .btn-green { background: #10b981; } .btn-green:hover { background: #059669; }
-        .btn-gray { background: #64748b; } .btn-gray:hover { background: #475569; }
-        .btn-blue { background: #3b82f6; } .btn-blue:hover { background: #2563eb; }
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 13px;
+            color: #000;
+            background: #fff;
+            padding: 40px;
+            max-width: 900px;
+            margin: auto;
+        }
 
-        /* Скрываем кнопки и фон при печати */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        th,
+        td {
+            border: 1px solid #000;
+            padding: 6px 8px;
+            vertical-align: top;
+        }
+
+        .no-border,
+        .no-border td {
+            border: none;
+            padding: 4px 0;
+        }
+
+        .header-text {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #000;
+            padding-bottom: 10px;
+        }
+
+        /* Стили для кнопок управления */
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px dashed #ccc;
+        }
+
+        .btn {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            color: white;
+            font-size: 13px;
+            transition: 0.2s;
+        }
+
+        .btn-green {
+            background: #10b981;
+        }
+
+        .btn-green:hover {
+            background: #059669;
+        }
+
+        .btn-gray {
+            background: #64748b;
+        }
+
+        .btn-gray:hover {
+            background: #475569;
+        }
+
+        .btn-blue {
+            background: #3b82f6;
+        }
+
+        .btn-blue:hover {
+            background: #2563eb;
+        }
+
         @media print {
-            body { padding: 0; background: #fff; }
-            .no-print { display: none !important; }
+            body {
+                padding: 0;
+                background: #fff;
+            }
+
+            .no-print {
+                display: none !important;
+            }
         }
     </style>
 </head>
 
 <body>
     <div class="action-buttons no-print">
-        <button class="btn btn-blue" onclick="Export2Word('Счет_Плиттекс_№<%= invoiceNum %>')">📄 Сохранить в Word</button>
-        <button class="btn btn-gray" onclick="printDoc(false)">🖨️ Сохранить PDF (Без печати)</button>
-        <button class="btn btn-green" onclick="printDoc(true)">🖨️ Сохранить PDF (С печатью)</button>
+        <button class="btn btn-blue" onclick="Export2Word('Счет_Плиттекс_№<%= invoiceNum %>')">📄 Сохранить в
+            Word</button>
+        <button class="btn btn-gray" onclick="saveAndPrint(false, 'Счет_№<%= invoiceNum %>')">🖨️ Сохранить PDF (Без
+            печати)</button>
+        <button class="btn btn-green" onclick="saveAndPrint(true, 'Счет_№<%= invoiceNum %>')">🖨️ Сохранить PDF (С
+            печатью)</button>
     </div>
 
     <div id="doc-content">
@@ -37,49 +116,69 @@
             <div style="font-size: 14px; width: 70%;">
                 <b>Внимание!</b> Оплата данного счета означает согласие с условиями поставки товара.
             </div>
-            <% if (typeof qrCodeUrl !== 'undefined') { %>
+            <% if (typeof qrCodeUrl !=='undefined' ) { %>
                 <div style="width: 120px; text-align: right;">
-                    <img src="<%= qrCodeUrl %>" alt="QR Code" style="width: 100px; height: 100px; border: 1px solid #ccc; padding: 5px; border-radius: 8px;">
-                    <div style="font-size: 9px; text-align: center; margin-top: 5px; color: gray;">Наведите камеру<br>для оплаты</div>
+                    <img src="<%= qrCodeUrl %>" alt="QR Code"
+                        style="width: 100px; height: 100px; border: 1px solid #ccc; padding: 5px; border-radius: 8px;">
+                    <div style="font-size: 9px; text-align: center; margin-top: 5px; color: gray;">Наведите
+                        камеру<br>для оплаты</div>
                 </div>
-            <% } %>
+                <% } %>
         </div>
 
         <table style="margin-bottom: 25px;">
             <tr>
-                <td colspan="2" rowspan="2"><%= myBank.name %><br><span style="font-size: 11px;">Банк получателя</span></td>
+                <td colspan="2" rowspan="2">
+                    <%= myBank.name %><br><span style="font-size: 11px;">Банк получателя</span>
+                </td>
                 <td>БИК</td>
-                <td><%= myBank.bik %></td>
+                <td>
+                    <%= myBank.bik %>
+                </td>
             </tr>
             <tr>
                 <td>Сч. №</td>
-                <td><%= myBank.corr %></td>
+                <td>
+                    <%= myBank.corr %>
+                </td>
             </tr>
             <tr>
-                <td>ИНН <%= myCompany.inn %></td>
-                <td>КПП <%= myCompany.kpp %></td>
+                <td>ИНН <%= myCompany.inn %>
+                </td>
+                <td>КПП <%= myCompany.kpp %>
+                </td>
                 <td rowspan="2">Сч. №</td>
-                <td rowspan="2"><%= myBank.account %></td>
+                <td rowspan="2">
+                    <%= myBank.account %>
+                </td>
             </tr>
             <tr>
-                <td colspan="2"><%= myCompany.name %><br><span style="font-size: 11px;">Получатель</span></td>
+                <td colspan="2">
+                    <%= myCompany.name %><br><span style="font-size: 11px;">Получатель</span>
+                </td>
             </tr>
         </table>
 
-        <div class="header-text">Счет на оплату № <%= invoiceNum %> от <%= dateLong %></div>
+        <div class="header-text">Счет на оплату № <%= invoiceNum %> от <%= dateLong %>
+        </div>
 
         <table class="no-border" style="margin-bottom: 20px;">
             <tr>
                 <td style="width: 120px; padding: 5px;">Поставщик:</td>
-                <td style="font-weight: bold; padding: 5px;"><%= myCompany.name %>, ИНН <%= myCompany.inn %>, КПП <%= myCompany.kpp %>, <%= myCompany.address %></td>
+                <td style="font-weight: bold; padding: 5px;">
+                    <%= myCompany.name %>, ИНН <%= myCompany.inn %>, КПП <%= myCompany.kpp %>, <%= myCompany.address %>
+                </td>
             </tr>
             <tr>
                 <td style="padding: 5px;">Покупатель:</td>
-                <td style="font-weight: bold; padding: 5px;"><%= cp.name %>, ИНН <%= cp.inn %>, КПП <%= cp.kpp %>, <%= cp.legal_address %></td>
+                <td style="font-weight: bold; padding: 5px;">
+                    <%= cp.name %>, ИНН <%= cp.inn %>, КПП <%= cp.kpp %>, <%= cp.legal_address %>
+                </td>
             </tr>
             <tr>
                 <td style="padding: 5px;">Основание:</td>
-                <td style="font-weight: bold; padding: 5px;">Заказ клиента <%= docNum %></td>
+                <td style="font-weight: bold; padding: 5px;">Заказ клиента <%= docNum %>
+                </td>
             </tr>
         </table>
 
@@ -96,47 +195,84 @@
             </thead>
             <tbody>
                 <% let sumTotal=0; %>
-                <% items.forEach((item, index)=> { %>
-                    <% const rowSum=item.qty * item.price; sumTotal +=rowSum; %>
-                    <tr>
-                        <td align="center"><%= index + 1 %></td>
-                        <td><%= item.name %></td>
-                        <td align="center"><%= item.qty %></td>
-                        <td align="center"><%= item.unit %></td>
-                        <td align="right"><%= parseFloat(item.price).toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
-                        <td align="right"><%= parseFloat(rowSum).toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
-                    </tr>
-                <% }) %>
+                    <% items.forEach((item, index)=> { %>
+                        <% const rowSum=item.qty * item.price; sumTotal +=rowSum; %>
+                            <tr>
+                                <td align="center">
+                                    <%= index + 1 %>
+                                </td>
+                                <td>
+                                    <%= item.name %>
+                                </td>
+                                <td align="center">
+                                    <%= item.qty %>
+                                </td>
+                                <td align="center">
+                                    <%= item.unit %>
+                                </td>
+                                <td align="right">
+                                    <%= parseFloat(item.price).toLocaleString('ru-RU', {minimumFractionDigits: 2}) %>
+                                </td>
+                                <td align="right">
+                                    <%= parseFloat(rowSum).toLocaleString('ru-RU', {minimumFractionDigits: 2}) %>
+                                </td>
+                            </tr>
+                            <% }) %>
 
-                <% if (totalOrderSum > amount) { %>
-                    <tr>
-                        <td colspan="5" align="right" style="border: none; padding-right: 15px;"><b>Итого по заказу:</b></td>
-                        <td align="right" style="border: none;"><b><%= parseFloat(totalOrderSum).toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></b></td>
-                    </tr>
-                    <tr>
-                        <td colspan="5" align="right" style="border: none; padding-right: 15px;"><b>Ранее оплачено (Аванс):</b></td>
-                        <td align="right" style="border: none;"><b><%= parseFloat(totalOrderSum - amount).toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></b></td>
-                    </tr>
-                <% } %>
-                <tr>
-                    <td colspan="5" align="right" style="border: none; padding-right: 15px; padding-top: 15px;"><b>Итого к оплате по счету:</b></td>
-                    <td align="right" style="border: none; padding-top: 15px;"><b><%= parseFloat(amount).toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></b></td>
-                </tr>
-                <tr>
-                    <td colspan="5" align="right" style="border: none; padding-right: 15px;"><b>В том числе НДС 22%:</b></td>
-                    <td align="right" style="border: none;"><b><%= vatAmount.toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></b></td>
-                </tr>
+                                <% if (totalOrderSum> amount) { %>
+                                    <tr>
+                                        <td colspan="5" align="right" style="border: none; padding-right: 15px;">
+                                            <b>Итого по заказу:</b>
+                                        </td>
+                                        <td align="right" style="border: none;"><b>
+                                                <%= parseFloat(totalOrderSum).toLocaleString('ru-RU',
+                                                    {minimumFractionDigits: 2}) %>
+                                            </b></td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="5" align="right" style="border: none; padding-right: 15px;">
+                                            <b>Ранее оплачено (Аванс):</b>
+                                        </td>
+                                        <td align="right" style="border: none;"><b>
+                                                <%= parseFloat(totalOrderSum - amount).toLocaleString('ru-RU',
+                                                    {minimumFractionDigits: 2}) %>
+                                            </b></td>
+                                    </tr>
+                                    <% } %>
+                                        <tr>
+                                            <td colspan="5" align="right"
+                                                style="border: none; padding-right: 15px; padding-top: 15px;"><b>Итого к
+                                                    оплате по счету:</b></td>
+                                            <td align="right" style="border: none; padding-top: 15px;"><b>
+                                                    <%= parseFloat(amount).toLocaleString('ru-RU',
+                                                        {minimumFractionDigits: 2}) %>
+                                                </b></td>
+                                        </tr>
+                                        <tr>
+                                            <td colspan="5" align="right" style="border: none; padding-right: 15px;">
+                                                <b>В том числе НДС 22%:</b>
+                                            </td>
+                                            <td align="right" style="border: none;"><b>
+                                                    <%= vatAmount.toLocaleString('ru-RU', {minimumFractionDigits: 2}) %>
+                                                </b></td>
+                                        </tr>
             </tbody>
         </table>
 
         <div style="font-size: 13px; margin-bottom: 25px;">
-            Всего наименований <%= items.length %>, на сумму к оплате <%= parseFloat(amount).toLocaleString('ru-RU', {minimumFractionDigits: 2}) %> руб.<br>
-            <b><%= amountWords %></b>
+            Всего наименований <%= items.length %>, на сумму к оплате <%= parseFloat(amount).toLocaleString('ru-RU',
+                    {minimumFractionDigits: 2}) %> руб.<br>
+                    <b>
+                        <%= amountWords %>
+                    </b>
         </div>
 
         <div style="font-size: 13px; line-height: 1.4; margin-bottom: 25px;">
-            Оплатить не позднее <b><%= payUntil %></b><br>
-            Товар отпускается по факту прихода денег на р/с Поставщика, самовывозом, при наличии доверенности и паспорта.
+            Оплатить не позднее <b>
+                <%= payUntil %>
+            </b><br>
+            Товар отпускается по факту прихода денег на р/с Поставщика, самовывозом, при наличии доверенности и
+            паспорта.
         </div>
 
         <hr style="border-top: 2px solid #000; margin-bottom: 30px;">
@@ -144,52 +280,83 @@
         <div style="display: flex; justify-content: space-between; font-weight: bold; position: relative;">
             <div style="position: relative;">
                 Руководитель _________________ /Марченко С. М./
-                <img src="/img/sign_dir.png" class="overlay-img" style="position: absolute; top: -30px; left: 100px; width: 120px; display: none; z-index: -1;">
+                <img src="/img/sign_dir.png" class="overlay-img"
+                    style="position: absolute; top: -30px; left: 100px; width: 120px; display: none; z-index: -1;">
             </div>
-            
-            <img src="/img/stamp.png" class="overlay-img" style="position: absolute; top: -50px; left: 250px; width: 160px; opacity: 0.85; display: none; z-index: -2;">
-            
+
+            <img src="/img/stamp.png" class="overlay-img"
+                style="position: absolute; top: -50px; left: 250px; width: 160px; opacity: 0.85; display: none; z-index: -2;">
+
             <div style="position: relative;">
                 Бухгалтер _________________ /Москвичева И.Ю./
-                <img src="/img/sign_buh.png" class="overlay-img" style="position: absolute; top: -20px; left: 80px; width: 100px; display: none; z-index: -1;">
+                <img src="/img/sign_buh.png" class="overlay-img"
+                    style="position: absolute; top: -20px; left: 80px; width: 100px; display: none; z-index: -1;">
             </div>
         </div>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script>
-        // Функция управления видимостью печати перед печатью PDF
-        function printDoc(withStamp) {
+        async function saveAndPrint(withStamp, docName) {
             const overlays = document.querySelectorAll('.overlay-img');
-            overlays.forEach(el => {
-                el.style.display = withStamp ? 'block' : 'none';
-            });
+            overlays.forEach(el => el.style.display = withStamp ? 'block' : 'none');
+
+            const actionBtns = document.querySelector('.action-buttons');
+            if (actionBtns) actionBtns.style.display = 'none';
+
+            const element = document.getElementById('doc-content');
+            const opt = {
+                margin: [10, 10, 10, 10],
+                filename: `${docName}_${withStamp ? 'С_печатью' : 'Без_печати'}_${Date.now()}.pdf`,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+
+            try {
+                const pdfBase64 = await html2pdf().set(opt).from(element).outputPdf('datauristring');
+
+                await fetch('/api/docs/save-pdf', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename: opt.filename, fileData: pdfBase64 })
+                });
+            } catch (error) {
+                console.error("Ошибка сохранения:", error);
+            }
+
             window.print();
+            if (actionBtns) actionBtns.style.display = 'flex';
         }
 
-        // Функция сохранения чистого файла в Word
         function Export2Word(filename = '') {
-            // Временно скрываем картинки печатей, чтобы они не ломали верстку в Word
             const overlays = document.querySelectorAll('.overlay-img');
             overlays.forEach(el => el.style.display = 'none');
 
-            var preHtml = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Export HTML To Doc</title></head><body>";
+            const actionBtns = document.querySelector('.action-buttons');
+            if (actionBtns) actionBtns.style.display = 'none';
+
+            var preHtml = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Export</title></head><body>";
             var postHtml = "</body></html>";
             var html = preHtml + document.getElementById('doc-content').innerHTML + postHtml;
 
-            var blob = new Blob(['\\ufeff', html], { type: 'application/msword' });
+            var blob = new Blob(['\ufeff', html], { type: 'application/msword' });
             var url = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(html);
             var downloadLink = document.createElement("a");
-            
+
             document.body.appendChild(downloadLink);
-            if(navigator.msSaveOrOpenBlob ){
-                navigator.msSaveOrOpenBlob(blob, filename+'.doc');
-            }else{
+            if (navigator.msSaveOrOpenBlob) {
+                navigator.msSaveOrOpenBlob(blob, filename + '.doc');
+            } else {
                 downloadLink.href = url;
-                downloadLink.download = filename+'.doc';
+                downloadLink.download = filename + '.doc';
                 downloadLink.click();
             }
+
             document.body.removeChild(downloadLink);
+            if (actionBtns) actionBtns.style.display = 'flex';
         }
     </script>
 </body>
+
 </html>

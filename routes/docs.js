@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const Big = require('big.js');
+const fs = require('fs');
+const fsPromises = require('fs').promises; // 👈 Подключаем асинхронную работу с файлами
+const path = require('path');
 
 // Функция перевода суммы прописью (встроена локально для счетов)
 function numberToWordsRu(num) {
@@ -31,9 +34,9 @@ function numberToWordsRu(num) {
     return words.charAt(0).toUpperCase() + words.slice(1).trim() + ' ' + String(kopecks).padStart(2, '0') + ' копеек';
 }
 
-module.exports = function (pool, getNextDocNumber) {
+// 👈 Добавили withTransaction
+module.exports = function (pool, getNextDocNumber, withTransaction) {
 
-    // ВАЖНО: Маршрут использует express.urlencoded локально
     router.post('/print/kp', express.urlencoded({ extended: true }), async (req, res) => {
         try {
             const data = JSON.parse(req.body.data);
@@ -94,19 +97,20 @@ module.exports = function (pool, getNextDocNumber) {
             finalData.baseAmount = Number(amountBig.minus(finalData.vatAmount).round(2));
             finalData.amountWords = numberToWordsRu(finalData.amount);
 
+            // 🛡️ БЕЗОПАСНАЯ ЗАПИСЬ В БАЗУ ЧЕРЕЗ ТРАНЗАКЦИЮ
             if (finalData.amount > 0) {
-                const checkInv = await pool.query(`SELECT id FROM invoices WHERE invoice_number = $1`, [finalData.invoiceNum]);
-                if (checkInv.rows.length === 0 && (finalData.cp.id || cp_id)) {
-                    await pool.query(`INSERT INTO invoices (invoice_number, counterparty_id, amount, description, status) VALUES ($1, $2, $3, $4, 'pending')`, [finalData.invoiceNum, finalData.cp.id || cp_id, finalData.amount, docNum ? `Оплата по заказу ${docNum}` : (desc || 'Аванс')]);
-                }
+                await withTransaction(pool, async (client) => {
+                    const checkInv = await client.query(`SELECT id FROM invoices WHERE invoice_number = $1 FOR UPDATE`, [finalData.invoiceNum]);
+                    if (checkInv.rows.length === 0 && (finalData.cp.id || cp_id)) {
+                        await client.query(`INSERT INTO invoices (invoice_number, counterparty_id, amount, description, status) VALUES ($1, $2, $3, $4, 'pending')`, [finalData.invoiceNum, finalData.cp.id || cp_id, finalData.amount, docNum ? `Оплата по заказу ${docNum}` : (desc || 'Аванс')]);
+                    }
+                });
             }
-            // === ГЕНЕРАЦИЯ ГОСТ QR-КОДА ДЛЯ ОПЛАТЫ ЧЕРЕЗ БАНК ===
-            const sumInKopecks = Math.round(finalData.amount * 100); // Сумма в копейках
+
+            const sumInKopecks = Math.round(finalData.amount * 100);
             const purpose = docNum ? `Оплата по заказу ${docNum}` : (desc || 'Аванс');
-            // Строка по стандарту Сбербанка/ГОСТ
             const gostStr = `ST00012|Name=${finalData.myCompany.name}|PersonalAcc=${finalData.myBank.account}|BankName=${finalData.myBank.name}|BIC=${finalData.myBank.bik}|CorrespAcc=${finalData.myBank.corr}|PayeeINN=${finalData.myCompany.inn}|KPP=${finalData.myCompany.kpp}|Purpose=${purpose}|Sum=${sumInKopecks}`;
 
-            // Используем бесплатный API для генерации картинки QR-кода
             finalData.qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(gostStr)}`;
             res.render('docs/invoice', finalData);
         } catch (err) { res.status(500).send(err.message); }
@@ -175,6 +179,32 @@ module.exports = function (pool, getNextDocNumber) {
             const itemsRes = await pool.query(`SELECT i.name, i.unit, i.current_price as price, SUM(ABS(m.quantity)) as qty FROM inventory_movements m JOIN items i ON m.item_id = i.id WHERE m.movement_type = 'sales_shipment' AND m.description LIKE $1 GROUP BY i.name, i.unit, i.current_price`, [`%${docNum}%`]);
             res.render('docs/specification', { docNum, clientName, totalAmount, contractInfo, items: itemsRes.rows, date: new Date().toLocaleDateString('ru-RU') });
         } catch (err) { res.status(500).send(err.message); }
+    });
+
+    // 🚀 ИСПРАВЛЕНИЕ: Асинхронное сохранение файла без блокировки сервера
+    router.post('/api/docs/save-pdf', express.json({ limit: '50mb' }), async (req, res) => {
+        console.log('📥 Получен PDF для сохранения...');
+        try {
+            const { filename, fileData } = req.body;
+            if (!fileData || !filename) return res.status(400).json({ error: 'Данные отсутствуют' });
+
+            const safeFilename = path.basename(filename);
+
+            const base64Data = fileData.replace(/^data:application\/pdf;filename=generated\.pdf;base64,/, "")
+                .replace(/^data:application\/pdf;base64,/, "");
+
+            const dir = path.join(__dirname, '../public/saved_docs');
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+            // Записываем файл асинхронно, не тормозя работу других пользователей
+            await fsPromises.writeFile(path.join(dir, safeFilename), base64Data, 'base64');
+            
+            console.log(`✅ Сохранено: ${filename}`);
+            res.json({ success: true });
+        } catch (err) {
+            console.error('❌ Ошибка записи:', err);
+            res.status(500).json({ error: err.message });
+        }
     });
 
     return router;

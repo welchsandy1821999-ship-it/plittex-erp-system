@@ -13,106 +13,186 @@
         th { background-color: #f0f0f0; font-weight: bold; text-align: center; }
         .text-right { text-align: right; }
         .text-center { text-align: center; }
-        
-        /* Добавили классы для цвета, чтобы редактор кода не ругался */
         .color-red { color: #dc2626; }
         .color-green { color: #16a34a; }
-
         .signatures { display: flex; justify-content: space-between; margin-top: 50px; }
-        .sign-box { width: 45%; }
+        .sign-box { width: 45%; position: relative; }
         .line { border-bottom: 1px solid #000; margin-top: 30px; }
-        .no-print { text-align: right; margin-bottom: 20px; }
-        @media print { body { padding: 0; } .no-print { display: none; } }
+        
+        /* Стили кнопок */
+        .action-buttons { display: flex; gap: 10px; justify-content: flex-end; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px dashed #ccc; }
+        .btn { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; color: white; font-size: 13px; transition: 0.2s; }
+        .btn-green { background: #10b981; } .btn-green:hover { background: #059669; }
+        .btn-gray { background: #64748b; } .btn-gray:hover { background: #475569; }
+        .btn-blue { background: #3b82f6; } .btn-blue:hover { background: #2563eb; }
+        @media print { .no-print { display: none !important; } body { padding: 0; background: #fff; } }
     </style>
 </head>
-<body onload="window.print()">
-
-    <div class="no-print">
-        <button onclick="window.print()" style="padding: 8px 16px; font-size: 14px; cursor: pointer; background: #0ea5e9; color: white; border: none; border-radius: 5px;">🖨️ Распечатать / PDF</button>
+<body>
+    <% 
+        // Заранее готовим безопасное имя для файлов, чтобы не ломать HTML-атрибуты кнопок
+        let safeName = cp.name ? cp.name.replace(/[^a-zA-Zа-яА-Я0-9]/g, '_') : 'Контрагент'; 
+    %>
+    
+    <div class="action-buttons no-print">
+        <button class="btn btn-blue" onclick="Export2Word('Акт_Сверки_<%= safeName %>')">📄 Сохранить в Word</button>
+        <button class="btn btn-gray" onclick="saveAndPrint(false, 'Акт_Сверки_<%= safeName %>')">🖨️ Сохранить PDF (Без печати)</button>
+        <button class="btn btn-green" onclick="saveAndPrint(true, 'Акт_Сверки_<%= safeName %>')">🖨️ Сохранить PDF (С печатью)</button>
     </div>
 
-    <div class="header">
-        <h1>АКТ СВЕРКИ ВЗАИМОРАСЧЕТОВ</h1>
-        <p>по состоянию на <%= new Date().toLocaleDateString('ru-RU') %> г.</p>
-    </div>
+    <div id="doc-content">
+        <div class="header">
+            <h1>АКТ СВЕРКИ ВЗАИМОРАСЧЕТОВ</h1>
+            <p>по состоянию на <%= new Date().toLocaleDateString('ru-RU') %> г.</p>
+        </div>
 
-    <div class="info-text">
-        Мы, нижеподписавшиеся, представитель ООО "Плиттекс" (Поставщик), с одной стороны, и представитель <b><%= cp.name %></b> (Покупатель), с другой стороны, составили настоящий акт сверки в том, что состояние взаимных расчетов по данным учета следующее:
-    </div>
+        <div class="info-text">
+            Мы, нижеподписавшиеся, представитель ООО "Плиттекс" (Поставщик), с одной стороны, и представитель <b><%= cp.name %></b> (Покупатель), с другой стороны, составили настоящий акт сверки в том, что состояние взаимных расчетов по данным учета следующее:
+        </div>
 
-    <table>
-        <thead>
-            <tr>
-                <th style="width: 10%;">Дата</th>
-                <th style="width: 40%;">Документ / Описание операции</th>
-                <th style="width: 15%;">Дебет (Долг покупателя)</th>
-                <th style="width: 15%;">Кредит (Оплата покупателя)</th>
-                <th style="width: 20%;">Сальдо (Текущий долг)</th>
-            </tr>
-        </thead>
-        <tbody>
-            <% let runningBalance = 0; %>
-            <% let totalDebit = 0; %>
-            <% let totalCredit = 0; %>
-            
-            <% transactions.forEach((t) => { %>
-                <% 
-                    let debit = 0; let credit = 0;
-                    if (t.transaction_type === 'income') {
-                        credit = parseFloat(t.amount); 
-                        totalCredit += credit;
-                        runningBalance -= credit;
-                    } else {
-                        debit = parseFloat(t.amount); 
-                        totalDebit += debit;
-                        runningBalance += debit;
-                    }
-                %>
+        <table>
+            <thead>
                 <tr>
-                    <td class="text-center"><%= t.date %></td>
-                    <td><%= t.description %></td>
-                    <td class="text-right"><%= debit > 0 ? debit.toLocaleString('ru-RU') + ' ₽' : '-' %></td>
-                    <td class="text-right"><%= credit > 0 ? credit.toLocaleString('ru-RU') + ' ₽' : '-' %></td>
-                    <td class="text-right <%= runningBalance > 0 ? 'color-red' : 'color-green' %>" style="font-weight: bold;">
-                        <%= runningBalance.toLocaleString('ru-RU') %> ₽
-                    </td>
+                    <th style="width: 10%;">Дата</th>
+                    <th style="width: 40%;">Документ / Описание операции</th>
+                    <th style="width: 15%;">Дебет (Долг покупателя)</th>
+                    <th style="width: 15%;">Кредит (Оплата покупателя)</th>
+                    <th style="width: 20%;">Сальдо (Текущий долг)</th>
                 </tr>
-            <% }) %>
-            <tr style="background: #f0f0f0; font-weight: bold;">
-                <td colspan="2" class="text-right">ИТОГО ОБОРОТЫ:</td>
-                <td class="text-right"><%= totalDebit.toLocaleString('ru-RU') %> ₽</td>
-                <td class="text-right"><%= totalCredit.toLocaleString('ru-RU') %> ₽</td>
-                <td></td>
-            </tr>
-        </tbody>
-    </table>
+            </thead>
+            <tbody>
+                <% 
+                    let runningBalance = 0; 
+                    let totalDebit = 0; 
+                    let totalCredit = 0; 
+                %>
+                <% transactions.forEach((t) => { %>
+                    <% 
+                        let debit = 0; 
+                        let credit = 0; 
+                        
+                        if (t.transaction_type === 'income') { 
+                            credit = parseFloat(t.amount); 
+                            totalCredit += credit; 
+                            runningBalance -= credit; 
+                        } else { 
+                            debit = parseFloat(t.amount); 
+                            totalDebit += debit; 
+                            runningBalance += debit; 
+                        } 
+                        
+                        // Заранее готовим строки и классы, чтобы не писать логику внутри HTML-тегов
+                        let debitStr = debit > 0 ? debit.toLocaleString('ru-RU') + ' ₽' : '-';
+                        let creditStr = credit > 0 ? credit.toLocaleString('ru-RU') + ' ₽' : '-';
+                        let balanceColor = runningBalance > 0 ? 'color-red' : 'color-green';
+                    %>
+                    <tr>
+                        <td class="text-center"><%= t.date %></td>
+                        <td><%= t.description %></td>
+                        <td class="text-right"><%= debitStr %></td>
+                        <td class="text-right"><%= creditStr %></td>
+                        <td class="text-right <%= balanceColor %>" style="font-weight: bold;"><%= runningBalance.toLocaleString('ru-RU') %> ₽</td>
+                    </tr>
+                <% }) %>
+                <tr style="background: #f0f0f0; font-weight: bold;">
+                    <td colspan="2" class="text-right">ИТОГО ОБОРОТЫ:</td>
+                    <td class="text-right"><%= totalDebit.toLocaleString('ru-RU') %> ₽</td>
+                    <td class="text-right"><%= totalCredit.toLocaleString('ru-RU') %> ₽</td>
+                    <td></td>
+                </tr>
+            </tbody>
+        </table>
 
-    <div class="info-text" style="font-weight: bold; font-size: 13px;">
-        <% if (runningBalance > 0) { %>
-            Задолженность в пользу ООО "Плиттекс" составляет: <%= runningBalance.toLocaleString('ru-RU') %> руб.
-        <% } else if (runningBalance < 0) { %>
-            Задолженность в пользу <%= cp.name %> (Аванс) составляет: <%= Math.abs(runningBalance).toLocaleString('ru-RU') %> руб.
-        <% } else { %>
-            Задолженность отсутствует (Сальдо равно нулю).
-        <% } %>
-        
-        <% if (cp.pallets_balance > 0) { %>
-            <br><span style="color: #d97706;">* За контрагентом также числится долг по возвратной таре (поддонам) в количестве: <%= cp.pallets_balance %> шт.</span>
-        <% } %>
+        <div class="info-text" style="font-weight: bold; font-size: 13px;">
+            <% if (runningBalance > 0) { %>
+                Задолженность в пользу ООО "Плиттекс" составляет: <%= runningBalance.toLocaleString('ru-RU') %> руб.
+            <% } else if (runningBalance < 0) { %>
+                Задолженность в пользу <%= cp.name %> (Аванс) составляет: <%= Math.abs(runningBalance).toLocaleString('ru-RU') %> руб.
+            <% } else { %>
+                Задолженность отсутствует (Сальдо равно нулю).
+            <% } %>
+
+            <% if (cp.pallets_balance && cp.pallets_balance > 0) { %>
+                <br><span style="color: #d97706;">* За контрагентом также числится долг по возвратной таре (поддонам) в количестве: <%= cp.pallets_balance %> шт.</span>
+            <% } %>
+        </div>
+
+        <div class="signatures">
+            <div class="sign-box">
+                <b>От ООО "Плиттекс":</b>
+                <div class="line"></div>
+                <p style="text-align: center; font-size: 10px;">М.П.</p>
+                <img src="/img/stamp.png" class="overlay-img" style="position: absolute; top: -10px; left: 80px; width: 140px; opacity: 0.85; display: none; z-index: -2;">
+                <img src="/img/sign_dir.png" class="overlay-img" style="position: absolute; top: 10px; left: 30px; width: 100px; display: none; z-index: -1;">
+            </div>
+            <div class="sign-box">
+                <b>От <%= cp.name %>:</b>
+                <div class="line"></div>
+                <p style="text-align: center; font-size: 10px;">М.П.</p>
+            </div>
+        </div>
     </div>
 
-    <div class="signatures">
-        <div class="sign-box">
-            <b>От ООО "Плиттекс":</b>
-            <div class="line"></div>
-            <p style="text-align: center; font-size: 10px;">М.П.</p>
-        </div>
-        <div class="sign-box">
-            <b>От <%= cp.name %>:</b>
-            <div class="line"></div>
-            <p style="text-align: center; font-size: 10px;">М.П.</p>
-        </div>
-    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script>
+        async function saveAndPrint(withStamp, docName) {
+            const overlays = document.querySelectorAll('.overlay-img');
+            overlays.forEach(el => el.style.display = withStamp ? 'block' : 'none');
+            
+            const actionBtns = document.querySelector('.action-buttons');
+            if (actionBtns) actionBtns.style.display = 'none';
 
+            const element = document.getElementById('doc-content');
+            const opt = {
+                margin:       [10, 10, 10, 10],
+                filename:     `${docName}_${withStamp ? 'С_печатью' : 'Без_печати'}_${Date.now()}.pdf`,
+                image:        { type: 'jpeg', quality: 0.98 },
+                html2canvas:  { scale: 2, useCORS: true },
+                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+
+            try {
+                const pdfBase64 = await html2pdf().set(opt).from(element).outputPdf('datauristring');
+                await fetch('/api/docs/save-pdf', { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify({ filename: opt.filename, fileData: pdfBase64 }) 
+                });
+            } catch (error) { 
+                console.error("Ошибка при сохранении PDF на сервер:", error); 
+            }
+
+            window.print();
+            if (actionBtns) actionBtns.style.display = 'flex';
+        }
+
+        function Export2Word(filename = '') {
+            const overlays = document.querySelectorAll('.overlay-img');
+            overlays.forEach(el => el.style.display = 'none');
+            
+            const actionBtns = document.querySelector('.action-buttons');
+            if (actionBtns) actionBtns.style.display = 'none';
+
+            var preHtml = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Export</title></head><body>";
+            var postHtml = "</body></html>";
+            var html = preHtml + document.getElementById('doc-content').innerHTML + postHtml;
+
+            var blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+            var url = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(html);
+            var downloadLink = document.createElement("a");
+            
+            document.body.appendChild(downloadLink);
+            if(navigator.msSaveOrOpenBlob) { 
+                navigator.msSaveOrOpenBlob(blob, filename+'.doc'); 
+            } else { 
+                downloadLink.href = url; 
+                downloadLink.download = filename+'.doc'; 
+                downloadLink.click(); 
+            }
+            
+            document.body.removeChild(downloadLink);
+            if (actionBtns) actionBtns.style.display = 'flex';
+        }
+    </script>
 </body>
 </html>

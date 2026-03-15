@@ -138,17 +138,17 @@ function renderInventoryTable() {
                           </button>`;
             } else {
                 actionHtml = `<button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--danger); border-color: var(--danger);" 
-                            onclick="openScrapModal(${item.item_id}, '${item.item_name}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
-                            ↘️ Переместить
-                          </button>`;
+                    onclick="openDirectScrapModal(${item.item_id}, '${item.item_name}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
+                      ↘️ Переместить
+                </button>`;
             }
         }
 
         tbody.innerHTML += `
             <tr style="transition: 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor=''">
-                <td><span class="badge" style="background: #e2e8f0; color: #475569;">${item.warehouse_name}</span></td>
-                <td style="color: var(--primary); font-weight: bold;">${item.batch_number ? '#' + item.batch_number : (item.batch_id ? '#' + item.batch_id : '-')}</td>
-                <td><strong>${item.item_name}</strong></td>
+                <td><span class="badge" style="background: #e2e8f0; color: #475569;">${escapeHTML(item.warehouse_name)}</span></td>
+                <td style="color: var(--primary); font-weight: bold;">${item.batch_number ? '#' + escapeHTML(item.batch_number) : (item.batch_id ? '#' + item.batch_id : '-')}</td>
+                <td><strong>${escapeHTML(item.item_name)}</strong></td>
                 ${qtyHtml}
                 <td style="color: var(--text-muted);">${item.unit}</td>
                 <td style="text-align: right;">${actionHtml}</td>
@@ -156,8 +156,8 @@ function renderInventoryTable() {
     });
 }
 
-// === СПИСАНИЕ БОЯ И БРАКА ===
-window.openScrapModal = function (itemId, itemName, batchId, batchNum, warehouseId, currentQty) {
+// === ПРЯМОЕ СПИСАНИЕ БОЯ И БРАКА (ИСПРАВЛЕНО ИМЯ И API) ===
+window.openDirectScrapModal = function (itemId, itemName, batchId, batchNum, warehouseId, currentQty) {
     const html = `
         <div style="background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 20px;">
             <div style="font-size: 15px;">Продукция: <b>${itemName}</b></div>
@@ -165,35 +165,35 @@ window.openScrapModal = function (itemId, itemName, batchId, batchNum, warehouse
             <div style="margin-top: 5px; color: var(--text-muted);">Текущий остаток: <b style="font-size: 16px; color: var(--text-main);">${currentQty}</b> ед.</div>
         </div>
 
-        <input type="hidden" id="scrap-item-id" value="${itemId}">
-        <input type="hidden" id="scrap-batch-id" value="${batchId || ''}">
-        <input type="hidden" id="scrap-warehouse-id" value="${warehouseId}">
+        <input type="hidden" id="scrap-direct-item-id" value="${itemId}">
+        <input type="hidden" id="scrap-direct-batch-id" value="${batchId || ''}">
+        <input type="hidden" id="scrap-direct-warehouse-id" value="${warehouseId}">
         
         <div class="form-group">
             <label style="color: var(--danger); font-weight: bold;">Количество брака/боя:</label>
-            <input type="number" id="scrap-qty" class="input-modern" placeholder="Сколько разбилось?" max="${currentQty}" onfocus="this.select()">
+            <input type="number" id="scrap-direct-qty" class="input-modern" placeholder="Сколько разбилось?" max="${currentQty}" onfocus="this.select()">
         </div>
         <div class="form-group">
             <label>Причина списания:</label>
-            <input type="text" id="scrap-desc" class="input-modern" placeholder="Например: Разбили при погрузке вилочником" value="Списание боя/брака со склада">
+            <input type="text" id="scrap-direct-desc" class="input-modern" placeholder="Например: Разбили при погрузке вилочником" value="Списание боя/брака со склада">
             <small style="color: var(--text-muted); margin-top: 5px; display: block;">Списанный объем переместится на Склад №6 (Изолятор брака) для учета мусора.</small>
         </div>
     `;
 
     const buttons = `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-        <button class="btn btn-red" onclick="executeScrap()">🔨 Списать в утиль</button>
+        <button class="btn btn-red" onclick="executeDirectScrap()">🔨 Списать в утиль</button>
     `;
 
     UI.showModal('Списание брака', html, buttons);
 };
 
-window.executeScrap = async function () {
-    const itemId = document.getElementById('scrap-item-id').value;
-    const batchId = document.getElementById('scrap-batch-id').value;
-    const warehouseId = document.getElementById('scrap-warehouse-id').value;
-    const scrapQty = parseFloat(document.getElementById('scrap-qty').value);
-    const desc = document.getElementById('scrap-desc').value;
+window.executeDirectScrap = async function () {
+    const itemId = document.getElementById('scrap-direct-item-id').value;
+    const batchId = document.getElementById('scrap-direct-batch-id').value;
+    const warehouseId = document.getElementById('scrap-direct-warehouse-id').value;
+    const scrapQty = parseFloat(document.getElementById('scrap-direct-qty').value);
+    const desc = document.getElementById('scrap-direct-desc').value;
 
     if (!scrapQty || scrapQty <= 0) return UI.toast('Введите корректное количество', 'warning');
 
@@ -205,6 +205,7 @@ window.executeScrap = async function () {
                 itemId: itemId,
                 batchId: batchId || null,
                 warehouseId: warehouseId,
+                targetWarehouseId: 6, // 🚨 ДОБАВЛЕНО: Явно указываем склад утиля (№6), чтобы бэкенд не сломался
                 scrapQty: scrapQty,
                 description: desc
             })
@@ -219,7 +220,6 @@ window.executeScrap = async function () {
         }
     } catch (e) { console.error(e); }
 };
-
 
 // === ОКНО РАСПАЛУБКИ ===
 window.openDemoldingModal = function (batchId, batchNum, tileId, productName, plannedQty) {
@@ -401,17 +401,17 @@ window.executeDispose = async function () {
         const res = await fetch('/api/inventory/dispose', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                itemId: itemId, 
-                batchId: batchId || null, 
-                warehouseId: warehouseId, 
-                disposeQty: disposeQty, 
-                description: desc 
+            body: JSON.stringify({
+                itemId: itemId,
+                batchId: batchId || null,
+                warehouseId: warehouseId,
+                disposeQty: disposeQty,
+                description: desc
             })
         });
-        
+
         const data = await res.json();
-        
+
         if (res.ok) {
             UI.closeModal();
             UI.toast(data.message || '✅ Успешно утилизировано', 'success');

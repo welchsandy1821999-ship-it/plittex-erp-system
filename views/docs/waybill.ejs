@@ -14,80 +14,129 @@
         th { background-color: #f0f0f0; font-weight: bold; text-align: center; }
         .total { text-align: right; font-size: 14px; font-weight: bold; margin-top: 10px; }
         .signatures { display: flex; justify-content: space-between; margin-top: 50px; }
-        .sign-box { width: 45%; }
+        .sign-box { width: 45%; position: relative; }
         .line { border-bottom: 1px solid #000; margin-top: 30px; }
-        .no-print { text-align: right; margin-bottom: 20px; }
-        @media print { 
-            body { padding: 0; } 
-            .no-print { display: none; } 
-        }
+        
+        /* Стили кнопок */
+        .action-buttons { display: flex; gap: 10px; justify-content: flex-end; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px dashed #ccc; }
+        .btn { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; color: white; font-size: 13px; transition: 0.2s; }
+        .btn-green { background: #10b981; } .btn-green:hover { background: #059669; }
+        .btn-gray { background: #64748b; } .btn-gray:hover { background: #475569; }
+        .btn-blue { background: #3b82f6; } .btn-blue:hover { background: #2563eb; }
+        @media print { .no-print { display: none !important; } body { padding: 0; background: #fff; } }
     </style>
 </head>
-<body onload="window.print()">
-
-    <div class="no-print">
-        <button onclick="window.print()" style="padding: 8px 16px; font-size: 14px; cursor: pointer; background: #0ea5e9; color: white; border: none; border-radius: 5px;">🖨️ Распечатать / PDF</button>
+<body>
+    <div class="action-buttons no-print">
+        <button class="btn btn-blue" onclick="Export2Word('Накладная_№<%= docNum %>')">📄 Сохранить в Word</button>
+        <button class="btn btn-gray" onclick="saveAndPrint(false, 'Накладная_№<%= docNum %>')">🖨️ Сохранить PDF (Без печати)</button>
+        <button class="btn btn-green" onclick="saveAndPrint(true, 'Накладная_№<%= docNum %>')">🖨️ Сохранить PDF (С печатью)</button>
     </div>
 
-    <div class="header">
-        <h1>РАСХОДНАЯ НАКЛАДНАЯ № <%= docNum %></h1>
-        <p>от <%= date %></p>
-    </div>
+    <div id="doc-content">
+        <div class="header">
+            <h1>РАСХОДНАЯ НАКЛАДНАЯ № <%= docNum %></h1>
+            <p>от <%= date %></p>
+        </div>
 
-    <div class="info-block">
-        <div><strong>Поставщик:</strong> ООО "Плиттекс" (ИНН: 2372029123 / КПП: 237201001)</div>
-        <div><strong>Грузополучатель:</strong> <%= clientName %></div>
-        <div><strong>Основание:</strong> <%= contractInfo %></div>
-        <% if(transportInfo) { %>
-            <div><strong>Транспорт / Водитель:</strong> <%= transportInfo %></div>
-        <% } %>
-    </div>
+        <div class="info-block">
+            <div><strong>Поставщик:</strong> ООО "Плиттекс" (ИНН: 2372029123 / КПП: 237201001)</div>
+            <div><strong>Грузополучатель:</strong> <%= clientName %></div>
+            <div><strong>Основание:</strong> <%= contractInfo %></div>
+            <% if(transportInfo) { %>
+                <div><strong>Транспорт / Водитель:</strong> <%= transportInfo %></div>
+            <% } %>
+        </div>
 
-    <table>
-        <thead>
-            <tr>
-                <th style="width: 5%;">№</th>
-                <th style="width: 55%;">Наименование товара</th>
-                <th style="width: 10%;">Ед. изм.</th>
-                <th style="width: 15%;">Количество</th>
-            </tr>
-        </thead>
-        <tbody>
-            <% let totalQty = 0; %>
-            <% items.forEach((item, index) => { %>
-                <% totalQty += parseFloat(item.qty); %>
+        <table>
+            <thead>
                 <tr>
-                    <td style="text-align: center;"><%= index + 1 %></td>
-                    <td><%= item.name %></td>
-                    <td style="text-align: center;"><%= item.unit %></td>
-                    <td style="text-align: center;"><strong><%= parseFloat(item.qty).toLocaleString('ru-RU') %></strong></td>
+                    <th style="width: 5%;">№</th>
+                    <th style="width: 55%;">Наименование товара</th>
+                    <th style="width: 10%;">Ед. изм.</th>
+                    <th style="width: 15%;">Количество</th>
                 </tr>
-            <% }) %>
-        </tbody>
-    </table>
+            </thead>
+            <tbody>
+                <% let totalQty = 0; %>
+                <% items.forEach((item, index) => { %>
+                    <% totalQty += parseFloat(item.qty); %>
+                    <tr>
+                        <td style="text-align: center;"><%= index + 1 %></td>
+                        <td><%= item.name %></td>
+                        <td style="text-align: center;"><%= item.unit %></td>
+                        <td style="text-align: center;"><strong><%= parseFloat(item.qty).toLocaleString('ru-RU') %></strong></td>
+                    </tr>
+                <% }) %>
+            </tbody>
+        </table>
 
-    <div class="total">
-        <% if(discountInfo) { %>
-            <div style="font-weight: normal; font-size: 13px; color: #555;">Скидка по чеку: <%= discountInfo %></div>
-        <% } %>
-        <div>Всего отпущено единиц: <%= totalQty.toLocaleString('ru-RU') %></div>
-        <% if(totalAmount > 0) { %>
-            <div style="margin-top: 5px;">На сумму: <%= parseFloat(totalAmount).toLocaleString('ru-RU') %> руб.</div>
-        <% } %>
+        <div class="total">
+            <% if(discountInfo) { %>
+                <div style="font-weight: normal; font-size: 13px; color: #555;">Скидка по чеку: <%= discountInfo %></div>
+            <% } %>
+            <div>Всего отпущено единиц: <%= totalQty.toLocaleString('ru-RU') %></div>
+            <% if(totalAmount > 0) { %>
+                <div style="margin-top: 5px;">На сумму: <%= parseFloat(totalAmount).toLocaleString('ru-RU') %> руб.</div>
+            <% } %>
+        </div>
+
+        <div class="signatures">
+            <div class="sign-box">
+                <b>Отпустил (Поставщик):</b>
+                <div class="line"></div>
+                <p style="text-align: center; font-size: 10px;">М.П.</p>
+                <img src="/img/stamp.png" class="overlay-img" style="position: absolute; top: -10px; left: 80px; width: 140px; opacity: 0.85; display: none; z-index: -2;">
+                <img src="/img/sign_dir.png" class="overlay-img" style="position: absolute; top: 10px; left: 30px; width: 100px; display: none; z-index: -1;">
+            </div>
+            <div class="sign-box">
+                <b>Принял (Покупатель/Водитель):</b>
+                <div class="line"></div>
+                <p style="text-align: center; font-size: 10px;">(Подпись / ФИО)</p>
+            </div>
+        </div>
     </div>
 
-    <div class="signatures">
-        <div class="sign-box">
-            <b>Отпустил (Поставщик):</b>
-            <div class="line"></div>
-            <p style="text-align: center; font-size: 10px;">М.П.</p>
-        </div>
-        <div class="sign-box">
-            <b>Принял (Покупатель/Водитель):</b>
-            <div class="line"></div>
-            <p style="text-align: center; font-size: 10px;">(Подпись / ФИО)</p>
-        </div>
-    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script>
+        async function saveAndPrint(withStamp, docName) {
+            const overlays = document.querySelectorAll('.overlay-img');
+            overlays.forEach(el => el.style.display = withStamp ? 'block' : 'none');
+            const actionBtns = document.querySelector('.action-buttons');
+            if (actionBtns) actionBtns.style.display = 'none';
 
+            const element = document.getElementById('doc-content');
+            const opt = { margin: [10, 10, 10, 10], filename: `${docName}_${withStamp ? 'С_печатью' : 'Без_печати'}_${Date.now()}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
+
+            try {
+                const pdfBase64 = await html2pdf().set(opt).from(element).outputPdf('datauristring');
+                await fetch('/api/docs/save-pdf', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: opt.filename, fileData: pdfBase64 }) });
+            } catch (error) { console.error("Ошибка сохранения PDF:", error); }
+
+            window.print();
+            if (actionBtns) actionBtns.style.display = 'flex';
+        }
+
+        function Export2Word(filename = '') {
+            const overlays = document.querySelectorAll('.overlay-img');
+            overlays.forEach(el => el.style.display = 'none');
+            const actionBtns = document.querySelector('.action-buttons');
+            if (actionBtns) actionBtns.style.display = 'none';
+
+            var preHtml = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Export</title></head><body>";
+            var postHtml = "</body></html>";
+            var html = preHtml + document.getElementById('doc-content').innerHTML + postHtml;
+
+            var blob = new Blob(['\\ufeff', html], { type: 'application/msword' });
+            var url = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(html);
+            var downloadLink = document.createElement("a");
+            
+            document.body.appendChild(downloadLink);
+            if(navigator.msSaveOrOpenBlob ){ navigator.msSaveOrOpenBlob(blob, filename+'.doc'); }
+            else{ downloadLink.href = url; downloadLink.download = filename+'.doc'; downloadLink.click(); }
+            document.body.removeChild(downloadLink);
+            if (actionBtns) actionBtns.style.display = 'flex';
+        }
+    </script>
 </body>
 </html>

@@ -659,7 +659,7 @@ window.processCheckout = async function () {
         allow_production: item.allow_production,
         warehouse_id: item.warehouse_id,
         // Формула: Цена * (1 - Скидка / 100)
-        price: parseFloat(item.price) * (1 - (parseFloat(item.discount) || 0) / 100)
+        price: Number((parseFloat(item.price) * (1 - (parseFloat(item.discount) || 0) / 100)).toFixed(2))
     }));
     // ==============================================================
 
@@ -848,13 +848,12 @@ function renderBlankOrdersTable() {
                 <span style="font-size: 12px; font-weight: bold; color: var(--text-main);">${totalAmt.toLocaleString('ru-RU')} ₽</span>
             </td>
             <td style="vertical-align: top;">
-                <b>${o.client_name || 'Неизвестный клиент'}</b><br>
-                <span style="font-size: 11px; color: var(--text-muted);">📍 ${o.delivery_address || 'Самовывоз'}</span><br>
+                <b>${escapeHTML(o.client_name || 'Неизвестный клиент')}</b><br>
+                <span style="font-size: 11px; color: var(--text-muted);">📍 ${escapeHTML(o.delivery_address || 'Самовывоз')}</span><br>
                 ${clientBalanceBadge}
                 ${projHtml}
             </td>
-            <td style="font-size: 12px; max-width: 250px; vertical-align: top;">${o.items_list || 'Пусто'}</td>
-            <td style="text-align: center; vertical-align: middle;">
+            <td style="font-size: 12px; max-width: 250px; vertical-align: top;">${escapeHTML(o.items_list || 'Пусто')}</td>  <td style="text-align: center; vertical-align: middle;">
                 ${statusBadge}<br>
                 ${finBadge}
             </td>
@@ -974,7 +973,7 @@ function renderHistoryTable() {
         <tr style="transition: 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor=''">
             <td style="color: var(--text-muted); font-size: 13px;">${h.date_formatted}</td>
             <td><strong style="color: var(--primary);">${h.doc_num}</strong></td>
-            <td><b>${h.client_name || 'Неизвестный клиент'}</b><br><span style="font-size: 11px; color: var(--text-muted);">${h.payment || ''}</span></td>
+            <td><b>${escapeHTML(h.client_name || 'Неизвестный клиент')}</b><br><span style="font-size: 11px; color: var(--text-muted);">${h.payment || ''}</span></td>
             <td style="text-align: center; font-weight: bold;">${parseFloat(h.total_qty).toLocaleString('ru-RU')}</td>
             
             <td style="text-align: right; color: var(--success); font-weight: bold;">${sumText}</td>

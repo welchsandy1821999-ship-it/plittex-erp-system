@@ -4,6 +4,8 @@
 require('dotenv').config();
 
 const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
 const { Pool } = require('pg');
 const multer = require('multer');
 const fs = require('fs');
@@ -12,9 +14,16 @@ const jwt = require('jsonwebtoken');
 const Big = require('big.js');
 const bcrypt = require('bcrypt');
 
+// Подключаем наши новые утилиты для Enterprise-версии
+const logger = require('./utils/logger');
+const { sendNotify } = require('./utils/telegram');
+
 Big.RM = Big.roundHalfUp;
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
 const port = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -23,6 +32,12 @@ const pool = new Pool({
     database: process.env.DB_NAME, password: process.env.DB_PASSWORD, port: process.env.DB_PORT
 });
 
+// Делаем WebSockets доступными во всех маршрутах
+app.set('io', io);
+
+// ==========================================
+// 2. НАСТРОЙКИ СЕРВЕРА И ХРАНИЛИЩА (MULTER)
+// ==========================================
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
         const dir = './public/uploads';
@@ -41,19 +56,14 @@ app.set('views', './views');
 app.use(express.static('public'));
 app.use(express.json({ limit: '50mb' }));
 
-
 // ==========================================
-// 🛠️ ВРЕМЕННЫЙ МАРШРУТ СБРОСА (БЕЗ АВТОРИЗАЦИИ)
+// 🛠️ ТВОИ ВРЕМЕННЫЕ МАРШРУТЫ СБРОСА (БЕЗ АВТОРИЗАЦИИ)
 // ==========================================
 app.get('/debug/reset-bank', async (req, res) => {
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
-        
-        // 1. Удаляем все банковские выписки
         await client.query("DELETE FROM transactions WHERE payment_method = 'Безналичный расчет (Импорт)'");
-        
-        // 2. Пересчитываем балансы счетов
         await client.query(`
             UPDATE accounts a
             SET balance = COALESCE((
@@ -62,7 +72,6 @@ app.get('/debug/reset-bank', async (req, res) => {
                 WHERE t.account_id = a.id
             ), 0)
         `);
-        
         await client.query('COMMIT');
         res.send(`
             <div style="font-family: sans-serif; padding: 40px; text-align: center;">
@@ -88,7 +97,7 @@ app.get('/debug/upgrade-db', async (req, res) => {
 });
 
 // ==========================================
-// 2. ЯДРО: ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+// 3. ЯДРО: ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 // ==========================================
 async function getNextDocNumber(client, prefix, table, column) {
     const seqMap = { 'ЗК': 'seq_doc_zk', 'СЧ': 'seq_doc_sch', 'УТ': 'seq_doc_ut' };
@@ -102,22 +111,55 @@ const warehouseCache = {};
 async function getWhId(client, type) {
     if (warehouseCache[type]) return warehouseCache[type];
     const res = await client.query(`SELECT id FROM warehouses WHERE type = $1 LIMIT 1`, [type]);
-    if (res.rows.length > 0) { warehouseCache[type] = res.rows[0].id; return warehouseCache[type]; } 
+    if (res.rows.length > 0) { warehouseCache[type] = res.rows[0].id; return warehouseCache[type]; }
     else throw new Error(`Склад '${type}' не найден!`);
 }
 
-// ==========================================
-// 3. БЕЗОПАСНОСТЬ И МАРШРУТЫ
-// ==========================================
-function authenticateToken(req, res, next) {
-    const token = req.headers['authorization']?.split(' ')[1];
-    if (!token) return res.status(401).json({ error: 'Нет доступа.' });
-    jwt.verify(token, JWT_SECRET, (err, user) => {
-        if (err) return res.status(403).json({ error: 'Токен просрочен.' });
-        req.user = user; next();
-    });
+async function withTransaction(pool, callback) {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const result = await callback(client);
+        await client.query('COMMIT');
+        return result;
+    } catch (err) {
+        await client.query('ROLLBACK');
+        logger.error('❌ Ошибка транзакции, выполнен ROLLBACK: ' + err.message);
+        throw err;
+    } finally {
+        client.release(); 
+    }
 }
 
+// ==========================================
+// 4. 🛡️ СИСТЕМА БЕЗОПАСНОСТИ: ПРОВЕРКА ТОКЕНА И РОЛЕЙ
+// ==========================================
+const authenticateToken = (req, res, next) => {
+    // Пропускаем авторизацию, открытые маршруты печати и сохранение PDF
+    if (req.path === '/login' || req.path === '/api/login' || req.path === '/api/docs/save-pdf' || req.path.startsWith('/print') || req.path.startsWith('/files')) {
+        return next();
+    }
+
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1]; 
+
+    if (!token) return res.status(401).json({ error: 'Нет доступа. Токен отсутствует.' });
+
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) return res.status(401).json({ error: 'Токен просрочен или недействителен.' });
+        req.user = user; 
+        next();
+    });
+};
+
+const requireAdmin = (req, res, next) => {
+    if (req.user && req.user.role === 'admin') next();
+    else res.status(403).json({ error: '⛔ Доступ запрещен. Требуются права Администратора.' });
+};
+
+// ==========================================
+// 5. БАЗОВЫЕ МАРШРУТЫ И АВТОРИЗАЦИЯ
+// ==========================================
 app.get('/', (req, res) => res.render('index'));
 
 app.post('/api/login', async (req, res) => {
@@ -133,72 +175,93 @@ app.post('/api/login', async (req, res) => {
         let dbHash = (user.password_hash || "").trim();
         let incomingPassword = String(password).trim();
 
-        // 🛡️ ПАТЧ: Проверяем и как обычный текст (для дефолтного admin: 12345), и как сложный хэш
-        const isValid = (dbHash === incomingPassword) || 
-                        (await bcrypt.compare(incomingPassword, dbHash).catch(() => false));
+        // 🛡️ Твоя безопасная проверка с самолечением старых текстовых паролей
+        let isValid = false;
+
+        if (dbHash.startsWith('$2a$') || dbHash.startsWith('$2b$')) {
+            isValid = await bcrypt.compare(incomingPassword, dbHash).catch(() => false);
+        } else {
+            if (dbHash === incomingPassword) {
+                isValid = true;
+                const newHash = await bcrypt.hash(incomingPassword, 10);
+                await client.query('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, user.id]);
+                logger.info(`🔒 Пароль пользователя ${username} успешно зашифрован (Самолечение).`);
+            }
+        }
 
         if (!isValid) return res.status(401).json({ error: 'Неверный логин или пароль' });
 
         const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '12h' });
         res.json({ token, user: { id: user.id, full_name: user.full_name, role: user.role } });
-    } catch (err) { 
-        console.error('Ошибка авторизации:', err);
-        res.status(500).json({ error: 'Ошибка сервера' }); 
-    } finally { 
-        client.release(); 
+    } catch (err) {
+        logger.error('Ошибка авторизации: ' + err.message);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    } finally {
+        client.release();
     }
 });
-// Глобальный блокиратор /api
-app.use('/api', (req, res, next) => {
-    if (req.path === '/login') return next();
-    authenticateToken(req, res, next);
-});
 
-// ==========================================
-// 🏦 ПЕРЕИМЕНОВАНИЕ СЧЕТОВ / КАСС (Шестеренка на плашке)
-// ==========================================
+// Твой маршрут переименования счетов (Шестеренка)
 app.put('/api/accounts/:id', async (req, res) => {
     const { name } = req.body;
     const accountId = req.params.id;
     const client = await pool.connect();
-    
+
     try {
-        // Записываем новое имя в базу данных
         await client.query('UPDATE accounts SET name = $1 WHERE id = $2', [name, accountId]);
         res.json({ success: true });
     } catch (err) {
-        console.error('Ошибка переименования счета:', err);
+        logger.error('Ошибка переименования счета: ' + err.message);
         res.status(500).json({ error: err.message });
     } finally {
         client.release();
     }
 });
 
-// ==========================================
-// 4. СИНХРОНИЗАЦИЯ БАЗЫ (Самолечение)
-// ==========================================
+// СИНХРОНИЗАЦИЯ БАЗЫ (Твое Самолечение таблиц)
 pool.query(`
     CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username VARCHAR(50) UNIQUE NOT NULL, password_hash VARCHAR(255) NOT NULL, role VARCHAR(50) DEFAULT 'employee', full_name VARCHAR(150));
     INSERT INTO users (username, password_hash, role, full_name) VALUES ('admin', '12345', 'admin', 'Директор') ON CONFLICT (username) DO NOTHING;
-`);
+`).catch(err => logger.error("Ошибка при инициализации БД: " + err.message));
 
 // ==========================================
-// 5. ПОДКЛЮЧЕНИЕ РОУТЕРОВ (ЦЕХА БЭКЕНДА)
+// 6. ИНИЦИАЛИЗАЦИЯ И ПОДКЛЮЧЕНИЕ РОУТЕРОВ
 // ==========================================
-const inventoryRoutes = require('./routes/inventory')(pool, getWhId);
-const productionRoutes = require('./routes/production')(pool, getWhId);
-const financeRoutes = require('./routes/finance')(pool, upload);
-const dictionariesRoutes = require('./routes/dictionaries')(pool);
-const hrRoutes = require('./routes/hr')(pool);
-const salesRoutes = require('./routes/sales')(pool, getWhId, getNextDocNumber);
-const docsRoutes = require('./routes/docs')(pool, getNextDocNumber);
+const inventoryRoutes = require('./routes/inventory')(pool, getWhId, withTransaction);
+const productionRoutes = require('./routes/production')(pool, getWhId, withTransaction);
+const financeRoutes = require('./routes/finance')(pool, upload, withTransaction);
+const dictionariesRoutes = require('./routes/dictionaries')(pool, withTransaction);
+const hrRoutes = require('./routes/hr')(pool, withTransaction);
+const salesRoutes = require('./routes/sales')(pool, getWhId, getNextDocNumber, withTransaction);
+const docsRoutes = require('./routes/docs')(pool, getNextDocNumber, withTransaction);
 
+// 🚨 СТРОГИЙ ПОРЯДОК ПРИМЕНЕНИЯ MIDDLEWARE
+
+// Шаг 1: Сначала ставим глобальный вышибалу (проверка токена) для всех /api
+app.use('/api', authenticateToken);
+
+// Шаг 2: Усиливаем защиту для конкретных разделов (проверка роли Админа)
+app.use('/api/finance', requireAdmin);
+app.use('/api/salary', requireAdmin);
+
+// Шаг 3: Подключаем обработчики
 app.use('/', inventoryRoutes);
 app.use('/', productionRoutes);
 app.use('/', financeRoutes);
 app.use('/', dictionariesRoutes);
 app.use('/', hrRoutes);
 app.use('/', salesRoutes);
-app.use('/', docsRoutes); // Доступ к /print открыт для браузера
+app.use('/', docsRoutes); 
 
-app.listen(port, () => console.log(`🚀 ERP Плиттекс Server запущен: http://localhost:${port}`));
+// ==========================================
+// 7. ЗАПУСК И WEBSOCKETS
+// ==========================================
+
+io.on('connection', (socket) => {
+    logger.info(`🔌 Новый клиент подключен к WebSockets: ${socket.id}`);
+});
+
+server.listen(port, () => {
+    logger.info(`🚀 ERP Плиттекс Server запущен на порту ${port}`);
+    sendNotify(`✅ <b>ERP Система запущена</b>\nСервер успешно стартовал и готов к работе.`);
+});

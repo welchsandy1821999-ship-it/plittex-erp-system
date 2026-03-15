@@ -41,10 +41,24 @@ async function initFinance() {
 }
 
 window.resetFinanceFilter = function () {
-    document.getElementById('finance-date-filter')._flatpickr.clear();
+    // 1. Сбрасываем даты
     financeDateRange = { start: '', end: '' };
-    currentAccountFilter = null; // 🛠️ ИСПРАВЛЕНИЕ: Сбрасываем выбранную плашку
-    currentFinancePage = 1; // Сбрасываем на первую страницу
+    if (document.getElementById('finance-date-filter')) {
+        document.getElementById('finance-date-filter')._flatpickr.clear();
+    }
+
+    // 2. Сбрасываем выбранный счет (чтобы показать "Общие")
+    currentAccountFilter = null;
+
+    // 3. Снимаем визуальное выделение со всех плашек счетов
+    document.querySelectorAll('.account-card').forEach(card => {
+        card.classList.remove('selected');
+        card.style.borderColor = 'var(--border)';
+        card.style.background = '#fff';
+    });
+
+    // 4. Перезагружаем данные без фильтров
+    currentFinancePage = 1;
     loadFinanceData();
 };
 
@@ -71,9 +85,19 @@ async function loadFinanceData() {
 
         const queryStr = `?${queryParams.toString()}`;
 
-        // 🚀 ИСПРАВЛЕНИЕ: Добавляем ?_t=... ко ВСЕМ запросам, чтобы браузер никогда их не кэшировал
+        // 🚀 ИСПРАВЛЕНИЕ: Теперь плашки знают, какой счет выбран!
+        let reportQueryParams = new URLSearchParams();
+        if (financeDateRange.start && financeDateRange.end) {
+            reportQueryParams.append('start', financeDateRange.start);
+            reportQueryParams.append('end', financeDateRange.end);
+        }
+        if (currentAccountFilter) {
+            reportQueryParams.append('account_id', currentAccountFilter); // Передаем ID счета
+        }
+        reportQueryParams.append('_t', timestamp);
+
         const [reportRes, transRes, accRes, catRes, cpRes, invRes] = await Promise.all([
-            fetch(`/api/report/finance${financeDateRange.start ? `?start=${financeDateRange.start}&end=${financeDateRange.end}&_t=${timestamp}` : `?_t=${timestamp}`}`),
+            fetch(`/api/report/finance?${reportQueryParams.toString()}`), // Умный запрос плашек
             fetch(`/api/transactions${queryStr}`),
             fetch(`/api/accounts?_t=${timestamp}`),
             fetch(`/api/finance/categories?_t=${timestamp}`),
@@ -85,17 +109,29 @@ async function loadFinanceData() {
         const transData = await transRes.json();
 
         allTransactions = transData.data;
-        financeTotalPages = transData.totalPages;
-        currentFinancePage = transData.currentPage;
+
+        // 🚀 ИСПРАВЛЕНИЕ: Читаем данные из объекта pagination, который прислал сервер
+        if (transData.pagination) {
+            financeTotalPages = transData.pagination.totalPages;
+            currentFinancePage = transData.pagination.page;
+
+            // Обновляем текст пагинации
+            const pageInfo = document.getElementById('finance-page-info');
+            if (pageInfo) {
+                pageInfo.innerHTML = `Страница <b>${currentFinancePage}</b> из <b>${financeTotalPages}</b> (Всего: ${transData.pagination.total})`;
+            }
+
+            // Блокируем кнопки, если мы на первой или последней странице
+            const btnPrev = document.getElementById('finance-btn-prev');
+            const btnNext = document.getElementById('finance-btn-next');
+            if (btnPrev) btnPrev.disabled = (currentFinancePage <= 1);
+            if (btnNext) btnNext.disabled = (currentFinancePage >= financeTotalPages);
+        }
 
         currentAccounts = await accRes.json();
         window.financeCategories = await catRes.json();
         financeCounterparties = await cpRes.json();
         financeInvoices = await invRes.json();
-
-        // Обновляем текст пагинации
-        document.getElementById('finance-page-info').innerText = `Страница ${currentFinancePage} из ${financeTotalPages} (Всего: ${transData.total})`;
-
         // Сбрасываем галочку "Выбрать всё" при смене страницы
         document.getElementById('selectAllCheckbox').checked = false;
 
@@ -286,30 +322,35 @@ function renderTransactionsTable() {
         const catBadge = cpObj ? window.getCategoryBadge(cpObj.client_category) : '';
 
         let htmlName = t.counterparty_name
-            ? `<div style="color: var(--primary); font-size: 14px; display: flex; align-items: center;">👤 ${t.counterparty_name} ${catBadge}</div>`
+            ? `<div style="color: var(--primary); font-size: 14px; display: flex; align-items: center;">👤 ${escapeHTML(t.counterparty_name)} ${catBadge}</div>`
             : '';
         // ==============================================================
 
         return `
-        <tr onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor=''">
-            <td style="text-align: center;"><input type="checkbox" class="trans-checkbox" value="${t.id}" onchange="toggleRowSelect(this)" ${isChecked}></td>
-            <td style="font-weight: bold; color: var(--text-muted); font-size: 13px;">${safeDate || '-'}</td>
-            <td><span class="badge" style="background: ${isIncome ? '#dcfce3' : '#fee2e2'}; color: ${isIncome ? 'var(--success)' : 'var(--danger)'};">${isIncome ? 'Поступление' : 'Списание'}</span></td>
-            
-            <td style="font-weight: 600;">
-                ${htmlName}
-                <div style="font-size: 12px; color: var(--text-muted);">${t.category}</div>
-            </td>
-            
-            <td style="color: var(--text-muted); font-size: 13px;">${t.description || '-'}<span style="font-size: 11px; color: var(--primary); font-weight: bold; display: block; margin-top: 3px;">${t.account_name}</span></td>
-            <td style="font-size: 13px;">${t.payment_method}</td>
-            <td style="text-align: right; font-weight: bold; font-size: 15px; color: ${isIncome ? 'var(--success)' : 'var(--text-main)'};">${isIncome ? '+' : '-'}${parseFloat(t.amount).toLocaleString('ru-RU')} ₽</td>
-            <td style="text-align: center; display: flex; gap: 5px; justify-content: center; align-items: center;">
-                ${receiptHtml}
-                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; border-color: var(--primary); color: var(--primary);" onclick="openEditTransactionModal(${t.id})" title="Редактировать">✏️</button>
-                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; border-color: var(--danger); color: var(--danger);" onclick="deleteTransaction(${t.id})" title="Удалить">❌</button>
-            </td>
-        </tr>`;
+<tr onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor=''">
+    <td style="text-align: center;"><input type="checkbox" class="trans-checkbox" value="${t.id}" onchange="toggleRowSelect(this)" ${isChecked}></td>
+    <td style="font-weight: bold; color: var(--text-muted); font-size: 13px;">${safeDate || '-'}</td>
+    <td><span class="badge" style="background: ${isIncome ? '#dcfce3' : '#fee2e2'}; color: ${isIncome ? 'var(--success)' : 'var(--danger)'};">${isIncome ? 'Поступление' : 'Списание'}</span></td>
+    
+    <td style="font-weight: 600;">
+        ${htmlName}
+        <div style="font-size: 12px; color: var(--text-muted);">${escapeHTML(t.category)}</div>
+    </td>
+    
+    <td style="color: var(--text-muted); font-size: 13px;">
+        ${escapeHTML(t.description || '-')}
+        <span style="font-size: 11px; color: ${t.account_name ? 'var(--primary)' : '#94a3b8'}; font-weight: bold; display: block; margin-top: 3px;">
+            ${t.account_name ? `🏦 ${escapeHTML(t.account_name)}` : '⚖️ Без движения денег (Корректировка)'}
+        </span>
+    </td>
+    <td style="font-size: 13px;">${t.payment_method}</td>
+    <td style="text-align: right; font-weight: bold; font-size: 15px; color: ${isIncome ? 'var(--success)' : 'var(--text-main)'};">${isIncome ? '+' : '-'}${parseFloat(t.amount).toLocaleString('ru-RU')} ₽</td>
+    <td style="text-align: center; display: flex; gap: 5px; justify-content: center; align-items: center;">
+        ${receiptHtml}
+        <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; border-color: var(--primary); color: var(--primary);" onclick="openEditTransactionModal(${t.id})" title="Редактировать">✏️</button>
+        <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; border-color: var(--danger); color: var(--danger);" onclick="deleteTransaction(${t.id})" title="Удалить">❌</button>
+    </td>
+</tr>`;
     }).join('');
 }
 
@@ -321,10 +362,22 @@ window.deleteTransaction = function (id) {
         <button class="btn btn-blue" style="background: #ef4444; border-color: #ef4444;" onclick="executeDeleteTransaction(${id})">🗑️ Да, удалить</button>
     `);
 };
+
 window.executeDeleteTransaction = async function (id) {
     UI.closeModal();
-    const res = await fetch(`/api/transactions/${id}`, { method: 'DELETE' });
-    if (res.ok) { UI.toast('🗑️ Операция удалена', 'success'); loadFinanceData(); }
+    try {
+        const res = await fetch(`/api/transactions/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+            UI.toast('🗑️ Операция удалена', 'success');
+            loadFinanceData();
+        } else {
+            // Читаем системную блокировку с бэкенда и показываем красным
+            const errData = await res.json();
+            UI.toast(errData.error || 'Ошибка при удалении', 'error');
+        }
+    } catch (e) {
+        UI.toast('Ошибка связи с сервером', 'error');
+    }
 };
 
 window.openCategoriesModal = function () {
@@ -510,9 +563,16 @@ window.openEditTransactionModal = function (id) {
     const tr = allTransactions.find(t => t.id === id);
     if (!tr) return;
 
-    const accountOptions = currentAccounts.map(acc => `<option value="${acc.id}" ${tr.account_id == acc.id ? 'selected' : ''}>${acc.name}</option>`).join('');
-    const cpOptions = financeCounterparties.map(cp => `<option value="${cp.id}" ${tr.counterparty_id == cp.id ? 'selected' : ''}>${cp.name}</option>`).join('');
+    // 🚀 ИСПРАВЛЕНИЕ: Мы объединили создание списка и добавили пустой вариант в одну переменную
+    const accountOptions = `
+        <option value="">-- ⚖️ Без движения денег (Корректировка) --</option>
+        ${currentAccounts.map(acc => `
+            <option value="${acc.id}" ${tr.account_id == acc.id ? 'selected' : ''}>
+                ${acc.name}
+            </option>`).join('')}
+    `;
 
+    const cpOptions = financeCounterparties.map(cp => `<option value="${cp.id}" ${tr.counterparty_id == cp.id ? 'selected' : ''}>${cp.name}</option>`).join('');
     const filteredCats = window.financeCategories.filter(c => c.type === tr.transaction_type);
     const catOptions = filteredCats.map(c => `<option value="${c.name}">`).join('');
 
@@ -595,7 +655,14 @@ window.saveEditedTransaction = async function (id) {
         const res = await fetch(`/api/transactions/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ description, amount, category, account_id, counterparty_id, transaction_date: date })
+            body: JSON.stringify({
+                description,
+                amount,
+                category,
+                account_id: account_id || null, // 🚀 ИСПРАВЛЕНИЕ: шлем null вместо ""
+                counterparty_id: counterparty_id || null,
+                transaction_date: date
+            })
         });
 
         if (res.ok) {
@@ -968,10 +1035,14 @@ window.executeDeleteInvoice = async function (id) {
         if (res.ok) {
             UI.toast('🗑️ Счет отменен и удален', 'success');
             loadFinanceData();
+        } else {
+            // Читаем системную ошибку с сервера и выводим на экран
+            const errData = await res.json();
+            UI.toast(errData.error || 'Ошибка при удалении счета', 'error');
         }
     } catch (e) {
         console.error(e);
-        UI.toast('Ошибка сети', 'error');
+        UI.toast('Ошибка связи с сервером', 'error');
     }
 };
 
@@ -1093,7 +1164,6 @@ window.executeBankFilePreview = function () {
         UI.toast('Нет подходящих операций', 'error');
     }
 };
-
 function parse1CStatement(text) {
     const lines = text.split('\n').map(l => l.trim());
     if (lines[0] !== '1CClientBankExchange') {
@@ -1104,9 +1174,6 @@ function parse1CStatement(text) {
     const transactions = [];
     let currentDoc = null;
     let statementAccount = null;
-
-    // 💡 Примечание: Если ИНН компании изменится, нужно обновить это значение!
-    const myINN = '2372029123';
     const dailyTracker = {};
 
     for (let line of lines) {
@@ -1121,11 +1188,13 @@ function parse1CStatement(text) {
                 let dSpisano = (currentDoc['ДатаСписано'] || '').trim();
                 let dPostup = (currentDoc['ДатаПоступило'] || '').trim();
 
+                // Если обе даты пустые - это черновик или отбракованный платеж, пропускаем
                 if (dSpisano === '' && dPostup === '') {
                     currentDoc = null;
                     continue;
                 }
 
+                // Определяем дату транзакции
                 let rawDate = dSpisano !== '' ? dSpisano : dPostup;
                 let formattedDate = null;
                 if (rawDate !== '') {
@@ -1136,20 +1205,24 @@ function parse1CStatement(text) {
                 }
 
                 if (currentDoc['Сумма'] && formattedDate) {
-                    let type = 'income';
-                    if (statementAccount && currentDoc['ПлательщикСчет'] === statementAccount) {
-                        type = 'expense';
-                    } else if (!statementAccount && currentDoc['ПлательщикИНН'] === myINN) {
-                        type = 'expense';
-                    }
 
+                    // ==================================================
+                    // 🚀 НОВАЯ ЖЕЛЕЗОБЕТОННАЯ ЛОГИКА 1С
+                    // Тип операции зависит ТОЛЬКО от того, какая дата заполнена банком
+                    // ==================================================
+                    let type = dSpisano !== '' ? 'expense' : 'income';
+
+                    // Контрагента определяем логически:
+                    // Если это Приход (income) - значит, нам заплатил Плательщик
+                    // Если это Расход (expense) - значит, мы отправили деньги Получателю
                     let inn = type === 'income' ? currentDoc['ПлательщикИНН'] : currentDoc['ПолучательИНН'];
                     let name = type === 'income' ? (currentDoc['Плательщик1'] || currentDoc['Плательщик']) : (currentDoc['Получатель1'] || currentDoc['Получатель']);
-                    const cleanAmount = parseFloat(currentDoc['Сумма'].replace(',', '.'));
 
+                    const cleanAmount = parseFloat(currentDoc['Сумма'].replace(',', '.'));
                     const docNum = currentDoc['Номер'] || 'Б/Н';
                     let desc = `(№${docNum}) ${currentDoc['НазначениеПлатежа'] || 'Банковская операция'}`;
 
+                    // Защита от дублей внутри одного дня
                     const hash = `${formattedDate}_${cleanAmount}_${desc}`;
                     if (!dailyTracker[hash]) dailyTracker[hash] = 0;
                     dailyTracker[hash]++;
@@ -1261,6 +1334,22 @@ window.updateBulkActionsVisibility = function () {
 };
 
 window.executeBulkDelete = function () {
+    // 🛡️ ЗАЩИТА БИЗНЕС-ЛОГИКИ: Ищем операции, привязанные к счетам (СЧ- / ЗК-)
+    const selectedTxs = allTransactions.filter(t => selectedTransIds.has(t.id));
+    const hasSystemInvoices = selectedTxs.some(t => {
+        const desc = (t.description || '').toUpperCase();
+        return desc.includes('СЧ-') || desc.includes('ЗК-') || desc.includes('ОПЛАТА ПО СЧЕТУ');
+    });
+
+    // Если среди выбранных есть системные документы — блокируем массовое удаление
+    if (hasSystemInvoices) {
+        return UI.showModal('⚠️ Ошибка удаления',
+            '<div style="padding: 15px; text-align: center; color: #b91c1c;">Вы выделили операции, которые автоматически закрыли выставленные Счета или Заказы.<br><br>Массовое удаление таких платежей запрещено, так как это сломает статусы счетов (они останутся "оплаченными"). Удаляйте их поштучно.</div>',
+            '<button class="btn btn-outline" onclick="UI.closeModal()">Понятно</button>'
+        );
+    }
+
+    // Если всё чисто — разрешаем удаление
     const html = `<div style="padding: 15px; text-align: center; font-size: 15px;">Вы уверены, что хотите удалить <b>${selectedTransIds.size}</b> операций?<br><small style="color: gray;">Балансы счетов будут автоматически пересчитаны!</small></div>`;
     UI.showModal('⚠️ Массовое удаление', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
@@ -1407,11 +1496,14 @@ window.exportFinanceToExcel = async function () {
 // ОТРИСОВКА ИНТЕРФАКТИВНЫХ ГРАФИКОВ
 // ==========================================
 function renderFinanceCharts(transactions) {
+    // 🚀 ИСПРАВЛЕНИЕ: Без этого графики будут «прыгать» по датам
+    const sortedTxs = [...transactions].sort((a, b) => new Date(a.transaction_date) - new Date(b.transaction_date));
+
     const expenseMap = {};
-    transactions.filter(t => t.transaction_type === 'expense').forEach(t => {
+    // Теперь используй sortedTxs в циклах ниже (filter/forEach)
+    sortedTxs.filter(t => t.transaction_type === 'expense').forEach(t => {
         expenseMap[t.category] = (expenseMap[t.category] || 0) + parseFloat(t.amount);
     });
-
     const catLabels = Object.keys(expenseMap);
     const catValues = Object.values(expenseMap);
 
@@ -1488,27 +1580,38 @@ function renderFinanceCharts(transactions) {
 
 
 // === ЗАГРУЗКА И УДАЛЕНИЕ ЧЕКОВ ===
-window.uploadReceipt = async function (id, input) {
-    const file = input.files[0];
+window.uploadReceipt = async function (transactionId, inputElement) {
+    const file = inputElement.files[0];
     if (!file) return;
+
+    // 🚨 ИСПРАВЛЕНО: Блокируем кнопку, чтобы менеджер не накликал дублей
+    inputElement.disabled = true;
+    UI.toast('⏳ Загрузка чека на сервер...', 'info');
+
     const formData = new FormData();
     formData.append('receipt', file);
 
-    UI.toast('⏳ Загрузка файла...', 'info');
     try {
-        const res = await fetch(`/api/transactions/${id}/receipt`, { method: 'POST', body: formData });
+        const res = await fetch(`/api/transactions/${transactionId}/receipt`, {
+            method: 'POST',
+            body: formData
+        });
+
         if (res.ok) {
-            UI.toast('✅ Файл успешно прикреплен!', 'success');
-            loadFinanceData();
+            UI.toast('✅ Чек успешно загружен!', 'success');
+            loadFinanceData(); // Перезагружаем таблицу транзакций
         } else {
-            UI.toast('❌ Ошибка при загрузке файла', 'error');
+            UI.toast('Ошибка при загрузке чека', 'error');
         }
     } catch (e) {
         console.error(e);
-        UI.toast('❌ Ошибка сети при загрузке', 'error');
+        UI.toast('Ошибка сети при загрузке чека', 'error');
+    } finally {
+        // Разблокируем инпут независимо от результата
+        inputElement.disabled = false;
+        inputElement.value = ''; // Сбрасываем выбранный файл
     }
 };
-
 window.deleteReceipt = function (id) {
     const html = `<div style="padding: 15px; text-align: center; font-size: 15px;">Точно открепить файл от этой операции?</div>`;
     UI.showModal('⚠️ Удаление файла', html, `
@@ -1652,15 +1755,25 @@ window.openCounterpartyProfile = async function (id) {
         const data = await res.json();
         const cp = data.info;
 
-        const transHtml = data.transactions.map(t => `
-            <div style="display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px;">
-                <div><b style="color:var(--text-main);">${t.date}</b><br><span style="color:var(--text-muted);">${t.category}</span></div>
-                <div style="text-align: right; width: 50%;">${t.description}</div>
-                <div style="font-weight: bold; color: ${t.transaction_type === 'income' ? 'var(--success)' : 'var(--danger)'}">
-                    ${t.transaction_type === 'income' ? '+' : '-'}${parseFloat(t.amount).toLocaleString('ru-RU')} ₽
-                </div>
+        const transHtml = data.transactions.map(t => {
+            // 🚀 Проверяем, техническая ли это операция
+            const isTechnical = t.category === 'Корректировка долга';
+
+            return `
+        <div style="display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px; ${isTechnical ? 'background: #f8fafc; border-left: 3px solid #8b5cf6;' : ''}">
+            <div>
+                <b style="color:var(--text-main);">${t.date}</b><br>
+                <span style="color:${isTechnical ? '#8b5cf6' : 'var(--text-muted)'}; font-weight: ${isTechnical ? 'bold' : 'normal'};">
+                    ${isTechnical ? '⚖️ ' + t.category : t.category}
+                </span>
             </div>
-        `).join('') || '<div style="padding:15px; text-align:center; color:gray;">Операций нет</div>';
+            <div style="text-align: right; width: 40%; font-style: ${isTechnical ? 'italic' : 'normal'};">${t.description}</div>
+            <div style="font-weight: bold; color: ${t.transaction_type === 'income' ? 'var(--success)' : 'var(--danger)'}">
+                ${t.transaction_type === 'income' ? '+' : '-'}${parseFloat(t.amount).toLocaleString('ru-RU')} ₽
+            </div>
+        </div>
+    `;
+        }).join('') || '<div style="padding:15px; text-align:center; color:gray;">Операций нет</div>';
 
         const invHtml = data.invoices.map(i => `
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px;">
@@ -2328,35 +2441,48 @@ window.updateUsnRate = async function (val) {
 };
 
 // ==========================================
-// ⚡ ЕДИНЫЙ КАЛЬКУЛЯТОР ЖИВЫХ ДАННЫХ
+// ⚡ ЕДИНЫЙ КАЛЬКУЛЯТОР ЖИВЫХ ДАННЫХ (С ТОЧНОЙ МАТЕМАТИКОЙ)
 // ==========================================
 window.calculateLiveTax = function () {
     if (!rawTaxData) return { cashTax: 0, bankVat: 0, total: 0, cashTurnover: 0, vatIn: 0, vatOut: 0 };
     let liveVatIn = 0, liveVatOut = 0, liveCashTax = 0, liveCashTurnover = 0;
 
+    // 🛡️ Функция для железобетонного округления до копеек (защита от багов JS)
+    const roundMoney = (num) => Math.round(num * 100) / 100;
+
     rawTaxData.bank.transactions.forEach(t => {
-        if (t.tax_excluded) return; // Читаем из базы!
-        const forceVat = t.tax_force_vat; // Читаем из базы!
+        if (t.tax_excluded) return;
+        const forceVat = t.tax_force_vat;
         let tax = t.calculated_tax;
-        if (forceVat && t.is_no_vat) tax = (parseFloat(t.amount) * 22) / 122;
+
+        // 🛡️ Точный расчет НДС без потери копеек
+        if (forceVat && t.is_no_vat) tax = roundMoney((parseFloat(t.amount) * 22) / 122);
 
         if (!t.is_no_vat || forceVat) {
-            if (t.transaction_type === 'income') liveVatIn += tax;
-            else liveVatOut += tax;
+            if (t.transaction_type === 'income') liveVatIn = roundMoney(liveVatIn + tax);
+            else liveVatOut = roundMoney(liveVatOut + tax);
         }
     });
 
     rawTaxData.cash.transactions.forEach(t => {
-        if (t.tax_excluded) return; // Читаем из базы!
+        if (t.tax_excluded) return;
         if (t.transaction_type === 'income') {
-            liveCashTurnover += parseFloat(t.amount);
-            liveCashTax += t.calculated_tax;
+            liveCashTurnover = roundMoney(liveCashTurnover + parseFloat(t.amount));
+            liveCashTax = roundMoney(liveCashTax + t.calculated_tax);
         }
     });
 
-    const finalBank = (liveVatIn - liveVatOut) + taxBankCorrection;
-    const finalCash = liveCashTax + taxCashCorrection;
-    return { cashTax: finalCash, bankVat: finalBank, total: Math.max(0, finalBank) + Math.max(0, finalCash), cashTurnover: liveCashTurnover, vatIn: liveVatIn, vatOut: liveVatOut };
+    const finalBank = roundMoney((liveVatIn - liveVatOut) + taxBankCorrection);
+    const finalCash = roundMoney(liveCashTax + taxCashCorrection);
+
+    return {
+        cashTax: finalCash,
+        bankVat: finalBank,
+        total: roundMoney(Math.max(0, finalBank) + Math.max(0, finalCash)),
+        cashTurnover: liveCashTurnover,
+        vatIn: liveVatIn,
+        vatOut: liveVatOut
+    };
 };
 
 // ==========================================

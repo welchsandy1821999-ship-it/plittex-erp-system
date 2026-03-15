@@ -17,19 +17,21 @@
         .text-left { text-align: left; }
         .text-right { text-align: right; }
         .bold { font-weight: bold; }
-        
         .footer-text { margin-top: 30px; font-size: 11pt; }
-        .action-buttons { text-align: right; margin-bottom: 20px; font-family: sans-serif; }
-        .btn-print { padding: 8px 16px; font-size: 14px; cursor: pointer; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 5px; margin-right: 10px; }
-        .btn-word { padding: 8px 16px; font-size: 14px; cursor: pointer; background: #8b5cf6; color: white; border: none; border-radius: 5px; }
         
-        @media print { .action-buttons { display: none; } body { padding: 0; } }
+        /* Стили кнопок */
+        .action-buttons { display: flex; gap: 10px; justify-content: flex-end; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px dashed #ccc; }
+        .btn { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; color: white; font-size: 13px; transition: 0.2s; }
+        .btn-green { background: #10b981; } .btn-green:hover { background: #059669; }
+        .btn-gray { background: #64748b; } .btn-gray:hover { background: #475569; }
+        .btn-blue { background: #3b82f6; } .btn-blue:hover { background: #2563eb; }
+        @media print { .no-print { display: none !important; } body { padding: 0; background: #fff; } }
     </style>
 </head>
 <body>
-    <div class="action-buttons">
-        <button class="btn-print" onclick="window.print()">🖨️ Распечатать (PDF)</button>
-        <button class="btn-word" onclick="Export2Word('Бланк_Заказа_Плиттекс_№<%= order.doc_number %>')">📄 Скачать в Word</button>
+    <div class="action-buttons no-print">
+        <button class="btn btn-blue" onclick="Export2Word('Бланк_Заказа_Плиттекс_№<%= order.doc_number %>')">📄 Сохранить в Word</button>
+        <button class="btn btn-gray" onclick="saveAndPrint(false, 'Бланк_Заказа_<%= order.doc_number %>')">🖨️ Сохранить PDF</button>
     </div>
 
     <div id="doc-content">
@@ -94,8 +96,7 @@
                 
                 <% for(let i = items.length + 1; i <= Math.max(15, items.length); i++) { %>
                 <tr>
-                    <td><%= i %></td>
-                    <td></td><td></td><td></td><td></td><td></td>
+                    <td><%= i %></td><td></td><td></td><td></td><td></td><td></td>
                 </tr>
                 <% } %>
                 
@@ -136,9 +137,29 @@
         </div>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script>
+        async function saveAndPrint(withStamp, docName) {
+            const actionBtns = document.querySelector('.action-buttons');
+            if (actionBtns) actionBtns.style.display = 'none';
+
+            const element = document.getElementById('doc-content');
+            const opt = { margin: [10, 10, 10, 10], filename: `${docName}_${Date.now()}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
+
+            try {
+                const pdfBase64 = await html2pdf().set(opt).from(element).outputPdf('datauristring');
+                await fetch('/api/docs/save-pdf', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: opt.filename, fileData: pdfBase64 }) });
+            } catch (error) { console.error("Ошибка:", error); }
+
+            window.print();
+            if (actionBtns) actionBtns.style.display = 'flex';
+        }
+
         function Export2Word(filename = '') {
-            var preHtml = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Export HTML To Doc</title></head><body>";
+            const actionBtns = document.querySelector('.action-buttons');
+            if (actionBtns) actionBtns.style.display = 'none';
+
+            var preHtml = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Export</title></head><body>";
             var postHtml = "</body></html>";
             var html = preHtml + document.getElementById('doc-content').innerHTML + postHtml;
 
@@ -147,14 +168,10 @@
             var downloadLink = document.createElement("a");
             
             document.body.appendChild(downloadLink);
-            if(navigator.msSaveOrOpenBlob ){
-                navigator.msSaveOrOpenBlob(blob, filename+'.doc');
-            }else{
-                downloadLink.href = url;
-                downloadLink.download = filename+'.doc';
-                downloadLink.click();
-            }
+            if(navigator.msSaveOrOpenBlob ){ navigator.msSaveOrOpenBlob(blob, filename+'.doc'); }
+            else{ downloadLink.href = url; downloadLink.download = filename+'.doc'; downloadLink.click(); }
             document.body.removeChild(downloadLink);
+            if (actionBtns) actionBtns.style.display = 'flex';
         }
     </script>
 </body>

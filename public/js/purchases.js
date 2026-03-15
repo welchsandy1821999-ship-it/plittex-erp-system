@@ -1,7 +1,23 @@
 // === public/js/purchases.js ===
 
+// 🚀 НОВАЯ ФУНКЦИЯ: Загрузка доступных счетов
+function loadPurchaseAccounts() {
+    fetch('/api/accounts')
+        .then(res => res.json())
+        .then(accounts => {
+            const sel = document.getElementById('purchase-account-select');
+            if (!sel) return;
+            sel.innerHTML = '<option value="" selected disabled>-- Выберите счет оплаты --</option>';
+            accounts.forEach(acc => {
+                sel.innerHTML += `<option value="${acc.id}">${acc.name} (${parseFloat(acc.balance).toFixed(2)} ₽)</option>`;
+            });
+        }).catch(err => console.error("Ошибка загрузки счетов:", err));
+}
+
 // 1. Загрузка списка сырья (вызывается при входе в систему)
 function loadPurchaseMaterials() {
+    loadPurchaseAccounts();
+
     fetch('/api/items?limit=1000&filter=materials')
         .then(res => res.json())
         .then(res => {
@@ -18,7 +34,10 @@ function loadPurchaseMaterials() {
 function calculatePurchaseTotal() {
     const qty = parseFloat(document.getElementById('purchase-qty').value) || 0;
     const price = parseFloat(document.getElementById('purchase-price').value) || 0;
-    const total = qty * price;
+
+    // 🚀 ИСПРАВЛЕНИЕ: Безопасное округление до копеек, защита от багов плавающей точки
+    const total = Math.round((qty * price) * 100) / 100;
+
     document.getElementById('purchase-total-cost').innerText = total.toFixed(2);
 }
 
@@ -41,22 +60,39 @@ function submitPurchase() {
     const pricePerUnit = parseFloat(document.getElementById('purchase-price').value) || 0;
     const supplier = document.getElementById('purchase-supplier').value;
 
+    // 🚀 НОВОЕ: Получаем ID счета
+    const accountId = document.getElementById('purchase-account-select').value;
+
     if (!materialId || quantity <= 0) {
-        return UI.toast('Выберите сырье и укажите количество!', 'error'); // Замена alert
+        return UI.toast('Выберите сырье и укажите количество!', 'error');
+    }
+
+    // 🚀 НОВОЕ: Проверяем, выбран ли счет
+    if (!accountId) {
+        return UI.toast('Выберите счет для оплаты!', 'error');
     }
 
     fetch('/api/purchase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ materialId, quantity, pricePerUnit, supplier })
+        // 🚀 НОВОЕ: Добавляем accountId в отправляемый JSON
+        body: JSON.stringify({ materialId, quantity, pricePerUnit, supplier, accountId })
     }).then(async res => {
         if (res.ok) {
             UI.toast('✅ Сырье оприходовано!', 'success');
             document.getElementById('purchase-qty').value = '';
             calculatePurchaseTotal();
+
+            // Опционально: обновляем счета, чтобы показать новый баланс сразу
+            loadPurchaseAccounts();
+
             if (typeof loadTable === 'function') loadTable();
         } else {
-            UI.toast('Ошибка закупки', 'error');
+            const data = await res.json();
+            UI.toast(data.error || 'Ошибка при закупке', 'error');
         }
+    }).catch(err => {
+        console.error(err);
+        UI.toast('Ошибка сети', 'error');
     });
 }

@@ -3,28 +3,28 @@ const router = express.Router();
 const fs = require('fs');
 const path = require('path');
 
-module.exports = function (pool, upload) {
+// 👈 Добавили withTransaction
+module.exports = function (pool, upload, withTransaction) {
 
     // ==========================================
     // 1. ОТЧЕТ P&L (ПРИБЫЛИ И УБЫТКИ)
     // ==========================================
-    // Собирает данные для Дашборда: считает доходы, прямые расходы (сырье, з/п) 
-    // и косвенные расходы. Вычисляет валовую и чистую прибыль, а также рентабельность.
     router.get('/api/finance/pnl', async (req, res) => {
         const { start, end } = req.query;
-        let params = []; let where = 'WHERE 1=1';
+        let params = [];
 
-        // Фильтрация по датам, если они переданы
+        let where = "WHERE COALESCE(is_deleted, false) = false ";
+        where += "AND category NOT IN ('Корректировка долга', 'Ввод остатков') ";
+
         if (start && end) {
-            where += ` AND created_at::date >= $1 AND created_at::date <= $2`;
+            where += ` AND transaction_date::date >= $1 AND transaction_date::date <= $2`;
             params = [start, end];
         }
-
         try {
             const transRes = await pool.query(`SELECT category, transaction_type, SUM(amount) as total FROM transactions ${where} GROUP BY category, transaction_type`, params);
 
             let revenue = 0; let directCosts = 0; let indirectCosts = 0;
-            const directCategories = ['Закупка сырья', 'Зарплата']; // Основные статьи прямых затрат на производство
+            const directCategories = ['Закупка сырья', 'Зарплата'];
 
             transRes.rows.forEach(r => {
                 const amt = parseFloat(r.total);
@@ -48,7 +48,6 @@ module.exports = function (pool, upload) {
     // ==========================================
     // 2. ПЛАТЕЖНЫЙ КАЛЕНДАРЬ (ПЛАНОВЫЕ РАСХОДЫ)
     // ==========================================
-    // Выводит список будущих платежей (аренда, налоги и т.д.), которые ожидают оплаты
     router.get('/api/finance/planned-expenses', async (req, res) => {
         try {
             const result = await pool.query(`
@@ -62,95 +61,80 @@ module.exports = function (pool, upload) {
         }
     });
 
-    // Оплата планового расхода. Списывает деньги со счета и, если платеж регулярный, 
-    // автоматически создает такой же на следующий месяц.
     router.post('/api/finance/planned-expenses/:id/pay', async (req, res) => {
         const { account_id } = req.body;
-        const client = await pool.connect();
+
         try {
-            await client.query('BEGIN');
+            await withTransaction(pool, async (client) => {
+                const expRes = await client.query("UPDATE planned_expenses SET status = 'paid' WHERE id = $1 RETURNING *", [req.params.id]);
+                if (expRes.rows.length === 0) throw new Error('Платеж не найден');
+                const exp = expRes.rows[0];
 
-            const expRes = await client.query("UPDATE planned_expenses SET status = 'paid' WHERE id = $1 RETURNING *", [req.params.id]);
-            if (expRes.rows.length === 0) throw new Error('Платеж не найден');
-            const exp = expRes.rows[0];
+                if (parseFloat(exp.amount) <= 0) throw new Error('Сумма платежа должна быть больше нуля');
 
-            // Защита от отрицательных сумм
-            if (parseFloat(exp.amount) <= 0) throw new Error('Сумма платежа должна быть больше нуля');
+                const desc = `Оплата плана: ${exp.category} (${exp.description || ''})`;
 
-            const desc = `Оплата плана: ${exp.category} (${exp.description || ''})`;
+                await client.query(`
+                    INSERT INTO transactions (account_id, amount, transaction_type, category, description, transaction_date)
+                    VALUES ($1, $2, 'expense', $3, $4, NOW())
+                `, [account_id, exp.amount, exp.category, desc]);
 
-            // Фиксируем транзакцию расхода
-            await client.query(`
-                INSERT INTO transactions (account_id, amount, transaction_type, category, description, transaction_date)
-                VALUES ($1, $2, 'expense', $3, $4, NOW())
-            `, [account_id, exp.amount, exp.category, desc]);
-
-            // Уменьшаем баланс выбранного расчетного счета
-            await client.query('UPDATE accounts SET balance = balance - $1 WHERE id = $2', [exp.amount, account_id]);
-
-            // Логика рекуррентных (повторяющихся) платежей
-            if (exp.is_recurring) {
-                const nextDate = new Date(exp.date);
-                nextDate.setMonth(nextDate.getMonth() + 1);
-                await client.query(
-                    'INSERT INTO planned_expenses (date, amount, category, description, is_recurring, status) VALUES ($1, $2, $3, $4, $5, $6)',
-                    [nextDate, exp.amount, exp.category, exp.description, true, 'pending']
-                );
-            }
-
-            await client.query('COMMIT');
+                if (exp.is_recurring) {
+                    const nextDate = new Date(exp.date);
+                    nextDate.setMonth(nextDate.getMonth() + 1);
+                    await client.query(
+                        'INSERT INTO planned_expenses (date, amount, category, description, is_recurring, status) VALUES ($1, $2, $3, $4, $5, $6)',
+                        [nextDate, exp.amount, exp.category, exp.description, true, 'pending']
+                    );
+                }
+            });
             res.json({ success: true, message: 'Платеж успешно проведен' });
         } catch (e) {
-            await client.query('ROLLBACK');
             res.status(400).json({ error: e.message });
-        } finally { client.release(); }
+        }
     });
 
     // ==========================================
     // 3. ТРАНЗАКЦИИ: СПИСОК И МАССОВОЕ УДАЛЕНИЕ
     // ==========================================
-    // Главный маршрут получения операций с поддержкой пагинации, поиска и фильтров.
-    // Игнорирует транзакции, отправленные в корзину (is_deleted = true).
     router.get('/api/transactions', async (req, res) => {
         const { search, start, end, account_id, page, limit } = req.query;
         const parsedPage = parseInt(page) || 1;
         const parsedLimit = parseInt(limit) || 20;
         const offset = Math.max((parsedPage - 1) * parsedLimit, 0);
 
-        const client = await pool.connect();
         try {
-            let conditions = ["COALESCE(t.is_deleted, false) = false"];
+            let conditions = [
+                "COALESCE(t.is_deleted, false) = false",
+                "t.category NOT IN ('Корректировка долга', 'Перевод', 'Ввод остатков')"
+            ];
             let params = [];
             let paramIndex = 1;
 
-            // Фильтр по тексту (описание, категория или имя контрагента)
-            if (search && String(search).trim() !== '') {
-                conditions.push(`(t.description ILIKE $${paramIndex} OR t.category ILIKE $${paramIndex} OR c.name ILIKE $${paramIndex})`);
-                params.push(`%${String(search).trim()}%`);
-                paramIndex++;
-            }
-
-            // Фильтр по периоду
-            if (start && end) {
-                conditions.push(`t.transaction_date >= $${paramIndex}::timestamp AND t.transaction_date <= $${paramIndex + 1}::timestamp + interval '1 day' - interval '1 second'`);
-                params.push(start, end);
-                paramIndex += 2;
-            }
-
-            // Фильтр по конкретному кошельку/счету
             if (account_id && account_id !== 'null' && account_id !== 'undefined') {
                 conditions.push(`t.account_id = $${paramIndex}`);
                 params.push(parseInt(account_id));
                 paramIndex++;
             }
 
+            if (search && String(search).trim() !== '') {
+                conditions.push(`(t.description ILIKE $${paramIndex} OR t.category ILIKE $${paramIndex} OR c.name ILIKE $${paramIndex})`);
+                params.push(`%${String(search).trim()}%`);
+                paramIndex++;
+            }
+
+            if (start && end) {
+                conditions.push(`t.transaction_date >= $${paramIndex}::timestamp AND t.transaction_date <= $${paramIndex + 1}::timestamp + interval '1 day' - interval '1 second'`);
+                params.push(start, end);
+                paramIndex += 2;
+            }
+
             const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
-            // Считаем общее количество для пагинации
-            const countRes = await client.query(`SELECT COUNT(*) FROM transactions t LEFT JOIN counterparties c ON t.counterparty_id = c.id ${whereClause}`, params);
+            // Безопасные прямые запросы
+            const countRes = await pool.query(`SELECT COUNT(*) FROM transactions t LEFT JOIN counterparties c ON t.counterparty_id = c.id ${whereClause}`, params);
             const totalRecords = parseInt(countRes.rows[0].count);
 
-            // Получаем саму страницу данных
             const dataQuery = `
                 SELECT t.id, t.transaction_date, t.amount, t.transaction_type, 
                        t.category, t.description, t.payment_method, t.vat_amount,
@@ -164,7 +148,7 @@ module.exports = function (pool, upload) {
                 LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
             `;
             const dataParams = [...params, parsedLimit, offset];
-            const dataRes = await client.query(dataQuery, dataParams);
+            const dataRes = await pool.query(dataQuery, dataParams);
 
             res.json({
                 data: dataRes.rows,
@@ -178,57 +162,38 @@ module.exports = function (pool, upload) {
         } catch (err) {
             console.error('Ошибка загрузки транзакций:', err);
             res.status(500).json({ error: 'Ошибка сервера при загрузке данных' });
-        } finally {
-            client.release();
         }
     });
 
-    // Массовое мягкое удаление транзакций с возвратом денег на счета
     router.post('/api/transactions/bulk-delete', async (req, res) => {
         const { ids } = req.body;
-        if (!ids || !Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'Не переданы ID для удаления' });
+        if (!ids || ids.length === 0) return res.json({ success: true });
 
-        const client = await pool.connect();
         try {
-            await client.query('BEGIN');
-            const transRes = await client.query('SELECT id, amount, transaction_type, account_id, description FROM transactions WHERE id = ANY($1::int[])', [ids]);
+            await withTransaction(pool, async (client) => {
+                for (let id of ids) {
+                    const txRes = await client.query('SELECT amount, transaction_type, account_id, description FROM transactions WHERE id = $1', [id]);
+                    if (txRes.rows.length > 0) {
+                        const { description } = txRes.rows[0];
 
-            for (const trans of transRes.rows) {
-                // Откатываем баланс счета
-                if (trans.account_id) {
-                    const balanceChange = trans.transaction_type === 'income' ? -trans.amount : trans.amount;
-                    await client.query('UPDATE accounts SET balance = balance + $1 WHERE id = $2', [balanceChange, trans.account_id]);
-                }
-
-                // Если это была оплата по счету, возвращаем счету статус "неоплачен" (pending)
-                if (trans.transaction_type === 'income' && trans.description) {
-                    const invoiceMatch = trans.description.match(/(СЧ|ЗК)-\d+/i);
-                    if (invoiceMatch) {
-                        const docNumber = invoiceMatch[0].toUpperCase();
-                        const invRes = await client.query(`SELECT id, status, amount FROM invoices WHERE invoice_number = $1 ORDER BY id DESC LIMIT 1`, [docNumber]);
-                        if (invRes.rows.length > 0) {
-                            const inv = invRes.rows[0];
-                            if (inv.status === 'paid') await client.query(`UPDATE invoices SET status = 'pending' WHERE id = $1`, [inv.id]);
-                            else await client.query(`UPDATE invoices SET amount = amount + $1 WHERE id = $2`, [trans.amount, inv.id]);
+                        const invoiceMatch = (description || '').match(/(СЧ|ЗК)-(\d+)/i);
+                        if (invoiceMatch) {
+                            await client.query(`UPDATE invoices SET status = 'pending' WHERE invoice_number = $1`, [invoiceMatch[0].toUpperCase()]);
                         }
+
+                        await client.query('UPDATE transactions SET is_deleted = true WHERE id = $1', [id]);
                     }
                 }
-            }
-            // Переносим в корзину
-            await client.query('UPDATE transactions SET is_deleted = true WHERE id = ANY($1::int[])', [ids]);
-
-            await client.query('COMMIT');
-            res.json({ success: true, deletedCount: transRes.rows.length });
-        } catch (err) {
-            await client.query('ROLLBACK');
-            res.status(500).json({ error: 'Ошибка массового удаления: ' + err.message });
-        } finally { client.release(); }
+            });
+            res.json({ success: true });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
     });
 
     // ==========================================
     // 4. КАТЕГОРИИ ТРАНЗАКЦИЙ (СПРАВОЧНИК)
     // ==========================================
-    // Получение, добавление и удаление пользовательских категорий доходов и расходов.
     router.get('/api/finance/categories', async (req, res) => {
         try {
             const result = await pool.query('SELECT * FROM transaction_categories ORDER BY type, name');
@@ -253,8 +218,6 @@ module.exports = function (pool, upload) {
     // ==========================================
     // 5. КОНТРАГЕНТЫ (CRM) И КАРТОЧКА 360°
     // ==========================================
-
-    // Получить список всех контрагентов (для таблицы CRM) с расчетом сальдо
     router.get('/api/counterparties', async (req, res) => {
         try {
             const result = await pool.query(`
@@ -274,15 +237,13 @@ module.exports = function (pool, upload) {
         }
     });
 
-    // Полная сводка по конкретному клиенту (для виджетов)
     router.get('/api/counterparties/:id/full', async (req, res) => {
         const cpId = req.params.id;
-        const client = await pool.connect();
         try {
-            const cpRes = await client.query('SELECT * FROM counterparties WHERE id = $1', [cpId]);
+            const cpRes = await pool.query('SELECT * FROM counterparties WHERE id = $1', [cpId]);
             if (cpRes.rows.length === 0) return res.status(404).json({ error: 'Не найден' });
 
-            const finRes = await client.query(`
+            const finRes = await pool.query(`
                 SELECT 
                     COALESCE(SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END), 0) as total_paid_to_us,
                     COALESCE(SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END), 0) as total_paid_to_them
@@ -295,28 +256,25 @@ module.exports = function (pool, upload) {
 
             res.json({ cp: cpRes.rows[0], finances: { ...finances, balance } });
         } catch (err) { res.status(500).json({ error: err.message }); }
-        finally { client.release(); }
     });
 
-    // 🗂️ ПРОФИЛЬ: Загружает всю историю работы с клиентом (операции, счета, договоры)
     router.get('/api/counterparties/:id/profile', async (req, res) => {
         const cpId = req.params.id;
-        const client = await pool.connect();
         try {
-            const cpRes = await client.query('SELECT * FROM counterparties WHERE id = $1', [cpId]);
+            const cpRes = await pool.query('SELECT * FROM counterparties WHERE id = $1', [cpId]);
             if (cpRes.rows.length === 0) return res.status(404).json({ error: 'Контрагент не найден' });
 
-            const transRes = await client.query(`
+            const transRes = await pool.query(`
                 SELECT amount, transaction_type, category, description, 
                        TO_CHAR(transaction_date, 'DD.MM.YYYY HH24:MI') as date 
                 FROM transactions 
                 WHERE counterparty_id = $1 AND COALESCE(is_deleted, false) = false
-                ORDER BY transaction_date DESC
+                ORDER BY transaction_date DESC, id DESC
             `, [cpId]);
 
             let invoices = [];
             try {
-                const invRes = await client.query(`
+                const invRes = await pool.query(`
                     SELECT id, amount, invoice_number, description, status, 
                            TO_CHAR(created_at, 'DD.MM.YYYY') as date 
                     FROM invoices WHERE counterparty_id = $1 ORDER BY created_at DESC
@@ -326,7 +284,7 @@ module.exports = function (pool, upload) {
 
             let contracts = [];
             try {
-                const conRes = await client.query(`
+                const conRes = await pool.query(`
                     SELECT id, number, TO_CHAR(date, 'DD.MM.YYYY') as date 
                     FROM contracts WHERE counterparty_id = $1 ORDER BY date DESC
                 `, [cpId]);
@@ -337,10 +295,9 @@ module.exports = function (pool, upload) {
         } catch (err) {
             console.error('Ошибка загрузки профиля:', err);
             res.status(500).json({ error: err.message });
-        } finally { client.release(); }
+        }
     });
 
-    // Создание контрагента (Поддержка всех полей от DaData)
     router.post('/api/counterparties', async (req, res) => {
         const { name, role, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment } = req.body;
         try {
@@ -352,7 +309,6 @@ module.exports = function (pool, upload) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    // Обновление реквизитов контрагента
     router.put('/api/counterparties/:id', async (req, res) => {
         const { name, role, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment } = req.body;
         try {
@@ -364,35 +320,30 @@ module.exports = function (pool, upload) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    // Ввод начальных остатков (Корректировка сальдо)
     router.post('/api/counterparties/:id/correction', async (req, res) => {
         const cpId = req.params.id;
         const { amount, type, date, description } = req.body;
         try {
             await pool.query(`
-                INSERT INTO transactions (amount, transaction_type, category, description, payment_method, counterparty_id, transaction_date)
-                VALUES ($1, $2, 'Корректировка долга', $3, 'Корректировка', $4, $5)
-            `, [amount, type, description || 'Ввод начальных остатков', cpId, date || new Date()]);
+                INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, transaction_date) 
+                VALUES ($1, $2, 'Корректировка долга', $3, 'Системная правка', NULL, $4, $5)
+            `, [amount, type, description, cpId, date]);
             res.json({ success: true });
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    // Удаление контрагента (отвязывает его от транзакций, чтобы не сломать учет)
     router.delete('/api/counterparties/:id', async (req, res) => {
-        const client = await pool.connect();
         try {
-            await client.query('BEGIN');
-            await client.query('UPDATE transactions SET counterparty_id = NULL WHERE counterparty_id = $1', [req.params.id]);
-            await client.query('DELETE FROM counterparties WHERE id = $1', [req.params.id]);
-            await client.query('COMMIT');
+            await withTransaction(pool, async (client) => {
+                await client.query('UPDATE transactions SET counterparty_id = NULL WHERE counterparty_id = $1', [req.params.id]);
+                await client.query('DELETE FROM counterparties WHERE id = $1', [req.params.id]);
+            });
             res.json({ success: true });
         } catch (err) {
-            await client.query('ROLLBACK');
             res.status(500).json({ error: err.message });
-        } finally { client.release(); }
+        }
     });
 
-    // Прокси-маршрут для обхода блокировщиков рекламы при запросе к DaData
     router.post('/api/dadata/inn', async (req, res) => {
         const { inn } = req.body;
         const token = "b0dcbe2b0cb2a4deca8c89bcdff453a7cabc4ceb";
@@ -410,7 +361,6 @@ module.exports = function (pool, upload) {
         }
     });
 
-    // Генерация печатной формы Акта сверки
     router.get('/print/act', async (req, res) => {
         const { cp_id } = req.query;
         try {
@@ -424,8 +374,6 @@ module.exports = function (pool, upload) {
     // ==========================================
     // 6. КОНТРОЛЬ ОЖИДАЕМЫХ ПЛАТЕЖЕЙ (СЧЕТА)
     // ==========================================
-
-    // Получить все выставленные, но еще не оплаченные счета
     router.get('/api/invoices', async (req, res) => {
         try {
             const result = await pool.query(`
@@ -440,7 +388,6 @@ module.exports = function (pool, upload) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    // Выставить новый счет клиенту (Защита от сумм <= 0)
     router.post('/api/invoices', async (req, res) => {
         const { cp_id, amount, desc, num } = req.body;
         if (parseFloat(amount) <= 0 || isNaN(parseFloat(amount))) {
@@ -455,74 +402,89 @@ module.exports = function (pool, upload) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    // Подтверждение ручной оплаты счета: Закрывает счет, создает транзакцию и начисляет НДС
     router.post('/api/invoices/:id/pay', async (req, res) => {
         const { account_id } = req.body;
-        const client = await pool.connect();
+
         try {
-            await client.query('BEGIN');
+            await withTransaction(pool, async (client) => {
+                const invRes = await client.query('SELECT * FROM invoices WHERE id = $1', [req.params.id]);
+                const inv = invRes.rows[0];
+                if (!inv) throw new Error('Счет не найден');
+                if (parseFloat(inv.amount) <= 0) throw new Error('Критическая ошибка: сумма счета меньше или равна нулю!');
 
-            const invRes = await client.query('SELECT * FROM invoices WHERE id = $1', [req.params.id]);
-            const inv = invRes.rows[0];
-            if (!inv) throw new Error('Счет не найден');
-            if (parseFloat(inv.amount) <= 0) throw new Error('Критическая ошибка: сумма счета меньше или равна нулю!');
+                await client.query("UPDATE invoices SET status = 'paid' WHERE id = $1", [req.params.id]);
 
-            // 1. Помечаем счет как оплаченный
-            await client.query("UPDATE invoices SET status = 'paid' WHERE id = $1", [req.params.id]);
+                const vatAmount = (inv.amount * 22) / 122;
+                const desc = `Оплата по счету №${inv.invoice_number}. ${inv.description || ''}`;
 
-            // 2. Расчет актуального НДС 22% по формуле (amount * 22) / 122
-            const vatAmount = (inv.amount * 22) / 122;
-            const desc = `Оплата по счету №${inv.invoice_number}. ${inv.description || ''}`;
-
-            // 3. Создаем приходную операцию с привязкой текущей даты
-            await client.query(`
-                INSERT INTO transactions (amount, transaction_type, category, description, vat_amount, payment_method, account_id, counterparty_id, transaction_date)
-                VALUES ($1, 'income', 'Продажа продукции', $2, $3, 'Безналичный расчет', $4, $5, NOW())
-            `, [inv.amount, desc, vatAmount, account_id, inv.counterparty_id]);
-
-            // 4. Пополняем фактический баланс расчетного счета
-            await client.query('UPDATE accounts SET balance = balance + $1 WHERE id = $2', [inv.amount, account_id]);
-
-            await client.query('COMMIT');
+                await client.query(`
+                    INSERT INTO transactions (amount, transaction_type, category, description, vat_amount, payment_method, account_id, counterparty_id, transaction_date)
+                    VALUES ($1, 'income', 'Продажа продукции', $2, $3, 'Безналичный расчет', $4, $5, NOW())
+                `, [inv.amount, desc, vatAmount, account_id, inv.counterparty_id]);
+            });
             res.json({ success: true, message: 'Счет успешно оплачен' });
         } catch (err) {
-            await client.query('ROLLBACK');
             res.status(400).json({ error: err.message });
-        } finally { client.release(); }
+        }
     });
 
-    // Удаление ошибочно выставленного счета
     router.delete('/api/invoices/:id', async (req, res) => {
         try {
-            await pool.query('DELETE FROM invoices WHERE id = $1', [req.params.id]);
-            res.json({ success: true, message: 'Счет удален' });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+            await withTransaction(pool, async (client) => {
+                const invRes = await client.query('SELECT status FROM invoices WHERE id = $1', [req.params.id]);
+                if (invRes.rows.length > 0) {
+                    if (invRes.rows[0].status === 'paid') {
+                        throw new Error('СИСТЕМНАЯ БЛОКИРОВКА: Этот счет уже оплачен! Сначала найдите и удалите сам платеж (поступление) во вкладке "История операций", чтобы деньги списались с баланса. Только после этого можно удалить счет.');
+                    }
+                    await client.query('DELETE FROM invoices WHERE id = $1', [req.params.id]);
+                }
+            });
+            res.json({ success: true });
+        } catch (err) {
+            // Чтобы пробросить ошибку системной блокировки с нормальным статусом
+            res.status(err.message.includes('СИСТЕМНАЯ БЛОКИРОВКА') ? 400 : 500).json({ error: err.message });
+        }
     });
 
     // ==========================================
     // 7. СЧЕТА КОМПАНИИ, ПЕРЕВОДЫ И СОЗДАНИЕ ТРАНЗАКЦИЙ
     // ==========================================
-
-    // График распределения финансов по категориям за период
     router.get('/api/report/finance', async (req, res) => {
-        const { start, end } = req.query;
-        let where = ''; let params = [];
-        if (start && end) {
-            where = `WHERE created_at::date >= $1 AND created_at::date <= $2`;
-            params = [start, end];
-        }
         try {
-            const result = await pool.query(`
-                SELECT category, 
-                       SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) as income,
-                       SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END) as expense
-                FROM transactions ${where} GROUP BY category;
-            `, params);
+            const { start, end, account_id } = req.query;
+
+            let whereClause = "WHERE COALESCE(is_deleted, false) = false ";
+            whereClause += "AND category NOT IN ('Корректировка долга', 'Перевод', 'Ввод остатков') ";
+
+            let params = [];
+            let paramIdx = 1;
+
+            if (start && end) {
+                whereClause += ` AND transaction_date >= $${paramIdx} AND transaction_date <= $${paramIdx + 1}::timestamp + interval '1 day' - interval '1 second'`;
+                params.push(start, end);
+                paramIdx += 2;
+            }
+
+            if (account_id) {
+                whereClause += ` AND account_id = $${paramIdx}`;
+                params.push(account_id);
+            }
+
+            const query = `
+                SELECT 
+                    SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) AS income,
+                    SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END) AS expense
+                FROM transactions
+                ${whereClause}
+            `;
+
+            const result = await pool.query(query, params);
             res.json(result.rows);
-        } catch (err) { res.status(500).json({ error: 'Ошибка аналитики: ' + err.message }); }
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
     });
 
-    // Получить список всех кошельков/расчетных счетов бизнеса
     router.get('/api/accounts', async (req, res) => {
         try {
             const result = await pool.query('SELECT * FROM accounts ORDER BY id ASC');
@@ -530,7 +492,6 @@ module.exports = function (pool, upload) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    // Создать новый кошелек/счет
     router.post('/api/accounts', async (req, res) => {
         const { name, type, balance } = req.body;
         try {
@@ -539,206 +500,189 @@ module.exports = function (pool, upload) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    // Ручное создание одиночной транзакции с пересчетом баланса банка
     router.post('/api/transactions', async (req, res) => {
         const { amount, type, category, description, method, account_id, counterparty_id } = req.body;
         if (parseFloat(amount) <= 0 || isNaN(parseFloat(amount))) {
             return res.status(400).json({ error: 'Сумма операции должна быть больше нуля!' });
         }
-        const client = await pool.connect();
+
         try {
-            await client.query('BEGIN');
-            await client.query(`
-                INSERT INTO transactions (amount, transaction_type, category, description, vat_amount, payment_method, account_id, counterparty_id, transaction_date)
-                VALUES ($1, $2, $3, $4, 0, $5, $6, $7, NOW())
-            `, [amount, type, category, description, method, account_id, counterparty_id || null]);
-
-            const balanceChange = type === 'income' ? amount : -amount;
-            await client.query('UPDATE accounts SET balance = balance + $1 WHERE id = $2', [balanceChange, account_id]);
-
-            await client.query('COMMIT');
+            await withTransaction(pool, async (client) => {
+                await client.query(`
+                    INSERT INTO transactions (amount, transaction_type, category, description, vat_amount, payment_method, account_id, counterparty_id, transaction_date)
+                    VALUES ($1, $2, $3, $4, 0, $5, $6, $7, NOW())
+                `, [amount, type, category, description, method, account_id, counterparty_id || null]);
+            });
             res.json({ success: true, message: 'Операция сохранена' });
         } catch (err) {
-            await client.query('ROLLBACK');
             res.status(500).json({ error: err.message });
-        } finally { client.release(); }
+        }
     });
 
-    // Внутренний перевод между своими счетами (например: Касса -> Расчетный счет)
     router.post('/api/transactions/transfer', async (req, res) => {
         const { from_id, to_id, amount, description } = req.body;
         if (parseFloat(amount) <= 0 || isNaN(parseFloat(amount))) return res.status(400).json({ error: 'Сумма перевода должна быть больше нуля!' });
         if (String(from_id) === String(to_id)) return res.status(400).json({ error: 'Нельзя перевести деньги на тот же счет!' });
 
-        const client = await pool.connect();
         try {
-            await client.query('BEGIN');
-            const comment = `Внутренний перевод: ${description}`;
-
-            await client.query('UPDATE accounts SET balance = balance - $1 WHERE id = $2', [amount, from_id]);
-            await client.query(`INSERT INTO transactions (amount, transaction_type, category, description, account_id, transaction_date) VALUES ($1, 'expense', 'Перевод', $2, $3, NOW())`, [amount, comment, from_id]);
-
-            await client.query('UPDATE accounts SET balance = balance + $1 WHERE id = $2', [amount, to_id]);
-            await client.query(`INSERT INTO transactions (amount, transaction_type, category, description, account_id, transaction_date) VALUES ($1, 'income', 'Перевод', $2, $3, NOW())`, [amount, comment, to_id]);
-
-            await client.query('COMMIT');
+            await withTransaction(pool, async (client) => {
+                const comment = `Внутренний перевод: ${description}`;
+                await client.query(`INSERT INTO transactions (amount, transaction_type, category, description, account_id, transaction_date) VALUES ($1, 'expense', 'Перевод', $2, $3, NOW())`, [amount, comment, from_id]);
+                await client.query(`INSERT INTO transactions (amount, transaction_type, category, description, account_id, transaction_date) VALUES ($1, 'income', 'Перевод', $2, $3, NOW())`, [amount, comment, to_id]);
+            });
             res.json({ success: true, message: 'Перевод выполнен' });
         } catch (err) {
-            await client.query('ROLLBACK');
             res.status(500).json({ error: err.message });
-        } finally { client.release(); }
+        }
     });
 
     // ==========================================
     // 8. РЕДАКТИРОВАНИЕ, УДАЛЕНИЕ И ИМПОРТ 1С
     // ==========================================
-
-    // Одиночное мягкое удаление операции в корзину с возвратом денег на счет
     router.delete('/api/transactions/:id', async (req, res) => {
-        const client = await pool.connect();
+        const { id } = req.params;
+
         try {
-            await client.query('BEGIN');
+            await withTransaction(pool, async (client) => {
+                const txRes = await client.query('SELECT amount, transaction_type, account_id, description FROM transactions WHERE id = $1', [id]);
+                if (txRes.rows.length === 0) throw new Error("Транзакция не найдена");
 
-            const trRes = await client.query('SELECT amount, transaction_type, account_id FROM transactions WHERE id = $1', [req.params.id]);
-            if (trRes.rows.length === 0) throw new Error('Операция не найдена');
-            const tr = trRes.rows[0];
+                const { description } = txRes.rows[0];
 
-            await client.query('UPDATE transactions SET is_deleted = true WHERE id = $1', [req.params.id]);
-
-            const balanceChange = tr.transaction_type === 'income' ? -tr.amount : tr.amount;
-            await client.query('UPDATE accounts SET balance = balance + $1 WHERE id = $2', [balanceChange, tr.account_id]);
-
-            await client.query('COMMIT');
-            res.json({ success: true, message: 'Операция перемещена в корзину' });
-        } catch (err) {
-            await client.query('ROLLBACK');
-            res.status(500).json({ error: err.message });
-        } finally { client.release(); }
-    });
-
-    // Редактирование существующей операции (сумма, категория, дата)
-    router.put('/api/transactions/:id', async (req, res) => {
-        const { description, amount, category, account_id, counterparty_id, transaction_date } = req.body;
-        try {
-            await pool.query(`
-                UPDATE transactions 
-                SET description=$1, amount=$2, category=$3, account_id=$4, counterparty_id=$5, 
-                    transaction_date=COALESCE($6, transaction_date)
-                WHERE id=$7
-            `, [description, amount, category, account_id || null, counterparty_id || null, transaction_date || null, req.params.id]);
-            res.json({ success: true });
-        } catch (err) { res.status(500).json({ error: err.message }); }
-    });
-
-    // УМНЫЙ ИМПОРТ ИЗ 1С: Пакетная загрузка выписок из банка.
-    // Умеет сам находить или создавать контрагентов по ИНН, защищен от дублей.
-    router.post('/api/transactions/import', async (req, res) => {
-        const { account_id, transactions } = req.body;
-        const client = await pool.connect();
-        try {
-            await client.query('BEGIN');
-            let importedCount = 0; let autoPaidInvoicesCount = 0;
-
-            for (let tr of transactions) {
-                let cp_id = null;
-                let safeInn = null;
-                if (tr.counterparty_inn) safeInn = String(tr.counterparty_inn).split('/')[0].split('\\')[0].trim().substring(0, 20);
-                const safeName = tr.counterparty_name ? String(tr.counterparty_name).substring(0, 140) : 'Неизвестный партнер';
-                const cpType = tr.type === 'income' ? 'Покупатель' : 'Поставщик';
-
-                // Поиск или автосоздание контрагента
-                if (safeInn) {
-                    let cpRes = await client.query('SELECT id FROM counterparties WHERE inn = $1 LIMIT 1', [safeInn]);
-                    if (cpRes.rows.length > 0) cp_id = cpRes.rows[0].id;
-                    else {
-                        const newCp = await client.query(`INSERT INTO counterparties (name, inn, type) VALUES ($1, $2, $3) RETURNING id`, [safeName, safeInn, cpType]);
-                        cp_id = newCp.rows[0].id;
-                    }
-                } else {
-                    let cpRes = await client.query('SELECT id FROM counterparties WHERE name = $1 LIMIT 1', [safeName]);
-                    if (cpRes.rows.length > 0) cp_id = cpRes.rows[0].id;
-                    else {
-                        const newCp = await client.query(`INSERT INTO counterparties (name, type) VALUES ($1, $2) RETURNING id`, [safeName, cpType]);
-                        cp_id = newCp.rows[0].id;
-                    }
+                const invoiceMatch = (description || '').match(/(СЧ|ЗК)-(\d+)/i);
+                if (invoiceMatch) {
+                    const invoiceNumber = invoiceMatch[0].toUpperCase();
+                    await client.query(`UPDATE invoices SET status = 'pending' WHERE invoice_number = $1`, [invoiceNumber]);
                 }
 
-                const txDate = tr.date;
-                if (!txDate) throw new Error("Браузер прислал пустую дату!");
+                await client.query('UPDATE transactions SET is_deleted = true WHERE id = $1', [id]);
+            });
+            res.json({ success: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
 
-                // Защита от дублей: проверяем по сумме, описанию и точной дате
-                const dupCheck = await client.query(`
-                    SELECT id FROM transactions 
-                    WHERE account_id = $1 AND amount = $2 AND description = $3 AND transaction_type = $4 
-                    AND (created_at::date = $5::date OR transaction_date::date = $5::date)
-                    LIMIT 1
-                `, [account_id, tr.amount, tr.description, tr.type, txDate]);
+    router.put('/api/transactions/:id', async (req, res) => {
+        const { id } = req.params;
+        const { description, amount, category, account_id, counterparty_id, transaction_date } = req.body;
 
-                if (dupCheck.rows.length === 0) {
-                    let category = tr.type === 'income' ? 'Продажа продукции' : 'Закупка сырья';
-                    const desc = (tr.description || '').toLowerCase();
-                    const cpName = (tr.counterparty_name || '').toLowerCase();
+        try {
+            await withTransaction(pool, async (client) => {
+                const oldRes = await client.query('SELECT amount, transaction_type, account_id FROM transactions WHERE id = $1', [id]);
+                const old = oldRes.rows[0];
 
-                    // Авто-распределение по категориям на основе ключевых слов в назначении платежа
-                    if (tr.type === 'expense') {
-                        if (cpName.includes('уфк') || cpName.includes('казначейство') || desc.includes('налог') || desc.includes('взыскан') || desc.includes('пфр')) category = 'Налоги, штрафы и взносы';
-                        else if (desc.includes('комисс') || cpName.includes('банк') || desc.includes('рко')) category = 'Услуги банка и РКО';
-                        else if (desc.includes('аренд')) category = 'Аренда помещений';
-                        else if (desc.includes('займ') || desc.includes('заем') || desc.includes('кредит')) category = 'Возврат займов';
-                        else if (desc.includes('зарплат') || desc.includes('оплат труда') || desc.includes('аванс') || desc.includes('ндфл')) category = 'Зарплата';
-                        else if (desc.includes('материал') || desc.includes('сырь') || desc.includes('цемент') || desc.includes('песок') || desc.includes('щебень')) category = 'Закупка сырья';
-                        else if (desc.includes('доставк') || desc.includes('транспорт') || desc.includes('логист')) category = 'Транспортные расходы';
-                    } else if (tr.type === 'income') {
-                        if (desc.includes('займ') || desc.includes('заем') || desc.includes('кредит')) category = 'Получение займов';
-                        else if (desc.includes('возврат')) category = 'Возврат средств';
+                await client.query(`
+                    UPDATE transactions 
+                    SET description = $1, amount = $2, category = $3, account_id = $4, counterparty_id = $5, transaction_date = $6
+                    WHERE id = $7
+                `, [description, amount, category, account_id || null, counterparty_id || null, transaction_date, id]);
+            });
+            res.json({ success: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    router.post('/api/transactions/import', async (req, res) => {
+        const { account_id, transactions } = req.body;
+
+        try {
+            let importedCount = 0; let autoPaidInvoicesCount = 0;
+
+            await withTransaction(pool, async (client) => {
+                for (let tr of transactions) {
+                    let cp_id = null;
+                    let safeInn = null;
+                    if (tr.counterparty_inn) safeInn = String(tr.counterparty_inn).split('/')[0].split('\\')[0].trim().substring(0, 20);
+                    const safeName = tr.counterparty_name ? String(tr.counterparty_name).substring(0, 140) : 'Неизвестный партнер';
+                    const cpType = tr.type === 'income' ? 'Покупатель' : 'Поставщик';
+
+                    if (safeInn) {
+                        let cpRes = await client.query('SELECT id FROM counterparties WHERE inn = $1 LIMIT 1', [safeInn]);
+                        if (cpRes.rows.length > 0) cp_id = cpRes.rows[0].id;
+                        else {
+                            const newCp = await client.query(`INSERT INTO counterparties (name, inn, type) VALUES ($1, $2, $3) RETURNING id`, [safeName, safeInn, cpType]);
+                            cp_id = newCp.rows[0].id;
+                        }
+                    } else {
+                        let cpRes = await client.query('SELECT id FROM counterparties WHERE name = $1 LIMIT 1', [safeName]);
+                        if (cpRes.rows.length > 0) cp_id = cpRes.rows[0].id;
+                        else {
+                            const newCp = await client.query(`INSERT INTO counterparties (name, type) VALUES ($1, $2) RETURNING id`, [safeName, cpType]);
+                            cp_id = newCp.rows[0].id;
+                        }
                     }
 
-                    await client.query(`
-                        INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, transaction_date, created_at) 
-                        VALUES ($1, $2, $3, $4, 'Безналичный расчет (Импорт)', $5, $6, $7::timestamp, $7::timestamp)
-                    `, [tr.amount, tr.type, category, tr.description, account_id, cp_id, txDate]);
+                    const txDate = tr.date;
+                    if (!txDate) throw new Error("Браузер прислал пустую дату!");
 
-                    const balanceChange = tr.type === 'income' ? tr.amount : -tr.amount;
-                    await client.query('UPDATE accounts SET balance = balance + $1 WHERE id = $2', [balanceChange, account_id]);
+                    const safeDescription = tr.description || '';
 
-                    // Интеллектуальное авто-гашение счетов, если в назначении есть "СЧ-123"
-                    if (tr.type === 'income') {
-                        const invoiceMatch = tr.description.match(/(СЧ|ЗК)-(\d+)/i);
-                        if (invoiceMatch) {
-                            const docNumber = invoiceMatch[0].toUpperCase();
-                            const invCheck = await client.query(`SELECT id, amount FROM invoices WHERE invoice_number = $1 AND status = 'pending' ORDER BY created_at ASC`, [docNumber]);
-                            if (invCheck.rows.length > 0) {
-                                let remainingAmount = parseFloat(tr.amount);
-                                for (let inv of invCheck.rows) {
-                                    if (remainingAmount <= 0) break;
-                                    if (remainingAmount >= parseFloat(inv.amount)) {
-                                        await client.query(`UPDATE invoices SET status = 'paid' WHERE id = $1`, [inv.id]);
-                                        remainingAmount -= parseFloat(inv.amount);
-                                        autoPaidInvoicesCount++;
-                                    } else {
-                                        await client.query(`UPDATE invoices SET amount = amount - $1 WHERE id = $2`, [remainingAmount, inv.id]);
-                                        remainingAmount = 0;
+                    const dupCheck = await client.query(`
+                        SELECT id FROM transactions 
+                        WHERE account_id = $1 AND amount = $2 AND description = $3 AND transaction_type = $4 
+                        AND (created_at::date = $5::date OR transaction_date::date = $5::date)
+                        LIMIT 1
+                    `, [account_id, tr.amount, safeDescription, tr.type, txDate]);
+
+                    if (dupCheck.rows.length === 0) {
+                        let category = tr.type === 'income' ? 'Продажа продукции' : 'Закупка сырья';
+                        const cpName = (tr.counterparty_name || '').toLowerCase();
+                        const descForCheck = safeDescription.toLowerCase();
+
+                        if (tr.type === 'expense') {
+                            if (cpName.includes('уфк') || cpName.includes('казначейство') || descForCheck.includes('налог') || descForCheck.includes('взыскан') || descForCheck.includes('пфр')) category = 'Налоги, штрафы и взносы';
+                            else if (descForCheck.includes('комисс') || cpName.includes('банк') || descForCheck.includes('рко')) category = 'Услуги банка и РКО';
+                            else if (descForCheck.includes('аренд')) category = 'Аренда помещений';
+                            else if (descForCheck.includes('займ') || descForCheck.includes('заем') || descForCheck.includes('кредит')) category = 'Возврат займов';
+                            else if (descForCheck.includes('зарплат') || descForCheck.includes('оплат труда') || descForCheck.includes('аванс') || descForCheck.includes('ндфл')) category = 'Зарплата';
+                            else if (descForCheck.includes('материал') || descForCheck.includes('сырь') || descForCheck.includes('цемент') || descForCheck.includes('песок') || descForCheck.includes('щебень')) category = 'Закупка сырья';
+                            else if (descForCheck.includes('доставк') || descForCheck.includes('транспорт') || descForCheck.includes('логист')) category = 'Транспортные расходы';
+                        } else if (tr.type === 'income') {
+                            if (descForCheck.includes('займ') || descForCheck.includes('заем') || descForCheck.includes('кредит')) category = 'Получение займов';
+                            else if (descForCheck.includes('возврат')) category = 'Возврат средств';
+                        }
+
+                        await client.query(`
+                            INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, transaction_date, created_at) 
+                            VALUES ($1, $2, $3, $4, 'Безналичный расчет (Импорт)', $5, $6, $7::timestamp, $7::timestamp)
+                        `, [tr.amount, tr.type, category, safeDescription, account_id, cp_id, txDate]);
+
+                        if (tr.type === 'income') {
+                            const invoiceMatch = safeDescription.match(/(СЧ|ЗК)-(\d+)/i);
+                            if (invoiceMatch) {
+                                const docNumber = invoiceMatch[0].toUpperCase();
+                                const invCheck = await client.query(`SELECT id, amount FROM invoices WHERE invoice_number = $1 AND status = 'pending' ORDER BY created_at ASC`, [docNumber]);
+                                if (invCheck.rows.length > 0) {
+                                    let remainingAmount = parseFloat(tr.amount);
+                                    for (let inv of invCheck.rows) {
+                                        if (remainingAmount <= 0) break;
+                                        if (remainingAmount >= parseFloat(inv.amount)) {
+                                            await client.query(`UPDATE invoices SET status = 'paid' WHERE id = $1`, [inv.id]);
+                                            remainingAmount -= parseFloat(inv.amount);
+                                            autoPaidInvoicesCount++;
+                                        } else {
+                                            await client.query(`UPDATE invoices SET amount = amount - $1 WHERE id = $2`, [remainingAmount, inv.id]);
+                                            remainingAmount = 0;
+                                        }
                                     }
                                 }
                             }
                         }
+                        importedCount++;
                     }
-                    importedCount++;
                 }
-            }
-            await client.query('COMMIT');
+            });
             res.json({ success: true, count: importedCount, autoPaid: autoPaidInvoicesCount });
         } catch (err) {
-            await client.query('ROLLBACK');
             res.status(500).json({ error: err.message });
-        } finally { client.release(); }
+        }
     });
 
     // ==========================================
     // 9. ФАЙЛЫ, ЧЕКИ И АНАЛИТИКА СЕБЕСТОИМОСТИ
     // ==========================================
-
-    // Загрузка фото/PDF чека к конкретной транзакции
     if (upload) {
         router.post('/api/transactions/:id/receipt', upload.single('receipt'), async (req, res) => {
             try {
@@ -750,7 +694,6 @@ module.exports = function (pool, upload) {
         });
     }
 
-    // Удаление файла чека с диска и из базы
     router.delete('/api/transactions/:id/receipt', async (req, res) => {
         try {
             const transRes = await pool.query('SELECT receipt_url FROM transactions WHERE id = $1', [req.params.id]);
@@ -765,7 +708,6 @@ module.exports = function (pool, upload) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    // Аналитика рентабельности отгрузок (Юнит-экономика)
     router.get('/api/analytics/profitability', async (req, res) => {
         try {
             const result = await pool.query(`
@@ -797,38 +739,73 @@ module.exports = function (pool, upload) {
     });
 
     // ==========================================
+    // КОНСТРУКТОР СЕБЕСТОИМОСТИ (ДЛЯ ДАШБОРДА)
+    // ==========================================
+    router.post('/api/analytics/cost-constructor', async (req, res) => {
+        const { startDate, endDate } = req.body;
+
+        if (!startDate || !endDate) {
+            return res.status(400).json({ error: 'Не указан период' });
+        }
+
+        try {
+            // 1. Считаем общее количество циклов за выбранный период
+            // Берем данные из партий, которые были произведены в эти даты
+            const cyclesRes = await pool.query(`
+                SELECT SUM(cycles_count) as total_cycles 
+                FROM production_batches 
+                WHERE created_at::date >= $1 AND created_at::date <= $2 
+                  AND status != 'cancelled'
+            `, [startDate, endDate]);
+
+            const totalCycles = parseFloat(cyclesRes.rows[0].total_cycles) || 0;
+
+            // 2. Получаем все расходы (expense) за этот же период
+            // Исключаем удаленные транзакции и переводы между своими счетами
+            const expensesRes = await pool.query(`
+                SELECT category, description, amount, TO_CHAR(transaction_date, 'DD.MM.YYYY') as date 
+                FROM transactions 
+                WHERE transaction_type = 'expense' 
+                  AND transaction_date::date >= $1 AND transaction_date::date <= $2 
+                  AND category NOT IN ('Перевод', 'Корректировка долга', 'Ввод остатков')
+                  AND COALESCE(is_deleted, false) = false
+                ORDER BY transaction_date DESC
+            `, [startDate, endDate]);
+
+            // Отправляем готовый JSON обратно в dashboard.js
+            res.json({
+                totalCycles: totalCycles,
+                expenses: expensesRes.rows
+            });
+        } catch (err) {
+            console.error('Ошибка в Конструкторе себестоимости:', err);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // ==========================================
     // 10. ПРЕДСКАЗАНИЕ КАССОВЫХ РАЗРЫВОВ (ПРОГНОЗ)
     // ==========================================
-    // Анализирует текущий баланс, ожидаемые доходы (счета) и плановые расходы.
-    // Строит финансовую модель на 30 дней вперед и ищет отрицательный баланс.
     router.get('/api/finance/cashflow-forecast', async (req, res) => {
-        const client = await pool.connect();
         try {
-            // 1. Считаем текущий реальный капитал (суммируем балансы всех кошельков)
-            const accRes = await client.query('SELECT SUM(balance) as total_balance FROM accounts');
+            const accRes = await pool.query('SELECT SUM(balance) as total_balance FROM accounts');
             let currentBalance = parseFloat(accRes.rows[0].total_balance) || 0;
 
-            // 2. Достаем дебиторскую задолженность (Счета, которые нам еще не оплатили)
-            // Даем клиентам условные 3 дня на оплату с момента выставления счета
-            const invRes = await client.query(`
+            const invRes = await pool.query(`
                 SELECT amount, created_at::date + integer '3' as expected_date 
                 FROM invoices WHERE status = 'pending'
             `);
 
-            // 3. Достаем кредиторскую задолженность (Наши плановые расходы: аренда, налоги)
-            const expRes = await client.query(`
+            const expRes = await pool.query(`
                 SELECT amount, date as expected_date 
                 FROM planned_expenses WHERE status = 'pending'
             `);
 
-            // 4. Запускаем машину времени: строим прогноз на 30 дней вперед
             const forecast = [];
             let runningBalance = currentBalance;
             const today = new Date();
-            // Сбрасываем время, чтобы корректно сравнивать даты
             today.setHours(0, 0, 0, 0);
 
-            // Цикл проходит по каждому из следующих 30 дней
             for (let i = 0; i <= 30; i++) {
                 const targetDate = new Date(today);
                 targetDate.setDate(today.getDate() + i);
@@ -837,26 +814,20 @@ module.exports = function (pool, upload) {
                 let dailyIncome = 0;
                 let dailyExpense = 0;
 
-                // Проверяем, есть ли ожидаемые доходы в этот день
                 invRes.rows.forEach(inv => {
                     const invDateObj = new Date(inv.expected_date);
-                    // Если счет просрочен (дата в прошлом), считаем, что ждем деньги прямо СЕГОДНЯ (i === 0)
                     const invDate = invDateObj < today ? today.toISOString().split('T')[0] : invDateObj.toISOString().split('T')[0];
                     if (invDate === dateStr) dailyIncome += parseFloat(inv.amount);
                 });
 
-                // Проверяем, есть ли плановые платежи в этот день
                 expRes.rows.forEach(exp => {
                     const expDateObj = new Date(exp.expected_date);
-                    // Если мы забыли оплатить план в прошлом, он падает на СЕГОДНЯ
                     const expDate = expDateObj < today ? today.toISOString().split('T')[0] : expDateObj.toISOString().split('T')[0];
                     if (expDate === dateStr) dailyExpense += parseFloat(exp.amount);
                 });
 
-                // Пересчитываем виртуальный баланс на конец этого дня
                 runningBalance = runningBalance + dailyIncome - dailyExpense;
 
-                // Сохраняем слепок дня в массив прогноза
                 forecast.push({
                     date: dateStr,
                     income: dailyIncome,
@@ -865,34 +836,36 @@ module.exports = function (pool, upload) {
                 });
             }
 
-            // Отправляем готовый прогноз в браузер
             res.json({ currentBalance, forecast });
         } catch (err) {
             console.error('Ошибка прогноза кассовых разрывов:', err);
             res.status(500).json({ error: err.message });
-        } finally {
-            client.release();
         }
     });
 
     // ==========================================
-    // 11. ПРОДВИНУТАЯ НАЛОГОВАЯ КОПИЛКА (УРОВЕНЬ ERP)
+    // 11. ПРЕДВИНУТАЯ НАЛОГОВАЯ КОПИЛКА (УРОВЕНЬ ERP)
     // ==========================================
     router.get('/api/finance/tax-piggy-bank', async (req, res) => {
-        // Добавили usn_rate для гибкой настройки процента
-        const { start, end, usn_rate } = req.query;
+        let { start, end, usn_rate } = req.query;
         const usnRate = usn_rate ? parseFloat(usn_rate) : 3;
         const usnMultiplier = usnRate / 100;
 
+        if (!start || !end) {
+            const currentYear = new Date().getFullYear();
+            start = `${currentYear}-01-01 00:00:00`;
+            end = `${currentYear}-12-31 23:59:59`;
+            console.log(`[TAX PIGGY BANK] Защита памяти: применен дефолтный период ${currentYear} год.`);
+        }
+
         let params = [];
         let where = "WHERE COALESCE(t.is_deleted, false) = false ";
-        where += "AND t.category NOT IN ('Перевод', 'Корректировка долга', 'Ввод остатков') ";
+        where += "AND t.category NOT IN ('Корректировка долга', 'Перевод', 'Ввод остатков') ";
 
         if (start && end) {
             where += ` AND t.transaction_date >= $1 AND t.transaction_date <= $2`;
             params = [start, end];
         }
-
         try {
             const result = await pool.query(`
                 SELECT t.*, a.type as account_type, a.name as account_name
@@ -909,19 +882,14 @@ module.exports = function (pool, upload) {
 
             result.rows.forEach(t => {
                 const amt = parseFloat(t.amount);
-
-                // Переводим описание в нижний регистр для надежного поиска
                 const descLower = (t.description || '').toLowerCase();
-
-                // Операция признается "Без НДС", если это спец-категория ИЛИ в тексте прямо написано "без ндс"
                 t.is_no_vat = noVatCategories.includes(t.category) || descLower.includes('без ндс');
 
                 if (t.account_type === 'cash') {
-                    // ЛОГИКА КАССЫ (Гибкая ставка УСН)
                     if (t.transaction_type === 'income') {
                         const tax = amt * usnMultiplier;
                         t.calculated_tax = tax;
-                        cashData.turnover += amt; // Считаем общую базу доходов
+                        cashData.turnover += amt;
                         cashData.totalTax += tax;
                         cashData.transactions.push(t);
                     } else {
@@ -929,7 +897,6 @@ module.exports = function (pool, upload) {
                         cashData.transactions.push(t);
                     }
                 } else {
-                    // ЛОГИКА БАНКА (НДС 22%)
                     if (t.is_no_vat) t.calculated_tax = 0;
                     else {
                         const vat = (amt * 22) / 122;
@@ -958,17 +925,21 @@ module.exports = function (pool, upload) {
     // ==========================================
     // 12. СОХРАНЕНИЕ ГАЛОЧЕК В БАЗУ (МНОГОПОЛЬЗОВАТЕЛЬСКИЙ РЕЖИМ)
     // ==========================================
-    // Переключатель галочек (Исключить / Принудительный НДС)
     router.post('/api/finance/tax-status', async (req, res) => {
         const { id, field, is_checked } = req.body;
+        const allowedFields = ['tax_excluded', 'tax_force_vat'];
+        if (!allowedFields.includes(field)) {
+            return res.status(400).json({ error: 'Блокировка: недопустимое поле базы данных' });
+        }
+
         try {
-            // field может быть 'tax_excluded' или 'tax_force_vat'
             await pool.query(`UPDATE transactions SET ${field} = $1 WHERE id = $2`, [is_checked, id]);
             res.json({ success: true });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
     });
 
-    // Сохранение глобальных настроек (Ставка УСН, корректировки)
     router.post('/api/finance/tax-settings', async (req, res) => {
         const { key, value } = req.body;
         try {
@@ -981,7 +952,6 @@ module.exports = function (pool, upload) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    // Маршрут для получения глобальных настроек при загрузке
     router.get('/api/finance/tax-settings', async (req, res) => {
         try {
             const result = await pool.query('SELECT * FROM global_settings');

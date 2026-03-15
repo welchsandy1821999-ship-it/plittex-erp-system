@@ -1,7 +1,11 @@
+// === ФАЙЛ: routes/hr.js ===
 const express = require('express');
 const router = express.Router();
 
-module.exports = function(pool) {
+// 👈 Добавили withTransaction
+module.exports = function (pool, withTransaction) {
+    
+    // --- ПРОСТЫЕ ЗАПРОСЫ (БЕЗ ТРАНЗАКЦИЙ) ---
     router.get('/api/salary/adjustments', async (req, res) => {
         try {
             const result = await pool.query(`SELECT * FROM salary_adjustments WHERE month_str = $1`, [req.query.monthStr]);
@@ -49,22 +53,6 @@ module.exports = function(pool) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    router.post('/api/timesheet', async (req, res) => {
-        const { date, records } = req.body;
-        const client = await pool.connect();
-        try {
-            await client.query('BEGIN');
-            for (let rec of records) {
-                await client.query(`INSERT INTO timesheets (employee_id, record_date, status) VALUES ($1, $2, $3) ON CONFLICT (employee_id, record_date) DO UPDATE SET status = EXCLUDED.status`, [rec.employee_id, date, rec.status]);
-            }
-            await client.query('COMMIT');
-            res.json({ success: true, message: 'Табель сохранен' });
-        } catch (err) {
-            await client.query('ROLLBACK');
-            res.status(500).json({ error: err.message });
-        } finally { client.release(); }
-    });
-
     router.get('/api/timesheet/month', async (req, res) => {
         const { year, month } = req.query;
         try {
@@ -90,33 +78,6 @@ module.exports = function(pool) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    router.post('/api/timesheet/mass-bonus', async (req, res) => {
-        const { date, empData, totalBonusFund } = req.body;
-        const client = await pool.connect();
-        try {
-            await client.query('BEGIN');
-            for (let emp of empData) {
-                await client.query(`INSERT INTO timesheets (employee_id, record_date, status, bonus, custom_rate, ktu) VALUES ($1, $2, 'present', $3, $4, $5) ON CONFLICT (employee_id, record_date) DO UPDATE SET bonus = timesheets.bonus + EXCLUDED.bonus, custom_rate = EXCLUDED.custom_rate, ktu = EXCLUDED.ktu`, [emp.id, date, emp.bonus, emp.custom_rate, emp.ktu]);
-            }
-            if (totalBonusFund > 0) {
-                const batchesRes = await client.query(`SELECT id, planned_quantity FROM production_batches WHERE created_at::date = $1`, [date]);
-                const batches = batchesRes.rows;
-                const totalProductsToday = batches.reduce((sum, b) => sum + parseFloat(b.planned_quantity), 0);
-                if (totalProductsToday > 0) {
-                    for (let batch of batches) {
-                        const fraction = parseFloat(batch.planned_quantity) / totalProductsToday;
-                        await client.query(`UPDATE production_batches SET labor_cost_total = COALESCE(labor_cost_total, 0) + $1 WHERE id = $2`, [totalBonusFund * fraction, batch.id]);
-                    }
-                }
-            }
-            await client.query('COMMIT');
-            res.json({ success: true });
-        } catch (err) {
-            await client.query('ROLLBACK');
-            res.status(500).json({ error: err.message });
-        } finally { client.release(); }
-    });
-
     router.get('/api/salary/payments', async (req, res) => {
         const { year, month } = req.query;
         try {
@@ -127,66 +88,102 @@ module.exports = function(pool) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
+
+    // --- ТРАНЗАКЦИОННЫЕ МАРШРУТЫ (БЕЗОПАСНЫЕ) ---
+
+    router.post('/api/timesheet', async (req, res) => {
+        const { date, records } = req.body;
+        try {
+            await withTransaction(pool, async (client) => {
+                for (let rec of records) {
+                    await client.query(`INSERT INTO timesheets (employee_id, record_date, status) VALUES ($1, $2, $3) ON CONFLICT (employee_id, record_date) DO UPDATE SET status = EXCLUDED.status`, [rec.employee_id, date, rec.status]);
+                }
+            });
+            res.json({ success: true, message: 'Табель сохранен' });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    router.post('/api/timesheet/mass-bonus', async (req, res) => {
+        const { date, empData, totalBonusFund } = req.body;
+        try {
+            await withTransaction(pool, async (client) => {
+                for (let emp of empData) {
+                    await client.query(`INSERT INTO timesheets (employee_id, record_date, status, bonus, custom_rate, ktu) VALUES ($1, $2, 'present', $3, $4, $5) ON CONFLICT (employee_id, record_date) DO UPDATE SET bonus = timesheets.bonus + EXCLUDED.bonus, custom_rate = EXCLUDED.custom_rate, ktu = EXCLUDED.ktu`, [emp.id, date, emp.bonus, emp.custom_rate, emp.ktu]);
+                }
+                if (totalBonusFund > 0) {
+                    const batchesRes = await client.query(`SELECT id, planned_quantity FROM production_batches WHERE created_at::date = $1`, [date]);
+                    const batches = batchesRes.rows;
+                    const totalProductsToday = batches.reduce((sum, b) => sum + parseFloat(b.planned_quantity), 0);
+                    if (totalProductsToday > 0) {
+                        for (let batch of batches) {
+                            const fraction = parseFloat(batch.planned_quantity) / totalProductsToday;
+                            await client.query(`UPDATE production_batches SET labor_cost_total = COALESCE(labor_cost_total, 0) + $1 WHERE id = $2`, [totalBonusFund * fraction, batch.id]);
+                        }
+                    }
+                }
+            });
+            res.json({ success: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
     router.post('/api/salary/pay', async (req, res) => {
         const { employee_id, amount, date, description, account_id } = req.body;
-        // 🛡️ ПАТЧ БЕЗОПАСНОСТИ: Запрещаем отрицательные авансы
         if (parseFloat(amount) <= 0 || isNaN(parseFloat(amount))) return res.status(400).json({ error: 'Сумма выплаты должна быть больше нуля!' });
-        
-        const client = await pool.connect();
+
         try {
-            await client.query('BEGIN');
-            const transRes = await client.query(`INSERT INTO transactions (amount, transaction_type, category, description, vat_amount, payment_method, account_id) VALUES ($1, 'expense', 'Зарплата и Авансы', $2, 0, 'Выплата из системы', $3) RETURNING id`, [amount, `Выплата: ${description}`, account_id]);
-            const linkedId = transRes.rows[0].id;
-            await client.query(`INSERT INTO salary_payments (employee_id, amount, payment_date, description, account_id, linked_transaction_id) VALUES ($1, $2, $3, $4, $5, $6)`, [employee_id, amount, date, description, account_id, linkedId]);
-            await client.query(`UPDATE accounts SET balance = balance - $1 WHERE id = $2`, [amount, account_id]);
-            await client.query('COMMIT');
+            await withTransaction(pool, async (client) => {
+                const transRes = await client.query(`INSERT INTO transactions (amount, transaction_type, category, description, vat_amount, payment_method, account_id) VALUES ($1, 'expense', 'Зарплата и Авансы', $2, 0, 'Выплата из системы', $3) RETURNING id`, [amount, `Выплата: ${description}`, account_id]);
+                const linkedId = transRes.rows[0].id;
+                await client.query(`INSERT INTO salary_payments (employee_id, amount, payment_date, description, account_id, linked_transaction_id) VALUES ($1, $2, $3, $4, $5, $6)`, [employee_id, amount, date, description, account_id, linkedId]);
+            });
             res.json({ success: true, message: 'Выплата сохранена' });
         } catch (err) {
-            await client.query('ROLLBACK');
             res.status(500).json({ error: err.message });
-        } finally { client.release(); }
+        }
     });
 
     router.delete('/api/salary/payment/:id', async (req, res) => {
-        const client = await pool.connect();
         try {
-            await client.query('BEGIN');
-            const payRes = await client.query('SELECT * FROM salary_payments WHERE id = $1', [req.params.id]);
-            if (payRes.rows.length === 0) throw new Error('Выплата не найдена');
-            const payment = payRes.rows[0];
+            await withTransaction(pool, async (client) => {
+                const payRes = await client.query('SELECT * FROM salary_payments WHERE id = $1', [req.params.id]);
+                if (payRes.rows.length === 0) throw new Error('Выплата не найдена');
+                const payment = payRes.rows[0];
 
-            if (payment.linked_transaction_id) {
-                const transRes = await client.query('SELECT amount, transaction_type, account_id FROM transactions WHERE id = $1', [payment.linked_transaction_id]);
-                if (transRes.rows.length > 0) {
-                    const trans = transRes.rows[0];
-                    if (trans.account_id) {
-                        const balanceChange = trans.transaction_type === 'income' ? -trans.amount : trans.amount;
-                        await client.query('UPDATE accounts SET balance = balance + $1 WHERE id = $2', [balanceChange, trans.account_id]);
+                if (payment.linked_transaction_id) {
+                    const transRes = await client.query('SELECT amount, transaction_type, account_id FROM transactions WHERE id = $1', [payment.linked_transaction_id]);
+                    if (transRes.rows.length > 0) {
+                        await client.query('DELETE FROM transactions WHERE id = $1', [payment.linked_transaction_id]);
                     }
-                    await client.query('DELETE FROM transactions WHERE id = $1', [payment.linked_transaction_id]);
                 }
-            }
-            await client.query('DELETE FROM salary_payments WHERE id = $1', [req.params.id]);
-            await client.query('COMMIT');
+                await client.query('DELETE FROM salary_payments WHERE id = $1', [req.params.id]);
+            });
             res.json({ success: true, message: 'Выплата удалена' });
         } catch (err) {
-            await client.query('ROLLBACK');
             res.status(500).json({ error: err.message });
-        } finally { client.release(); }
+        }
     });
 
+    // 🛡️ ЗАКРЫТИЕ КРИТИЧЕСКОЙ УЯЗВИМОСТИ: Сервер сам считает остаток!
     router.post('/api/salary/close-month', async (req, res) => {
-        const { balances } = req.body;
-        const client = await pool.connect();
+        const { monthStr } = req.body; // Принимаем только месяц, никаких массивов balances
         try {
-            await client.query('BEGIN');
-            for (let b of balances) await client.query('UPDATE employees SET prev_balance = $1 WHERE id = $2', [b.balance, b.empId]);
-            await client.query('COMMIT');
-            res.json({ success: true, message: 'Месяц закрыт' });
+            await withTransaction(pool, async (client) => {
+                // Сервер сам высчитывает правильный баланс на основе базы
+                await client.query(`
+                    UPDATE employees e
+                    SET prev_balance = COALESCE(e.prev_balance, 0) + 
+                        COALESCE((SELECT SUM(amount) FROM salary_adjustments WHERE employee_id = e.id AND month_str = $1), 0) -
+                        COALESCE((SELECT SUM(amount) FROM salary_payments WHERE employee_id = e.id AND TO_CHAR(payment_date, 'YYYY-MM') = $1), 0)
+                `, [monthStr]);
+            });
+            res.json({ success: true, message: 'Месяц закрыт. Балансы пересчитаны сервером.' });
         } catch (err) {
-            await client.query('ROLLBACK');
             res.status(500).json({ error: err.message });
-        } finally { client.release(); }
+        }
     });
 
     return router;

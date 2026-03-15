@@ -133,7 +133,8 @@
 
     <div
         style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding: 10px; background: #f8fafc; border-radius: 8px; border: 1px solid var(--border);">
-        <button class="btn btn-outline" onclick="changeFinancePage(-1)">⬅ Назад</button>
+        <button id="finance-btn-prev" class="btn btn-outline" onclick="changeFinancePage(-1)">⬅ Назад</button>
+
         <div style="display: flex; align-items: center; gap: 15px;">
             <span style="font-weight: bold; font-size: 14px; color: var(--text-main);" id="finance-page-info">Страница 1
                 из 1</span>
@@ -148,6 +149,7 @@
                 </select>
             </div>
         </div>
-        <button class="btn btn-outline" onclick="changeFinancePage(1)">Вперед ➡</button>
+
+        <button id="finance-btn-next" class="btn btn-outline" onclick="changeFinancePage(1)">Вперед ➡</button>
     </div>
 </div>

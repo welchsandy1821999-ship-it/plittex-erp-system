@@ -62,10 +62,10 @@ function renderEmployeesTable() {
         return emps.map(emp => `
             <tr style="${emp.status === 'fired' ? 'background: #f8fafc;' : ''}">
                 <td style="font-weight: 600;">
-                    ${emp.full_name}
+                    ${escapeHTML(emp.full_name)}
                     ${emp.status === 'fired' ? '<span class="badge" style="background: var(--danger); color: white; margin-left: 5px;">Уволен</span>' : ''}
                 </td>
-                <td style="color: var(--text-muted);">${emp.position}</td>
+                <td style="color: var(--text-muted);">${escapeHTML(emp.position)}</td>
                 <td><span class="badge" style="background: #e2e8f0; color: #475569;">${emp.department}</span> <b>${emp.schedule_type}</b></td>
                 <td style="text-align: right; color: var(--success); font-weight: bold;">${parseFloat(emp.salary_cash).toLocaleString('ru-RU')} ₽</td>
                 <td style="text-align: right; color: var(--text-muted);">${parseFloat(emp.salary_official).toLocaleString('ru-RU')} ₽</td>
@@ -720,7 +720,7 @@ window.payOfficialTaxes = async function (monthStr, amount) {
     } catch (e) { console.error(e); }
 };
 
-// === ЗАКРЫТИЕ МЕСЯЦА ===
+// === ЗАКРЫТИЕ МЕСЯЦА (ИСПРАВЛЕНО) ===
 window.closeSalaryMonth = async function () {
     const monthStr = document.getElementById('ts-month-picker').value;
 
@@ -730,7 +730,9 @@ window.closeSalaryMonth = async function () {
         const res = await fetch('/api/salary/close-month', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ balances: currentMonthBalances })
+            // 🚨 БЕЗОПАСНОСТЬ: Отправляем только строку с месяцем. 
+            // Массив balances удален, сервер посчитает всё сам!
+            body: JSON.stringify({ monthStr: monthStr })
         });
 
         if (res.ok) {
@@ -738,9 +740,13 @@ window.closeSalaryMonth = async function () {
             // Обновляем всю страницу, чтобы подтянуть новые балансы в первую таблицу
             setTimeout(() => location.reload(), 1500);
         } else {
-            UI.toast('Ошибка при закрытии месяца', 'error');
+            const errData = await res.json();
+            UI.toast('Ошибка: ' + (errData.error || 'Сбой при закрытии'), 'error');
         }
-    } catch (e) { console.error(e); }
+    } catch (e) {
+        console.error(e);
+        UI.toast('Ошибка сети при закрытии месяца', 'error');
+    }
 };
 
 // === ПЕЧАТНАЯ ВЕДОМОСТЬ НА ВЫДАЧУ НАЛИЧНЫХ ===
@@ -1078,7 +1084,7 @@ window.setRate = function (empId, value) {
 };
 
 window.recalcPieceRate = function () {
-    const price = parseFloat(document.getElementById('piece-rate-price').value) || 0;
+    const price = Number((parseFloat(item.price) * (1 - (parseFloat(item.discount) || 0) / 100)).toFixed(2));
     const totalProduced = parseFloat(document.getElementById('piece-total-produced').value) || 0;
     const fund = totalProduced * price;
 

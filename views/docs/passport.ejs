@@ -4,116 +4,80 @@
     <meta charset="UTF-8">
     <title>Паспорт партии <%= batch.batch_number %></title>
     <style>
-        /* Настройка листа А4 */
-        @page {
-            size: A4 portrait;
-            margin: 5mm;
-        }
-        body {
-            font-family: 'Segoe UI', Arial, sans-serif;
-            margin: 0;
-            padding: 5mm;
-            display: grid;
-            grid-template-columns: 1fr 1fr; /* 2 колонки */
-            grid-template-rows: 1fr 1fr;    /* 2 строки */
-            gap: 10mm; /* Разрыв между паспортами для разрезания */
-            height: 280mm;
-            box-sizing: border-box;
-        }
-        .ticket {
-            border: 2px solid #000;
-            padding: 10px;
-            border-radius: 5px;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            height: 100%;
-            box-sizing: border-box;
-            overflow: hidden;
-        }
-        .header {
-            text-align: center;
-            border-bottom: 2px solid #000;
-            padding-bottom: 5px;
-            margin-bottom: 8px;
-        }
+        @page { size: A4 portrait; margin: 5mm; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 5mm; background: #fff; }
+        .grid-container { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 10mm; height: 280mm; box-sizing: border-box; }
+        .ticket { border: 2px solid #000; padding: 10px; border-radius: 5px; display: flex; flex-direction: column; justify-content: space-between; height: 100%; box-sizing: border-box; overflow: hidden; }
+        .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 5px; margin-bottom: 8px; }
         .header h1 { margin: 0; font-size: 14px; text-transform: uppercase; }
         .header h2 { margin: 2px 0 0 0; font-size: 22px; font-weight: 900; }
-        
-        .info-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-end;
-            font-size: 13px;
-            margin-bottom: 6px;
-            border-bottom: 1px dotted #ccc;
-        }
+        .info-row { display: flex; justify-content: space-between; align-items: flex-end; font-size: 13px; margin-bottom: 6px; border-bottom: 1px dotted #ccc; }
         .info-label { color: #333; font-weight: bold; font-size: 11px; }
         .info-value { font-weight: 800; font-size: 14px; text-align: right; }
+        .product-name { font-size: 18px; font-weight: 900; line-height: 1.1; margin: 10px 0; text-align: center; border: 1px solid #eee; padding: 5px; background: #f9f9f9; }
+        .gost-box { text-align: center; font-size: 12px; font-weight: bold; margin-top: 5px; }
+        .footer-minimal { margin-top: auto; border-top: 1px solid #000; padding-top: 5px; font-size: 10px; text-align: center; font-style: italic; }
         
-        .product-name { 
-            font-size: 18px; 
-            font-weight: 900; 
-            line-height: 1.1;
-            margin: 10px 0;
-            text-align: center;
-            border: 1px solid #eee;
-            padding: 5px;
-            background: #f9f9f9;
-        }
-
-        .gost-box {
-            text-align: center;
-            font-size: 12px;
-            font-weight: bold;
-            margin-top: 5px;
-        }
-
-        .footer-minimal {
-            margin-top: auto;
-            border-top: 1px solid #000;
-            padding-top: 5px;
-            font-size: 10px;
-            text-align: center;
-            font-style: italic;
-        }
-        
-        @media print {
-            .no-print { display: none; }
-        }
+        /* Стили кнопок */
+        .action-buttons { display: flex; gap: 10px; justify-content: flex-end; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px dashed #ccc; }
+        .btn { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; color: white; font-size: 13px; transition: 0.2s; }
+        .btn-green { background: #10b981; } .btn-green:hover { background: #059669; }
+        .btn-gray { background: #64748b; } .btn-gray:hover { background: #475569; }
+        @media print { .no-print { display: none !important; } body { padding: 0; } }
     </style>
 </head>
-<body onload="window.print()">
-    <% for(let i=0; i<4; i++) { %>
-    <div class="ticket">
-        <div class="header">
-            <h1>Паспорт (Ярлык) поддона</h1>
-            <h2>ПАРТИЯ № <%= batch.batch_number %></h2>
-        </div>
-        
-        <div class="info-row">
-            <div class="info-label">Дата формовки:</div>
-            <div class="info-value"><%= batch.date_formatted %></div>
-        </div>
-        <div class="info-row">
-            <div class="info-label">Бригадир:</div>
-            <div class="info-value"><%= batch.shift_name || '—' %></div>
-        </div>
+<body>
+    <div class="action-buttons no-print">
+        <button class="btn btn-gray" onclick="saveAndPrint('Паспорт_Партии_<%= batch.batch_number %>')">🖨️ Сохранить и Распечатать</button>
+    </div>
 
-        <div class="product-name">
-            <%= batch.product_name %>
-        </div>
-        
-        <% if (batch.gost_mark) { %>
-        <div class="gost-box">
-            <%= batch.gost_mark %>
+    <div id="doc-content" class="grid-container">
+        <% for(let i=0; i<4; i++) { %>
+        <div class="ticket">
+            <div class="header">
+                <h1>Паспорт (Ярлык) поддона</h1>
+                <h2>ПАРТИЯ № <%= batch.batch_number %></h2>
+            </div>
+            
+            <div class="info-row">
+                <div class="info-label">Дата формовки:</div>
+                <div class="info-value"><%= batch.date_formatted %></div>
+            </div>
+            <div class="info-row">
+                <div class="info-label">Бригадир:</div>
+                <div class="info-value"><%= batch.shift_name || '—' %></div>
+            </div>
+
+            <div class="product-name"><%= batch.product_name %></div>
+            
+            <% if (batch.gost_mark) { %>
+            <div class="gost-box"><%= batch.gost_mark %></div>
+            <% } %>
+
+            <div class="footer-minimal">
+                Изготовлено ООО «ПЛИТТЕКС» в соответствии с ТУ и требованиями ГОСТ.
+            </div>
         </div>
         <% } %>
-
-        <div class="footer-minimal">
-            Изготовлено ООО «ПЛИТТЕКС» в соответствии с ТУ и требованиями ГОСТ.
-        </div>
     </div>
-    <% } %>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script>
+        async function saveAndPrint(docName) {
+            const actionBtns = document.querySelector('.action-buttons');
+            if (actionBtns) actionBtns.style.display = 'none';
+
+            const element = document.getElementById('doc-content');
+            const opt = { margin: [5, 5, 5, 5], filename: `${docName}_${Date.now()}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
+
+            try {
+                const pdfBase64 = await html2pdf().set(opt).from(element).outputPdf('datauristring');
+                await fetch('/api/docs/save-pdf', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: opt.filename, fileData: pdfBase64 }) });
+            } catch (error) { console.error("Ошибка:", error); }
+
+            window.print();
+            if (actionBtns) actionBtns.style.display = 'flex';
+        }
+    </script>
 </body>
 </html>

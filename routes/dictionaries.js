@@ -2,7 +2,8 @@
 const express = require('express');
 const router = express.Router();
 
-module.exports = function(pool) {
+// 👈 Добавили withTransaction
+module.exports = function (pool, withTransaction) {
 
     // ==========================================
     // 1. СПРАВОЧНИК: ТОВАРЫ И СЫРЬЕ
@@ -18,7 +19,7 @@ module.exports = function(pool) {
         const { page = 1, limit = 50, search = '', item_type = '', category = '' } = req.query;
         const offset = (page - 1) * limit;
 
-        let whereClause = 'WHERE 1=1';
+        let whereClause = 'WHERE COALESCE(is_deleted, false) = false';
         let params = [];
         let paramIndex = 1;
 
@@ -75,47 +76,44 @@ module.exports = function(pool) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
+    // === БЕЗОПАСНОЕ УДАЛЕНИЕ ТОВАРА (SOFT DELETE) ===
     router.delete('/api/items/:id', async (req, res) => {
         try {
-            await pool.query(`DELETE FROM items WHERE id = $1`, [req.params.id]);
-            res.json({ success: true, message: 'Удалено' });
-        } catch (err) { 
-            res.status(500).json({ error: 'Товар используется на складе или в рецептах!' }); 
+            await pool.query(`UPDATE items SET is_deleted = true WHERE id = $1`, [req.params.id]);
+            res.json({ success: true, message: 'Позиция перенесена в архив' });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
         }
     });
 
-    // Отдельный роут для получения только продукции (для продаж)
     router.get('/api/products', async (req, res) => {
         try {
-            const result = await pool.query(`SELECT * FROM items WHERE item_type = 'product' ORDER BY name ASC`);
+            const result = await pool.query(`SELECT * FROM items WHERE item_type = 'product' AND COALESCE(is_deleted, false) = false ORDER BY name ASC`);
             res.json(result.rows);
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    // Массовое сохранение прайс-листа
     router.post('/api/products/update-prices', async (req, res) => {
         const { prices } = req.body;
         if (!prices || !Array.isArray(prices) || prices.length === 0) return res.json({ success: true });
 
-        const client = await pool.connect();
         try {
-            await client.query('BEGIN');
-            const ids = prices.map(p => p.id);
-            const currentPrices = prices.map(p => p.price || 0);
-            const dealerPrices = prices.map(p => p.dealer_price || 0);
+            await withTransaction(pool, async (client) => {
+                const ids = prices.map(p => p.id);
+                const currentPrices = prices.map(p => p.price || 0);
+                const dealerPrices = prices.map(p => p.dealer_price || 0);
 
-            const query = `
-                UPDATE items AS i SET current_price = data.cp, dealer_price = data.dp
-                FROM (SELECT unnest($1::int[]) AS id, unnest($2::numeric[]) AS cp, unnest($3::numeric[]) AS dp) AS data
-                WHERE i.id = data.id;
-            `;
-            await client.query(query, [ids, currentPrices, dealerPrices]);
-            await client.query('COMMIT');
+                const query = `
+                    UPDATE items AS i SET current_price = data.cp, dealer_price = data.dp
+                    FROM (SELECT unnest($1::int[]) AS id, unnest($2::numeric[]) AS cp, unnest($3::numeric[]) AS dp) AS data
+                    WHERE i.id = data.id;
+                `;
+                await client.query(query, [ids, currentPrices, dealerPrices]);
+            });
             res.json({ success: true, message: 'Прайс-лист обновлен' });
         } catch (err) {
-            await client.query('ROLLBACK');
             res.status(500).json({ error: err.message });
-        } finally { client.release(); }
+        }
     });
 
     // ==========================================
@@ -123,7 +121,7 @@ module.exports = function(pool) {
     // ==========================================
     router.get('/api/employees', async (req, res) => {
         try {
-            const result = await pool.query(`SELECT * FROM employees ORDER BY department, full_name`);
+            const result = await pool.query(`SELECT * FROM employees WHERE status != 'deleted' ORDER BY department, full_name`);
             res.json(result.rows);
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
@@ -142,37 +140,32 @@ module.exports = function(pool) {
     router.put('/api/employees/:id', async (req, res) => {
         const { full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, status } = req.body;
         const currentMonthStr = new Date().toISOString().substring(0, 7);
-        const client = await pool.connect();
+
         try {
-            await client.query('BEGIN');
-            await client.query(`
-                UPDATE employees SET full_name=$1, position=$2, department=$3, schedule_type=$4, salary_cash=$5, salary_official=$6, tax_rate=$7, tax_withheld=$8, prev_balance=$9, status=$10
-                WHERE id=$11
-            `, [full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, status, req.params.id]);
+            await withTransaction(pool, async (client) => {
+                await client.query(`
+                    UPDATE employees SET full_name=$1, position=$2, department=$3, schedule_type=$4, salary_cash=$5, salary_official=$6, tax_rate=$7, tax_withheld=$8, prev_balance=$9, status=$10
+                    WHERE id=$11
+                `, [full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, status, req.params.id]);
 
-            await client.query(`
-                UPDATE monthly_salary_stats SET salary_cash=$1, salary_official=$2, tax_rate=$3, tax_withheld=$4
-                WHERE employee_id=$5 AND month_str >= $6
-            `, [salary_cash, salary_official, tax_rate, tax_withheld, req.params.id, currentMonthStr]);
-
-            await client.query('COMMIT');
+                await client.query(`
+                    UPDATE monthly_salary_stats SET salary_cash=$1, salary_official=$2, tax_rate=$3, tax_withheld=$4
+                    WHERE employee_id=$5 AND month_str >= $6
+                `, [salary_cash, salary_official, tax_rate, tax_withheld, req.params.id, currentMonthStr]);
+            });
             res.json({ success: true, message: 'Данные обновлены' });
         } catch (err) {
-            await client.query('ROLLBACK');
             res.status(500).json({ error: err.message });
-        } finally { client.release(); }
+        }
     });
 
+    // === БЕЗОПАСНОЕ УДАЛЕНИЕ СОТРУДНИКА (УВОЛЬНЕНИЕ) ===
     router.delete('/api/employees/:id', async (req, res) => {
         try {
-            await pool.query(`DELETE FROM employees WHERE id = $1`, [req.params.id]);
-            res.json({ success: true, message: 'Сотрудник удален' });
+            await pool.query(`UPDATE employees SET status = 'deleted' WHERE id = $1`, [req.params.id]);
+            res.json({ success: true, message: 'Сотрудник перенесен в архив (уволен)' });
         } catch (err) {
-            if (err.code === '23503') {
-                res.status(400).json({ error: 'У сотрудника есть история выплат или табель. Измените его статус на "Уволен".' });
-            } else {
-                res.status(500).json({ error: err.message });
-            }
+            res.status(500).json({ error: err.message });
         }
     });
 
@@ -211,25 +204,23 @@ module.exports = function(pool) {
     router.post('/api/equipment/:id/maintenance', async (req, res) => {
         const { amount, description, account_id, reset_cycles } = req.body;
         const equipId = req.params.id;
-        const client = await pool.connect();
+
         try {
-            await client.query('BEGIN');
-            if (amount > 0 && account_id) {
-                await client.query('UPDATE accounts SET balance = balance - $1 WHERE id = $2', [amount, account_id]);
-                await client.query(`
-                    INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, equipment_id)
-                    VALUES ($1, 'expense', 'Ремонт и ТО оборудования', $2, 'Безналичный расчет', $3, $4)
-                `, [amount, description, account_id, equipId]);
-            }
-            if (reset_cycles) {
-                await client.query('UPDATE equipment SET current_cycles = 0 WHERE id = $1', [equipId]);
-            }
-            await client.query('COMMIT');
+            await withTransaction(pool, async (client) => {
+                if (amount > 0 && account_id) {
+                    await client.query(`
+                        INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, equipment_id)
+                        VALUES ($1, 'expense', 'Ремонт и ТО оборудования', $2, 'Безналичный расчет', $3, $4)
+                    `, [amount, description, account_id, equipId]);
+                }
+                if (reset_cycles) {
+                    await client.query('UPDATE equipment SET current_cycles = 0 WHERE id = $1', [equipId]);
+                }
+            });
             res.json({ success: true, message: 'Ремонт зафиксирован' });
         } catch (err) {
-            await client.query('ROLLBACK');
             res.status(500).json({ error: err.message });
-        } finally { client.release(); }
+        }
     });
 
     router.delete('/api/equipment/:id', async (req, res) => {

@@ -1,9 +1,32 @@
-# Игнорируем тяжелые системные папки
+# === 1. СЕКРЕТЫ И КОНФИГУРАЦИИ (КРИТИЧЕСКИ ВАЖНО) ===
+.env
+.env.local
+.env.*.local
+
+# === 2. ЗАВИСИМОСТИ ===
 node_modules/
 
-# Игнорируем временные файлы OpenServer
+# === 3. ПОЛЬЗОВАТЕЛЬСКИЕ ДАННЫЕ И ЗАГРУЗКИ ===
+public/uploads/
+!public/uploads/.gitkeep
+
+# === 4. ЛОГИ СИСТЕМЫ ===
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# === 5. БАЗЫ ДАННЫХ И БЭКАПЫ ===
+*.sql
+*.sqlite
+db_backups/
+
+# === 6. СИСТЕМНЫЕ ФАЙЛЫ И РЕДАКТОРЫ ===
 .idea/
 .vscode/
+.DS_Store
+Thumbs.db
 
-# Игнорируем логи ошибок
-npm-debug.log*
+# === 7. DOCKER ===
+docker-compose.override.yml
