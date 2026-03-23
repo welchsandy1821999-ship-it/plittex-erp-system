@@ -19,7 +19,7 @@
         .btn-green { background: #10b981; } .btn-green:hover { background: #059669; }
         .btn-gray { background: #64748b; } .btn-gray:hover { background: #475569; }
         .btn-blue { background: #3b82f6; } .btn-blue:hover { background: #2563eb; }
-        @media print { .no-print { display: none !important; } body { padding: 0; background: #fff; } }
+        @media print { .no-print { display: none !important; } body { padding: 0; background: var(--surface); } }
     </style>
 </head>
 <body>
@@ -49,8 +49,8 @@
 
         <p><b>2. ЦЕНА И ПОРЯДОК РАСЧЕТОВ</b></p>
         <p>2.1. Стоимость партии продукции и цена за единицу каждого изделия устанавливаются согласно спецификациям, являющимися его неотъемлемой частью.</p>
-        <p>2.2. Стоимость партии продукции включает в себя стоимость товара, поставляемого в соответствии с подписанной Сторонами спецификацией на партию продукции, в т.ч. НДС (22%).</p>
-        <p>2.3. Покупатель производит оплату Товара с отсрочкой платежа на 10 (Десять) календарных дней с момента приема-передачи Товара, путем перечисления стоимости продукции на расчетный счет Поставщика на основании выставленного счета. Датой оплаты считается дата зачисления денежных средств на расчётный счёт Поставщика.</p>
+        <p>2.2. Стоимость партии продукции включает в себя стоимость товара, поставляемого в соответствии с подписанной Сторонами спецификацией на партию продукции, в т.ч. НДС (<%= vatRate %>%).</p>
+        <p>2.3. Покупатель производит оплату Товара с отсрочкой платежа на 10 (Десять) calendarных дней с момента приема-передачи Товара, путем перечисления стоимости продукции на расчетный счет Поставщика на основании выставленного счета. Датой оплаты считается дата зачисления денежных средств на расчётный счёт Поставщика.</p>
         <p>2.4. Цена продукции, указанная в спецификации, остается неизменной до полного выполнения Сторонами своих обязательств.</p>
         <p>2.5. При увеличении объема поставки, сумма договора также подлежит увеличению. В этом случае «Поставщик» выставляет «Покупателю» дополнительный счет, который в течение 3 дней с момента получения должен быть оплачен «Покупателем».</p>
 
@@ -109,8 +109,8 @@
                     Тел.: 8 (988) 888-05-06<br><br>
                     Генеральный директор<br><br>
                     _______________________ С.М. Марченко
-                    <img src="/img/stamp.png" class="overlay-img" style="position: absolute; bottom: 0px; left: 100px; width: 140px; opacity: 0.85; display: none; z-index: -2;">
-                    <img src="/img/sign_dir.png" class="overlay-img" style="position: absolute; bottom: 20px; left: 50px; width: 100px; display: none; z-index: -1;">
+                    <img src="/img/stamp.png" class="overlay-img" style="position: absolute; bottom: 0px; left: 100px; width: 140px; opacity: 0.85; display: none; z-index: 5; mix-blend-mode: multiply;">
+                    <img src="/img/sign_dir.png" class="overlay-img" style="position: absolute; bottom: 20px; left: 50px; width: 100px; display: none; z-index: 5; mix-blend-mode: multiply;">
                 </td>
                 <td>
                     <b>Покупатель</b><br>
@@ -132,20 +132,46 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script>
-        async function saveAndPrint(withStamp, docName) {
+        async function saveAndPrint(withStamp = false, docName = 'Документ') {
             const overlays = document.querySelectorAll('.overlay-img');
             overlays.forEach(el => el.style.display = withStamp ? 'block' : 'none');
+            
             const actionBtns = document.querySelector('.action-buttons');
             if (actionBtns) actionBtns.style.display = 'none';
-
+            
+            // Задержка для отрисовки картинок
+            await new Promise(resolve => setTimeout(resolve, 150));
+            
             const element = document.getElementById('doc-content');
-            const opt = { margin: [10, 10, 10, 10], filename: `${docName}_${withStamp ? 'С_печатью' : 'Без_печати'}_${Date.now()}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
-
+            
+            const opt = { 
+                margin: [10, 10, 10, 10], 
+                filename: `${docName}_${withStamp ? 'С_Печатью' : 'Без_Печати'}_${Date.now()}.pdf`, 
+                image: { type: 'jpeg', quality: 0.98 }, 
+                html2canvas: { scale: 2, useCORS: true, allowTaint: true }, 
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } 
+            };
+            
             try {
                 const pdfBase64 = await html2pdf().set(opt).from(element).outputPdf('datauristring');
-                await fetch('/api/docs/save-pdf', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: opt.filename, fileData: pdfBase64 }) });
-            } catch (error) { console.error("Ошибка:", error); }
+                
+                // Передача токена авторизации
+                const token = localStorage.getItem('token');
+                const response = await fetch('/api/docs/save-pdf', { 
+                    method: 'POST', 
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    }, 
+                    body: JSON.stringify({ filename: opt.filename, fileData: pdfBase64 }) 
+                });
 
+                if (response.ok) console.log(`✅ Файл успешно сохранен`);
+                else console.error('❌ Ошибка сервера при сохранении');
+            } catch (e) { 
+                console.error('❌ Ошибка генерации ПДФ:', e); 
+            }
+            
             window.print();
             if (actionBtns) actionBtns.style.display = 'flex';
         }
@@ -153,21 +179,19 @@
         function Export2Word(filename = '') {
             const overlays = document.querySelectorAll('.overlay-img');
             overlays.forEach(el => el.style.display = 'none');
+            
             const actionBtns = document.querySelector('.action-buttons');
             if (actionBtns) actionBtns.style.display = 'none';
-
-            var preHtml = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Export</title></head><body>";
-            var postHtml = "</body></html>";
-            var html = preHtml + document.getElementById('doc-content').innerHTML + postHtml;
-
-            var blob = new Blob(['\\ufeff', html], { type: 'application/msword' });
-            var url = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(html);
-            var downloadLink = document.createElement("a");
             
-            document.body.appendChild(downloadLink);
-            if(navigator.msSaveOrOpenBlob ){ navigator.msSaveOrOpenBlob(blob, filename+'.doc'); }
-            else{ downloadLink.href = url; downloadLink.download = filename+'.doc'; downloadLink.click(); }
-            document.body.removeChild(downloadLink);
+            const content = document.getElementById('doc-content').innerHTML;
+            const blob = new Blob(['\ufeff', content], { type: 'application/msword' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            
+            link.href = url; 
+            link.download = filename + '.doc'; 
+            link.click();
+            
             if (actionBtns) actionBtns.style.display = 'flex';
         }
     </script>

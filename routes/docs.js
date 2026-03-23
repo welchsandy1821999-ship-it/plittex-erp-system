@@ -1,208 +1,656 @@
 const express = require('express');
 const router = express.Router();
 const Big = require('big.js');
-const fs = require('fs');
-const fsPromises = require('fs').promises; // 👈 Подключаем асинхронную работу с файлами
 const path = require('path');
+const fs = require('fs');
+const fsPromises = require('fs').promises;
 
-// Функция перевода суммы прописью (встроена локально для счетов)
-function numberToWordsRu(num) {
-    const units = ['', 'один', 'два', 'три', 'четыре', 'пять', 'шесть', 'семь', 'восемь', 'девять'];
-    const unitsFem = ['', 'одна', 'две', 'три', 'четыре', 'пять', 'шесть', 'семь', 'восемь', 'девять'];
-    const teens = ['десять', 'одиннадцать', 'двенадцать', 'тринадцать', 'четырнадцать', 'пятнадцать', 'шестнадцать', 'семнадцать', 'восемнадцать', 'девятнадцать'];
-    const tens = ['', '', 'двадцать', 'тридцать', 'сорок', 'пятьдесят', 'шестьдесят', 'семьдесят', 'восемьдесят', 'девяносто'];
-    const hundreds = ['', 'сто', 'двести', 'триста', 'четыреста', 'пятьсот', 'шестьсот', 'семьсот', 'восемьсот', 'девятьсот'];
+module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
+    async function rotateDocs(directory, maxFiles = 500) {
+        try {
+            const files = await fsPromises.readdir(directory);
+            if (files.length <= maxFiles) return;
 
-    function getWord(n, gender) {
-        let res = '';
-        if (n >= 100) { res += hundreds[Math.floor(n / 100)] + ' '; n %= 100; }
-        if (n >= 10 && n <= 19) { res += teens[n - 10] + ' '; return res; }
-        if (n >= 20) { res += tens[Math.floor(n / 10)] + ' '; n %= 10; }
-        if (n > 0) { res += (gender === 0 ? unitsFem[n] : units[n]) + ' '; }
-        return res;
+            const filesWithStats = await Promise.all(files.map(async (file) => {
+                const stats = await fsPromises.stat(path.join(directory, file));
+                return { name: file, time: stats.mtime.getTime() };
+            }));
+
+            filesWithStats.sort((a, b) => a.time - b.time);
+            const toDelete = filesWithStats.slice(0, filesWithStats.length - maxFiles);
+            for (const f of toDelete) {
+                await fsPromises.unlink(path.join(directory, f.name));
+            }
+        } catch (e) { console.error('Ошибка ротации файлов:', e.message); }
     }
 
-    const rubles = Math.floor(num); const kopecks = Math.round((num - rubles) * 100);
-    let words = '';
-    if (rubles === 0) { words = 'Ноль '; } else {
-        let r = rubles; const millions = Math.floor(r / 1000000); r %= 1000000; const thousands = Math.floor(r / 1000); r %= 1000; const unitsPart = r;
-        if (millions > 0) words += getWord(millions, 1) + 'миллион' + (millions % 10 === 1 && millions % 100 !== 11 ? '' : (millions % 10 >= 2 && millions % 10 <= 4 && (millions % 100 < 10 || millions % 100 >= 20) ? 'а' : 'ов')) + ' ';
-        if (thousands > 0) words += getWord(thousands, 0) + 'тысяч' + (thousands % 10 === 1 && thousands % 100 !== 11 ? 'а' : (thousands % 10 >= 2 && thousands % 10 <= 4 && (thousands % 100 < 10 || thousands % 100 >= 20) ? 'и' : '')) + ' ';
-        if (unitsPart > 0) words += getWord(unitsPart, 1);
-    }
-    words += 'рубл' + (rubles % 10 === 1 && rubles % 100 !== 11 ? 'ь' : (rubles % 10 >= 2 && rubles % 10 <= 4 && (rubles % 100 < 10 || rubles % 100 >= 20) ? 'я' : 'ей'));
-    return words.charAt(0).toUpperCase() + words.slice(1).trim() + ' ' + String(kopecks).padStart(2, '0') + ' копеек';
-}
-
-// 👈 Добавили withTransaction
-module.exports = function (pool, getNextDocNumber, withTransaction) {
-
-    router.post('/print/kp', express.urlencoded({ extended: true }), async (req, res) => {
+    // 1. СЧЕТ НА ОПЛАТУ (Invoice - Режим "Нотариус")
+    router.all('/print/invoice', async (req, res) => {
         try {
-            const data = JSON.parse(req.body.data);
-            const cpRes = await pool.query('SELECT name, phone, inn, legal_address as address, director_name FROM counterparties WHERE id = $1', [data.client_id]);
-            const client = cpRes.rows[0] || { name: 'Неизвестный клиент', phone: '', inn: '', address: '', director_name: '' };
-
-            res.render('docs/blank_order', {
-                order: { doc_number: 'ЧЕРНОВИК', date_formatted: new Date().toLocaleDateString('ru-RU'), client_name: client.name, legal_address: client.address, phone: client.phone, inn: client.inn, director_name: client.director_name },
-                items: data.items, discount: parseFloat(data.discount) || 0, logistics: parseFloat(data.logistics) || 0
-            });
-        } catch (err) { res.status(500).send('Ошибка Бланка: ' + err.message); }
-    });
-
-    router.get('/print/blank-order', async (req, res) => {
-        try {
-            const bRes = await pool.query(`SELECT b.*, c.name as client_name, c.phone, c.inn, c.legal_address, c.director_name, TO_CHAR(b.created_at, 'DD.MM.YYYY') as date_formatted FROM blank_orders b LEFT JOIN counterparties c ON b.counterparty_id = c.id WHERE b.id = $1`, [req.query.id]);
-            if (bRes.rows.length === 0) return res.status(404).send('Не найден');
-            const orderInfo = bRes.rows[0];
-            res.render('docs/blank_order', { order: orderInfo, items: [{ name: orderInfo.item_name, qty: orderInfo.quantity, price: orderInfo.price, unit: 'шт' }] });
-        } catch (err) { res.status(500).send(err.message); }
-    });
-
-    router.get('/print/invoice', async (req, res) => {
-        const { docNum, cp_id, amount, custom_amount, desc, bank } = req.query;
-        try {
-            const today = new Date(); const deadline = new Date(today); deadline.setDate(deadline.getDate() + 5);
-            let finalData = {
-                payUntil: deadline.toLocaleDateString('ru-RU'),
-                dateLong: `${today.getDate()} ${['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'][today.getMonth()]} ${today.getFullYear()} г.`,
-                myCompany: { name: 'ООО "ПЛИТТЕКС"', inn: '2372029123', kpp: '237201001', address: '352244, Краснодарский край, г. Новокубанск, ул. Кузнечная, д. 1 оф.2' },
-                myBank: bank === 'alfa' ? { name: 'АО «Альфа-Банк», г. Москва', account: '40817810405610835875', bik: '044525593', corr: '30101810200000000593' } : { name: 'ООО "Банк Точка" г. Москва', account: '40702810901500100003', bik: '044525104', corr: '30101810745374525104' },
-                invoiceNum: '', docNum: '', amount: 0, baseAmount: 0, vatAmount: 0, amountWords: '', totalOrderSum: 0, cp: {}, items: []
-            };
-
-            if (docNum) {
-                const orderRes = await pool.query(`SELECT * FROM client_orders WHERE doc_number = $1`, [docNum]);
-                if (orderRes.rows.length === 0) return res.status(404).send('Заказ не найден');
-                const cpRes = await pool.query('SELECT id, name, inn, kpp, legal_address FROM counterparties WHERE id = $1', [orderRes.rows[0].counterparty_id]);
-                finalData.cp = cpRes.rows[0] || { name: 'Неизвестный' };
-                const itemsRes = await pool.query(`SELECT i.name, i.unit, coi.qty_ordered as qty, coi.price FROM client_order_items coi JOIN items i ON coi.item_id = i.id WHERE coi.order_id = $1`, [orderRes.rows[0].id]);
-                finalData.items = itemsRes.rows;
-                const invRes = await pool.query(`SELECT SUM(amount) as debt FROM invoices WHERE invoice_number = $1 AND status = 'pending'`, [docNum]);
-                finalData.totalOrderSum = parseFloat(orderRes.rows[0].total_amount);
-                finalData.amount = custom_amount ? parseFloat(custom_amount) : (invRes.rows[0].debt ? parseFloat(invRes.rows[0].debt) : finalData.totalOrderSum);
-                finalData.invoiceNum = docNum; finalData.docNum = docNum;
-            } else if (cp_id && amount) {
-                const cpRes = await pool.query('SELECT name, inn, kpp, legal_address FROM counterparties WHERE id = $1', [cp_id]);
-                if (cpRes.rows.length === 0) return res.status(404).send('Не найден');
-                finalData.cp = cpRes.rows[0];
-                finalData.amount = parseFloat(amount); finalData.totalOrderSum = finalData.amount;
-                finalData.invoiceNum = await getNextDocNumber(pool, 'СЧ', 'invoices', 'invoice_number');
-                finalData.docNum = 'Б/Н (Пополнение баланса)';
-                finalData.items = [{ name: desc || 'Оплата (Аванс)', unit: 'шт', qty: 1, price: finalData.amount }];
+            let params = { ...req.query, ...req.body };
+            if (params.data) {
+                try {
+                    const parsed = JSON.parse(params.data);
+                    params = { ...params, ...parsed };
+                } catch (e) { }
             }
 
-            const amountBig = new Big(finalData.amount);
-            finalData.vatAmount = Number(amountBig.times(22).div(122).round(2));
-            finalData.baseAmount = Number(amountBig.minus(finalData.vatAmount).round(2));
-            finalData.amountWords = numberToWordsRu(finalData.amount);
+            const docNum = params.docNum || params.doc_number || params.orderNum;
+            const bank = params.bank || 'tochka';
 
-            // 🛡️ БЕЗОПАСНАЯ ЗАПИСЬ В БАЗУ ЧЕРЕЗ ТРАНЗАКЦИЮ
-            if (finalData.amount > 0) {
-                await withTransaction(pool, async (client) => {
-                    const checkInv = await client.query(`SELECT id FROM invoices WHERE invoice_number = $1 FOR UPDATE`, [finalData.invoiceNum]);
-                    if (checkInv.rows.length === 0 && (finalData.cp.id || cp_id)) {
-                        await client.query(`INSERT INTO invoices (invoice_number, counterparty_id, amount, description, status) VALUES ($1, $2, $3, $4, 'pending')`, [finalData.invoiceNum, finalData.cp.id || cp_id, finalData.amount, docNum ? `Оплата по заказу ${docNum}` : (desc || 'Аванс')]);
+            if (!docNum || String(docNum).trim() === 'undefined') {
+                return res.status(400).send('<h2>Защита системы</h2><p>Выписка свободных счетов запрещена коммерческой политикой. Сначала создайте Заказ клиента.</p>');
+            }
+
+            let invoiceItems = [];
+            let finalAmount = 0;
+            let purposeText = '';
+            let clientInfo = {};
+            let generatedInvoiceNumber = '';
+
+            await withTransaction(pool, async (client) => {
+                const orderRes = await client.query(`
+                    SELECT o.id, o.doc_number, o.counterparty_id, o.total_amount, o.paid_amount, o.discount, o.logistics_cost, o.created_at,
+                           c.name as client_name, c.inn as client_inn, c.kpp as client_kpp, c.legal_address as client_address
+                    FROM client_orders o 
+                    JOIN counterparties c ON o.counterparty_id = c.id 
+                    WHERE o.doc_number = $1
+                `, [docNum]);
+
+                if (orderRes.rows.length === 0) throw new Error('Заказ не найден в базе данных');
+                const order = orderRes.rows[0];
+
+                clientInfo = { name: order.client_name, inn: order.client_inn, kpp: order.client_kpp, address: order.client_address };
+                const orderDate = order.created_at ? new Date(order.created_at).toLocaleDateString('ru-RU') : new Date().toLocaleDateString('ru-RU');
+
+                const totalAmount = new Big(order.total_amount || 0);
+                const paidAmount = new Big(order.paid_amount || 0);
+                const debt = totalAmount.minus(paidAmount);
+
+                if (debt.lte(0)) throw new Error(`Заказ №${docNum} уже полностью оплачен. Выписка счета заблокирована.`);
+
+                finalAmount = debt.toFixed(2);
+
+                if (paidAmount.gt(0)) {
+                    purposeText = `Окончательный расчет (остаток оплаты) по заказу № ${docNum} от ${orderDate} г.`;
+                    invoiceItems = [{ name: purposeText, qty: 1, unit: 'шт', price: finalAmount }];
+                } else {
+                    purposeText = `Оплата по заказу № ${docNum} от ${orderDate} г.`;
+                    const itemsRes = await client.query(`
+                        SELECT it.name, it.unit, coi.qty_ordered as qty, coi.price 
+                        FROM client_order_items coi JOIN items it ON coi.item_id = it.id 
+                        WHERE coi.order_id = $1
+                    `, [order.id]);
+
+                    let items = itemsRes.rows;
+                    let itemsSum = new Big(0);
+                    items.forEach(item => { itemsSum = itemsSum.plus(new Big(item.qty).times(item.price)); });
+
+                    if (parseFloat(order.discount) > 0) {
+                        let dSum = itemsSum.times(order.discount).div(100);
+                        items.push({ name: `Скидка на объем ${order.discount}%`, qty: 1, unit: 'шт', price: dSum.times(-1).toFixed(2) });
                     }
-                });
-            }
+                    if (parseFloat(order.logistics_cost) > 0) {
+                        items.push({ name: 'Логистика (Доставка)', qty: 1, unit: 'усл', price: parseFloat(order.logistics_cost) });
+                    }
+                    invoiceItems = items;
+                }
 
-            const sumInKopecks = Math.round(finalData.amount * 100);
-            const purpose = docNum ? `Оплата по заказу ${docNum}` : (desc || 'Аванс');
-            const gostStr = `ST00012|Name=${finalData.myCompany.name}|PersonalAcc=${finalData.myBank.account}|BankName=${finalData.myBank.name}|BIC=${finalData.myBank.bik}|CorrespAcc=${finalData.myBank.corr}|PayeeINN=${finalData.myCompany.inn}|KPP=${finalData.myCompany.kpp}|Purpose=${purpose}|Sum=${sumInKopecks}`;
+                // АТОМАРНЫЙ НУМЕРАТОР: ГАРАНТИРУЕТ УНИКАЛЬНОСТЬ, ОБХОДЯ ЗАНЯТЫЕ НОМЕРА
+                let isUnique = false;
+                for (let i = 0; i < 100; i++) {
+                    let counterRes = await client.query(`UPDATE document_counters SET last_number = last_number + 1 WHERE prefix = 'СЧ-26-' RETURNING last_number`);
+                    if (counterRes.rows.length === 0) {
+                        await client.query(`INSERT INTO document_counters (prefix, last_number) VALUES ('СЧ-26-', 0) ON CONFLICT DO NOTHING`);
+                        counterRes = await client.query(`UPDATE document_counters SET last_number = last_number + 1 WHERE prefix = 'СЧ-26-' RETURNING last_number`);
+                    }
+                    let seqNum = counterRes.rows[0].last_number;
+                    generatedInvoiceNumber = `СЧ-26-${String(seqNum).padStart(5, '0')}`;
+                    
+                    // Бронебойная проверка: свободен ли этот номер в базе?
+                    const checkRes = await client.query(`SELECT id FROM invoices WHERE invoice_number = $1`, [generatedInvoiceNumber]);
+                    if (checkRes.rows.length === 0) {
+                        isUnique = true;
+                        break;
+                    }
+                }
+                if (!isUnique) throw new Error("Системная ошибка: Не удалось найти свободный номер счета.");
 
-            finalData.qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(gostStr)}`;
-            res.render('docs/invoice', finalData);
-        } catch (err) { res.status(500).send(err.message); }
+                // ЗАПИСЬ СЧЕТА В БАЗУ (ИММУТАБЕЛЬНЫЙ СЛЕД - РЕЖИМ «НОТАРИУС»)
+                const authorId = (req.user && req.user.id) ? req.user.id : null;
+                const snapshot = JSON.stringify(clientInfo);
+                const crypto = require('crypto');
+                
+                // Фиксируем точное время для хеша и базы
+                const createdAt = new Date().toISOString();
+                
+                // Строка для подписи: Номер | Дата | Сумма | ID Контрагента
+                const hashString = `${generatedInvoiceNumber}|${createdAt}|${finalAmount}|${order.counterparty_id}`;
+                const notaryHash = crypto.createHash('sha256').update(hashString).digest('hex');
+
+                await client.query(`
+                    INSERT INTO invoices (
+                        invoice_number, order_id, counterparty_id, total_amount, 
+                        purpose, author_id, client_snapshot,
+                        created_at, notary_hash, is_locked, locked_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, NOW())
+                `, [
+                    generatedInvoiceNumber, 
+                    order.id, 
+                    order.counterparty_id, 
+                    finalAmount, 
+                    purposeText, 
+                    authorId, 
+                    snapshot,
+                    createdAt,
+                    notaryHash
+                ]);
+            });
+
+            res.render('docs/invoice', {
+                invoiceNum: generatedInvoiceNumber,
+                dateLong: new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) + ' г.',
+                clientName: clientInfo.name,
+                clientInn: clientInfo.inn || '-',
+                clientKpp: clientInfo.kpp || '-',
+                clientAddress: clientInfo.address || '',
+                bank: bank,
+                purposeText: purposeText,
+                items: invoiceItems,
+                vatRate: ERP_CONFIG.vatRate || 20,
+                company: COMPANY_CONFIG
+            });
+        } catch (err) {
+            console.error('Invoice Error:', err);
+            res.status(500).send(`<h2>Ошибка генерации счета</h2><p style="color:red; font-weight:bold;">${err.message}</p>`);
+        }
     });
-
+    // 2. РАСХОДНАЯ НАКЛАДНАЯ (Waybill)
     router.get('/print/waybill', async (req, res) => {
         try {
-            let clientName = 'Неизвестный клиент'; let totalAmount = 0; let transportInfo = ''; let discountInfo = ''; let contractInfo = 'Основной договор';
             const { docNum } = req.query;
-            const txRes = await pool.query(`SELECT t.amount, c.name FROM transactions t LEFT JOIN counterparties c ON t.counterparty_id = c.id WHERE t.description LIKE $1`, [`%${docNum}%`]);
-            if (txRes.rows.length > 0) { totalAmount = txRes.rows[0].amount; clientName = txRes.rows[0].name; }
-            else {
-                const invRes = await pool.query(`SELECT i.amount, c.name FROM invoices i LEFT JOIN counterparties c ON i.counterparty_id = c.id WHERE i.invoice_number = $1`, [docNum]);
-                if (invRes.rows.length > 0) { totalAmount = invRes.rows[0].amount; clientName = invRes.rows[0].name; }
-            }
-            const descRes = await pool.query(`SELECT description FROM inventory_movements WHERE movement_type = 'sales_shipment' AND description LIKE $1 LIMIT 1`, [`%${docNum}%`]);
-            if (descRes.rows.length > 0) {
-                const d = descRes.rows[0].description;
-                const tm = d.match(/Транспорт:\s([^|]+)/); if (tm) transportInfo = tm[1].trim();
-                const dm = d.match(/Скидка:\s([^|]+)/); if (dm) discountInfo = dm[1].trim();
-                const cm = d.match(/Основание:\s([^|]+)/); if (cm) contractInfo = cm[1].trim();
-            }
-            const itemsRes = await pool.query(`SELECT i.name, i.unit, SUM(ABS(m.quantity)) as qty FROM inventory_movements m JOIN items i ON m.item_id = i.id WHERE m.movement_type = 'sales_shipment' AND m.description LIKE $1 GROUP BY i.name, i.unit`, [`%${docNum}%`]);
-            res.render('docs/waybill', { docNum, clientName, totalAmount, transportInfo, discountInfo, contractInfo, items: itemsRes.rows, date: new Date().toLocaleDateString('ru-RU') });
+            const orderRes = await pool.query(`
+                SELECT o.id, o.driver_name, o.auto_number, o.discount, o.contract_info, o.total_amount, c.name 
+                FROM client_orders o 
+                LEFT JOIN counterparties c ON o.counterparty_id = c.id 
+                WHERE doc_number = $1
+            `, [docNum]);
+
+            let data = orderRes.rows[0] || { name: 'Неизвестный клиент', total_amount: 0, id: null };
+            const itemsRes = await pool.query(`
+                SELECT i.name, i.unit, SUM(ABS(m.quantity)) as qty 
+                FROM inventory_movements m 
+                JOIN items i ON m.item_id = i.id 
+                WHERE m.movement_type = 'sales_shipment' AND m.order_id = $1 
+                GROUP BY i.name, i.unit
+            `, [data.id]);
+
+            res.render('docs/waybill', {
+                docNum,
+                clientName: data.name,
+                totalAmount: data.total_amount,
+                transportInfo: (data.auto_number && data.driver_name) ? `${data.auto_number} (${data.driver_name})` : 'Самовывоз',
+                discountInfo: data.discount > 0 ? `${data.discount}%` : '',
+                contractInfo: data.contract_info || 'Основной договор',
+                items: itemsRes.rows,
+                vatRate: ERP_CONFIG.vatRate,
+                date: new Date().toLocaleDateString('ru-RU')
+            });
         } catch (err) { res.status(500).send(err.message); }
     });
 
+    // 3. УПД (UPD)
     router.get('/print/upd', async (req, res) => {
         try {
             const { docNum } = req.query;
-            let clientName = 'Неизвестный клиент'; let totalAmount = 0; let transportInfo = 'Самовывоз'; let cpInfo = {}; let palletsQty = 0;
-            const orderRes = await pool.query(`SELECT c.name, c.inn, c.kpp, c.legal_address FROM inventory_movements m JOIN client_order_items coi ON m.linked_order_item_id = coi.id JOIN client_orders o ON coi.order_id = o.id JOIN counterparties c ON o.counterparty_id = c.id WHERE m.movement_type = 'sales_shipment' AND m.description LIKE $1 LIMIT 1`, [`%${docNum}%`]);
-            if (orderRes.rows.length > 0) { clientName = orderRes.rows[0].name; cpInfo = orderRes.rows[0]; }
-            const descRes = await pool.query(`SELECT description FROM inventory_movements WHERE movement_type = 'sales_shipment' AND description LIKE $1 LIMIT 1`, [`%${docNum}%`]);
-            if (descRes.rows.length > 0) {
-                const tm = descRes.rows[0].description.match(/Транспорт:\s([^|]+)/); if (tm) transportInfo = tm[1].trim();
-                const pm = descRes.rows[0].description.match(/Поддоны:\s*(\d+)/); if (pm) palletsQty = parseInt(pm[1]);
+            const orderRes = await pool.query(`
+                SELECT o.id, c.name, c.inn, c.kpp, c.legal_address, o.driver_name, o.auto_number, o.pallets_qty
+                FROM client_orders o 
+                JOIN counterparties c ON o.counterparty_id = c.id 
+                WHERE o.doc_number = $1 LIMIT 1
+            `, [docNum]);
+
+            if (orderRes.rows.length === 0) return res.status(404).send('Заказ не найден');
+            const o = orderRes.rows[0];
+
+            const itemsRes = await pool.query(`
+                SELECT i.name, i.unit, SUM(ABS(m.quantity)) as qty, coi.price 
+                FROM inventory_movements m 
+                JOIN items i ON m.item_id = i.id 
+                LEFT JOIN client_order_items coi ON m.linked_order_item_id = coi.id 
+                WHERE m.movement_type = 'sales_shipment' AND m.order_id = $1 
+                GROUP BY i.name, i.unit, coi.price
+            `, [o.id]);
+
+            let totalSum = new Big(0);
+            let items = itemsRes.rows.map(row => {
+                const lineCost = new Big(row.qty).times(row.price || 0);
+                totalSum = totalSum.plus(lineCost);
+                return { ...row, cost: lineCost.toFixed(2) };
+            });
+
+            if (parseInt(o.pallets_qty) > 0) {
+                items.push({ name: 'Поддон деревянный (возвратная тара)', unit: 'шт', qty: o.pallets_qty, price: 0, cost: "0.00" });
             }
-            const itemsRes = await pool.query(`SELECT i.name, i.unit, SUM(ABS(m.quantity)) as qty, coi.price FROM inventory_movements m JOIN items i ON m.item_id = i.id LEFT JOIN client_order_items coi ON m.linked_order_item_id = coi.id WHERE m.movement_type = 'sales_shipment' AND m.description LIKE $1 GROUP BY i.name, i.unit, coi.price`, [`%${docNum}%`]);
-            let items = itemsRes.rows.map(row => { row.cost = parseFloat(row.qty) * parseFloat(row.price || 0); totalAmount += row.cost; return row; });
-            if (palletsQty > 0) items.push({ name: 'Поддон деревянный (возвратная тара)', unit: 'шт', qty: palletsQty, price: 0, cost: 0 });
-            res.render('docs/upd', { docNum, clientName, cpInfo, totalAmount, transportInfo, palletsQty, items, date: new Date().toLocaleDateString('ru-RU'), time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) });
+
+            const totalVat = totalSum.times(ERP_CONFIG.vatRate).div(100 + ERP_CONFIG.vatRate).toFixed(2);
+
+            res.render('docs/upd', {
+                docNum, cpInfo: o, totalAmount: totalSum.toFixed(2), totalVat,
+                items, vatRate: ERP_CONFIG.vatRate, company: COMPANY_CONFIG,
+                date: new Date().toLocaleDateString('ru-RU'),
+                time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+            });
         } catch (err) { res.status(500).send(err.message); }
     });
 
+    // 4. ДОГОВОР (Contract)
     router.get('/print/contract', async (req, res) => {
         try {
-            const result = await pool.query(`SELECT c.number, TO_CHAR(c.date, 'DD.MM.YYYY') as date_formatted, cp.* FROM contracts c JOIN counterparties cp ON c.counterparty_id = cp.id WHERE c.id = $1`, [req.query.id]);
+            const result = await pool.query(`
+                SELECT c.number, TO_CHAR(c.date, 'DD.MM.YYYY') as date_formatted, cp.* FROM contracts c 
+                JOIN counterparties cp ON c.counterparty_id = cp.id 
+                WHERE c.id = $1
+            `, [req.query.id]);
             if (result.rows.length === 0) return res.status(404).send('Не найден');
-            const myCompany = { name: 'ООО "ПЛИТТЕКС"', director: 'Иванов И.И.', inn: '2372029123', kpp: '237201001', address: '352244, Краснодарский край, г. Новокубанск, ул. Кузнечная, д. 1 оф.2', bank: 'ООО "Банк Точка" г. Москва', account: '40702810901500100003', bik: '044525104', corr: '30101810745374525104' };
-            res.render('docs/contract', { contract: result.rows[0], myCompany });
+            res.render('docs/contract', {
+                contract: result.rows[0],
+                myCompany: COMPANY_CONFIG,
+                vatRate: ERP_CONFIG.vatRate
+            });
         } catch (err) { res.status(500).send(err.message); }
     });
 
+    // 5. СПЕЦИФИКАЦИЯ (по номеру заказа)
     router.get('/print/specification', async (req, res) => {
         try {
-            const { docNum } = req.query; let clientName = 'Неизвестный клиент'; let totalAmount = 0; let contractInfo = 'Основной договор';
-            const txRes = await pool.query(`SELECT t.amount, c.name FROM transactions t LEFT JOIN counterparties c ON t.counterparty_id = c.id WHERE t.description LIKE $1`, [`%${docNum}%`]);
-            if (txRes.rows.length > 0) { totalAmount = txRes.rows[0].amount; clientName = txRes.rows[0].name; }
-            else {
-                const invRes = await pool.query(`SELECT i.amount, c.name FROM invoices i LEFT JOIN counterparties c ON i.counterparty_id = c.id WHERE i.invoice_number = $1`, [docNum]);
-                if (invRes.rows.length > 0) { totalAmount = invRes.rows[0].amount; clientName = invRes.rows[0].name; }
-            }
-            const descRes = await pool.query(`SELECT description FROM inventory_movements WHERE movement_type = 'sales_shipment' AND description LIKE $1 LIMIT 1`, [`%${docNum}%`]);
-            if (descRes.rows.length > 0) { const cm = descRes.rows[0].description.match(/Основание:\s([^|]+)/); if (cm) contractInfo = cm[1].trim(); }
-            const itemsRes = await pool.query(`SELECT i.name, i.unit, i.current_price as price, SUM(ABS(m.quantity)) as qty FROM inventory_movements m JOIN items i ON m.item_id = i.id WHERE m.movement_type = 'sales_shipment' AND m.description LIKE $1 GROUP BY i.name, i.unit, i.current_price`, [`%${docNum}%`]);
-            res.render('docs/specification', { docNum, clientName, totalAmount, contractInfo, items: itemsRes.rows, date: new Date().toLocaleDateString('ru-RU') });
+            const { docNum } = req.query;
+            const orderRes = await pool.query(`
+                SELECT o.total_amount, c.name, con.number as c_num, TO_CHAR(con.date, 'DD.MM.YYYY') as c_date
+                FROM client_orders o 
+                JOIN counterparties c ON o.counterparty_id = c.id 
+                LEFT JOIN contracts con ON o.contract_id = con.id
+                WHERE o.doc_number = $1
+            `, [docNum]);
+
+            if (orderRes.rows.length === 0) return res.status(404).send('Заказ не найден');
+            const o = orderRes.rows[0];
+
+            const itemsRes = await pool.query(`
+                SELECT i.name, i.unit, coi.price, SUM(ABS(m.quantity)) as qty 
+                FROM inventory_movements m 
+                JOIN items i ON m.item_id = i.id 
+                JOIN client_order_items coi ON m.linked_order_item_id = coi.id
+                WHERE m.description LIKE $1 
+                GROUP BY i.name, i.unit, coi.price
+            `, [`%${docNum}%`]);
+
+            res.render('docs/specification', {
+                docNum, clientName: o.name, totalAmount: o.total_amount,
+                contractInfo: o.c_num ? `Договор № ${o.c_num} от ${o.c_date}` : 'Разовая сделка',
+                items: itemsRes.rows, vatRate: ERP_CONFIG.vatRate, date: new Date().toLocaleDateString('ru-RU')
+            });
         } catch (err) { res.status(500).send(err.message); }
     });
 
-    // 🚀 ИСПРАВЛЕНИЕ: Асинхронное сохранение файла без блокировки сервера
-    router.post('/api/docs/save-pdf', express.json({ limit: '50mb' }), async (req, res) => {
-        console.log('📥 Получен PDF для сохранения...');
+    // 6. СПЕЦИФИКАЦИЯ (по ID документа спецификации)
+    router.get('/print/specification_doc', async (req, res) => {
+        try {
+            const specRes = await pool.query(`
+                SELECT s.number, TO_CHAR(s.date, 'DD.MM.YYYY') as s_date, c.number as c_num, TO_CHAR(c.date, 'DD.MM.YYYY') as c_date, cp.name
+                FROM specifications s
+                JOIN contracts c ON s.contract_id = c.id
+                JOIN counterparties cp ON c.counterparty_id = cp.id
+                WHERE s.id = $1
+            `, [req.query.id]);
+
+            const s = specRes.rows[0];
+            const itemsRes = await pool.query(`
+                SELECT i.name, i.unit, si.price, si.qty FROM specification_items si 
+                JOIN items i ON si.item_id = i.id WHERE si.specification_id = $1
+            `, [req.query.id]);
+
+            let total = new Big(0);
+            const items = itemsRes.rows.map(it => {
+                total = total.plus(new Big(it.qty).times(it.price));
+                return it;
+            });
+
+            res.render('docs/specification', {
+                docNum: `СПЕЦ-${s.number}`, clientName: s.name, totalAmount: total.toFixed(2),
+                contractInfo: `Договор № ${s.c_num} от ${s.c_date}`, items,
+                vatRate: ERP_CONFIG.vatRate, date: s.s_date
+            });
+        } catch (err) { res.status(500).send(err.message); }
+    });
+
+    // 7. АКТ СВЕРКИ (Act)
+    router.get('/print/act', async (req, res) => {
+        try {
+            const { cpId, start, end } = req.query;
+            const cpRes = await pool.query('SELECT name, inn FROM counterparties WHERE id = $1', [cpId]);
+            const transactions = await pool.query(`
+                SELECT transaction_date, description, amount, transaction_type 
+                FROM transactions 
+                WHERE counterparty_id = $1 AND transaction_date BETWEEN $2 AND $3
+                ORDER BY transaction_date ASC
+            `, [cpId, start, end]);
+
+            res.render('docs/act', {
+                cp: cpRes.rows[0], transactions: transactions.rows,
+                period: { start, end }, company: COMPANY_CONFIG
+            });
+        } catch (err) { res.status(500).send(err.message); }
+    });
+
+    // 8. БЛАНК ЗАКАЗА (Из сохраненного заказа)
+    router.get('/print/blank_order', async (req, res) => {
+        try {
+            const { docNum } = req.query;
+            const orderRes = await pool.query(`
+                SELECT o.*, c.name as client_name, c.inn, c.phone, c.legal_address, c.director_name
+                FROM client_orders o LEFT JOIN counterparties c ON o.counterparty_id = c.id WHERE o.doc_number = $1
+            `, [docNum]);
+
+            if (orderRes.rows.length === 0) return res.status(404).send('Заказ не найден');
+            const orderInfo = orderRes.rows[0];
+
+            // 🚀 ИСПРАВЛЕНО: берем qty_ordered и убираем несуществующий coi.discount
+            const itemsRes = await pool.query(`
+                SELECT i.name, coi.qty_ordered as qty, i.unit, coi.price, 0 as discount
+                FROM client_order_items coi JOIN items i ON coi.item_id = i.id WHERE coi.order_id = $1
+            `, [orderInfo.id]);
+
+            if (parseInt(orderInfo.pallets_qty) > 0) {
+                itemsRes.rows.push({ name: 'Поддон деревянный (возвратная тара)', unit: 'шт', qty: orderInfo.pallets_qty, price: 0, discount: 0 });
+            }
+
+            res.render('docs/blank_order', {
+                order: orderInfo, items: itemsRes.rows,
+                paymentMethod: orderInfo.payment_method, advanceAmount: orderInfo.advance_amount,
+                vatRate: ERP_CONFIG.vatRate || 20
+            });
+        } catch (err) { res.status(500).send(err.message); }
+    });
+
+    // 8.1 БЛАНК ЗАКАЗА (Черновик из корзины до сохранения)
+    router.post('/print/blank_order_draft', express.urlencoded({ extended: true }), async (req, res) => {
+        try {
+            if (!req.body || !req.body.data) return res.status(400).send('Нет данных');
+            const data = JSON.parse(req.body.data);
+
+            const clientRes = await pool.query('SELECT name, inn, phone, legal_address, director_name FROM counterparties WHERE id = $1', [data.client_id]);
+            const c = clientRes.rows[0] || { name: 'Неизвестный клиент' };
+
+            const items = data.items.map(item => ({ name: item.name, unit: item.unit, qty: parseFloat(item.qty || 0), price: parseFloat(item.price || 0), discount: parseFloat(item.discount || 0) }));
+
+            if (parseInt(data.pallets) > 0) {
+                items.push({ name: 'Поддон деревянный (возвратная тара)', unit: 'шт', qty: data.pallets, price: 0, discount: 0 });
+            }
+
+            const order = {
+                doc_number: 'ПРОЕКТ', created_at: new Date(), client_name: c.name, delivery_address: data.delivery_address || c.legal_address, phone: c.phone, inn: c.inn, director_name: c.director_name, discount: data.discount, logistics_cost: data.logistics
+            };
+
+            res.render('docs/blank_order', {
+                order, items,
+                paymentMethod: data.paymentMethod, advanceAmount: data.advanceAmount,
+                vatRate: ERP_CONFIG.vatRate || 20
+            });
+        } catch (err) { res.status(500).send(err.message); }
+    });
+
+    // 9. ПАСПОРТ ПАРТИИ (Passport)
+    router.get('/print/passport', async (req, res) => {
+        try {
+            const { batchId } = req.query;
+            const batchRes = await pool.query('SELECT * FROM production_batches WHERE id = $1', [batchId]);
+            if (batchRes.rows.length === 0) return res.status(404).send('Партия не найдена');
+
+            res.render('docs/passport', { batch: batchRes.rows[0], company: COMPANY_CONFIG });
+        } catch (err) { res.status(500).send(err.message); }
+    });
+
+    // 10. API: СОХРАНЕНИЕ PDF
+    router.post('/api/docs/save-pdf', express.json({ limit: '10mb' }), async (req, res) => {
         try {
             const { filename, fileData } = req.body;
             if (!fileData || !filename) return res.status(400).json({ error: 'Данные отсутствуют' });
 
-            const safeFilename = path.basename(filename);
-
-            const base64Data = fileData.replace(/^data:application\/pdf;filename=generated\.pdf;base64,/, "")
-                .replace(/^data:application\/pdf;base64,/, "");
+            const base64Data = fileData.replace(/^data:application\/pdf;base64,/, "")
+                .replace(/^data:application\/pdf;filename=generated\.pdf;base64,/, "");
 
             const dir = path.join(__dirname, '../public/saved_docs');
             if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-            // Записываем файл асинхронно, не тормозя работу других пользователей
-            await fsPromises.writeFile(path.join(dir, safeFilename), base64Data, 'base64');
-            
-            console.log(`✅ Сохранено: ${filename}`);
-            res.json({ success: true });
+            const finalFilename = `${path.basename(filename, '.pdf')}_${Date.now()}.pdf`;
+            await fsPromises.writeFile(path.join(dir, finalFilename), base64Data, 'base64');
+
+            rotateDocs(dir, 500);
+            res.json({ success: true, filename: finalFilename });
+        } catch (err) { res.status(500).json({ error: err.message }); }
+    });
+
+    // 11. КАРТОЧКА ПРЕДПРИЯТИЯ (Реквизиты)
+    router.get('/print/requisites', async (req, res) => {
+        try {
+            const { bank } = req.query;
+            if (bank === 'tochka') {
+                res.render('docs/card_tochka');
+            } else if (bank === 'alfa') {
+                res.render('docs/card_alfa');
+            } else {
+                res.status(404).send('Банк не найден');
+            }
+        } catch (err) { res.status(500).send(err.message); }
+    });
+
+    // 12. КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ (KP)
+    router.post('/print/kp', express.urlencoded({ extended: true }), async (req, res) => {
+        try {
+            if (!req.body || !req.body.data) return res.status(400).send('Нет данных для КП');
+            const data = JSON.parse(req.body.data);
+
+            const clientRes = await pool.query('SELECT name, inn, phone, email FROM counterparties WHERE id = $1', [data.client_id]);
+            const clientInfo = clientRes.rows[0] || { name: 'Неизвестный клиент' };
+
+            let totalSum = new Big(0);
+            let totalWeight = new Big(0);
+
+            const items = data.items.map(item => {
+                const price = new Big(item.price);
+                const qty = new Big(item.qty);
+                const discount = new Big(item.discount || 0);
+
+                const finalPrice = price.times(new Big(1).minus(discount.div(100)));
+                const sum = qty.times(finalPrice);
+
+                totalSum = totalSum.plus(sum);
+                totalWeight = totalWeight.plus(item.weight || 0);
+
+                return { ...item, finalPrice: finalPrice.toFixed(2), sum: sum.toFixed(2) };
+            });
+
+            const globalDiscount = new Big(data.discount || 0);
+            const logistics = new Big(data.logistics || 0);
+
+            const finalTotal = totalSum.times(new Big(1).minus(globalDiscount.div(100))).plus(logistics);
+
+            res.render('docs/kp', {
+                client: clientInfo,
+                items: items,
+                subtotal: totalSum.toFixed(2),
+                globalDiscount: data.discount,
+                logistics: data.logistics,
+                finalTotal: finalTotal.toFixed(2),
+                totalWeight: totalWeight.toFixed(1),
+                date: new Date().toLocaleDateString('ru-RU'),
+                company: COMPANY_CONFIG
+            });
         } catch (err) {
-            console.error('❌ Ошибка записи:', err);
+            console.error('Ошибка генерации КП:', err);
+            res.status(500).send('Ошибка генерации КП: ' + err.message);
+        }
+    });
+
+    // 13. API: РЕЕСТР ДОКУМЕНТОВ ДЛЯ БУХГАЛТЕРИИ
+    router.get('/api/docs/registry', async (req, res) => {
+        try {
+            const { clientId, startDate, endDate } = req.query;
+            
+            // Базовая часть запроса
+            let queryText = `
+                SELECT i.id, i.invoice_number as doc_number, i.total_amount, i.created_at, i.is_exported_1c, 
+                i.client_snapshot, i.counterparty_id, i.is_locked, u.username as author_name 
+                FROM invoices i
+                LEFT JOIN users u ON i.author_id = u.id
+            `;
+            
+            let conditions = [];
+            let queryParams = [];
+            let paramIndex = 1;
+
+            // Условие 1: Финальный клиент
+            if (clientId) {
+                conditions.push(`i.counterparty_id = $${paramIndex}`);
+                queryParams.push(clientId);
+                paramIndex++;
+            }
+
+            // Условие 2: Дата начала
+            if (startDate) {
+                conditions.push(`i.created_at >= $${paramIndex}`);
+                queryParams.push(startDate);
+                paramIndex++;
+            }
+
+            // Условие 3: Дата окончания
+            if (endDate) {
+                conditions.push(`i.created_at <= $${paramIndex}::timestamp + interval '1 day' - interval '1 second'`);
+                queryParams.push(endDate);
+                paramIndex++;
+            }
+
+            // Сборка конструкции WHERE
+            if (conditions.length > 0) {
+                queryText += ` WHERE ` + conditions.join(' AND ');
+            }
+
+            // Сортировка и лимит
+            queryText += ` ORDER BY i.created_at DESC LIMIT 500`;
+
+            const result = await pool.query(queryText, queryParams);
+            res.json(result.rows);
+        } catch (err) {
+            console.error('Registry API error:', err);
+            res.status(500).json({ error: err.message });
+        }
+    });
+    // 14. API: ПОЛУЧЕНИЕ ДЕТАЛЕЙ ОДНОГО СЧЕТА ПО ID
+    router.get('/api/invoices/:id', async (req, res) => {
+        try {
+            const invoiceId = req.params.id;
+
+            const result = await pool.query(`
+                SELECT i.*, o.doc_number as order_number, u.username as author_name 
+                FROM invoices i
+                LEFT JOIN client_orders o ON i.order_id = o.id
+                LEFT JOIN users u ON i.author_id = u.id
+                WHERE i.id = $1
+            `, [invoiceId]);
+
+            if (result.rows.length === 0) {
+                return res.status(404).json({ error: 'Счет не найден' });
+            }
+
+            res.json(result.rows[0]);
+        } catch (err) {
+            console.error('Ошибка получения счета:', err.message);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // 15. API: ВЫГРУЗКА РЕЕСТРА В 1С (XML CommerceML 2.0)
+    router.post('/api/docs/export-1c', async (req, res) => {
+        try {
+            const { invoiceIds } = req.body;
+            if (!Array.isArray(invoiceIds) || invoiceIds.length === 0) {
+                return res.status(400).json({ error: 'Не переданы ID документов для выгрузки' });
+            }
+
+            // Получаем счета с актуальной информацией о клиентах
+            const result = await pool.query(`
+                SELECT i.id, i.invoice_number as doc_number, i.total_amount, i.created_at, i.purpose,
+                i.client_snapshot, i.is_exported_1c
+                FROM invoices i
+                WHERE i.id = ANY($1)
+            `, [invoiceIds]);
+
+            const docs = result.rows;
+            if (docs.length === 0) return res.status(404).json({ error: 'Документы не найдены в БД' });
+
+            // Формируем XML КоммерческаяИнформация
+            const now = new Date();
+            const dateStr = now.toISOString().split('T')[0];
+            const timeStr = now.toTimeString().split(' ')[0];
+
+            let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+            xml += `<КоммерческаяИнформация ВерсияСхемы="2.09" ДатаФормирования="${dateStr}${timeStr}">\n`;
+
+            for (const doc of docs) {
+                const docDate = new Date(doc.created_at).toISOString().split('T')[0];
+                const docTime = new Date(doc.created_at).toTimeString().split(' ')[0];
+                
+                let clientInfo = { name: 'Неизвестно', inn: '', kpp: '' };
+                try {
+                    if (doc.client_snapshot) {
+                        const snap = typeof doc.client_snapshot === 'string' ? JSON.parse(doc.client_snapshot) : doc.client_snapshot;
+                        clientInfo = {
+                            name: snap.name || snap.clientName || 'Неизвестно',
+                            inn: snap.inn || '',
+                            kpp: snap.kpp || ''
+                        };
+                    }
+                } catch (e) { console.error('Ошибка парсинга client_snapshot'); }
+
+                xml += `  <Документ>\n`;
+                xml += `    <Ид>${doc.id}</Ид>\n`;
+                xml += `    <Номер>${doc.doc_number}</Номер>\n`;
+                xml += `    <Дата>${docDate}</Дата>\n`;
+                xml += `    <Время>${docTime}</Время>\n`;
+                xml += `    <ХозОперация>Счет на оплату</ХозОперация>\n`;
+                xml += `    <Роль>Продавец</Роль>\n`;
+                xml += `    <Сумма>${doc.total_amount}</Сумма>\n`;
+                xml += `    <Валюта>руб</Валюта>\n`;
+                xml += `    <Курс>1</Курс>\n`;
+                
+                xml += `    <Контрагенты>\n`;
+                xml += `      <Контрагент>\n`;
+                xml += `        <Ид>${clientInfo.inn ? clientInfo.inn : 'client_' + doc.id}</Ид>\n`;
+                xml += `        <Наименование>${clientInfo.name}</Наименование>\n`;
+                xml += `        <Роль>Покупатель</Роль>\n`;
+                xml += `        <ПолноеНаименование>${clientInfo.name}</ПолноеНаименование>\n`;
+                if (clientInfo.inn) xml += `        <ИНН>${clientInfo.inn}</ИНН>\n`;
+                if (clientInfo.kpp) xml += `        <КПП>${clientInfo.kpp}</КПП>\n`;
+                xml += `      </Контрагент>\n`;
+                xml += `    </Контрагенты>\n`;
+                
+                xml += `    <Комментарий>${doc.purpose || 'Выгружено из Плиттекс ERP'}</Комментарий>\n`;
+                xml += `  </Документ>\n`;
+            }
+
+            xml += `</КоммерческаяИнформация>\n`;
+
+            // Помечаем документы как выгруженные (чтобы не выгружать дважды по ошибке)
+            await pool.query('UPDATE invoices SET is_exported_1c = true WHERE id = ANY($1)', [invoiceIds]);
+
+            res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename=export_1c_${dateStr}.xml`);
+            res.send(xml);
+
+        } catch (err) {
+            console.error('Ошибка генерации XML для 1С:', err.message);
             res.status(500).json({ error: err.message });
         }
     });

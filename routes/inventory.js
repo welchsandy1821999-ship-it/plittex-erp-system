@@ -74,7 +74,7 @@ module.exports = function (pool, getWhId, withTransaction) {
     });
 
     // ------------------------------------------------------------------
-    // 3. МАРШРУТ: ИНВЕНТАРИЗАЦИЯ (POST /api/inventory/audit)
+    // ИНВЕНТАРИЗАЦИЯ: КОРРЕКТИРОВКА ОСТАТКОВ (ИСПРАВЛЕННЫЙ БЕЗОПАСНЫЙ МЕТОД)
     // ------------------------------------------------------------------
     router.post('/api/inventory/audit', async (req, res) => {
         const { warehouseId, adjustments } = req.body;
@@ -82,21 +82,59 @@ module.exports = function (pool, getWhId, withTransaction) {
 
         try {
             await withTransaction(pool, async (client) => {
-                for (let adj of adjustments) {
-                    await client.query(`
-                        INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id)
-                        VALUES ($1, $2, 'audit_adjustment', 'Инвентаризация (Корректировка)', $3, $4, $5)
-                    `, [adj.itemId, adj.diffQty, warehouseId, adj.batchId || null, userId]);
+                for (const adj of adjustments) {
+                    const { itemId, batchId, actualQty } = adj;
+
+                    // 1. Сначала блокируем строки (FOR UPDATE), чтобы никто не вставил новое движение
+                    let lockQuery = `
+                        SELECT id FROM inventory_movements 
+                        WHERE item_id = $1 AND warehouse_id = $2
+                    `;
+                    const params = [itemId, warehouseId];
+                    if (batchId) {
+                        lockQuery += ` AND batch_id = $3`;
+                        params.push(batchId);
+                    } else {
+                        lockQuery += ` AND batch_id IS NULL`;
+                    }
+
+                    // Выполняем блокировку существующих строк
+                    await client.query(lockQuery + " FOR UPDATE", params);
+
+                    // 2. Теперь спокойно считаем сумму (агрегат отдельно от FOR UPDATE)
+                    let sumQuery = `
+                        SELECT COALESCE(SUM(quantity), 0) as balance 
+                        FROM inventory_movements 
+                        WHERE item_id = $1 AND warehouse_id = $2
+                    `;
+                    if (batchId) sumQuery += ` AND batch_id = $3`;
+                    else sumQuery += ` AND batch_id IS NULL`;
+
+                    const stockRes = await client.query(sumQuery, params);
+                    const currentBalance = parseFloat(stockRes.rows[0].balance);
+
+                    // 3. Вычисляем дельту
+                    const diffQty = actualQty - currentBalance;
+
+                    // 4. Записываем корректировку, если есть разница
+                    if (Math.abs(diffQty) > 0.0001) {
+                        const desc = `Инвентаризация: факт ${actualQty}, было ${currentBalance}`;
+
+                        await client.query(`
+                            INSERT INTO inventory_movements 
+                            (item_id, warehouse_id, batch_id, quantity, movement_type, description, user_id) 
+                            VALUES ($1, $2, $3, $4, 'audit_adjustment', $5, $6)
+                        `, [itemId, warehouseId, batchId, diffQty, desc, userId]);
+                    }
                 }
             });
 
             const io = req.app.get('io');
             if (io) io.emit('inventory_updated');
-            sendNotify(`📋 <b>Инвентаризация</b>\nПроведена ручная корректировка остатков на складе.`);
 
-            res.json({ success: true, message: 'Инвентаризация сохранена' });
+            res.json({ success: true, message: 'Инвентаризация завершена успешно' });
         } catch (err) {
-            console.error('Ошибка инвентаризации:', err);
+            console.error('Ошибка инвентаризации:', err.message);
             res.status(500).json({ error: err.message });
         }
     });
@@ -106,10 +144,16 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     router.post('/api/move-wip', async (req, res) => {
         const { batchId, tileId, currentWipQty, goodQty, grade2Qty, scrapQty, isComplete } = req.body;
-        const userId = req.user ? req.user.id : null;
 
         try {
             await withTransaction(pool, async (client) => {
+                // ✅ ТЕПЕРЬ ОНО ВНУТРИ, ТУТ client СУЩЕСТВУЕТ
+                let userId = null;
+                if (req.user && req.user.id) {
+                    const userCheck = await client.query('SELECT id FROM users WHERE id = $1', [req.user.id]);
+                    if (userCheck.rows.length > 0) userId = req.user.id;
+                }
+
                 const dryingWh = await getWhId(client, 'drying');
                 const finishedWh = await getWhId(client, 'finished');
                 const markdownWh = await getWhId(client, 'markdown');
@@ -162,18 +206,36 @@ module.exports = function (pool, getWhId, withTransaction) {
     });
 
     // ------------------------------------------------------------------
-    // 5. МАРШРУТ: БЕЗВОЗВРАТНАЯ УТИЛИЗАЦИЯ (POST /api/inventory/dispose)
+    // 5. МАРШРУТ: БЕЗВОЗВРАТНАЯ УТИЛИЗАЦИЯ
     // ------------------------------------------------------------------
     router.post('/api/inventory/dispose', async (req, res) => {
         const { itemId, batchId, warehouseId, disposeQty, description } = req.body;
-        const userId = req.user ? req.user.id : null;
 
         try {
             await withTransaction(pool, async (client) => {
+                // ✅ ПЕРЕНЕСЛИ СЮДА. Теперь client определен.
+                let userId = null;
+                if (req.user && req.user.id) {
+                    const userCheck = await client.query('SELECT id FROM users WHERE id = $1', [req.user.id]);
+                    if (userCheck.rows.length > 0) {
+                        userId = req.user.id;
+                    } else {
+                        console.warn(`Предупреждение: Пользователь ${req.user.id} не найден.`);
+                    }
+                }
+
+                // Само списание
                 await client.query(`
-                    INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id)
-                    VALUES ($1, $2, 'disposal_writeoff', $3, $4, $5, $6)
-                `, [itemId, -Math.abs(disposeQty), description || 'Безвозвратная утилизация (вывоз)', warehouseId, batchId || null, userId]);
+                INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id)
+                VALUES ($1, $2, 'disposal_writeoff', $3, $4, $5, $6)
+            `, [
+                    itemId,
+                    -Math.abs(disposeQty),
+                    description || 'Безвозвратная утилизация (вывоз)',
+                    warehouseId,
+                    batchId || null,
+                    userId // Передаем полученный выше ID или null
+                ]);
             });
 
             const io = req.app.get('io');
@@ -187,50 +249,60 @@ module.exports = function (pool, getWhId, withTransaction) {
         }
     });
 
-    // ------------------------------------------------------------------
-    // 6. МАРШРУТ: ЗАКУПКА СЫРЬЯ (POST /api/purchase)
-    // ------------------------------------------------------------------
-    router.post('/api/purchase', async (req, res) => {
-        const { materialId, quantity, pricePerUnit, supplier, accountId } = req.body;
+    router.post('/api/inventory/purchase', async (req, res) => {
+        const { itemId, quantity, pricePerUnit, supplierId, accountId } = req.body;
 
-        if (!quantity || quantity <= 0 || pricePerUnit < 0) {
-            return res.status(400).json({ error: 'Количество должно быть больше нуля, а цена не может быть отрицательной!' });
+        // 🚀 ЗАДАЧА №11: Серверная валидация данных
+        if (!itemId || !supplierId) {
+            return res.status(400).json({ error: 'Не указан товар или поставщик!' });
         }
 
-        if (!accountId) {
-            return res.status(400).json({ error: 'Необходим ID счета для оплаты!' });
+        const qtyNum = parseFloat(quantity);
+        const priceNum = parseFloat(pricePerUnit);
+
+        if (isNaN(qtyNum) || qtyNum <= 0) {
+            return res.status(400).json({ error: 'Количество должно быть положительным числом!' });
+        }
+        if (isNaN(priceNum) || priceNum <= 0) {
+            return res.status(400).json({ error: 'Цена за единицу должна быть больше нуля!' });
         }
 
         try {
+            const materialsWh = await getWhId(pool, 'materials');
+
             await withTransaction(pool, async (client) => {
-                const materialsWh = await getWhId(client, 'materials');
-                const desc = `Приход от поставщика: ${supplier || 'Не указан'}`;
+                const totalCostBig = new Big(quantity).times(pricePerUnit);
+                const totalCost = totalCostBig.toFixed(2);
 
-                await client.query(`
-                    INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, created_at) 
-                    VALUES ($1, $2, 'purchase_receipt', $3, $4, CURRENT_TIMESTAMP)
-                `, [materialId, quantity, desc, materialsWh]);
-
-                // 👈 Точная математика для денег!
-                const totalCost = Big(quantity).times(pricePerUnit).toNumber();
-
-                if (totalCost > 0) {
-                    await client.query(`
-                        INSERT INTO transactions (account_id, amount, transaction_type, category, description, vat_amount, payment_method) 
-                        VALUES ($1, $2, 'expense', 'Закупка сырья', $3, 0, 'Безналичный расчет')
-                    `, [accountId, totalCost, desc]);
-
-                    if (pricePerUnit > 0) {
-                        await client.query(`UPDATE items SET current_price = $1 WHERE id = $2`, [pricePerUnit, materialId]);
+                if (accountId) {
+                    const accRes = await client.query('SELECT balance FROM accounts WHERE id = $1 FOR UPDATE', [accountId]);
+                    if (!accRes.rows[0]) throw new Error('Счет не найден');
+                    if (new Big(accRes.rows[0].balance).lt(totalCostBig)) {
+                        throw new Error(`Недостаточно средств. Нужно: ${totalCost} ₽`);
                     }
+                }
+
+                // 1. Оприходование на склад (Используем itemId вместо materialId)
+                const moveRes = await client.query(`
+                    INSERT INTO inventory_movements 
+                    (item_id, quantity, movement_type, warehouse_id, supplier_id, amount, description)
+                    VALUES ($1, $2, 'purchase', $3, $4, $5, $6) RETURNING id
+                `, [itemId, quantity, materialsWh, supplierId, totalCost, `Закупка сырья (Цена: ${pricePerUnit})`]);
+
+                // 2. Списание денег (Добавлен payment_method и source_module)
+                if (accountId) {
+                    await client.query(`
+                        INSERT INTO transactions 
+                        (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module)
+                        VALUES ($1, $2, 'expense', 'Закупка сырья', $3, $4, $5, $6)
+                    `, [accountId, totalCost, `Оплата закупки (движение склада #${moveRes.rows[0].id})`, supplierId, 'Безналичный расчет', 'purchase']);
                 }
             });
 
             const io = req.app.get('io');
             if (io) io.emit('inventory_updated');
-            sendNotify(`🚚 <b>Закупка сырья</b>\nПоставщик: ${supplier || 'Не указан'}\nПринято: ${quantity} ед.`);
 
-            res.json({ success: true, message: 'Сырье оприходовано' });
+            res.json({ success: true });
         } catch (err) {
             res.status(500).json({ error: err.message });
         }

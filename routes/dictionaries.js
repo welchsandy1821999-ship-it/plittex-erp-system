@@ -65,15 +65,46 @@ module.exports = function (pool, withTransaction) {
     });
 
     router.put('/api/items/:id', async (req, res) => {
-        const { name, item_type, category, unit, price, weight, qty_per_cycle, mold_id, gost_mark, article } = req.body;
+        const itemId = req.params.id;
+
+        // 1. Белый список разрешенных полей (строго по схеме БД)
+        const allowedFields = [
+            'name', 'category', 'unit', 'current_price',
+            'item_type', 'is_deleted', 'article',
+            'mold_id', 'min_stock',
+            'weight_kg',      // Соответствует колонке в БД
+            'qty_per_cycle'   // Тот самый "Выход с 1 удара"
+        ];
+
+        // 2. Фильтрация входящих данных: оставляем только те, что в белом списке
+        const updates = {};
+        for (const key of Object.keys(req.body)) {
+            if (allowedFields.includes(key)) {
+                updates[key] = req.body[key];
+            }
+        }
+
+        const keys = Object.keys(updates);
+
+        if (keys.length === 0) {
+            return res.status(400).json({ error: 'Нет допустимых данных для обновления' });
+        }
+
+        // 3. Безопасное формирование запроса (экранируем имена колонок двойными кавычками)
+        const setClause = keys.map((key, i) => `"${key}" = $${i + 1}`).join(', ');
+        const values = Object.values(updates);
+
         try {
-            await pool.query(`
-                UPDATE items 
-                SET name=$1, item_type=$2, category=$3, unit=$4, current_price=$5, weight_kg=$6, qty_per_cycle=$7, mold_id=$8, gost_mark=$9, article=$10 
-                WHERE id=$11
-            `, [name, item_type, category, unit, price, weight, qty_per_cycle || 1, mold_id || null, gost_mark || '', article || null, req.params.id]);
+            // ID передаем последним параметром
+            await pool.query(
+                `UPDATE items SET ${setClause} WHERE id = $${keys.length + 1}`,
+                [...values, itemId]
+            );
             res.json({ success: true, message: 'Позиция обновлена' });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error('Ошибка PUT /api/items:', err.message);
+            res.status(500).json({ error: 'Ошибка при сохранении данных' });
+        }
     });
 
     // === БЕЗОПАСНОЕ УДАЛЕНИЕ ТОВАРА (SOFT DELETE) ===

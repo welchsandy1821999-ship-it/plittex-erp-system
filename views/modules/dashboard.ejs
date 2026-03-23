@@ -1,54 +1,59 @@
 <div id="dashboard-mod" class="module active">
-    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
+    <div class="flex-between mb-20" style="align-items: flex-end;">
         <div>
-            <h2 style="margin: 0 0 5px 0;">🧮 Конструктор себестоимости (Unit-экономика)</h2>
-            <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Моделирование реальной себестоимости 1 цикла формовки</p>
+            <h2 class="mt-0 mb-0">🧮 Конструктор себестоимости (Unit-экономика)</h2>
+            <p class="text-muted mt-0" style="font-size: 13px;">Моделирование реальной себестоимости 1 цикла формовки
+            </p>
         </div>
     </div>
 
-    <div style="background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 20px; display: flex; gap: 15px; align-items: flex-end;">
-        <div class="form-group" style="margin: 0;">
-            <label>Начало периода:</label>
-            <input type="date" id="cc-start-date" class="input-modern">
+    <div class="filter-panel">
+        <div class="form-group mb-0">
+            <label>Период для расчета:</label>
+            <input type="text" id="cc-date-range" class="input-modern" style="width: 250px; cursor: pointer;"
+                placeholder="Выберите период...">
         </div>
-        <div class="form-group" style="margin: 0;">
-            <label>Конец периода:</label>
-            <input type="date" id="cc-end-date" class="input-modern">
-        </div>
-        <button class="btn btn-blue" onclick="loadCostConstructor()" style="padding: 10px 20px;">🔄 Загрузить данные</button>
+        <button class="btn btn-blue" onclick="loadCostConstructor()">🔄 Загрузить данные</button>
     </div>
 
-    <div class="form-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 20px;">
-        <div class="card" style="margin: 0; text-align: center; border-bottom: 4px solid var(--primary);">
-            <div style="font-size: 13px; color: var(--text-muted);">Отработано циклов формовки</div>
-            <div id="cc-total-cycles" style="font-size: 24px; font-weight: bold; color: var(--text-main);">0</div>
+    <div class="summary-grid mb-20">
+        <div class="summary-card" style="text-align: center; border-bottom: 4px solid var(--primary);">
+            <div class="summary-title">Отработано циклов формовки</div>
+            <div id="cc-total-cycles" class="summary-value text-main">0</div>
         </div>
-        <div class="card" style="margin: 0; text-align: center; border-bottom: 4px solid #f59e0b;">
-            <div style="font-size: 13px; color: var(--text-muted);">Выбрано накладных расходов</div>
-            <div id="cc-total-expenses" style="font-size: 24px; font-weight: bold; color: var(--text-main);">0 ₽</div>
+        <div class="summary-card" style="text-align: center; border-bottom: 4px solid var(--warning);">
+            <div class="summary-title">Выбрано накладных расходов</div>
+            <div id="cc-total-expenses" class="summary-value" style="color: var(--warning);">0 ₽</div>
         </div>
-        <div class="card" style="margin: 0; text-align: center; border-bottom: 4px solid var(--danger);">
-            <div style="font-size: 13px; color: var(--text-muted);">Накладные расходы на 1 цикл</div>
-            <div id="cc-cost-per-cycle" style="font-size: 24px; font-weight: bold; color: var(--danger);">0.00 ₽</div>
+        <div class="summary-card" style="text-align: center; border-bottom: 4px solid var(--danger);">
+            <div class="summary-title">Накладные расходы на 1 цикл</div>
+            <div id="cc-cost-per-cycle" class="summary-value" style="color: var(--danger);">0.00 ₽</div>
         </div>
     </div>
 
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-        
-        <div class="card" style="margin: 0;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <h3 style="margin: 0;">База распределения</h3>
-                <button class="btn btn-outline" onclick="addVirtualExpense()" style="font-size: 12px; padding: 4px 8px;">➕ Добавить вирт. расход</button>
-            </div>
-            <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;">Снимите галочки с расходов, которые не относятся к производству (например, покупка оборудования).</p>
-            
-            <div id="cc-expenses-list" style="max-height: 400px; overflow-y: auto; border-top: 1px solid var(--border);">
+    <div class="form-grid"
+        style="grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; align-items: stretch;">
+
+        <div class="card mb-0 flex-column" style="padding: 0; overflow: hidden;">
+            <div class="card-header-flex" style="padding: 20px 20px 0 20px;">
+                <div>
+                    <h3 class="mt-0 mb-5">База распределения</h3>
+                    <p class="text-muted mt-0" style="font-size: 12px; line-height: 1.2;">Исключите расходы, не
+                        относящиеся к производству.</p>
                 </div>
+                <button class="btn btn-outline" onclick="addVirtualExpense()"
+                    style="font-size: 12px; padding: 6px 10px;">➕ Добавить</button>
+            </div>
+            <div id="cc-expenses-list" class="expense-list" style="padding: 0 20px 20px 20px;">
+                <div class="text-center text-muted" style="padding: 20px;">Загрузка...</div>
+            </div>
         </div>
 
-        <div class="card" style="margin: 0; display: flex; flex-direction: column;">
-            <h3 style="margin: 0 0 15px 0;">Структура накладных расходов</h3>
-            <div style="flex-grow: 1; position: relative; min-height: 300px;">
+        <div class="card mb-0 flex-column">
+            <div class="card-header-flex">
+                <h3 class="mt-0">Структура накладных расходов</h3>
+            </div>
+            <div class="chart-container">
                 <canvas id="cc-structure-chart"></canvas>
             </div>
         </div>

@@ -1,0 +1,57 @@
+<div id="docs-registry-mod" class="module">
+    <div class="flex-between mb-20" style="align-items: flex-end;">
+        <div class="w-100">
+            <h2 class="mt-0">📄 Реестр финансовых документов</h2>
+            <p class="text-muted" style="font-size: 13px; margin: 0;">Архив выписанных счетов на оплату и система
+                подготовки файлов для 1С Бухгалтерии.</p>
+        </div>
+    </div>
+
+    <div class="flex-between mb-15 card-alt" style="padding: 10px; border-radius: 8px; flex-wrap: wrap; gap: 10px;">
+        <!-- Панель фильтров -->
+        <div class="toolbar-group d-flex align-items-center flex-wrap" style="gap: 10px; flex-grow: 1;">
+            
+            <!-- Фильтр по клиенту -->
+            <select id="clientFilter" class="input-modern" style="min-width: 250px;">
+                <option value="">Все контрагенты</option>
+                <!-- Опции будут добавлены через JS -->
+            </select>
+            
+            <!-- Фильтр по дате (От и До) -->
+            <input type="date" id="dateStart" class="input-modern" title="Начало периода">
+            <span class="text-muted">–</span>
+            <input type="date" id="dateEnd" class="input-modern" title="Конец периода">
+            
+            <!-- Кнопка обновления реестра с сервера -->
+            <button class="btn btn-blue" onclick="loadDocsRegistry()" style="padding: 8px 15px;">🔍 Применить</button>
+        </div>
+
+        <!-- Кнопка выгрузки в 1С -->
+        <div class="toolbar-group">
+            <button class="btn btn-blue" id="btn-export-1c" disabled onclick="exportTo1C()">📥 Выгрузить выбранное (XML)</button>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th style="width: 40px; text-align: center;">
+                        <input type="checkbox" id="reg-check-all" onchange="toggleAllRegistryChecks(this)">
+                    </th>
+                    <th style="width: 130px;">Дата выписки</th>
+                    <th style="width: 140px;">Документ №</th>
+                    <th>Контрагент</th>
+                    <th class="text-right" style="width: 150px;">Итого к оплате</th>
+                    <th style="width: 150px;">Автор (Менеджер)</th>
+                    <th class="text-center" style="width: 120px;">Статус 1С</th>
+                </tr>
+            </thead>
+            <tbody id="unique-registry-tbody">
+                <tr>
+                    <td colspan="7" class="text-center text-muted">Загрузка данных...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>

@@ -7,53 +7,73 @@
     <link rel="icon" href="data:,">
 
     <script src="/libs/chart.min.js"></script>
-
     <link rel="stylesheet" href="/libs/flatpickr.min.css">
+    <link rel="stylesheet" href="/libs/tom-select.default.min.css">
+    <script src="/libs/tom-select.complete.min.js"></script>
     <script src="/libs/flatpickr.min.js"></script>
     <script src="/libs/ru.min.js"></script>
 
     <link rel="stylesheet" href="/css/style.css">
     <script src="/socket.io/socket.io.js"></script>
+
+    <script>
+        // Функция выхода (используется при ошибках 401)
+        window.logout = function () {
+            localStorage.clear();
+            window.location.href = '/login.html';
+        };
+        // Алиас для кнопки выхода
+        window.handleLogout = window.logout;
+
+        // Редирект на логин, если нет токена (старый способ)
+        const token = localStorage.getItem('token') || localStorage.getItem('jwtToken');
+        if (!token) {
+            window.location.href = '/login.html';
+        } else {
+            // Быстрая проверка на валидность JWT (базовый формат)
+            if (token.split('.').length !== 3) {
+                window.logout();
+            }
+        }
+        // ПРИНУДИТЕЛЬНАЯ СВЕТЛАЯ ТЕМА ДЛЯ ДИАГНОСТИКИ
+        document.documentElement.setAttribute('data-theme', 'light');
+    </script>
+
 </head>
 
 <body>
-    <div id="toast-container"></div>
 
-    <div id="app-modal" class="modal-overlay">
+    <div id="toast-container"></div>
+    <div class="modal-overlay" id="app-modal">
         <div class="modal-content">
             <div class="modal-header">
-                <span id="app-modal-title">Внимание</span>
-                <button style="background:none; border:none; font-size:20px; cursor:pointer; color:var(--text-muted);"
-                    onclick="UI.closeModal()">×</button>
+                <h2 id="app-modal-title"></h2>
+                <button class="btn-close" onclick="UI.closeModal()">&times;</button>
             </div>
-            <div class="modal-body" id="app-modal-body">Текст...</div>
+            <div class="modal-body" id="app-modal-body"></div>
             <div class="modal-footer" id="app-modal-footer"></div>
         </div>
     </div>
 
-    <div id="login-screen">
-        <div class="login-box">
-            <h2 style="border:none;">ERP Плиттекс</h2>
-            <input type="text" id="login-user" placeholder="Логин">
-            <input type="password" id="login-pass" placeholder="Пароль">
-            <button class="btn btn-blue" id="login-btn" style="width: 100%; margin-top: 15px;">Войти в систему</button>
-        </div>
-    </div>
-
     <div id="app-screen">
-
         <div class="sidebar">
             <div class="sidebar-header">ПЛИТТЕКС</div>
             <div class="nav-menu">
                 <div class="nav-item active" onclick="switchModule('dashboard-mod', this)">📊 Дашборд</div>
-                <div class="nav-item" id="nav-finance" onclick="switchModule('fin-mod', this); initFinance();">💰 Финансы и Касса</div>
+                <div class="nav-item admin-only" id="nav-finance" onclick="switchModule('fin-mod', this)">💰 Финансы и
+                    Касса</div>
                 <div class="nav-item" onclick="switchModule('prod-mod', this)">🔨 Формовка (Производство)</div>
                 <div class="nav-item" onclick="switchModule('stock-mod', this)">📦 Склады и Сушилка</div>
                 <div class="nav-item" onclick="switchModule('purchase-mod', this)">🚚 Закупки (Склад №1)</div>
                 <div class="nav-item" onclick="switchModule('sales-mod', this)">🛒 Продажи</div>
-                <div class="nav-item" id="nav-salary" onclick="switchModule('salary-mod', this)">👷‍♂️ Кадры и Зарплата</div>
-                <div class="nav-item" id="nav-ref" onclick="switchModule('ref-mod', this)">📁 Справочники</div>
-                <div class="nav-item" id="nav-recipe" onclick="switchModule('recipe-mod', this)">🧪 Рецептуры</div>
+                <div class="nav-item" id="nav-salary" onclick="switchModule('salary-mod', this)">👷‍♂️ Кадры и Зарплата
+                </div>
+                <div class="nav-item admin-only" id="nav-ref" onclick="switchModule('ref-mod', this)">📁 Справочники
+                </div>
+                <div class="nav-item admin-only" id="nav-docs-reg"
+                    onclick="switchModule('docs-registry-mod', this); loadDocsRegistry();">📄 Реестр документов</div>
+                <div class="nav-item admin-only" id="nav-recipe" onclick="switchModule('recipe-mod', this)">🧪 Рецептуры
+                </div>
                 <div class="nav-item" onclick="switchModule('equipment-mod', this)">⚙️ Оборудование</div>
             </div>
         </div>
@@ -61,22 +81,26 @@
         <div class="main-wrapper">
             <div class="topbar">
                 <div class="user-info" id="topbar-user">Пользователь: Загрузка...</div>
-                <button class="btn btn-red" onclick="logout()">Выйти</button>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn btn-outline" id="theme-btn" onclick="toggleTheme()"
+                        title="Сменить тему">🌙</button>
+                    <button class="btn btn-red" onclick="handleLogout()">Выйти</button>
+                </div>
             </div>
 
             <div class="content-area">
                 <%- include('modules/dashboard') %>
-                <%- include('modules/production') %>
-                <%- include('modules/inventory') %>
-                <%- include('modules/purchase') %>
-                <%- include('modules/sales') %>
-                <%- include('modules/finance') %>
-                <%- include('modules/salary') %>
-                <%- include('modules/references') %>
-                <%- include('modules/recipes') %>
-                <%- include('modules/equipment') %>
+                    <%- include('modules/production') %>
+                        <%- include('modules/inventory') %>
+                            <%- include('modules/purchase') %>
+                                <%- include('modules/sales') %>
+                                    <%- include('modules/finance') %>
+                                        <%- include('modules/salary') %>
+                                            <%- include('modules/references') %>
+                                                <%- include('modules/docs_registry') %>
+                                                    <%- include('modules/recipes') %>
+                                                        <%- include('modules/equipment') %>
             </div>
-
         </div>
     </div>
 
@@ -91,95 +115,65 @@
     <script src="/js/sales.js"></script>
     <script src="/js/finance.js"></script>
     <script src="/js/salary.js"></script>
+    <script src="/js/docs_registry.js"></script>
     <script src="/js/dashboard.js"></script>
     <script src="/js/equipment.js"></script>
 
     <script>
-        // === 1. ГЛОБАЛЬНЫЙ ПЕРЕХВАТЧИК ЗАПРОСОВ (МАГИЯ АВТОРИЗАЦИИ) ===
         const originalFetch = window.fetch;
         window.fetch = async function (resource, config = {}) {
             const url = (resource instanceof Request) ? resource.url : resource;
+            const requestToken = localStorage.getItem('token') || localStorage.getItem('jwtToken');
 
             if (typeof url === 'string' && url.includes('/api') && !url.includes('/api/login')) {
-                const token = localStorage.getItem('jwtToken');
-                if (token) {
+                if (requestToken) {
                     if (resource instanceof Request) {
-                        resource.headers.set('Authorization', `Bearer ${token}`);
+                        resource.headers.set('Authorization', `Bearer ${requestToken}`);
                     } else {
                         if (!config.headers) config.headers = {};
-                        config.headers = { ...config.headers, 'Authorization': `Bearer ${token}` };
+                        config.headers = { ...config.headers, 'Authorization': `Bearer ${requestToken}` };
                     }
                 }
             }
 
             try {
                 const response = await originalFetch(resource, config);
+                // Проверка 401/403
                 if ((response.status === 401 || response.status === 403) && typeof url === 'string' && url.includes('/api') && !url.includes('/api/login')) {
-                    console.warn('Токен истек или нет прав (401/403). Принудительный выход.');
-                    if (typeof UI !== 'undefined') UI.toast('Сессия истекла. Пожалуйста, войдите заново.', 'error');
-                    window.logout();
-                    return Promise.reject(new Error('Требуется авторизация'));
+                    const latestToken = localStorage.getItem('token') || localStorage.getItem('jwtToken');
+                    if (latestToken === requestToken) {
+                        console.warn("Session expired on request:", url);
+                        if (typeof window.logout === 'function') window.logout();
+                        else { localStorage.clear(); window.location.href = '/login.html'; }
+                    }
+                    return Promise.reject(new Error('Auth required'));
                 }
                 return response;
-            } catch (e) {
-                throw e;
-            }
+            } catch (e) { throw e; }
         };
 
-        // === 2. ГЛОБАЛЬНОЕ УПРАВЛЕНИЕ ИНТЕРФЕЙСОМ И ПАМЯТЬЮ ===
         window.switchModule = function (moduleId, navElement) {
             document.querySelectorAll('.module').forEach(mod => mod.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
-
             const target = document.getElementById(moduleId);
             if (target) {
                 target.classList.add('active');
                 if (navElement) navElement.classList.add('active');
             }
-
-            const heavyContainers = [
-                'inventory-table',
-                'blank-orders-table',
-                'sales-history-table',
-                'payouts-table-body'
-            ];
-            heavyContainers.forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.innerHTML = '';
-            });
-
             try {
-                if (moduleId !== 'finance-mod') {
-                    if (typeof allTransactions !== 'undefined') allTransactions.length = 0;
-                    if (typeof financeInvoices !== 'undefined') financeInvoices.length = 0;
-                }
-                if (moduleId !== 'sales-mod') {
-                    if (typeof allActiveOrders !== 'undefined') allActiveOrders.length = 0;
-                    if (typeof allSalesHistory !== 'undefined') allSalesHistory.length = 0;
-                }
-                if (moduleId !== 'stock-mod') {
-                    if (typeof allInventory !== 'undefined') allInventory.length = 0;
-                }
-                if (moduleId !== 'salary-mod') {
-                    if (typeof currentEmployees !== 'undefined') currentEmployees.length = 0;
-                }
-            } catch (e) {
-                console.warn('Сборщик мусора: пропущена переменная', e);
-            }
-
-            if (moduleId === 'stock-mod' && typeof loadTable === 'function') loadTable();
-            if (moduleId === 'salary-mod' && typeof loadMonthlyTimesheet === 'function') loadMonthlyTimesheet();
-            if (moduleId === 'equipment-mod' && typeof loadEquipment === 'function') loadEquipment();
-            if (moduleId === 'finance-mod' && typeof loadFinanceData === 'function') loadFinanceData();
-            if (moduleId === 'sales-mod' && typeof loadSalesData === 'function') {
-                const needFullLoad = (typeof salesProductsInfo === 'undefined' || Object.keys(salesProductsInfo).length === 0);
-                loadSalesData(needFullLoad);
-                if (typeof loadActiveOrders === 'function') loadActiveOrders();
-                if (typeof loadSalesHistory === 'function') loadSalesHistory();
-            }
+                if (moduleId === 'stock-mod' && typeof loadTable === 'function') loadTable();
+                if (moduleId === 'sales-mod') (typeof initSales === 'function') ? initSales() : (typeof loadSalesData === 'function' && loadSalesData(false));
+                if (moduleId === 'fin-mod') (typeof initFinance === 'function') ? initFinance() : (typeof loadFinanceData === 'function' && loadFinanceData());
+                if (moduleId === 'purchase-mod' && typeof loadPurchaseMaterials === 'function') loadPurchaseMaterials();
+                if (moduleId === 'salary-mod' && typeof initSalary === 'function') initSalary();
+                if (moduleId === 'prod-mod' && typeof initProduction === 'function') initProduction();
+                if (moduleId === 'recipe-mod' && typeof loadRecipeModuleData === 'function') loadRecipeModuleData();
+                if (moduleId === 'ref-mod' && typeof loadReferences === 'function') loadReferences();
+                if (moduleId === 'equipment-mod' && typeof loadEquipment === 'function') loadEquipment();
+                if (moduleId === 'dashboard-mod' && typeof initDashboard === 'function') initDashboard();
+            } catch (err) { console.error(err); }
         };
 
-        // === 3. ГЛОБАЛЬНЫЙ ДВИЖОК УВЕДОМЛЕНИЙ (UI) ===
         const UI = {
             toast: (msg, type = 'success') => {
                 const container = document.getElementById('toast-container');
@@ -197,131 +191,132 @@
                 document.getElementById('app-modal-title').innerHTML = title;
                 document.getElementById('app-modal-body').innerHTML = htmlBody;
                 document.getElementById('app-modal-footer').innerHTML = buttonsHtml;
+                document.getElementById('app-modal').style.display = 'flex';
                 document.getElementById('app-modal').classList.add('active');
             },
-            closeModal: () => document.getElementById('app-modal').classList.remove('active')
+            closeModal: (id = 'app-modal') => {
+                const targetModal = document.getElementById(id);
+                if (targetModal) { targetModal.classList.remove('active'); targetModal.style.display = 'none'; }
+            }
         };
 
-        // === 4. ЦЕНТРАЛИЗОВАННЫЙ ЗАПУСК СИСТЕМЫ ===
         window.startApp = function (userName) {
-            document.getElementById('login-screen').style.display = 'none';
-            document.getElementById('app-screen').style.display = 'flex';
             if (userName) document.getElementById('topbar-user').innerText = `👤 ${userName}`;
-
-            // 🔒 ПРОВЕРКА РОЛЕЙ ДЛЯ МЕНЮ
-            const token = localStorage.getItem('jwtToken');
+            const token = localStorage.getItem('token') || localStorage.getItem('jwtToken');
             if (token) {
                 try {
-                    const payload = JSON.parse(atob(token.split('.')[1]));
-                    const role = payload.role; // 'admin' или 'employee'
-
-                    const financeMenuBtn = document.getElementById('nav-finance');
-                    const hrMenuBtn = document.getElementById('nav-salary');
-
-                    if (role !== 'admin') {
-                        if (financeMenuBtn) financeMenuBtn.style.display = 'none';
-                        if (hrMenuBtn) hrMenuBtn.style.display = 'none';
-                    } else {
-                        if (financeMenuBtn) financeMenuBtn.style.display = 'block';
-                        if (hrMenuBtn) hrMenuBtn.style.display = 'block';
+                    const parts = token.split('.');
+                    if (parts.length === 3) {
+                        const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+                        const isAdmin = payload.role === 'admin';
+                        document.querySelectorAll('.admin-only').forEach(el => el.style.display = isAdmin ? 'block' : 'none');
                     }
-                } catch (e) {
-                    console.warn('Ошибка при чтении роли из токена');
-                }
+                } catch (e) { }
             }
-
-            // Запускаем подгрузку всех данных
-            if (typeof initProduction === 'function') initProduction();
-            if (typeof initSales === 'function') initSales();
-            if (typeof initFinance === 'function') initFinance();
-            if (typeof initSalary === 'function') initSalary();
-            if (typeof loadTable === 'function') loadTable();
-            if (typeof loadReferences === 'function') loadReferences();
-            if (typeof loadRecipeModuleData === 'function') loadRecipeModuleData();
-            if (typeof loadPurchaseMaterials === 'function') loadPurchaseMaterials();
+            if (typeof UI !== 'undefined' && UI.closeModal) UI.closeModal();
+            switchModule('dashboard-mod', document.querySelector('.nav-item.active'));
         };
 
-        // === 5. ВХОД В СИСТЕМУ ПО КНОПКЕ ===
-        document.getElementById('login-btn').addEventListener('click', () => {
-            const user = document.getElementById('login-user').value;
-            const pass = document.getElementById('login-pass').value;
-
-            fetch('/api/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username: user, password: pass })
-            }).then(async res => {
-                if (res.ok) {
-                    const data = await res.json();
-                    localStorage.setItem('jwtToken', data.token);
-                    localStorage.setItem('userName', data.user.full_name);
-                    startApp(data.user.full_name);
-                } else {
-                    alert('Ошибка входа: Неверный логин или пароль');
-                }
-            }).catch(err => console.error("Ошибка сети при логине:", err));
-        });
-
-        // === 6. БЕЗОПАСНЫЙ АВТОВХОД ===
-        window.addEventListener('DOMContentLoaded', () => {
-            const token = localStorage.getItem('jwtToken');
-            const userName = localStorage.getItem('userName');
-
-            if (token) {
+        // Запуск при загрузке
+        document.addEventListener('DOMContentLoaded', () => {
+            const userStr = localStorage.getItem('user');
+            if (userStr) {
                 try {
-                    const payload = JSON.parse(atob(token.split('.')[1]));
-                    const isExpired = (payload.exp * 1000) < Date.now();
-
-                    if (isExpired) {
-                        console.warn('Токен истек. Требуется повторная авторизация.');
-                        window.logout();
-                    } else {
-                        startApp(userName);
-                    }
-                } catch (e) {
-                    window.logout();
-                }
+                    const u = JSON.parse(userStr);
+                    window.startApp(u.username);
+                } catch (e) { window.startApp(); }
             } else {
-                document.getElementById('app-screen').style.display = 'none';
-                document.getElementById('login-screen').style.display = 'flex';
+                window.startApp();
             }
         });
 
-        // === 7. ГЛОБАЛЬНЫЕ УТИЛИТЫ ===
-        window.logout = function () {
-            localStorage.clear();
-            location.reload();
+        // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
+        window.getCssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        window.getChartColors = function () {
+            return [
+                window.getCssVar('--chart-1'), window.getCssVar('--chart-2'), window.getCssVar('--chart-3'),
+                window.getCssVar('--chart-4'), window.getCssVar('--chart-5'), window.getCssVar('--chart-6'), window.getCssVar('--chart-7')
+            ];
+        };
+
+        window.toggleTheme = () => {
+            const current = document.documentElement.getAttribute('data-theme');
+            const next = current === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+            document.getElementById('theme-btn').innerText = next === 'dark' ? '☀️' : '🌙';
+        };
+
+        // Календари (Flatpickr)
+        window.initDateRangePicker = function (inputId, onChangeCallback) {
+            const el = document.getElementById(inputId);
+            if (!el) return null;
+            return flatpickr(el, {
+                mode: "range", dateFormat: "Y-m-d", altInput: true, altFormat: "d.m.Y", locale: "ru",
+                onChange: function (selectedDates, dateStr, instance) {
+                    if (onChangeCallback) {
+                        let start = '', end = '';
+                        if (selectedDates.length === 1) start = end = instance.formatDate(selectedDates[0], "Y-m-d");
+                        else if (selectedDates.length === 2) {
+                            start = instance.formatDate(selectedDates[0], "Y-m-d");
+                            end = instance.formatDate(selectedDates[1], "Y-m-d");
+                        }
+                        onChangeCallback(start, end);
+                    }
+                }
+            });
+        };
+
+        window.initSingleDatePicker = function (inputId, onChangeCallback) {
+            const el = document.getElementById(inputId);
+            if (!el) return null;
+            return flatpickr(el, {
+                dateFormat: "Y-m-d", altInput: true, altFormat: "d.m.Y", locale: "ru",
+                onChange: function (selectedDates, dateStr, instance) {
+                    if (onChangeCallback && selectedDates.length === 1) {
+                        onChangeCallback(instance.formatDate(selectedDates[0], "Y-m-d"));
+                    }
+                }
+            });
+        };
+
+        window.setQuickDateRange = function (pickerInstance, type) {
+            if (!pickerInstance) return;
+            const today = new Date();
+            let start = new Date(), end = new Date();
+            switch (type) {
+                case 'today': break;
+                case 'week':
+                    const day = today.getDay();
+                    const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+                    start.setDate(diff); end = new Date(start);
+                    end.setDate(start.getDate() + 6);
+                    break;
+                case 'month':
+                    start = new Date(today.getFullYear(), today.getMonth(), 1);
+                    end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+                    break;
+                case 'year':
+                    start = new Date(today.getFullYear(), 0, 1);
+                    end = new Date(today.getFullYear(), 11, 31);
+                    break;
+            }
+            pickerInstance.setDate([start, end], true);
         };
 
         window.escapeHTML = function (str) {
-            if (str === null || str === undefined) return '';
-            return String(str)
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
+            if (!str) return '';
+            return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
         };
 
-        // Кнопка скролла
-        const contentArea = document.querySelector('.content-area');
-        if (contentArea) {
-            contentArea.addEventListener('scroll', function () {
-                const btn = document.getElementById('scroll-top-btn');
-                if (btn) btn.style.display = this.scrollTop > 300 ? 'block' : 'none';
+        let socket;
+        try {
+            socket = io();
+            socket.on('inventory_updated', () => {
+                if (document.getElementById('stock-mod').classList.contains('active')) typeof loadTable === 'function' && loadTable();
+                if (document.getElementById('dashboard-mod').classList.contains('active')) typeof initDashboard === 'function' && initDashboard();
             });
-        }
-
-        // === 8. МАГИЯ WEBSOCKETS (ЖИВОЕ ОБНОВЛЕНИЕ) ===
-        const socket = io();
-        socket.on('inventory_updated', () => {
-            if (document.getElementById('stock-mod').classList.contains('active')) {
-                if (typeof loadTable === 'function') {
-                    loadTable();
-                    if (typeof UI !== 'undefined') UI.toast('🔄 Остатки на складе обновлены', 'info');
-                }
-            }
-        });
+        } catch (e) { console.warn("Socket.io registration failed:", e); }
     </script>
 </body>
 

@@ -25,7 +25,7 @@
         .btn-green { background: #10b981; } .btn-green:hover { background: #059669; }
         .btn-gray { background: #64748b; } .btn-gray:hover { background: #475569; }
         .btn-blue { background: #3b82f6; } .btn-blue:hover { background: #2563eb; }
-        @media print { .no-print { display: none !important; } body { padding: 0; background: #fff; } }
+        @media print { .no-print { display: none !important; } body { padding: 0; background: var(--surface); } }
     </style>
 </head>
 <body>
@@ -62,7 +62,7 @@
             </thead>
             <tbody>
                 <% 
-                    let runningBalance = 0; 
+                    let runningBalance = 0;
                     let totalDebit = 0; 
                     let totalCredit = 0; 
                 %>
@@ -113,7 +113,7 @@
             <% } %>
 
             <% if (cp.pallets_balance && cp.pallets_balance > 0) { %>
-                <br><span style="color: #d97706;">* За контрагентом также числится долг по возвратной таре (поддонам) в количестве: <%= cp.pallets_balance %> шт.</span>
+                <br><span style="color: var(--warning-text);">* За контрагентом также числится долг по возвратной таре (поддонам) в количестве: <%= cp.pallets_balance %> шт.</span>
             <% } %>
         </div>
 
@@ -122,8 +122,8 @@
                 <b>От ООО "Плиттекс":</b>
                 <div class="line"></div>
                 <p style="text-align: center; font-size: 10px;">М.П.</p>
-                <img src="/img/stamp.png" class="overlay-img" style="position: absolute; top: -10px; left: 80px; width: 140px; opacity: 0.85; display: none; z-index: -2;">
-                <img src="/img/sign_dir.png" class="overlay-img" style="position: absolute; top: 10px; left: 30px; width: 100px; display: none; z-index: -1;">
+                <img src="/img/stamp.png" class="overlay-img" style="position: absolute; top: -10px; left: 80px; width: 140px; opacity: 0.85; display: none; z-index: 5; mix-blend-mode: multiply;">
+                <img src="/img/sign_dir.png" class="overlay-img" style="position: absolute; top: 10px; left: 30px; width: 100px; display: none; z-index: 5; mix-blend-mode: multiply;">
             </div>
             <div class="sign-box">
                 <b>От <%= cp.name %>:</b>
@@ -135,33 +135,46 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script>
-        async function saveAndPrint(withStamp, docName) {
+        async function saveAndPrint(withStamp = false, docName = 'Документ') {
             const overlays = document.querySelectorAll('.overlay-img');
             overlays.forEach(el => el.style.display = withStamp ? 'block' : 'none');
             
             const actionBtns = document.querySelector('.action-buttons');
             if (actionBtns) actionBtns.style.display = 'none';
-
+            
+            // Задержка для отрисовки картинок
+            await new Promise(resolve => setTimeout(resolve, 150));
+            
             const element = document.getElementById('doc-content');
-            const opt = {
-                margin:       [10, 10, 10, 10],
-                filename:     `${docName}_${withStamp ? 'С_печатью' : 'Без_печати'}_${Date.now()}.pdf`,
-                image:        { type: 'jpeg', quality: 0.98 },
-                html2canvas:  { scale: 2, useCORS: true },
-                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            
+            const opt = { 
+                margin: [10, 10, 10, 10], 
+                filename: `${docName}_${withStamp ? 'С_Печатью' : 'Без_Печати'}_${Date.now()}.pdf`, 
+                image: { type: 'jpeg', quality: 0.98 }, 
+                html2canvas: { scale: 2, useCORS: true, allowTaint: true }, 
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } 
             };
-
+            
             try {
                 const pdfBase64 = await html2pdf().set(opt).from(element).outputPdf('datauristring');
-                await fetch('/api/docs/save-pdf', { 
+                
+                // Передача токена авторизации
+                const token = localStorage.getItem('token');
+                const response = await fetch('/api/docs/save-pdf', { 
                     method: 'POST', 
-                    headers: { 'Content-Type': 'application/json' }, 
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    }, 
                     body: JSON.stringify({ filename: opt.filename, fileData: pdfBase64 }) 
                 });
-            } catch (error) { 
-                console.error("Ошибка при сохранении PDF на сервер:", error); 
-            }
 
+                if (response.ok) console.log(`✅ Файл успешно сохранен`);
+                else console.error('❌ Ошибка сервера при сохранении');
+            } catch (e) { 
+                console.error('❌ Ошибка генерации ПДФ:', e); 
+            }
+            
             window.print();
             if (actionBtns) actionBtns.style.display = 'flex';
         }
@@ -172,25 +185,16 @@
             
             const actionBtns = document.querySelector('.action-buttons');
             if (actionBtns) actionBtns.style.display = 'none';
-
-            var preHtml = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Export</title></head><body>";
-            var postHtml = "</body></html>";
-            var html = preHtml + document.getElementById('doc-content').innerHTML + postHtml;
-
-            var blob = new Blob(['\ufeff', html], { type: 'application/msword' });
-            var url = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(html);
-            var downloadLink = document.createElement("a");
             
-            document.body.appendChild(downloadLink);
-            if(navigator.msSaveOrOpenBlob) { 
-                navigator.msSaveOrOpenBlob(blob, filename+'.doc'); 
-            } else { 
-                downloadLink.href = url; 
-                downloadLink.download = filename+'.doc'; 
-                downloadLink.click(); 
-            }
+            const content = document.getElementById('doc-content').innerHTML;
+            const blob = new Blob(['\ufeff', content], { type: 'application/msword' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
             
-            document.body.removeChild(downloadLink);
+            link.href = url; 
+            link.download = filename + '.doc'; 
+            link.click();
+            
             if (actionBtns) actionBtns.style.display = 'flex';
         }
     </script>

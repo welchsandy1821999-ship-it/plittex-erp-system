@@ -1,6 +1,4 @@
-// ==========================================
-// 1. ПОДКЛЮЧЕНИЕ БАЗОВЫХ МОДУЛЕЙ И СЕКРЕТОВ
-// ==========================================
+// [Блок 1: Подключение модулей и конфигурация]
 require('dotenv').config();
 
 const express = require('express');
@@ -14,9 +12,8 @@ const jwt = require('jsonwebtoken');
 const Big = require('big.js');
 const bcrypt = require('bcrypt');
 
-// Подключаем наши новые утилиты для Enterprise-версии
 const logger = require('./utils/logger');
-const { sendNotify } = require('./utils/telegram');
+const { sendNotify, bot, chatId } = require('./utils/telegram');
 
 Big.RM = Big.roundHalfUp;
 
@@ -27,17 +24,22 @@ const io = new Server(server);
 const port = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET;
 
+// [Блок 2: Настройка базы данных]
 const pool = new Pool({
-    user: process.env.DB_USER, host: process.env.DB_HOST,
-    database: process.env.DB_NAME, password: process.env.DB_PASSWORD, port: process.env.DB_PORT
+    user: process.env.DB_USER, 
+    host: process.env.DB_HOST,
+    database: process.env.DB_NAME, 
+    password: process.env.DB_PASSWORD, 
+    port: process.env.DB_PORT
 });
 
-// Делаем WebSockets доступными во всех маршрутах
+pool.on('error', (err) => {
+    console.error('🚨 Непредвиденная ошибка в пуле соединений БД:', err.message);
+});
+
 app.set('io', io);
 
-// ==========================================
-// 2. НАСТРОЙКИ СЕРВЕРА И ХРАНИЛИЩА (MULTER)
-// ==========================================
+// [Блок 3: Система загрузки файлов (Multer)]
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
         const dir = './public/uploads';
@@ -48,7 +50,18 @@ const storage = multer.diskStorage({
         cb(null, 'doc_' + Date.now() + '_' + Math.round(Math.random() * 1000) + path.extname(file.originalname));
     }
 });
-const upload = multer({ storage: storage });
+
+const fileFilter = (req, file, cb) => {
+    const allowedExts = ['.pdf', '.jpg', '.jpeg', '.png', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.txt'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedExts.includes(ext)) {
+        cb(null, true);
+    } else {
+        cb(new Error('Недопустимый формат файла!'), false);
+    }
+};
+
+const upload = multer({ storage: storage, fileFilter: fileFilter });
 
 app.set('view engine', 'ejs');
 app.set('views', './views');
@@ -56,62 +69,26 @@ app.set('views', './views');
 app.use(express.static('public'));
 app.use(express.json({ limit: '50mb' }));
 
-// ==========================================
-// 🛠️ ТВОИ ВРЕМЕННЫЕ МАРШРУТЫ СБРОСА (БЕЗ АВТОРИЗАЦИИ)
-// ==========================================
-app.get('/debug/reset-bank', async (req, res) => {
-    const client = await pool.connect();
-    try {
-        await client.query('BEGIN');
-        await client.query("DELETE FROM transactions WHERE payment_method = 'Безналичный расчет (Импорт)'");
-        await client.query(`
-            UPDATE accounts a
-            SET balance = COALESCE((
-                SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE -amount END)
-                FROM transactions t 
-                WHERE t.account_id = a.id
-            ), 0)
-        `);
-        await client.query('COMMIT');
-        res.send(`
-            <div style="font-family: sans-serif; padding: 40px; text-align: center;">
-                <h1 style="color: #4CAF50;">✅ База очищена!</h1>
-                <p style="font-size: 18px;">Старые импорты удалены. Баланс пересчитан.</p>
-                <b style="font-size: 20px;">Закройте вкладку и загрузите 4 файла заново.</b>
-            </div>
-        `);
-    } catch (err) {
-        await client.query('ROLLBACK');
-        res.status(500).send("Ошибка: " + err.message);
-    } finally {
-        client.release();
-    }
-});
-
-app.get('/debug/upgrade-db', async (req, res) => {
-    const client = await pool.connect();
-    try {
-        await client.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false;');
-        res.send('<h1 style="color:green; padding:50px;">✅ База обновлена: добавлена Корзина (is_deleted)!</h1>');
-    } finally { client.release(); }
-});
-
-// ==========================================
-// 3. ЯДРО: ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-// ==========================================
+// [Блок 4: Вспомогательные функции (Транзакции, Нумерация, Склады)]
 async function getNextDocNumber(client, prefix, table, column) {
-    const seqMap = { 'ЗК': 'seq_doc_zk', 'СЧ': 'seq_doc_sch', 'УТ': 'seq_doc_ut' };
-    const seqName = seqMap[prefix];
-    if (!seqName) return `${prefix}-${new Date().getTime().toString().slice(-6)}`;
-    const res = await client.query(`SELECT nextval('${seqName}') AS next_num`);
-    return `${prefix}-${String(res.rows[0].next_num).padStart(5, '0')}`;
+    let result = await client.query(`
+        UPDATE document_counters SET last_number = last_number + 1 WHERE prefix = $1 RETURNING last_number
+    `, [prefix]);
+
+    if (result.rows.length === 0) {
+        result = await client.query(`INSERT INTO document_counters (prefix, last_number) VALUES ($1, 1) RETURNING last_number`, [prefix]);
+    }
+    return `${prefix}-${String(result.rows[0].last_number).padStart(5, '0')}`;
 }
 
 const warehouseCache = {};
 async function getWhId(client, type) {
     if (warehouseCache[type]) return warehouseCache[type];
     const res = await client.query(`SELECT id FROM warehouses WHERE type = $1 LIMIT 1`, [type]);
-    if (res.rows.length > 0) { warehouseCache[type] = res.rows[0].id; return warehouseCache[type]; }
+    if (res.rows.length > 0) { 
+        warehouseCache[type] = res.rows[0].id; 
+        return warehouseCache[type]; 
+    }
     else throw new Error(`Склад '${type}' не найден!`);
 }
 
@@ -124,144 +101,152 @@ async function withTransaction(pool, callback) {
         return result;
     } catch (err) {
         await client.query('ROLLBACK');
-        logger.error('❌ Ошибка транзакции, выполнен ROLLBACK: ' + err.message);
+        logger.error('❌ Ошибка транзакции: ' + err.message);
         throw err;
     } finally {
-        client.release(); 
+        client.release();
     }
 }
 
-// ==========================================
-// 4. 🛡️ СИСТЕМА БЕЗОПАСНОСТИ: ПРОВЕРКА ТОКЕНА И РОЛЕЙ
-// ==========================================
-const authenticateToken = (req, res, next) => {
-    // Пропускаем авторизацию, открытые маршруты печати и сохранение PDF
-    if (req.path === '/login' || req.path === '/api/login' || req.path === '/api/docs/save-pdf' || req.path.startsWith('/print') || req.path.startsWith('/files')) {
-        return next();
-    }
+// [Блок 5: Безопасность и Авторизация]
+const { authenticateToken } = require('./middleware/auth');
 
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1]; 
-
-    if (!token) return res.status(401).json({ error: 'Нет доступа. Токен отсутствует.' });
-
-    jwt.verify(token, JWT_SECRET, (err, user) => {
-        if (err) return res.status(401).json({ error: 'Токен просрочен или недействителен.' });
-        req.user = user; 
-        next();
-    });
-};
-
-const requireAdmin = (req, res, next) => {
-    if (req.user && req.user.role === 'admin') next();
-    else res.status(403).json({ error: '⛔ Доступ запрещен. Требуются права Администратора.' });
-};
-
-// ==========================================
-// 5. БАЗОВЫЕ МАРШРУТЫ И АВТОРИЗАЦИЯ
-// ==========================================
 app.get('/', (req, res) => res.render('index'));
 
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
+    logger.info(`🔑 Попытка входа: ${username}`);
+    
     if (!username || !password) return res.status(400).json({ error: 'Введите данные' });
 
-    const client = await pool.connect();
+    let client;
     try {
+        client = await pool.connect();
         const result = await client.query('SELECT * FROM users WHERE username = $1', [username]);
-        if (result.rows.length === 0) return res.status(401).json({ error: 'Неверный логин' });
+        
+        if (result.rows.length === 0) {
+            logger.warn(`❌ Пользователь не найден: ${username}`);
+            return res.status(401).json({ error: 'Неверный логин' });
+        }
 
         const user = result.rows[0];
         let dbHash = (user.password_hash || "").trim();
         let incomingPassword = String(password).trim();
-
-        // 🛡️ Твоя безопасная проверка с самолечением старых текстовых паролей
         let isValid = false;
 
         if (dbHash.startsWith('$2a$') || dbHash.startsWith('$2b$')) {
-            isValid = await bcrypt.compare(incomingPassword, dbHash).catch(() => false);
+            isValid = await bcrypt.compare(incomingPassword, dbHash).catch(err => {
+                logger.error('Bcrypt comparison error: ' + err.message);
+                return false;
+            });
         } else {
             if (dbHash === incomingPassword) {
                 isValid = true;
                 const newHash = await bcrypt.hash(incomingPassword, 10);
                 await client.query('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, user.id]);
-                logger.info(`🔒 Пароль пользователя ${username} успешно зашифрован (Самолечение).`);
+                logger.info(`🔒 Пароль пользователя ${username} зашифрован.`);
             }
         }
 
-        if (!isValid) return res.status(401).json({ error: 'Неверный логин или пароль' });
+        if (!isValid) {
+            logger.warn(`❌ Неверный пароль для: ${username}`);
+            return res.status(401).json({ error: 'Неверный пароль' });
+        }
+
+        if (!JWT_SECRET) {
+            logger.error('🚨 JWT_SECRET is missing!');
+            return res.status(500).json({ error: 'Ошибка конфигурации сервера' });
+        }
 
         const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '12h' });
-        res.json({ token, user: { id: user.id, full_name: user.full_name, role: user.role } });
+        logger.info(`✅ Успешный вход: ${username}`);
+        res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
     } catch (err) {
-        logger.error('Ошибка авторизации: ' + err.message);
-        res.status(500).json({ error: 'Ошибка сервера' });
+        logger.error(`💥 Ошибка API входа: ${err.message}`);
+        res.status(500).json({ error: 'Ошибка сервера: ' + err.message });
     } finally {
-        client.release();
+        if (client) client.release();
     }
 });
 
-// Твой маршрут переименования счетов (Шестеренка)
-app.put('/api/accounts/:id', async (req, res) => {
-    const { name } = req.body;
-    const accountId = req.params.id;
-    const client = await pool.connect();
+// [Блок 6: Финансовая конфигурация (ERP_CONFIG)]
+const ERP_CONFIG = {
+    vatRate: 22,
+    vatDivider: 1.22,
+    vatRatio: 122,
+    noVatCategories: ['Зарплата', 'Налоги, штрафы и взносы', 'Услуги банка и РКО', 'Возврат займов', 'Получение займов', 'Взаимозачет']
+};
 
-    try {
-        await client.query('UPDATE accounts SET name = $1 WHERE id = $2', [name, accountId]);
-        res.json({ success: true });
-    } catch (err) {
-        logger.error('Ошибка переименования счета: ' + err.message);
-        res.status(500).json({ error: err.message });
-    } finally {
-        client.release();
-    }
-});
-
-// СИНХРОНИЗАЦИЯ БАЗЫ (Твое Самолечение таблиц)
-pool.query(`
-    CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username VARCHAR(50) UNIQUE NOT NULL, password_hash VARCHAR(255) NOT NULL, role VARCHAR(50) DEFAULT 'employee', full_name VARCHAR(150));
-    INSERT INTO users (username, password_hash, role, full_name) VALUES ('admin', '12345', 'admin', 'Директор') ON CONFLICT (username) DO NOTHING;
-`).catch(err => logger.error("Ошибка при инициализации БД: " + err.message));
-
-// ==========================================
-// 6. ИНИЦИАЛИЗАЦИЯ И ПОДКЛЮЧЕНИЕ РОУТЕРОВ
-// ==========================================
+// [Блок 7: Подключение маршрутов модулей]
 const inventoryRoutes = require('./routes/inventory')(pool, getWhId, withTransaction);
 const productionRoutes = require('./routes/production')(pool, getWhId, withTransaction);
-const financeRoutes = require('./routes/finance')(pool, upload, withTransaction);
 const dictionariesRoutes = require('./routes/dictionaries')(pool, withTransaction);
 const hrRoutes = require('./routes/hr')(pool, withTransaction);
-const salesRoutes = require('./routes/sales')(pool, getWhId, getNextDocNumber, withTransaction);
-const docsRoutes = require('./routes/docs')(pool, getNextDocNumber, withTransaction);
+const financeRoutes = require('./routes/finance')(pool, upload, withTransaction, ERP_CONFIG);
+const salesRoutes = require('./routes/sales')(pool, getWhId, getNextDocNumber, withTransaction, ERP_CONFIG);
+const docsRoutes = require('./routes/docs')(pool, ERP_CONFIG, withTransaction, getNextDocNumber);
 
-// 🚨 СТРОГИЙ ПОРЯДОК ПРИМЕНЕНИЯ MIDDLEWARE
-
-// Шаг 1: Сначала ставим глобальный вышибалу (проверка токена) для всех /api
+// Защита API (Глобальная проверка токена JWT)
 app.use('/api', authenticateToken);
 
-// Шаг 2: Усиливаем защиту для конкретных разделов (проверка роли Админа)
-app.use('/api/finance', requireAdmin);
-app.use('/api/salary', requireAdmin);
-
-// Шаг 3: Подключаем обработчики
+// Регистрация маршрутов
 app.use('/', inventoryRoutes);
 app.use('/', productionRoutes);
 app.use('/', financeRoutes);
 app.use('/', dictionariesRoutes);
 app.use('/', hrRoutes);
 app.use('/', salesRoutes);
-app.use('/', docsRoutes); 
+app.use('/', docsRoutes);
 
-// ==========================================
-// 7. ЗАПУСК И WEBSOCKETS
-// ==========================================
+// [Блок 8: Telegram Бот (Интеграция)]
+if (bot) {
+    bot.on('message', async (msg) => {
+        const currentChatId = msg.chat.id;
+        if (String(currentChatId) !== String(chatId)) return;
 
-io.on('connection', (socket) => {
-    logger.info(`🔌 Новый клиент подключен к WebSockets: ${socket.id}`);
-});
+        const text = msg.text || '';
+        if (text === '/start') {
+            return bot.sendMessage(currentChatId, '👋 Выберите команду:', {
+                reply_markup: { keyboard: [['💰 Баланс кассы', '📦 Остаток цемента'], ['📊 Отчет по продажам за сегодня']], resize_keyboard: true }
+            });
+        }
+        
+        if (text === '💰 Баланс кассы' || text === '/balance') {
+            try {
+                const res = await pool.query('SELECT name, balance FROM accounts ORDER BY id ASC');
+                let reply = '<b>🏦 Баланс:</b>\n\n'; let total = 0;
+                res.rows.forEach(acc => { 
+                    reply += `🔹 ${acc.name}: ${parseFloat(acc.balance).toLocaleString()} ₽\n`; 
+                    total += parseFloat(acc.balance); 
+                });
+                reply += `\n<b>💵 ИТОГО: ${total.toLocaleString()} ₽</b>`;
+                bot.sendMessage(currentChatId, reply, { parse_mode: 'HTML' });
+            } catch (e) { bot.sendMessage(currentChatId, '❌ Ошибка БД'); }
+        }
+
+        if (text === '📦 Остаток цемента') {
+            try {
+                const res = await pool.query(`SELECT i.name, SUM(m.quantity) as total FROM inventory_movements m JOIN items i ON m.item_id = i.id WHERE i.name ILIKE '%цемент%' GROUP BY i.name`);
+                if (res.rows.length === 0) return bot.sendMessage(currentChatId, '🏗 Не найден.');
+                let reply = '<b>🏗 Остатки цемента:</b>\n\n';
+                res.rows.forEach(r => reply += `• ${r.name}: ${parseFloat(r.total).toLocaleString()} кг\n`);
+                bot.sendMessage(currentChatId, reply, { parse_mode: 'HTML' });
+            } catch (e) { bot.sendMessage(currentChatId, '❌ Ошибка'); }
+        }
+
+        if (text === '📊 Отчет по продажам за сегодня') {
+            try {
+                const res = await pool.query(`SELECT SUM(total_amount) as total, COUNT(*) as cnt FROM client_orders WHERE created_at::date = CURRENT_DATE AND status != 'cancelled'`);
+                bot.sendMessage(currentChatId, `📈 <b>Сегодня:</b>\n\nЗаказов: ${res.rows[0]?.cnt || 0}\nСумма: ${parseFloat(res.rows[0]?.total || 0).toLocaleString()} ₽`, { parse_mode: 'HTML' });
+            } catch (e) { bot.sendMessage(currentChatId, '❌ Ошибка'); }
+        }
+    });
+}
+
+// [Блок 9: Socket.io и Старт сервера]
+io.on('connection', (socket) => logger.info(`🔌 Подключен: ${socket.id}`));
 
 server.listen(port, () => {
-    logger.info(`🚀 ERP Плиттекс Server запущен на порту ${port}`);
-    sendNotify(`✅ <b>ERP Система запущена</b>\nСервер успешно стартовал и готов к работе.`);
+    logger.info(`🚀 ERP Server запущен на порту ${port}`);
+    sendNotify(`✅ <b>Система запущена</b>\nСервер готов к работе.`);
 });

@@ -66,13 +66,17 @@ async function loadRecipeDetails() {
 }
 
 // 3. Добавление нового сырья во временный список (до сохранения)
-function addIngredientToRecipe() {
+// ==========================================
+// ДОБАВЛЕНИЕ ИНГРЕДИЕНТА В РЕЦЕПТ
+// ==========================================
+
+window.addIngredientToRecipe = function () {
     const matSelect = document.getElementById('recipe-material-select');
     const qtyInput = document.getElementById('recipe-material-qty');
     const qty = parseFloat(qtyInput.value);
 
     if (matSelect.selectedIndex <= 0 || !qty || qty <= 0) {
-        return alert("Выберите материал и укажите количество больше нуля!");
+        return UI.toast("Выберите материал и укажите количество больше нуля!", "warning");
     }
 
     const opt = matSelect.options[matSelect.selectedIndex];
@@ -83,6 +87,7 @@ function addIngredientToRecipe() {
     if (existingIndex !== -1) {
         // Если есть, просто прибавляем количество
         currentRecipeData[existingIndex].qty += qty;
+        UI.toast(`Количество для "${opt.getAttribute('data-name')}" увеличено`, 'info'); // Можно добавить легкий фидбек
     } else {
         // Если нет, добавляем новую строку
         currentRecipeData.push({
@@ -97,7 +102,7 @@ function addIngredientToRecipe() {
     // Очищаем поле ввода для следующего компонента
     qtyInput.value = '';
     renderRecipeTable();
-}
+};
 
 // 4. Удаление компонента из временного списка
 function removeIngredientFromRecipe(index) {
@@ -159,15 +164,40 @@ function updateIngredientQty(index, value) {
 }
 
 // 6. Сохранение рецепта на сервер (с красивым Toast)
-async function saveRecipe(force = false) {
+// 1. ПОДГОТОВКА И ПРОВЕРКА ФРОНТЕНДА
+window.saveRecipe = async function (force = false) {
     const prodSelect = document.getElementById('recipe-product-select');
     const productId = parseInt(prodSelect.value);
     const productName = prodSelect.options[prodSelect.selectedIndex].text;
 
     if (!productId) return UI.toast("Не выбрана продукция!", "error");
+
+    // Заменяем первый confirm (проверка на пустой рецепт)
     if (currentRecipeData.length === 0 && !force) {
-        if (!confirm("Рецепт пуст. Вы уверены, что хотите сохранить пустой рецепт?")) return;
+        const html = `
+            <div style="padding: 10px; font-size: 15px;">
+                Рецепт пуст. <br><br>
+                Вы уверены, что хотите сохранить пустой рецепт? <br>
+                <span style="color: var(--danger); font-size: 13px;">(Это удалит все привязанные ингредиенты)</span>
+            </div>
+        `;
+        const buttons = `
+            <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+            <button class="btn btn-blue" style="background: var(--danger); border-color: var(--danger);" 
+                    onclick="executeSaveRecipe(${productId}, '${productName}', ${force})">🗑️ Да, сохранить пустым</button>
+        `;
+        return UI.showModal('⚠️ Внимание: Пустой рецепт', html, buttons);
     }
+
+    // Если всё ок — переходим к отправке
+    executeSaveRecipe(productId, productName, force);
+};
+
+// 2. ОТПРАВКА НА СЕРВЕР И ПРОВЕРКА ОТВЕТА
+window.executeSaveRecipe = async function (productId, productName, force) {
+    // Закрываем модалку, если она была открыта на предыдущем шаге
+    if (typeof UI.closeModal === 'function') UI.closeModal();
+    UI.toast('⏳ Сохранение...', 'info');
 
     const payload = { productId, productName, ingredients: currentRecipeData, force };
 
@@ -179,24 +209,36 @@ async function saveRecipe(force = false) {
         });
 
         if (res.ok) {
-            UI.toast('Рецепт успешно сохранен!', 'success');
+            UI.toast('✅ Рецепт успешно сохранен!', 'success');
 
             // 1. Проверяем, нужно ли синхронизировать изменения
-            checkAndPromptSync(productId);
+            if (typeof checkAndPromptSync === 'function') checkAndPromptSync(productId);
 
-            // 2. ОБНОВЛЯЕМ ОРИГИНАЛ (теперь текущий рецепт стал новым эталоном)
-            originalRecipeData = JSON.parse(JSON.stringify(currentRecipeData));
+            // 2. ОБНОВЛЯЕМ ОРИГИНАЛ
+            if (typeof originalRecipeData !== 'undefined') {
+                originalRecipeData = JSON.parse(JSON.stringify(currentRecipeData));
+            }
 
         } else {
             const errData = await res.json().catch(() => null);
+
+            // Заменяем второй confirm (предупреждение от сервера)
             if (errData && errData.warning) {
-                if (confirm(errData.warning)) saveRecipe(true);
+                const html = `<div style="padding: 10px; font-size: 15px; color: var(--warning-text);">${errData.warning}</div>`;
+                const buttons = `
+                    <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+                    <button class="btn btn-blue" onclick="executeSaveRecipe(${productId}, '${productName}', true)">⚠️ Все равно сохранить</button>
+                `;
+                UI.showModal('Конфликт сохранения', html, buttons);
             } else {
-                UI.toast('Ошибка сохранения!', 'error');
+                UI.toast(errData?.error || 'Ошибка сохранения!', 'error');
             }
         }
-    } catch (e) { console.error(e); }
-}
+    } catch (e) {
+        console.error(e);
+        UI.toast('Критическая ошибка связи с сервером', 'error');
+    }
+};
 
 // 7. Умный помощник синхронизации ТОЛЬКО ИЗМЕНЕННЫХ полей
 function checkAndPromptSync(savedProductId) {
@@ -233,10 +275,10 @@ function checkAndPromptSync(savedProductId) {
 
     let htmlBody = `
         <p style="margin-top:0;">Вы изменили следующие компоненты:</p>
-        <p style="color: var(--primary); font-size: 15px; background: #f1f5f9; padding: 10px; border-radius: 6px;"> • ${matNames}</p>
+        <p style="color: var(--primary); font-size: 15px; background: var(--surface-hover); padding: 10px; border-radius: 6px;"> • ${matNames}</p>
         <p style="color: var(--text-main); font-weight: 600; margin-bottom: 10px;">Применить эти новые значения к другим товарам из категории "${product.category}"?</p>
         
-        <label class="sync-list-item" style="background: #e2e8f0; font-weight: bold; margin-bottom: 10px;">
+        <label class="sync-list-item" style="background: var(--surface-alt); font-weight: bold; margin-bottom: 10px;">
             <input type="checkbox" id="sync-check-all" checked onchange="document.querySelectorAll('.sync-target-cb').forEach(cb => cb.checked = this.checked)">
             Выбрать все
         </label>
@@ -343,28 +385,61 @@ function loadMassCopyTargets() {
 
     // Выводим чекбоксы для целей
     targetDiv.innerHTML = filtered.map(p => `
-        <label style="display:flex; align-items:center; gap:8px; background:#f8fafc; padding:8px 12px; border-radius:6px; border:1px solid #e2e8f0; cursor:pointer; font-size:13px; transition: 0.2s;">
+        <label style="display:flex; align-items:center; gap:8px; background: var(--surface-alt); padding:8px 12px; border-radius:6px; border:1px solid var(--border); cursor:pointer; font-size:13px; transition: 0.2s;">
             <input type="checkbox" class="mass-target-check" value="${p.id}">
             ${p.name}
         </label>
     `).join('');
 }
 
-async function executeMassCopy() {
+// 1. ПОДГОТОВКА И ПРОВЕРКА 
+window.executeMassCopy = function () {
     const sourceId = document.getElementById('mass-copy-source').value;
     const targetChecks = document.querySelectorAll('.mass-target-check:checked');
 
-    if (!sourceId) return alert('Выберите эталонный рецепт!');
-    if (targetChecks.length === 0) return alert('Отметьте хотя бы одну позицию для применения шаблона!');
+    if (!sourceId) return UI.toast('Выберите эталонный рецепт!', 'warning');
+    if (targetChecks.length === 0) return UI.toast('Отметьте хотя бы одну позицию для применения шаблона!', 'warning');
 
     const targetIds = Array.from(targetChecks).map(cb => parseInt(cb.value));
 
-    // Защита от дурака (чтобы не скопировать сам в себя)
+    // Защита от дурака
     if (targetIds.includes(parseInt(sourceId))) {
-        return alert('Эталон не может быть одновременно и целью! Снимите галочку с эталонного товара в списке.');
+        return UI.toast('Эталон не может быть одновременно и целью! Снимите галочку с эталонного товара в списке.', 'error');
     }
 
-    if (!confirm(`ВНИМАНИЕ!\nТекущие рецепты у ${targetIds.length} выбранных позиций будут УДАЛЕНЫ и заменены на копию эталона. Продолжить?`)) return;
+    // Заменяем confirm на красивую модалку
+    const html = `
+        <div style="padding: 10px; font-size: 15px; text-align: center;">
+            <div style="font-size: 40px; margin-bottom: 10px;">⚠️</div>
+            Текущие рецепты у <b style="color: var(--primary); font-size: 18px;">${targetIds.length}</b> выбранных позиций будут <br>
+            <b style="color: var(--danger); text-transform: uppercase;">удалены</b> и заменены на копию эталона.<br><br>
+            Вы уверены, что хотите продолжить?
+        </div>
+    `;
+
+    // Передаем targetIds как JSON-строку, чтобы безопасно вставить массив в HTML
+    const buttons = `
+            <button id="mass-copy-cancel" class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+            <button id="mass-copy-confirm" class="btn btn-blue" onclick='confirmMassCopy(${sourceId}, ${JSON.stringify(targetIds)})'>🔄 Да, заменить рецепты</button>
+        `;
+
+    UI.showModal('Внимание: Массовое копирование', html, buttons);
+};
+
+// 2. ОТПРАВКА НА СЕРВЕР И ПРОВЕРКА ОТВЕТА
+window.confirmMassCopy = async function (sourceId, targetIds) {
+    // 🚀 ФИКС RACE CONDITION: Блокируем кнопки, но НЕ закрываем окно
+    const btnConfirm = document.getElementById('mass-copy-confirm');
+    const btnCancel = document.getElementById('mass-copy-cancel');
+
+    if (btnConfirm) {
+        btnConfirm.disabled = true;
+        btnConfirm.innerHTML = '⏳ Запись в БД (не закрывайте)...';
+        btnConfirm.classList.add('is-locked-by-system'); // Симбиоз с глобальным перехватчиком
+    }
+    if (btnCancel) btnCancel.disabled = true;
+
+    UI.toast(`⏳ Копирование рецептов (${targetIds.length} шт.)...`, 'info');
 
     try {
         const res = await fetch('/api/recipes/mass-copy', {
@@ -373,16 +448,27 @@ async function executeMassCopy() {
             body: JSON.stringify({ sourceProductId: sourceId, targetProductIds: targetIds })
         });
 
-        const result = await res.json();
+        // 🚀 Закрываем окно ТОЛЬКО после того, как сервер подтвердил завершение транзакции
+        UI.closeModal();
+
+        // ✅ Оставили только один правильный блок обработки ответа
         if (res.ok) {
-            alert('✅ ' + result.message);
-            toggleMassCopyTool(); // Закрываем панель
+            const result = await res.json();
+            UI.toast('✅ ' + (result.message || 'Успешно скопировано!'), 'success');
+
+            if (typeof toggleMassCopyTool === 'function') toggleMassCopyTool(); // Закрываем панель
 
             // Если у нас открыт какой-то рецепт сейчас, перезагрузим его
             const currentSelectedProd = document.getElementById('recipe-product-select').value;
             if (currentSelectedProd && targetIds.includes(parseInt(currentSelectedProd))) {
-                loadRecipeDetails();
+                if (typeof loadRecipeDetails === 'function') loadRecipeDetails();
             }
-        } else alert('❌ Ошибка: ' + await res.text());
-    } catch (e) { console.error(e); }
-}
+        } else {
+            const errText = await res.text();
+            UI.toast('❌ Ошибка: ' + errText, 'error');
+        }
+    } catch (e) {
+        console.error(e);
+        UI.toast('Критическая ошибка связи с сервером', 'error');
+    }
+};

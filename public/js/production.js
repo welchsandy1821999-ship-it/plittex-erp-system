@@ -5,16 +5,40 @@ let allProductsList = [];
 let sessionProducts = [];
 let allMaterialsForMix = [];
 let currentSelectedProductRecipe = [];
+let prodDatePicker = null;
 
 async function initProduction() {
-    document.getElementById('prod-date-filter').valueAsDate = new Date();
     try {
-        // 1. ЗАГРУЖАЕМ СЫРЬЕ
+        // 1. БЕЗОПАСНЫЙ КАЛЕНДАРЬ
+        const dateEl = document.getElementById('prod-date-filter');
+        if (dateEl) {
+            // Проверяем, загружена ли библиотека
+            if (typeof flatpickr !== 'undefined') {
+                prodDatePicker = flatpickr(dateEl, {
+                    dateFormat: "Y-m-d",
+                    altInput: true,
+                    altFormat: "d.m.Y",
+                    locale: "ru",
+                    defaultDate: new Date(),
+                    onChange: function() {
+                        if (typeof loadDailyHistory === 'function') loadDailyHistory();
+                    }
+                });
+            } else {
+                // Спасательный круг, если библиотека не успела
+                dateEl.valueAsDate = new Date();
+                dateEl.addEventListener('change', () => {
+                    if (typeof loadDailyHistory === 'function') loadDailyHistory();
+                });
+            }
+        }
+
+        // 2. ЗАГРУЖАЕМ СЫРЬЕ
         const resMat = await fetch('/api/items?item_type=material&limit=500');
         const matData = await resMat.json();
         allMaterialsForMix = matData.data || [];
 
-        // 2. ЗАГРУЖАЕМ ШАБЛОНЫ ИЗ БАЗЫ И ДОБАВЛЯЕМ НОВЫЕ (МЕЛАНЖ)
+        // 3. ЗАГРУЖАЕМ ШАБЛОНЫ
         const resMix = await fetch('/api/mix-templates');
         const dbTemplates = await resMix.json();
 
@@ -25,7 +49,6 @@ async function initProduction() {
         window.currentMixTemplates = dbTemplates || {};
         let needsUpdate = false;
 
-        // Если шаблонов нет, или нет новых шаблонов Меланжа - создаем их
         const requiredKeys = ['main_40', 'main_60', 'main_80', 'main_por', 'main_bor', 'face_gs', 'face_gc', 'face_grs', 'face_grc', 'face_mel_g', 'face_mel_gr'];
         requiredKeys.forEach(key => {
             if (!window.currentMixTemplates[key]) {
@@ -38,31 +61,30 @@ async function initProduction() {
             await fetch('/api/mix-templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(window.currentMixTemplates) });
         }
 
-        // 3. ЗАГРУЖАЕМ ПРОДУКЦИЮ
+        // 4. ЗАГРУЖАЕМ ПРОДУКЦИЮ
         const resProd = await fetch('/api/products');
         allProductsList = await resProd.json();
         populateCategories();
 
-        // 4. ЗАГРУЖАЕМ БРИГАДИРОВ (СОРТИРОВКА: ЦЕХ НАВЕРХУ)
+        // 5. ЗАГРУЖАЕМ БРИГАДИРОВ
         const resEmp = await fetch('/api/employees');
         const empData = await resEmp.json();
         const shiftSel = document.getElementById('prod-shift-name');
         if (shiftSel) {
             shiftSel.innerHTML = '<option value="">-- Выберите бригадира --</option>';
             let activeEmps = empData.filter(e => e.status === 'active');
-
-            // Сортируем: если в должности или отделе есть слово "цех", "рабочий" или "формов", они идут первыми
             activeEmps.sort((a, b) => {
                 const isWorkshop = (emp) => (emp.department && emp.department.toLowerCase().includes('цех')) || (emp.position && (emp.position.toLowerCase().includes('цех') || emp.position.toLowerCase().includes('формов')));
                 return (isWorkshop(b) ? 1 : 0) - (isWorkshop(a) ? 1 : 0);
             });
-
             activeEmps.forEach(emp => shiftSel.add(new Option(emp.full_name, emp.full_name)));
         }
 
         renderSelectedTemplates();
         loadDailyHistory();
-    } catch (e) { console.error(e); }
+    } catch (e) {
+        console.error("Ошибка инициализации производства:", e);
+    }
 }
 
 function populateCategories() {
@@ -119,10 +141,10 @@ window.renderSelectedTemplates = function () {
         let html = '<div style="font-size: 11px; margin-bottom: 5px; opacity: 0.8;">На 1 замес (можно изменить сейчас):</div>';
 
         html += (templateList || []).map(m => `
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(0,0,0,0.05); padding: 4px 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding: 4px 0;">
                 <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;">${m.name}</span>
                 <div style="display: flex; align-items: center; gap: 5px;">
-                    <input type="number" class="input-modern ${prefix}-qty" data-id="${m.id}" data-name="${m.name}" data-unit="${m.unit}" value="${m.qty}" style="width: 75px; padding: 2px 5px; text-align: right; margin: 0; font-weight: bold; font-size: 13px; border: 1px solid rgba(0,0,0,0.1);" onfocus="this.select()" title="Изменить для этого конкретного замеса">
+                    <input type="number" class="input-modern ${prefix}-qty" data-id="${m.id}" data-name="${m.name}" data-unit="${m.unit}" value="${m.qty}" style="width: 75px; padding: 2px 5px; text-align: right; margin: 0; font-weight: bold; font-size: 13px; border: 1px solid var(--border);" onfocus="this.select()" title="Изменить для этого конкретного замеса">
                     <span style="font-size: 11px; width: 15px; text-align: left;">${m.unit}</span>
                 </div>
             </div>
@@ -187,7 +209,9 @@ window.addProdToSession = function () {
     const mainCount = parseFloat(document.getElementById('main-mix-count').value) || 0;
     const faceCount = parseFloat(document.getElementById('face-mix-count').value) || 0;
 
-    if (!sel.value || isNaN(cycles) || cycles <= 0) return UI.toast('Выберите товар и введите удары!', 'error');
+    if (!sel.value || isNaN(cycles) || cycles <= 0) return UI.toast('Выберите товар и введите положительное количество ударов!', 'error');
+    if (mainCount < 0 || faceCount < 0) return UI.toast('Количество замесов не может быть отрицательным!', 'error');
+    if (mainCount === 0 && faceCount === 0) return UI.toast('Количество замесов не может быть равно нулю!', 'error');
 
     const product = allProductsList.find(p => p.id == sel.value);
     const volume = cycles * (parseFloat(product.qty_per_cycle) || 1);
@@ -201,7 +225,7 @@ window.addProdToSession = function () {
         const matId = input.getAttribute('data-id'); // <-- Получаем ID
 
         // 🛡️ Проверяем, что ID существует и не пустой
-        if (qtyPerMix > 0 && mainCount > 0 && matId && matId !== '') {
+        if (qtyPerMix > 0 && mainCount > 0 && matId && matId !== 'undefined' && matId !== '') {
             actualMaterials.push({
                 id: matId,
                 name: input.getAttribute('data-name'),
@@ -232,6 +256,10 @@ window.addProdToSession = function () {
         }
     });
 
+    if (actualMaterials.length === 0) {
+        return UI.toast('Не списано ни грамма сырья! Укажите замесы или проверьте состав шаблона.', 'error');
+    }
+
     sessionProducts.push({
         id: product.id,
         name: product.name,
@@ -257,16 +285,16 @@ window.addProdToSession = function () {
 function renderSessionProducts() {
     const container = document.getElementById('session-products-list');
     if (sessionProducts.length === 0) {
-        container.innerHTML = `<div style="color: gray; font-size: 13px; text-align: center; padding: 15px; border: 1px dashed #cbd5e1; border-radius: 6px;">Смена пуста. Выберите продукцию выше.</div>`;
+        container.innerHTML = `<div style="color: var(--text-muted); font-size: 13px; text-align: center; padding: 15px; border: 1px dashed var(--border); border-radius: 6px;">Смена пуста. Выберите продукцию выше.</div>`;
         return;
     }
 
     container.innerHTML = sessionProducts.map((p, i) => `
-        <div style="display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 10px 15px; border-radius: 8px; border: 1px solid var(--border);">
+        <div style="display: flex; justify-content: space-between; align-items: center; background: var(--surface); padding: 10px 15px; border-radius: 8px; border: 1px solid var(--border);">
             <div>
                 <b style="color: var(--primary);">${p.name}</b><br>
                 <small style="color: var(--text-muted);">Циклов: <b>${p.cycles}</b> | Итого: <b>${p.quantity.toFixed(2)} ${p.unit}</b></small><br>
-                <small style="color: #64748b;">Замесы: Осн (${p.mainCount}), Лиц (${p.faceCount})</small>
+                <small style="color: var(--text-muted);">Замесы: Осн (${p.mainCount}), Лиц (${p.faceCount})</small>
             </div>
             <button class="btn" style="color: var(--danger); padding: 5px;" onclick="sessionProducts.splice(${i},1); renderSessionProducts();">🗑️</button>
         </div>
@@ -277,31 +305,45 @@ function renderSessionProducts() {
 let isSubmittingProduction = false; // 🚨 Глобальный флаг защиты от двойного клика
 
 window.submitDailyProduction = async function () {
-    if (isSubmittingProduction) return; // 🚨 ЗАЩИТА: Если уже отправляем - игнорируем новые клики
+    if (isSubmittingProduction) return;
 
+    const shiftDateStr = document.getElementById('prod-date-filter').value;
     const shiftName = document.getElementById('prod-shift-name').value.trim();
+
+    // [РЕШЕНИЕ 4] Валидация будущей даты на клиенте
+    const selectedDate = new Date(shiftDateStr);
+    const today = new Date();
+    today.setHours(23, 59, 59, 999); // Даем закрыть сегодняшний день полностью
+
+    if (!shiftDateStr) return UI.toast('Выберите дату смены!', 'warning');
+    if (selectedDate > today) return UI.toast('Нельзя закрывать смену в будущем!', 'warning');
     if (!shiftName) return UI.toast('Выберите бригадира!', 'warning');
     if (sessionProducts.length === 0) return UI.toast('Добавьте продукцию в партию!', 'error');
 
-    // Собираем все фактические материалы со всех продуктов в этой смене
+    // [РЕШЕНИЕ 3] Агрегация с защитой от пустых/битых ID материалов
     let aggregatedMaterials = [];
     sessionProducts.forEach(prod => {
         prod.exactMaterials.forEach(mat => {
+            if (!mat.id || mat.id === 'undefined') return; // Игнорируем битые записи
+
             const existing = aggregatedMaterials.find(m => m.id == mat.id);
-            if (existing) existing.qty += mat.qty;
-            else aggregatedMaterials.push({ id: mat.id, qty: mat.qty });
+            if (existing) {
+                existing.qty += mat.qty;
+            } else {
+                aggregatedMaterials.push({ id: mat.id, qty: mat.qty });
+            }
         });
     });
 
     const payload = {
-        date: document.getElementById('prod-date-filter').value,
+        date: shiftDateStr,
         shiftName: shiftName,
         products: sessionProducts,
         materialsUsed: aggregatedMaterials
     };
 
-    isSubmittingProduction = true; // 🚨 БЛОКИРУЕМ кнопку (начинаем процесс)
-    UI.toast('⏳ Сохранение смены и проверка остатков...', 'info');
+    isSubmittingProduction = true;
+    UI.toast('⏳ Проверка остатков и сохранение...', 'info');
 
     try {
         const res = await fetch('/api/production', {
@@ -310,23 +352,26 @@ window.submitDailyProduction = async function () {
             body: JSON.stringify(payload)
         });
 
-        const result = await res.json(); // Ждем JSON от сервера
+        const result = await res.json();
 
         if (res.ok) {
-            // ✅ УСПЕХ
-            UI.toast(result.message || '✅ Смена зафиксирована, сырье списано!', 'success');
+            UI.toast('✅ Смена зафиксирована успешно!', 'success');
             sessionProducts = [];
             renderSessionProducts();
             loadDailyHistory();
         } else {
-            // ❌ ОШИБКА
-            UI.toast(result.error || 'Ошибка при сохранении смены', 'error');
+            // Если сервер прислал детали (список нехватки)
+            if (result.details) {
+                const missingList = result.details.split('; ').join('<br>• ');
+                UI.toast(`<b>${result.error}:</b><br>• ${missingList}`, 'error');
+            } else {
+                UI.toast(result.error || 'Ошибка сохранения', 'error');
+            }
         }
     } catch (e) {
-        console.error(e);
         UI.toast('Критическая ошибка связи с сервером', 'error');
     } finally {
-        isSubmittingProduction = false; // 🚨 СНИМАЕМ БЛОКИРОВКУ в любом случае (даже при ошибке)
+        isSubmittingProduction = false;
     }
 };
 
@@ -402,24 +447,42 @@ window.saveMixTemplate = async function () {
 async function loadDailyHistory() {
     const date = document.getElementById('prod-date-filter').value;
     const tbody = document.getElementById('daily-history-table');
+    if (!tbody) return;
+
     try {
         const res = await fetch(`/api/production/history?date=${date}`);
         const data = await res.json();
-        if (data.length === 0) return tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">В этот день формовок не было.</td></tr>';
+
+        // 🛡️ ЗАЩИТА: Проверяем, что пришел именно массив
+        if (!Array.isArray(data)) {
+            console.error("Сервер вернул ошибку вместо данных:", data);
+            tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--danger);">Ошибка сервера: ${data.error || 'Неизвестная ошибка'}</td></tr>`;
+            return;
+        }
+
+        if (data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">В этот день формовок не было.</td></tr>';
+            return;
+        }
 
         tbody.innerHTML = data.map(b => `
-            <tr id="row-${b.id}" style="cursor: pointer;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor=''">
-                <td onclick="toggleBatchDetails(${b.id})"><strong style="color:var(--primary);">${b.batch_number}</strong></td>
-                <td onclick="toggleBatchDetails(${b.id})">${b.product_name}</td>
+            <tr id="row-${b.id}" style="cursor: pointer;">
+                <td onclick="toggleBatchDetails(${b.id})"><strong style="color:var(--primary);">${escapeHTML(b.batch_number)}</strong></td>
+                <td onclick="toggleBatchDetails(${b.id})">${escapeHTML(b.product_name)}</td>
                 <td onclick="toggleBatchDetails(${b.id})">${parseFloat(b.planned_quantity).toFixed(2)}</td>
                 <td onclick="toggleBatchDetails(${b.id})">${parseFloat(b.mat_cost_total).toFixed(2)} ₽</td>
                 <td style="text-align: right; white-space: nowrap;">
-                    <button class="btn btn-outline" style="color: var(--primary); padding: 5px 10px; margin-right: 5px;" onclick="event.stopPropagation(); window.open('/print/passport?batchId=${b.id}', '_blank')" title="Распечатать маршрутный лист">🖨️</button>
-                    <button class="btn btn-outline" style="color: var(--danger); padding: 5px 10px;" onclick="event.stopPropagation(); deleteBatch(${b.id}, '${b.batch_number}')">❌</button>
+                    <button class="btn btn-outline" style="color: var(--primary); padding: 5px 10px; margin-right: 5px;" 
+                            onclick="event.stopPropagation(); window.open('/print/passport?batchId=${b.id}', '_blank')">🖨️</button>
+                    <button class="btn btn-outline" style="color: var(--danger); padding: 5px 10px;" 
+                            onclick="event.stopPropagation(); deleteBatch(${b.id}, '${escapeHTML(b.batch_number)}')">❌</button>
                 </td>
             </tr>
         `).join('');
-    } catch (e) { console.error(e); }
+    } catch (e) {
+        console.error("Ошибка сети:", e);
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--danger);">Ошибка связи с сервером</td></tr>';
+    }
 }
 
 // === ДЕТАЛИЗАЦИЯ ПАРТИИ (СЫРЬЕ И ЭКОНОМИКА НА 1 ЕД.) ===
@@ -446,11 +509,11 @@ async function toggleBatchDetails(batchId) {
         const totalCost = matCost + machineAmortCost + moldAmortCost;
         const unitTotalCost = totalCost / plannedQty;
 
-        let html = `<td colspan="5" style="padding: 0; background: #f8fafc; border-bottom: 2px solid var(--primary);">
+        let html = `<td colspan="5" style="padding: 0; background: var(--surface-alt);; border-bottom: 2px solid var(--primary);">
             <div style="padding: 20px;">
                 <div style="display: flex; gap: 20px; align-items: flex-start;">
                     
-                    <div style="flex: 1; background: #fff; padding: 15px; border-radius: 8px; border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                    <div style="flex: 1; background: var(--surface); padding: 15px; border-radius: 8px; border: 1px solid var(--border); box-shadow: var(--shadow-sm);">
                         <h4 style="margin: 0 0 15px 0; color: var(--text-main);">📊 Экономика партии</h4>
                         
                         <div style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 13px;">
@@ -459,7 +522,7 @@ async function toggleBatchDetails(batchId) {
                         </div>
                         <div style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 14px;">
                             <span style="color: var(--text-main); font-weight: bold;">Сырье (за 1 ед.):</span>
-                            <strong style="color: #15803d;">${unitMatCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</strong>
+                            <strong style="color: var(--success);">${unitMatCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</strong>
                         </div>
                         
                         <div style="border-top: 1px dashed var(--border); margin: 12px 0;"></div>
@@ -470,7 +533,7 @@ async function toggleBatchDetails(batchId) {
                         </div>
                         <div style="display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 14px;">
                             <span style="color: var(--text-main); font-weight: bold;">Аморт. станка (за 1 ед.):</span>
-                            <strong style="color: #f59e0b;">${unitMachineAmortCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</strong>
+                            <strong style="color: var(--warning);">${unitMachineAmortCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</strong>
                         </div>
 
                         <div style="border-top: 1px dashed var(--border); margin: 12px 0;"></div>
@@ -481,7 +544,7 @@ async function toggleBatchDetails(batchId) {
                         </div>
                         <div style="display: flex; justify-content: space-between; font-size: 14px;">
                             <span style="color: var(--text-main); font-weight: bold;">Аморт. матрицы (за 1 ед.):</span>
-                            <strong style="color: #d97706;">${unitMoldAmortCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</strong>
+                            <strong style="color: var(--warning-text);">${unitMoldAmortCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</strong>
                         </div>
 
                         <div style="border-top: 2px solid var(--text-main); margin: 15px 0 10px 0;"></div>
@@ -498,8 +561,8 @@ async function toggleBatchDetails(batchId) {
 
                     <div style="flex: 2;">
                         <h4 style="margin: 0 0 10px 0;">📋 Фактическое списание сырья</h4>
-                        <table style="width: 100%; background: #fff; border: 1px solid var(--border); font-size: 13px; border-collapse: collapse;">
-                            <thead style="background: #f1f5f9;">
+                        <table style="width: 100%; background: var(--surface); border: 1px solid var(--border); font-size: 13px; border-collapse: collapse;">
+                            <thead style="background: var(--surface-alt);">
                                 <tr>
                                     <th style="padding: 8px; text-align: left; border-bottom: 2px solid var(--border);">Материал</th>
                                     <th style="padding: 8px; text-align: right; border-bottom: 2px solid var(--border);">Списано</th>
@@ -508,12 +571,12 @@ async function toggleBatchDetails(batchId) {
                             </thead>
                             <tbody>
                                 ${materials.map(m => `
-                                <tr style="transition: 0.1s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor=''">
+                                <tr>
                                     <td style="padding: 8px; border-bottom: 1px solid var(--border);"><strong>${m.name}</strong></td>
                                     <td style="padding: 8px; text-align: right; border-bottom: 1px solid var(--border);">${parseFloat(m.qty).toFixed(2)} ${m.unit}</td>
                                     <td style="padding: 8px; text-align: right; border-bottom: 1px solid var(--border); color: var(--danger); font-weight: bold;">${parseFloat(m.cost).toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</td>
                                 </tr>`).join('')}
-                                ${materials.length === 0 ? '<tr><td colspan="3" style="text-align:center; padding: 20px; color: gray;">Нет списаний сырья</td></tr>' : ''}
+                                ${materials.length === 0 ? '<tr><td colspan="3" style="text-align:center; padding: 20px; color: var(--text-muted);">Нет списаний сырья</td></tr>' : ''}
                             </tbody>
                         </table>
                     </div>
@@ -532,14 +595,14 @@ async function toggleBatchDetails(batchId) {
 
 // === ОТМЕНА ФОРМОВКИ (КРАСИВОЕ ОКНО) ===
 window.deleteBatch = function (id, batchNumber) {
-    const html = `<div style="padding: 15px; text-align: center; font-size: 15px;">Точно отменить формовку <b>${batchNumber}</b> и вернуть списанное сырье на склад?</div>`;
+    // 🛡️ escapeHTML для номера партии
+    const html = `<div style="padding: 15px; text-align: center; font-size: 15px;">Точно отменить формовку <b>${escapeHTML(batchNumber)}</b> и вернуть списанное сырье на склад?</div>`;
 
     UI.showModal('⚠️ Отмена формовки', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>
-        <button class="btn btn-blue" style="background: #ef4444; border-color: #ef4444;" onclick="executeDeleteBatch(${id})">🗑️ Да, отменить</button>
+        <button class="btn btn-red" onclick="executeDeleteBatch(${id})">🗑️ Да, отменить</button>
     `);
 };
-
 window.executeDeleteBatch = async function (id) {
     UI.closeModal();
     try {
@@ -553,5 +616,108 @@ window.executeDeleteBatch = async function (id) {
     } catch (e) {
         console.error(e);
         UI.toast('Ошибка сети', 'error');
+    }
+};
+
+// ==========================================
+// === ДАШБОРД: СВОДНЫЙ ПЛАН ПРОИЗВОДСТВА ===
+// ==========================================
+window.openMrpDashboard = async function () {
+    try {
+        UI.toast('Загрузка сводного плана...', 'info');
+        const res = await fetch('/api/production/mrp-summary');
+        if (!res.ok) throw new Error('Ошибка сервера');
+        const data = await res.json();
+
+        // 1. Генерируем левую таблицу: План производства (Что отлить)
+        let planHtml = data.productionPlan.map((p, idx) => `
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 10px;"><b>${idx + 1}. ${escapeHTML(p.item_name)}</b></td>
+                <td style="padding: 10px; text-align: right; color: var(--primary); font-weight: bold; font-size: 14px;">
+                    ${p.total_needed_qty} <span style="font-size: 11px; color: var(--text-muted);">${p.unit}</span>
+                </td>
+            </tr>
+        `).join('');
+
+        if (!planHtml) {
+            planHtml = '<tr><td colspan="2" style="text-align: center; padding: 20px; color: var(--text-muted);">🎉 Нет активных задач в производство. Всё сделано!</td></tr>';
+        }
+
+        // 2. Генерируем правую таблицу: Потребность в сырье
+        let deficitHtml = data.deficitReport.map(m => {
+            const shortage = parseFloat(m.shortage);
+            // Если есть дефицит — подсвечиваем красным, если хватает — зеленым
+            const bgColor = shortage > 0 ? 'var(--danger-bg)' : 'var(--success-bg)';
+            const statusColor = shortage > 0 ? 'var(--danger)' : 'var(--success)';
+            const icon = shortage > 0 ? '⚠️' : '✅';
+            const statusText = shortage > 0 ? `-${m.shortage}` : 'Хватает';
+
+            return `
+                <tr style="border-bottom: 1px solid var(--border); background: ${bgColor};">
+                    <td style="padding: 10px;">${icon} <b>${escapeHTML(m.name)}</b></td>
+                    <td style="padding: 10px; text-align: center; font-weight: bold;">${m.needed}</td>
+                    <td style="padding: 10px; text-align: center; color: var(--text-muted);">${m.stock}</td>
+                    <td style="padding: 10px; text-align: center; color: ${statusColor}; font-weight: bold;">${statusText}</td>
+                </tr>
+            `;
+        }).join('');
+
+        if (!deficitHtml) {
+            deficitHtml = '<tr><td colspan="4" style="text-align: center; padding: 20px; color: var(--text-muted);">Сырье не требуется</td></tr>';
+        }
+
+        // 3. Собираем всё в большое модальное окно
+        const html = `
+        <style>.modal-content { max-width: 1000px !important; width: 95% !important; }</style>
+        
+        <div style="padding: 10px; display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; align-items: stretch;">
+            
+            <div class="card flex-column" style="margin-bottom: 0; padding: 0; overflow: hidden; border: 1px solid var(--border);">
+                <div style="background: var(--surface-alt); padding: 12px 15px; border-bottom: 2px solid var(--info);">
+                    <h4 style="margin: 0; color: var(--text-main); display: flex; justify-content: space-between; align-items: center;">
+                        <span>🏭 Нужно произвести</span>
+                        <span style="background: var(--info); color: white; padding: 3px 10px; border-radius: 12px; font-size: 11px;">По всем заказам</span>
+                    </h4>
+                </div>
+                <div style="flex-grow: 1;">
+                    <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                        <tbody>${planHtml}</tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card flex-column" style="margin-bottom: 0; padding: 0; overflow: hidden; border: 1px solid var(--border);">
+                <div style="background: var(--surface-alt); padding: 12px 15px; border-bottom: 2px solid var(--info);">
+                    <h4 style="margin: 0; color: var(--text-main); display: flex; justify-content: space-between; align-items: center;">
+                        <span>🧱 Потребность в сырье</span>
+                        <span style="background: var(--info); color: white; padding: 3px 10px; border-radius: 12px; font-size: 11px;">Склад №1</span>
+                    </h4>
+                </div>
+                <div style="flex-grow: 1;">
+                    <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                        <thead style="background: var(--surface-alt); color: var(--text-muted); font-size: 11px; text-transform: uppercase;">
+                            <tr style="text-align: left;">
+                                <th style="padding: 10px; border-bottom: 1px solid var(--border);">Материал</th>
+                                <th style="padding: 10px; text-align: center; border-bottom: 1px solid var(--border);" title="Сколько всего нужно на производство">План</th>
+                                <th style="padding: 10px; text-align: center; border-bottom: 1px solid var(--border);" title="Реальный остаток на складе сырья">Остаток</th>
+                                <th style="padding: 10px; text-align: center; border-bottom: 1px solid var(--border);">Статус</th>
+                            </tr>
+                        </thead>
+                        <tbody>${deficitHtml}</tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    `;
+
+        UI.showModal('📋 Сводное задание на производство (MRP)', html, `
+            <button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>
+            <button class="btn btn-blue" onclick="window.print()">🖨️ Печать задания</button>
+        `);
+
+    } catch (e) {
+        console.error(e);
+        UI.toast('Ошибка загрузки плана', 'error');
     }
 };

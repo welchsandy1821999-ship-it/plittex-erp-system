@@ -22,7 +22,7 @@
         .btn-green { background: #10b981; } .btn-green:hover { background: #059669; }
         .btn-gray { background: #64748b; } .btn-gray:hover { background: #475569; }
         .btn-blue { background: #3b82f6; } .btn-blue:hover { background: #2563eb; }
-        @media print { .no-print { display: none !important; } body { padding: 0; background: #fff; } }
+        @media print { .no-print { display: none !important; } body { padding: 0; background: var(--surface); } }
     </style>
 </head>
 <body>
@@ -77,15 +77,15 @@
                     <td class="bold text-right"><%= parseFloat(totalAmount).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) %></td>
                 </tr>
                 <tr>
-                    <td colspan="5" class="text-right">В том числе НДС</td>
-                    <td class="text-right"><%= (parseFloat(totalAmount) * 22 / 120).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) %></td>
+                    <td colspan="5" class="text-right">В том числе НДС <%= vatRate %>%</td>
+                    <td class="text-right"><%= (parseFloat(totalAmount) * vatRate / (100 + vatRate)).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) %></td>
                 </tr>
             </tbody>
         </table>
 
         <p><b>2. Оплата за товар производится в следующем порядке:</b></p>
-        <p>- ________________ рублей в т.ч. НДС 22%, Покупатель перечисляет Поставщику в качестве аванса в день подписания Договора.</p>
-        <p>- оставшуюся сумму от общей стоимости товара в размере ________________ рубля в т.ч. НДС 22%, Покупатель осуществляет в течение 10 (Десяти) календарных дней с момента приема-передачи Товара, путем перечисления стоимости продукции на расчетный счет Поставщика.</p>
+        <p>- ________________ рублей в т.ч. НДС <%= vatRate %>%, Покупатель перечисляет Поставщику в качестве аванса в день подписания Договора.</p>
+        <p>- оставшуюся сумму от общей стоимости товара в размере ________________ рубля в т.ч. НДС <%= vatRate %>%, Покупатель осуществляет в течение 10 (Десяти) календарных дней с момента приема-передачи Товара, путем перечисления стоимости продукции на расчетный счет Поставщика.</p>
 
         <table class="req-table">
             <tr>
@@ -148,7 +148,7 @@
             var postHtml = "</body></html>";
             var html = preHtml + document.getElementById('doc-content').innerHTML + postHtml;
 
-            var blob = new Blob(['\\ufeff', html], { type: 'application/msword' });
+            var blob = new Blob(['\ufeff', html], { type: 'application/msword' });
             var url = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(html);
             var downloadLink = document.createElement("a");
             

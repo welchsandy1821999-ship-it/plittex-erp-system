@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Карточка предприятия - ООО ПЛИТТЕКС</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            color: #1e293b;
+            background-color: #e2e8f0;
+            margin: 0;
+            padding: 40px;
+            display: flex;
+            justify-content: center;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        .page-a4 {
+            background: #ffffff;
+            width: 210mm;
+            min-height: 297mm;
+            padding: 20mm;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            box-sizing: border-box;
+            position: relative;
+        }
+
+        /* Шапка */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 3px solid #3b82f6;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+
+        .logo-block {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .logo-title {
+            font-size: 32px;
+            font-weight: 800;
+            color: #0f172a;
+            letter-spacing: -0.5px;
+            margin: 0;
+        }
+
+        .logo-subtitle {
+            font-size: 13px;
+            color: #64748b;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 5px;
+        }
+
+        .doc-title {
+            text-align: right;
+        }
+
+        .doc-title h1 {
+            font-size: 24px;
+            color: #3b82f6;
+            margin: 0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Контакты под шапкой (ОДНА СТРОКА) */
+        .contact-bar {
+            display: flex;
+            gap: 30px;
+            background: #f8fafc;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #475569;
+            border: 1px solid #e2e8f0;
+        }
+
+        .contact-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Сетки данных */
+        .section-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #0f172a;
+            margin: 0 0 15px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section-title::before {
+            content: '';
+            display: block;
+            width: 24px;
+            height: 4px;
+            background: #3b82f6;
+            border-radius: 2px;
+        }
+
+        .data-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        .data-box {
+            background: #ffffff;
+        }
+
+        .data-row {
+            display: flex;
+            padding: 12px 0;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .data-row:last-child {
+            border-bottom: none;
+        }
+
+        .data-label {
+            width: 40%;
+            font-size: 12px;
+            color: #64748b;
+            font-weight: 500;
+        }
+
+        .data-value {
+            width: 60%;
+            font-size: 13px;
+            color: #0f172a;
+            font-weight: 600;
+        }
+
+        /* Акцентный блок для банка + QR */
+        .bank-box {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            padding: 20px;
+            border-radius: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .bank-details {
+            flex: 1;
+            padding-right: 20px;
+        }
+
+        .bank-box .section-title::before {
+            background: #10b981;
+        }
+
+        .bank-box .data-row {
+            border-bottom-color: #dcfce7;
+            padding: 10px 0;
+        }
+
+        /* ИСПРАВЛЕНИЕ: Расширили колонку ярлыка, чтобы влезло длинное слово */
+        .bank-box .data-label {
+            color: #166534;
+            width: 48%; 
+            font-size: 11px;
+            letter-spacing: -0.2px;
+        }
+
+        .bank-box .data-value {
+            color: #14532d;
+            font-size: 13.5px;
+            width: 52%;
+        }
+
+        .highlight-account {
+            font-size: 16px !important;
+            font-weight: 800 !important;
+            color: #065f46 !important;
+            letter-spacing: 1px;
+        }
+
+        /* Стили для QR-кода */
+        .qr-container {
+            background: #ffffff;
+            padding: 12px;
+            border-radius: 8px;
+            border: 2px solid #10b981;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.1);
+            min-width: 120px;
+        }
+
+        .qr-title {
+            font-size: 10px;
+            font-weight: 700;
+            color: #166534;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+
+        /* Подвал */
+        .footer {
+            margin-top: 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+
+        .signature-block {
+            width: 300px;
+        }
+
+        .sign-line {
+            border-bottom: 1px solid #1e293b;
+            margin-bottom: 8px;
+            height: 40px;
+            position: relative;
+        }
+
+        .sign-text {
+            font-size: 12px;
+            color: #64748b;
+            text-align: center;
+        }
+
+        /* Скрываем лишнее при печати */
+        @media print {
+            body { padding: 0; background: none; }
+            .page-a4 { box-shadow: none; width: 100%; height: 100%; padding: 10mm; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="page-a4">
+        <div class="header">
+            <div class="logo-block">
+                <div class="logo-title">ПЛИТТЕКС</div>
+                <div class="logo-subtitle">Производство тротуарной плитки</div>
+            </div>
+            <div class="doc-title">
+                <h1>Карточка предприятия</h1>
+                <div style="font-size: 12px; color: #64748b; margin-top: 5px;">Реквизиты для заключения договоров</div>
+            </div>
+        </div>
+
+        <div class="contact-bar">
+            <div class="contact-item">📞 +7 (988) 888-05-06</div>
+            <div class="contact-item">✉️ plittex@bk.ru</div>
+            <div class="contact-item">🌐 plittex.ru</div>
+        </div>
+
+        <div class="data-grid">
+            <div class="data-box">
+                <div class="section-title">Юридическая информация</div>
+                
+                <div class="data-row">
+                    <div class="data-label">Полное наименование</div>
+                    <div class="data-value">ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ «ПЛИТТЕКС»</div>
+                </div>
+                <div class="data-row">
+                    <div class="data-label">ИНН / КПП</div>
+                    <div class="data-value">2372029123 / 237201001</div>
+                </div>
+                <div class="data-row">
+                    <div class="data-label">ОГРН</div>
+                    <div class="data-value">1212300040083</div>
+                </div>
+                <div class="data-row">
+                    <div class="data-label">ОКПО</div>
+                    <div class="data-value">50829991</div>
+                </div>
+                <div class="data-row">
+                    <div class="data-label">Генеральный директор</div>
+                    <div class="data-value">Марченко Сергей Михайлович<br><span style="font-size: 11px; color: #64748b; font-weight: 500;">Действует на основании Устава</span></div>
+                </div>
+            </div>
+
+            <div class="data-box">
+                <div class="section-title">Адресные данные</div>
+                
+                <div class="data-row">
+                    <div class="data-label">Юридический адрес</div>
+                    <div class="data-value">352244, РФ, Краснодарский край, г. Новокубанск, ул. Кузнечная, д. 1, оф. 2</div>
+                </div>
+                <div class="data-row">
+                    <div class="data-label">Фактический адрес</div>
+                    <div class="data-value">352244, РФ, Краснодарский край, г. Новокубанск, ул. Кузнечная, д. 1, оф. 2</div>
+                </div>
+                <div class="data-row">
+                    <div class="data-label">Почтовый адрес</div>
+                    <div class="data-value">352244, РФ, Краснодарский край, г. Новокубанск, ул. Кузнечная, д. 1, оф. 2</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bank-box">
+            <div class="bank-details">
+                <div class="section-title">Банковские реквизиты (Основной счет)</div>
+                
+                <div class="data-row">
+                    <div class="data-label">Наименование банка</div>
+                    <div class="data-value">ООО «Банк Точка» г. Москва</div>
+                </div>
+                <div class="data-row">
+                    <div class="data-label">Расчетный счет (Р/С)</div>
+                    <div class="data-value highlight-account">40702810901500100003</div>
+                </div>
+                <div class="data-row">
+                    <div class="data-label">Корреспондентский счет (К/С)</div>
+                    <div class="data-value">30101810745374525104</div>
+                </div>
+                <div class="data-row">
+                    <div class="data-label">БИК банка</div>
+                    <div class="data-value">044525104</div>
+                </div>
+            </div>
+
+            <div class="qr-container">
+                <div class="qr-title">Оплата по QR</div>
+                <img src="https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=ST00012%7CName%3D%D0%9E%D0%9E%D0%9E%20%22%D0%9F%D0%9B%D0%98%D0%A2%D0%A2%D0%95%D0%9A%D0%A1%22%7CPersonalAcc%3D40702810901500100003%7CBankName%3D%D0%9E%D0%9E%D0%9E%20%C2%AB%D0%91%D0%B0%D0%BD%D0%BA%20%D0%A2%D0%BE%D1%87%D0%BA%D0%B0%C2%BB%20%D0%B3.%20%D0%9C%D0%BE%D1%81%D0%BA%D0%B2%D0%B0%7CBIC%3D044525104%7CCorrespAcc%3D30101810745374525104%7CPayeeINN%3D2372029123%7CKPP%3D237201001" alt="QR-код для оплаты ГОСТ" style="display: block;">
+            </div>
+        </div>
+
+        <div class="footer">
+            <div style="font-size: 12px; color: #94a3b8; max-width: 55%;">
+                Документ действителен на текущую дату.<br>
+                Просим использовать данные реквизиты для зачисления платежей. Вы можете отсканировать QR-код в приложении банка для автозаполнения.
+            </div>
+            <div class="signature-block">
+                <div style="font-size: 13px; font-weight: 600; color: #0f172a; margin-bottom: 25px;">Генеральный директор</div>
+                <div class="sign-line"></div>
+                <div class="sign-text">/ Марченко С.М. /</div>
+                <div style="text-align: center; font-size: 11px; color: #94a3b8; margin-top: 5px;">М.П.</div>
+            </div>
+        </div>
+
+    </div>
+</body>
+</html>

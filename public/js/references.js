@@ -44,7 +44,10 @@ async function updateCategoryFilters() {
             opt.value = c;
             dataList.appendChild(opt);
         });
-    } catch (e) { }
+    } catch (e) {
+        console.error("Ошибка обновления категорий:", e);
+        UI.toast('Не удалось обновить список категорий', 'error');
+    }
 }
 
 function debounceRefLoad() {
@@ -60,13 +63,13 @@ function renderRefTable(items) {
     }
 
     tbody.innerHTML = items.map(item => `
-        <tr style="transition: 0.2s;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor=''">
+        <tr style="transition: 0.2s;">
             <td style="color: var(--text-muted); font-size: 12px;">#${item.id}</td>
             <td><span class="badge ${item.item_type === 'product' ? 'badge-prod' : 'badge-mat'}">${item.item_type === 'product' ? '📦 Продукция' : '🪨 Сырье'}</span></td>
             <td><strong style="color: var(--text-muted);">${item.category || '-'}</strong></td>
             
             <td style="font-family: monospace; font-size: 13px; font-weight: bold; color: var(--primary);">
-                ${item.article || '<span style="color: #cbd5e1; font-weight: normal;">—</span>'}
+                ${item.article || '<span style="color: var(--border); font-weight: normal;">—</span>'}
             </td>
 
             <td style="font-weight: 600; color: var(--text-main); cursor: pointer;" onclick="editReference(${item.id})">${item.name}</td>

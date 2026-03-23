@@ -3,6 +3,7 @@ let stockMap = {};
 let currentSelectedItem = null;
 let cart = [];
 let currentSalesWarehouse = 'all';
+
 // Переменные для списков и пагинации
 let allActiveOrders = [];
 let boPage = 1;
@@ -12,33 +13,31 @@ let allSalesHistory = [];
 let historyPage = 1;
 let historySearch = '';
 let historyDateRange = { start: '', end: '' };
+let historyDatePicker = null;
 
 function initSales() {
     const whSelect = document.getElementById('sale-warehouse');
     if (whSelect) currentSalesWarehouse = whSelect.value;
 
-    // --- НОВОЕ: Инициализация крутого календаря Flatpickr ---
     const dateInput = document.getElementById('hist-date-filter');
-    if (dateInput && !dateInput._flatpickr) {
-        flatpickr(dateInput, {
+    if (dateInput && typeof flatpickr !== 'undefined' && !dateInput._flatpickr) {
+        historyDatePicker = flatpickr(dateInput, {
             mode: "range",
             dateFormat: "Y-m-d",
             altInput: true,
             altFormat: "d.m.Y",
-            locale: "ru", // Русский язык
+            locale: "ru",
             onChange: function (selectedDates, dateStr, instance) {
                 if (selectedDates.length === 1) {
-                    // Выбран только 1 день
                     historyDateRange.start = instance.formatDate(selectedDates[0], "Y-m-d");
                     historyDateRange.end = instance.formatDate(selectedDates[0], "Y-m-d");
                 } else if (selectedDates.length === 2) {
-                    // Выбран период (от и до)
                     historyDateRange.start = instance.formatDate(selectedDates[0], "Y-m-d");
                     historyDateRange.end = instance.formatDate(selectedDates[1], "Y-m-d");
                 } else {
-                    historyDateRange = { start: '', end: '' }; // Очищено
+                    historyDateRange = { start: '', end: '' };
                 }
-                applyHistoryFilters(); // Авто-обновление таблицы
+                applyHistoryFilters();
             }
         });
     }
@@ -48,26 +47,17 @@ function initSales() {
     if (typeof loadActiveOrders === 'function') loadActiveOrders();
 }
 
-// === ЛОГИКА БЫСТРЫХ КНОПОК ПЕРИОДА ===
 window.setHistoryDateRange = function (type) {
-    const fpEl = document.getElementById('hist-date-filter');
-    if (!fpEl || !fpEl._flatpickr) return;
-    const picker = fpEl._flatpickr;
-
+    if (!historyDatePicker) return;
     const today = new Date();
-    let start = new Date();
-    let end = new Date();
+    let start = new Date(), end = new Date();
 
     switch (type) {
-        case 'today':
-            break;
+        case 'today': break;
         case 'week':
             const day = today.getDay();
-            const diff = today.getDate() - day + (day === 0 ? -6 : 1); // Понедельник
-            start = new Date(today); // Клонируем today
-            start.setDate(diff);     // Меняем только start
-            end = new Date(start);
-            end.setDate(start.getDate() + 6); // Воскресенье
+            const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+            start.setDate(diff); end = new Date(start); end.setDate(start.getDate() + 6);
             break;
         case 'month':
             start = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -83,14 +73,7 @@ window.setHistoryDateRange = function (type) {
             end = new Date(today.getFullYear(), 11, 31);
             break;
     }
-
-    // Устанавливаем даты в календарь визуально
-    picker.setDate([start, end]);
-
-    // Записываем в системные переменные и фильтруем
-    historyDateRange.start = picker.formatDate(start, "Y-m-d");
-    historyDateRange.end = picker.formatDate(end, "Y-m-d");
-    applyHistoryFilters();
+    historyDatePicker.setDate([start, end], true);
 };
 
 window.changeSaleWarehouse = function () {
@@ -100,80 +83,124 @@ window.changeSaleWarehouse = function () {
     updateSaleMaxQty();
 };
 
-window.loadClientContracts = async function () {
-    const cpId = document.getElementById('sale-client').value;
-    const contractGroup = document.getElementById('sale-contract-group');
+window.loadClientContracts = async function (cpId) {
+    const id = cpId || document.getElementById('sale-client').value;
     const contractSelect = document.getElementById('sale-contract');
+    const contractGroup = document.getElementById('sale-contract-group');
 
-    if (!cpId) {
-        contractGroup.style.display = 'none';
-        contractSelect.innerHTML = '';
+    if (!id) {
+        if (contractGroup) contractGroup.style.display = 'none';
+        if (contractSelect) contractSelect.innerHTML = '';
         return;
     }
-    try {
-        const res = await fetch(`/api/counterparties/${cpId}/contracts`);
-        const data = await res.json();
-        contractSelect.innerHTML = '<option value="Основной договор">-- Основной договор (Без номера) --</option>';
 
-        data.forEach(row => {
-            const baseStr = `Договор №${row.contract_number} от ${row.contract_date}`;
-            const optText = row.spec_id ? `${baseStr} (Спец. №${row.spec_number} от ${row.spec_date})` : baseStr;
-            let opt = new Option(optText, optText);
-            opt.setAttribute('data-cid', row.contract_id);
-            contractSelect.add(opt);
-        });
-        contractGroup.style.display = 'block';
-    } catch (e) { console.error(e); }
+    try {
+        const res = await fetch(`/api/counterparties/${id}/contracts`);
+        const data = await res.json();
+
+        if (contractSelect) {
+            contractSelect.innerHTML = '<option value="">-- Разовая продажа (Без договора) --</option>';
+            data.forEach(row => {
+                // Умное отображение: Договор + привязанная Спецификация
+                const baseStr = `Договор №${row.contract_number} от ${row.contract_date}`;
+                const optText = row.spec_id ? `${baseStr} (Спец. №${row.spec_number} от ${row.spec_date})` : baseStr;
+                let opt = new Option(optText, row.contract_id);
+                opt.setAttribute('data-cid', row.contract_id);
+                contractSelect.add(opt);
+            });
+        }
+        if (contractGroup) contractGroup.style.display = 'block';
+    } catch (e) { console.error('Ошибка загрузки договоров:', e); }
 };
 
+// Комментарий к блоку: Главный обработчик смены клиента. 
+// Загружает профиль, договоры, рисует розовую карточку и защищает корзину от махинаций с ценами.
 window.onClientChange = async function () {
-    loadClientContracts();
-    loadClientPoas();
-
     const clientSelect = document.getElementById('sale-client');
-    const cpId = clientSelect.value;
+    const cpId = clientSelect ? clientSelect.value : null;
     const infoBox = document.getElementById('sale-client-info');
+    const contractGroup = document.getElementById('sale-contract-group');
 
-    // Обновляем цены в поиске при смене клиента
-    if (typeof updateDatalistUI === 'function') updateDatalistUI();
-    updateSaleMaxQty();
+    // Комментарий к блоку: ЗАЩИТА БИЗНЕС-ЛОГИКИ.
+    // Если менеджер сменил клиента, а в корзине уже лежат товары, 
+    // мы жестко очищаем корзину. Это предотвратит продажу по чужому прайсу 
+    // (например, если первый клиент был дилером, а второй - розничным).
+    if (typeof cart !== 'undefined' && cart.length > 0) {
+        clearOrderForm(); // 🚀 ПОЛНАЯ ОЧИСТКА ВСЕХ ПОЛЕЙ И КОРЗИНЫ
+        UI.toast('Внимание! Корзина и данные доставки очищены из-за смены контрагента', 'warning');
+    }
 
+    // Комментарий к блоку: Обработка сброса.
+    // Если поле клиента очистили (нажали на крестик или стерли текст), 
+    // просто прячем розовую карточку и блок договоров.
     if (!cpId) {
-        infoBox.style.display = 'none';
+        if (infoBox) infoBox.style.display = 'none';
+        if (contractGroup) contractGroup.style.display = 'none';
         return;
     }
 
+    // Комментарий к блоку: Загрузка связанных данных (договоры и доверенности)
+    await loadClientContracts(cpId);
+    if (typeof loadClientPoas === 'function') await loadClientPoas();
+
+    // Обновляем UI-элементы ввода
+    if (typeof updateDatalistUI === 'function') updateDatalistUI();
+    if (typeof updateSaleMaxQty === 'function') updateSaleMaxQty();
+
     try {
+        // Комментарий к блоку: Запрос профиля клиента с сервера
         const res = await fetch(`/api/counterparties/${cpId}/profile`);
-        if (!res.ok) return;
+
+        // Комментарий к блоку: Обработка ошибки 404 (клиент был удален в другой вкладке)
+        if (!res.ok) {
+            UI.toast('Контрагент не найден (возможно, был удален). Обновляем список...', 'warning');
+
+            // Запускаем нашу новую умную функцию очистки (без перезагрузки всей страницы)
+            if (typeof syncClientsDropdown === 'function') {
+                await syncClientsDropdown();
+            }
+
+            // Сбрасываем выбор в поле поиска
+            if (clientSelect && clientSelect.tomselect) {
+                clientSelect.tomselect.setValue('', true);
+            } else if (clientSelect) {
+                clientSelect.value = '';
+            }
+
+            // Прячем блоки
+            if (infoBox) infoBox.style.display = 'none';
+            if (contractGroup) contractGroup.style.display = 'none';
+            return;
+        }
+
         const data = await res.json();
-
         const client = data.info;
-        const invoices = data.invoices || [];
 
+        // Комментарий к блоку: Подсчет общей суммы долгов клиента
         let totalDebt = 0;
-        invoices.forEach(inv => {
+        (data.invoices || []).forEach(inv => {
             if (inv.status === 'pending') totalDebt += parseFloat(inv.amount);
         });
 
-        // 🚀 НОВАЯ ШАПКА: ИМЯ КЛИЕНТА, БЕЙДЖ "ДИЛЕР" И КНОПКА "КАРТОЧКА"
+        // Комментарий к блоку: Отрисовка шапки клиента (Имя + Статус прайса + Кнопка настроек)
         const priceLevel = client.price_level || 'basic';
         const badgeHtml = priceLevel === 'dealer'
-            ? `<span style="background: #ede9fe; color: #8b5cf6; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; border: 1px solid #ddd6fe;">👑 ДИЛЕР</span>`
-            : `<span style="background: #f1f5f9; color: #64748b; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; border: 1px solid #e2e8f0;">👤 Розница</span>`;
+            ? `<span style="background: var(--info-bg); color: var(--info); padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; border: 1px solid #ddd6fe;">👑 ДИЛЕР</span>`
+            : `<span style="background: var(--surface-alt); color: var(--text-muted); padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; border: 1px solid #e2e8f0;">👤 Розница</span>`;
 
         const headerHtml = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px dashed #f472b6;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px dashed var(--primary);">
                 <div style="display: flex; align-items: center; gap: 10px;">
-                    <span style="font-weight: bold; font-size: 14px; color: #831843;">${client.name}</span>
+                    <span style="font-weight: bold; font-size: 14px; color: var(--primary);">${client.name}</span>
                     ${badgeHtml}
                 </div>
-                <button class="btn btn-outline" style="padding: 4px 10px; font-size: 11px; border-color: #db2777; color: #db2777; background: #fff;" onclick="openClientEditor(${cpId})">
+                <button class="btn btn-outline" style="padding: 4px 10px; font-size: 11px; border-color: var(--primary); color: var(--primary); background: var(--surface);" onclick="openClientEditor(${cpId})">
                     ⚙️ Карточка
                 </button>
             </div>
         `;
 
+        // Вставляем шапку в розовый блок
         let statusDiv = document.getElementById('sale-client-status');
         if (!statusDiv) {
             statusDiv = document.createElement('div');
@@ -182,16 +209,26 @@ window.onClientChange = async function () {
         }
         statusDiv.innerHTML = headerHtml;
 
-        // Выводим данные долгов
-        document.getElementById('sale-client-debt').innerText = totalDebt > 0 ? `${totalDebt.toLocaleString('ru-RU')} ₽` : 'Нет долгов 🟢';
-        document.getElementById('sale-client-debt').style.color = totalDebt > 0 ? '#e11d48' : '#16a34a';
+        // Комментарий к блоку: Обновление информации по долгам (зеленый/красный текст)
+        const debtEl = document.getElementById('sale-client-debt');
+        if (debtEl) {
+            debtEl.innerText = totalDebt > 0 ? `${totalDebt.toLocaleString('ru-RU')} ₽` : 'Нет долгов 🟢';
+            debtEl.style.color = totalDebt > 0 ? 'var(--danger)' : 'var(--success)';
+        }
 
-        const pallets = parseInt(client.pallets_balance) || 0;
-        document.getElementById('sale-client-pallets').innerText = pallets > 0 ? `${pallets} шт.` : '0 шт.';
-        document.getElementById('sale-client-pallets').style.color = pallets > 0 ? '#d97706' : '#16a34a';
+        // Комментарий к блоку: Обновление баланса поддонов
+        const palletsEl = document.getElementById('sale-client-pallets');
+        if (palletsEl) {
+            const pallets = parseInt(client.pallets_balance) || 0;
+            palletsEl.innerText = pallets > 0 ? `${pallets} шт.` : '0 шт.';
+            palletsEl.style.color = pallets > 0 ? 'var(--warning-text)' : 'var(--success)';
+        }
 
-        infoBox.style.display = 'block';
-    } catch (e) { console.error('Ошибка загрузки профиля', e); }
+        // Показываем розовый блок
+        if (infoBox) infoBox.style.display = 'block';
+    } catch (e) {
+        console.error('Ошибка загрузки профиля:', e);
+    }
 };
 
 // === ОТКРЫТИЕ CRM-КАРТОЧКИ КЛИЕНТА ПРЯМО ИЗ ПРОДАЖ ===
@@ -203,8 +240,8 @@ window.openClientEditor = async function (id) {
 
         const isDealer = c.price_level === 'dealer';
         const badgeHtml = isDealer
-            ? `<div style="background: #ede9fe; color: #8b5cf6; padding: 12px; border-radius: 6px; text-align: center; font-size: 14px; font-weight: bold; margin-bottom: 15px; border: 1px dashed #c4b5fd;">👑 ТЕКУЩИЙ СТАТУС: ДИЛЕР (Оптовые цены)</div>`
-            : `<div style="background: #f8fafc; color: #64748b; padding: 12px; border-radius: 6px; text-align: center; font-size: 14px; font-weight: bold; margin-bottom: 15px; border: 1px dashed #cbd5e1;">👤 ТЕКУЩИЙ СТАТУС: БАЗОВЫЙ ПРАЙС (Розница)</div>`;
+            ? `<div style="background: var(--info-bg); color: var(--info); padding: 12px; border-radius: 6px; text-align: center; font-size: 14px; font-weight: bold; margin-bottom: 15px; border: 1px dashed #c4b5fd;">👑 ТЕКУЩИЙ СТАТУС: ДИЛЕР (Оптовые цены)</div>`
+            : `<div style="background: var(--surface-hover); color: var(--text-muted); padding: 12px; border-radius: 6px; text-align: center; font-size: 14px; font-weight: bold; margin-bottom: 15px; border: 1px dashed var(--border);">👤 ТЕКУЩИЙ СТАТУС: БАЗОВЫЙ ПРАЙС (Розница)</div>`;
 
         const html = `
             <div style="padding: 10px; max-height: 70vh; overflow-y: auto;">
@@ -212,12 +249,12 @@ window.openClientEditor = async function (id) {
                 <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
                     <div class="form-group" style="grid-column: span 2;">
                         <label>Наименование клиента:</label>
-                        <input type="text" id="edit-cp-name" class="input-modern" value="${c.name || ''}">
+                        <input type="tel" id="edit-cp-name" class="input-modern" value="${c.name || ''}">
                     </div>
                     
                     <div class="form-group">
                         <label>Уровень цен (Прайс):</label>
-                        <select id="edit-cp-level" class="input-modern" style="border-color: #8b5cf6; color: #5b21b6; font-weight: bold;">
+                        <select id="edit-cp-level" class="input-modern" style="border-color: var(--info); color: #5b21b6; font-weight: bold;">
                             <option value="basic" ${!isDealer ? 'selected' : ''}>Основная (Розница)</option>
                             <option value="dealer" ${isDealer ? 'selected' : ''}>Дилерская (Опт)</option>
                         </select>
@@ -239,7 +276,7 @@ window.openClientEditor = async function (id) {
                     <div class="form-group" style="grid-column: span 2;"><label>Адрес (Юр. / Факт.):</label><input type="text" id="edit-cp-address" class="input-modern" value="${c.legal_address || ''}"></div>
                     <div class="form-group" style="grid-column: span 2;"><label>Директор (ФИО):</label><input type="text" id="edit-cp-director" class="input-modern" value="${c.director_name || ''}"></div>
                     
-                    <h4 style="grid-column: span 2; margin: 10px 0 0 0; color: var(--primary); border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">💳 Реквизиты (Для счетов)</h4>
+                    <h4 style="grid-column: span 2; margin: 10px 0 0 0; color: var(--primary); border-bottom: 1px solid var(--border); padding-bottom: 5px;">💳 Реквизиты (Для счетов)</h4>
                     <div class="form-group"><label>ОГРН:</label><input type="text" id="edit-cp-ogrn" class="input-modern" value="${c.ogrn || ''}"></div>
                     <div class="form-group"><label>БИК Банка:</label><input type="text" id="edit-cp-bik" class="input-modern" value="${c.bik || ''}"></div>
                     <div class="form-group" style="grid-column: span 2;"><label>Название банка:</label><input type="text" id="edit-cp-bank" class="input-modern" value="${c.bank_name || ''}"></div>
@@ -288,26 +325,48 @@ window.saveClientProfile = async function (id) {
             UI.closeModal();
             UI.toast('✅ Карточка успешно обновлена', 'success');
 
-            // Перезагружаем список клиентов и обновляем интерфейс, не сбрасывая выбранного
-            const currentId = document.getElementById('sale-client').value;
-            await loadSalesData(true);
-            if (currentId) {
-                document.getElementById('sale-client').value = currentId;
-                onClientChange(); // Обновляем розовый блок и цены в поиске
-            }
+            // Принудительно выбираем этого же клиента, чтобы перерисовать измененные данные
+            await syncClientsDropdown(id);
+            await loadSalesData(false);
         } else {
             UI.toast('Ошибка при сохранении', 'error');
         }
-    } catch (e) {
-        console.error(e);
-        UI.toast('Ошибка соединения', 'error');
-    }
+    } catch (e) { console.error(e); UI.toast('Ошибка соединения', 'error'); }
 };
 
+// === ПЕЧАТЬ АКТА СВЕРКИ (С ВЫБОРОМ ДАТ) ===
 window.printClientAct = function () {
     const cpId = document.getElementById('sale-client').value;
     if (!cpId) return UI.toast('Выберите клиента', 'warning');
-    window.open(`/print/act?cp_id=${cpId}`, '_blank');
+    
+    // По умолчанию берем текущий месяц
+    const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
+    const today = new Date().toISOString().split('T')[0];
+
+    const html = `
+        <div style="padding: 10px;">
+            <p style="margin-top: 0; color: var(--text-muted); font-size: 13px;">Выберите период для формирования акта сверки.</p>
+            <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div class="form-group"><label>Начало периода:</label><input type="date" id="act-start" class="input-modern" value="${startOfMonth}"></div>
+                <div class="form-group"><label>Конец периода:</label><input type="date" id="act-end" class="input-modern" value="${today}"></div>
+            </div>
+        </div>
+    `;
+    UI.showModal('Печать Акта сверки', html, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-blue" onclick="executePrintAct(${cpId})">🖨️ Распечатать</button>
+    `);
+};
+
+// Эта функция сработает после выбора дат в окне
+window.executePrintAct = function(cpId) {
+    const start = document.getElementById('act-start').value;
+    const end = document.getElementById('act-end').value;
+    if (!start || !end) return UI.toast('Укажите даты', 'error');
+    
+    // Отправляем правильный запрос с датами и правильным параметром (cpId)
+    window.open(`/print/act?cpId=${cpId}&start=${start}&end=${end}`, '_blank');
+    UI.closeModal();
 };
 
 window.loadClientPoas = async function () {
@@ -383,49 +442,56 @@ window.printSelectedContract = function () {
     window.open(`/print/contract?id=${cid}`, '_blank');
 };
 
+// === НОВЫЙ МОДУЛЬ: УМНАЯ СИНХРОНИЗАЦИЯ КЛИЕНТОВ ===
+// 1. Исправленная синхронизация клиентов (без рекурсии)
+window.syncClientsDropdown = async function (forceSelectId = null) {
+    try {
+        const res = await fetch('/api/counterparties');
+        const clients = await res.json();
+        const clientSel = document.getElementById('sale-client');
+
+        if (!clientSel) return;
+
+        if (!clientSel.tomselect) {
+            // ПЕРВАЯ ИНИЦИАЛИЗАЦИЯ
+            new TomSelect(clientSel, {
+                plugins: ['clear_button'],
+                options: clients.map(c => ({ value: c.id, text: c.name, 'data-level': c.price_level || 'basic' })),
+                placeholder: "-- Выберите клиента --",
+                allowEmptyOption: true,
+                onChange: function () {
+                    if (typeof onClientChange === 'function') onClientChange();
+                }
+                // 🛡️ ТУТ БОЛЬШЕ НЕТ onDropdownOpen, который вызывал бесконечный цикл
+            });
+        } else {
+            // ОБНОВЛЕНИЕ
+            const ts = clientSel.tomselect;
+            const targetVal = forceSelectId ? String(forceSelectId) : ts.getValue();
+            ts.clearOptions();
+            ts.addOptions(clients.map(c => ({ value: c.id, text: c.name, 'data-level': c.price_level || 'basic' })));
+            if (targetVal) ts.setValue(targetVal, true);
+        }
+    } catch (e) { console.error('Ошибка синхронизации клиентов:', e); }
+};
+
+// 2. Исправленная загрузка данных (товары и кассы)
 async function loadSalesData(fullLoad = true) {
     try {
         if (fullLoad) {
-            // --- 1. БЕЗОПАСНАЯ ЗАГРУЗКА КЛИЕНТОВ ---
-            const cpRes = await fetch('/api/counterparties');
-            const clients = await cpRes.json();
-            const clientSel = document.getElementById('sale-client');
+            await syncClientsDropdown(); // Сначала клиенты
 
-            if (clientSel) {
-                clientSel.innerHTML = '<option value="">-- Выберите клиента --</option>';
-                clients.forEach(c => {
-                    const opt = document.createElement('option');
-                    opt.value = c.id;
-                    opt.textContent = c.name;
-                    // Сохраняем уровень цен (Дилер/Розница)
-                    opt.setAttribute('data-level', c.price_level || 'basic');
-                    clientSel.appendChild(opt);
-                });
-            }
-
-            // --- 2. БЕЗОПАСНАЯ ЗАГРУЗКА КАСС/СЧЕТОВ ---
             const accRes = await fetch('/api/accounts');
             const accounts = await accRes.json();
             const accSel = document.getElementById('sale-account');
-
             if (accSel) {
                 accSel.innerHTML = '';
-                accounts.forEach(a => {
-                    accSel.add(new Option(`${a.name} (${a.balance} ₽)`, a.id));
-                });
+                accounts.forEach(a => accSel.add(new Option(`${a.name} (${a.balance} ₽)`, a.id)));
             }
 
-            // --- 3. БЕЗОПАСНАЯ ЗАГРУЗКА ТОВАРОВ ---
             const prodRes = await fetch('/api/products');
             const products = await prodRes.json();
-
-            // Если объект еще не существует, создаем его
-            if (typeof salesProductsInfo === 'undefined') {
-                window.salesProductsInfo = {};
-            } else {
-                salesProductsInfo = {}; // Очищаем старые данные
-            }
-
+            window.salesProductsInfo = {};
             products.forEach(p => salesProductsInfo[String(p.id)] = p);
         }
 
@@ -433,7 +499,6 @@ async function loadSalesData(fullLoad = true) {
         const inventory = await invRes.json();
         stockMap = {};
 
-        // Собираем реальные остатки по складам
         const inventoryMap = {};
         inventory.forEach(row => {
             if (!inventoryMap[row.item_name]) inventoryMap[row.item_name] = { '4': 0, '5': 0 };
@@ -442,37 +507,24 @@ async function loadSalesData(fullLoad = true) {
             }
         });
 
-        const datalist = document.getElementById('sale-products-datalist');
-        datalist.innerHTML = '';
-
-        // УМНОЕ ФОРМИРОВАНИЕ СПИСКА ПОИСКА
         Object.values(salesProductsInfo).forEach(p => {
-            const price = parseFloat(p.price || p.current_price || p.base_price || 0);
-
-            // 🚀 ИСПРАВЛЕНИЕ: Читаем дилерскую цену из базы
+            const price = parseFloat(p.price || p.current_price || 0);
             const dealerPrice = parseFloat(p.dealer_price || 0);
-
             const stock4 = inventoryMap[p.name] ? inventoryMap[p.name]['4'] : 0;
             const stock5 = inventoryMap[p.name] ? inventoryMap[p.name]['5'] : 0;
 
             if (currentSalesWarehouse === 'all') {
-                // РЕЖИМ 1: Весь справочник (Добавили dealer_price)
-                stockMap[p.name] = { id: p.id, warehouseId: 4, name: p.name, unit: p.unit, qty: stock4, price: price, dealer_price: dealerPrice, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Авто', allowProduction: true };
+                stockMap[p.name] = { id: p.id, warehouseId: 4, name: p.name, unit: p.unit, qty: stock4, price, dealer_price: dealerPrice, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Авто', allowProduction: true };
             } else if (currentSalesWarehouse === '4' && stock4 > 0) {
-                // РЕЖИМ 2: Строго наличие 1 сорта (Добавили dealer_price)
-                stockMap[p.name] = { id: p.id, warehouseId: 4, name: p.name, unit: p.unit, qty: stock4, price: price, dealer_price: dealerPrice, weight: parseFloat(p.weight_kg || 0), sortLabel: '1 сорт', allowProduction: false };
+                stockMap[p.name] = { id: p.id, warehouseId: 4, name: p.name, unit: p.unit, qty: stock4, price, dealer_price: dealerPrice, weight: parseFloat(p.weight_kg || 0), sortLabel: '1 сорт', allowProduction: false };
             } else if (currentSalesWarehouse === '5' && stock5 > 0) {
-                // РЕЖИМ 3: Строго наличие Уценки
                 stockMap[p.name] = { id: p.id, warehouseId: 5, name: p.name, unit: p.unit, qty: stock5, price: Math.floor(price * 0.7), dealer_price: Math.floor(dealerPrice * 0.7), weight: parseFloat(p.weight_kg || 0), sortLabel: 'Уценка', allowProduction: false };
             }
         });
 
-        // 🚀 ВЫЗЫВАЕМ НОВУЮ ФУНКЦИЮ ОТРИСОВКИ
         updateDatalistUI();
-
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error('Ошибка в loadSalesData:', e); }
 }
-
 // === НОВАЯ ФУНКЦИЯ: ОБНОВЛЕНИЕ ЦЕН В ВЫПАДАЮЩЕМ СПИСКЕ ПОИСКА ===
 window.updateDatalistUI = function () {
     const datalist = document.getElementById('sale-products-datalist');
@@ -576,7 +628,23 @@ window.removeFromCart = function (index) {
 
 // Функция пересчета при изменении значения прямо в таблице
 window.updateCartItem = function (index, field, value) {
-    cart[index][field] = parseFloat(value) || 0;
+    let val = parseFloat(value) || 0;
+    
+    if (field === 'price' && val < 0) {
+        UI.toast('Цена не может быть отрицательной!', 'warning');
+        val = 0;
+    }
+    if (field === 'discount') {
+        if (val < 0) {
+            UI.toast('Скидка не может быть меньше 0%', 'warning');
+            val = 0;
+        } else if (val > 100) {
+            UI.toast('Скидка не может быть больше 100%', 'warning');
+            val = 100;
+        }
+    }
+
+    cart[index][field] = val;
     renderCart();
 };
 
@@ -585,6 +653,11 @@ window.renderCart = function () {
     if (cart.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">Корзина пуста</td></tr>';
         document.getElementById('cart-total-sum').innerText = '0';
+
+        // 🚀 ИСПРАВЛЕНИЕ: Жестко обнуляем вес, если корзина пустая
+        const weightEl = document.getElementById('cart-total-weight');
+        if (weightEl) weightEl.innerText = '0';
+
         return;
     }
 
@@ -603,7 +676,7 @@ window.renderCart = function () {
         totalWeight += qty * (item.weight || 0);
 
         return `
-            <tr style="border-bottom: 1px solid #f1f5f9;">
+            <tr style="border-bottom: 1px solid var(--surface-alt);">
                 <td>1 Сорт</td>
                 <td><b>${item.name}</b></td>
                 <td style="text-align: center;">${qty} ${item.unit}</td>
@@ -614,7 +687,7 @@ window.renderCart = function () {
                     <input type="number" class="input-modern" style="width: 60px; padding: 4px; text-align: center; color: var(--danger);" value="${discount}" min="0" max="100" onchange="updateCartItem(${index}, 'discount', this.value)">
                 </td>
                 <td style="text-align: right; font-weight: bold; color: var(--primary);">${sum.toFixed(2)} ₽</td>
-                <td style="text-align: center;"><button style="background: none; border: none; color: red; cursor: pointer; font-size: 16px;" onclick="removeFromCart(${index})">✖</button></td>
+                <td style="text-align: center;"><button style="background: none; border: none; color: var(--danger); cursor: pointer; font-size: 16px;" onclick="removeFromCart(${index})">✖</button></td>
             </tr>
         `;
     }).join('');
@@ -627,101 +700,170 @@ window.renderCart = function () {
     document.getElementById('cart-total-sum').innerText = finalTotal.toLocaleString('ru-RU');
 };
 
+// === УМНАЯ ОЧИСТКА ВСЕГО БЛОКА ОФОРМЛЕНИЯ ===
+window.clearOrderForm = function () {
+    // 1. Очищаем корзину
+    cart = [];
+    if (typeof renderCart === 'function') renderCart();
+
+    // 2. Очищаем все текстовые и числовые поля
+    const fieldsToClear = [
+        'sale-discount', 'sale-logistics-cost', 'sale-delivery-address',
+        'sale-planned-date', 'sale-pallets', 'sale-driver', 'sale-auto',
+        'sale-poa-comment', 'sale-advance-amount'
+    ];
+    fieldsToClear.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+
+    // 3. Сбрасываем чекбоксы и селекты в состояние по умолчанию
+    const noPoa = document.getElementById('sale-no-poa');
+    if (noPoa) { noPoa.checked = false; togglePoaMode(); }
+
+    const payMethod = document.getElementById('sale-payment-method');
+    if (payMethod) { payMethod.value = 'debt'; toggleSalePayment(); }
+};
+
 // === ОФОРМЛЕНИЕ ЗАКАЗА (ОТПРАВКА НА СЕРВЕР) ===
 window.processCheckout = async function () {
     if (cart.length === 0) return UI.toast('Корзина пуста', 'error');
 
     const client_id = document.getElementById('sale-client').value;
-    if (!client_id) return UI.toast('Выберите контрагента', 'error');
+    if (!client_id) return UI.toast('Выберите клиента', 'error');
 
-    const payment_method = document.getElementById('sale-payment-method').value;
-    const account_id = document.getElementById('sale-account') ? document.getElementById('sale-account').value : null;
-    const advance_amount = document.getElementById('sale-advance-amount') ? document.getElementById('sale-advance-amount').value : 0;
+    // ==========================================
+    // 1. ЖЕСТКАЯ ПРОВЕРКА ДОВЕРЕННОСТИ
+    // ==========================================
+    const noPoa = document.getElementById('sale-no-poa').checked;
+    const poaSelectVal = document.getElementById('sale-poa').value;
+    const poaComment = document.getElementById('sale-poa-comment').value.trim();
 
-    // Собираем остальные поля формы
-    const discount = parseFloat(document.getElementById('sale-discount').value) || 0; // Глобальная скидка на весь чек
-    const logistics_cost = parseFloat(document.getElementById('sale-logistics-cost').value) || 0;
-    const delivery_address = document.getElementById('sale-delivery-address').value;
-    const planned_shipment_date = document.getElementById('sale-planned-date').value;
-    const pallets_qty = parseInt(document.getElementById('sale-pallets').value) || 0;
-    const driver = document.getElementById('sale-driver').value;
-    const auto = document.getElementById('sale-auto').value;
+    if (noPoa) {
+        // Если галочка стоит, требуем причину
+        if (!poaComment) return UI.toast('Укажите причину отгрузки без доверенности!', 'error');
+    } else {
+        // Если галочки нет, ТРЕБУЕМ выбрать доверенность из списка
+        if (!poaSelectVal) return UI.toast('Выберите доверенность из списка или поставьте галочку "Без доверенности"!', 'error');
+    }
 
-    // Получаем инфо о договоре (если он выбран)
-    const contractSelect = document.getElementById('sale-contract');
-    const contract_info = contractSelect && contractSelect.value ? contractSelect.options[contractSelect.selectedIndex].text : '';
+    // Формируем итоговую строку для базы
+    const poa_info = noPoa ? `Без доверенности: ${poaComment}` : poaSelectVal;
 
-    // === 🚀 ВОТ ТОТ САМЫЙ БЛОК: ПЕРЕСЧЕТ ЦЕН ПЕРЕД ОТПРАВКОЙ ===
-    // Мы берем нашу корзину (cart) и создаем новый массив, где цена уже уменьшена на % индивидуальной скидки
-    const finalItemsToSend = cart.map(item => ({
-        id: item.id,
-        qty: item.qty,
-        allow_production: item.allow_production,
-        warehouse_id: item.warehouse_id,
-        // Формула: Цена * (1 - Скидка / 100)
-        price: Number((parseFloat(item.price) * (1 - (parseFloat(item.discount) || 0) / 100)).toFixed(2))
-    }));
-    // ==============================================================
+    // ==========================================
+    // 2. ЖЕСТКАЯ ПРОВЕРКА АВАНСА
+    // ==========================================
+    const paymentMethod = document.getElementById('sale-payment-method').value;
+    const advanceAmount = parseFloat(document.getElementById('sale-advance-amount')?.value) || 0;
 
+    if (paymentMethod === 'partial' && advanceAmount <= 0) {
+        return UI.toast('Вы выбрали оплату авансом. Укажите сумму вносимого аванса!', 'error');
+    }
+
+    // ==========================================
+    // 3. ПРОВЕРКА ЛОГИСТИКИ И ДАТЫ ОТГРУЗКИ
+    // ==========================================
+    const logisticsCost = parseFloat(document.getElementById('sale-logistics-cost').value) || 0;
+    if (logisticsCost < 0) {
+        return UI.toast('Стоимость логистики не может быть отрицательной!', 'error');
+    }
+
+    const plannedDateStr = document.getElementById('sale-planned-date').value;
+    if (!plannedDateStr) {
+        return UI.toast('Укажите плановую дату отгрузки!', 'error');
+    }
+    
+    const plannedDate = new Date(plannedDateStr);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Обнуляем время для проверки только даты
+    if (plannedDate < today) {
+        return UI.toast('Дата отгрузки не может быть в прошлом!', 'error');
+    }
+
+    // Блокируем кнопку от двойного клика
     const btn = document.querySelector('button[onclick="processCheckout()"]');
-    const originalText = btn.innerText;
-    btn.disabled = true;
-    btn.innerText = '⏳ Оформление...';
+    if (btn) btn.disabled = true;
+
+    // Собираем данные (учитывая все проверки)
+    const payload = {
+        counterparty_id: client_id,
+        items: cart.map(i => ({
+            id: i.id,
+            qty: i.qty,
+            price: i.price * (1 - (i.discount || 0) / 100),
+            warehouse_id: i.warehouseId,
+            allow_production: i.allowProduction
+        })),
+        payment_method: paymentMethod,
+        account_id: document.getElementById('sale-account')?.value,
+        advance_amount: advanceAmount,
+        discount: document.getElementById('sale-discount').value || 0,
+        driver: document.getElementById('sale-driver').value,
+        auto: document.getElementById('sale-auto').value,
+        contract_id: document.getElementById('sale-contract').value || null,
+        delivery_address: document.getElementById('sale-delivery-address').value,
+        logistics_cost: logisticsCost,
+        planned_shipment_date: plannedDateStr,
+        pallets_qty: document.getElementById('sale-pallets').value || 0,
+        poa_info: poa_info, // Передаем проверенную информацию
+        user_id: JSON.parse(localStorage.getItem('user'))?.id || null
+    };
 
     try {
         const res = await fetch('/api/sales/checkout', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                counterparty_id: client_id,
-                items: finalItemsToSend, // <-- Передаем наш пересчитанный массив!
-                payment_method,
-                account_id,
-                advance_amount,
-                discount, // Это общая скидка на весь чек (если есть)
-                driver,
-                auto,
-                contract_info,
-                delivery_address,
-                logistics_cost,
-                planned_shipment_date,
-                pallets_qty
-            })
+            body: JSON.stringify(payload)
         });
 
         if (res.ok) {
             const result = await res.json();
-            UI.toast(`✅ Заказ ${result.docNum} успешно оформлен!`, 'success');
 
-            // Очищаем форму после успеха
-            cart = [];
-            document.getElementById('sale-product-input').value = '';
-            document.getElementById('sale-qty').value = '';
-            document.getElementById('sale-price').value = '';
-            document.getElementById('sale-discount').value = '';
-            document.getElementById('sale-logistics-cost').value = '0';
-            document.getElementById('sale-pallets').value = '';
+            // Очищаем форму
+            clearOrderForm();
 
-            renderCart();
+            // 🛡️ ЗАЩИТА: проверяем наличие отчета перед тем как запускать .map
+            if (result.deficitReport && Array.isArray(result.deficitReport) && result.deficitReport.length > 0) {
+                let deficitHtml = `
+                    <div style="background: #fffbeb; border: 1px solid #fde68a; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                        <h4 style="color: #92400e; margin-top: 0;">⚠️ Внимание! Нехватка сырья</h4>
+                        <p style="font-size: 13px; color: #78350f;">Для производства заказа не хватает материалов на Складе №1:</p>
+                        <table style="width: 100%; font-size: 13px; border-collapse: collapse; margin-top: 10px;">
+                            <tr style="border-bottom: 1px solid #fde68a; text-align: left;">
+                                <th style="padding: 5px;">Материал</th>
+                                <th style="padding: 5px;">Нужно</th>
+                                <th style="padding: 5px;">Дефицит</th>
+                            </tr>
+                            ${result.deficitReport.map(m => `
+                                <tr>
+                                    <td style="padding: 5px;"><b>${m.name || 'Материал'}</b></td>
+                                    <td style="padding: 5px;">${m.needed || 0}</td>
+                                    <td style="padding: 5px; color: #dc2626;"><b>-${m.shortage || 0}</b></td>
+                                </tr>
+                            `).join('')}
+                        </table>
+                    </div>
+                `;
+
+                UI.showModal(`Заказ ${result.docNum} оформлен`, deficitHtml, `
+                    <button class="btn btn-blue" onclick="UI.closeModal()">Принято</button>
+                `);
+            } else {
+                UI.toast(`✅ Заказ ${result.docNum} оформлен!`, 'success');
+            }
+
             if (typeof loadActiveOrders === 'function') loadActiveOrders();
             switchSalesTab('tab-active-orders', document.querySelectorAll('.sales-tab-btn')[1]);
 
-            if (typeof onClientChange === 'function') onClientChange();
-
-            // Если нужно, предлагаем сразу распечатать счет
-            if (payment_method === 'debt' || payment_method === 'partial') {
-                setTimeout(() => openInvoiceModal(result.docNum, result.totalAmount), 1000);
-            }
         } else {
             const err = await res.text();
-            UI.toast('Ошибка сервера: ' + err, 'error');
+            UI.toast('Ошибка: ' + err, 'error');
         }
     } catch (e) {
-        console.error(e);
-        UI.toast('Ошибка сети при оформлении заказа', 'error');
+        UI.toast('Ошибка связи с сервером', 'error');
     } finally {
-        btn.disabled = false;
-        btn.innerText = originalText;
+        // Разблокируем кнопку в любом случае
+        if (btn) btn.disabled = false;
     }
 };
 
@@ -729,15 +871,20 @@ window.processCheckout = async function () {
 // === УПРАВЛЕНИЕ ЗАКАЗАМИ (OMS - КАНБАН ДОСКА) ===
 // ==========================================
 async function loadActiveOrders() {
+    // 🚀 Задача №14: Привязка поиска и пагинации
+    const query = new URLSearchParams({
+        page: boPage,
+        search: boSearch,
+        _t: Date.now()
+    }).toString();
+
     try {
-        const res = await fetch('/api/sales/orders');
-        if (res.ok) {
-            allActiveOrders = await res.json();
-            populateSalesFilters(); // <--- ДОБАВЛЕНО
-            renderBlankOrdersTable();
-        }
+        const res = await fetch(`/api/sales/orders?${query}`);
+        allActiveOrders = await res.json();
+        renderBlankOrdersTable();
     } catch (e) { console.error(e); }
 }
+
 window.changeBlankOrderPage = function (dir) {
     boPage += dir;
     renderBlankOrdersTable();
@@ -786,6 +933,11 @@ function renderBlankOrdersTable() {
     const start = (boPage - 1) * 5;
     const paginated = filtered.slice(start, start + 5);
 
+    if (!Array.isArray(paginated)) {
+        console.error('Ошибка данных API: ожидался массив заказов (paginated), получено:', paginated);
+        return;
+    }
+
     if (paginated.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">Нет активных заказов</td></tr>';
         return;
@@ -796,8 +948,8 @@ function renderBlankOrdersTable() {
         const ordered = parseFloat(o.total_ordered) || 0;
         const shipped = parseFloat(o.total_shipped) || 0;
         let statusBadge = shipped > 0 && shipped < ordered
-            ? `<span style="background: #e0f2fe; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: #0284c7; border: 1px solid #bae6fd;">🔵 Отгружается (${Math.round((shipped / ordered) * 100)}%)</span>`
-            : `<span style="background: #fef08a; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: #854d0e; border: 1px solid #fde047;">🟡 В очереди</span>`;
+            ? `<span style="background: var(--info-bg); padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: var(--info); border: 1px solid #bae6fd;">🔵 Отгружается (${Math.round((shipped / ordered) * 100)}%)</span>`
+            : `<span style="background: var(--warning-bg); padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: var(--warning-text); border: 1px solid #fde047;">🟡 В очереди</span>`;
 
         // --- 2. СТАТУС ОПЛАТЫ ИМЕННО ЭТОГО ЗАКАЗА ---
         const totalAmt = parseFloat(o.total_amount) || 0;
@@ -805,13 +957,13 @@ function renderBlankOrdersTable() {
         const debtAmt = parseFloat(o.pending_debt) || 0;
         let finBadge = '';
         if (paidAmt >= totalAmt) {
-            finBadge = `<span style="background: #dcfce3; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: #166534; border: 1px solid #bbf7d0; display: inline-block; margin-top: 5px;">🟢 Оплачен 100%</span>`;
+            finBadge = `<span style="background: var(--success-bg); padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: var(--success-text); border: 1px solid #bbf7d0; display: inline-block; margin-top: 5px;">🟢 Оплачен 100%</span>`;
         } else if (debtAmt > 0) {
-            finBadge = `<span style="background: #fee2e2; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: #b91c1c; border: 1px solid #fecaca; display: inline-block; margin-top: 5px;">🔴 Долг: ${debtAmt.toLocaleString('ru-RU')} ₽</span>`;
+            finBadge = `<span style="background: var(--danger-bg); padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: var(--danger-text); border: 1px solid #fecaca; display: inline-block; margin-top: 5px;">🔴 Долг: ${debtAmt.toLocaleString('ru-RU')} ₽</span>`;
         } else if (paidAmt > 0) {
             finBadge = `<span style="background: #fef3c7; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: #b45309; border: 1px solid #fde68a; display: inline-block; margin-top: 5px;">🟡 Аванс: ${paidAmt.toLocaleString('ru-RU')} ₽</span>`;
         } else {
-            finBadge = `<span style="background: #f1f5f9; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: #64748b; border: 1px solid #e2e8f0; display: inline-block; margin-top: 5px;">⚪ Не оплачен</span>`;
+            finBadge = `<span style="background: var(--surface-alt); padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: var(--text-muted); border: 1px solid #e2e8f0; display: inline-block; margin-top: 5px;">⚪ Не оплачен</span>`;
         }
 
         // --- 3. ОБЩИЙ БАЛАНС КЛИЕНТА (ПО ФАКТУ ОТГРУЗКИ) ---
@@ -820,9 +972,9 @@ function renderBlankOrdersTable() {
         if (clientBalance > 0) {
             clientBalanceBadge = `<div style="margin-top: 5px; font-size: 11px; color: #059669; font-weight: bold; background: #d1fae5; display: inline-block; padding: 3px 6px; border-radius: 4px; border: 1px solid #34d399;">💰 Переплата (Аванс): +${clientBalance.toLocaleString('ru-RU')} ₽</div>`;
         } else if (clientBalance < 0) {
-            clientBalanceBadge = `<div style="margin-top: 5px; font-size: 11px; color: #dc2626; font-weight: bold; background: #fee2e2; display: inline-block; padding: 3px 6px; border-radius: 4px; border: 1px solid #f87171;">📉 Общий долг: ${Math.abs(clientBalance).toLocaleString('ru-RU')} ₽</div>`;
+            clientBalanceBadge = `<div style="margin-top: 5px; font-size: 11px; color: #dc2626; font-weight: bold; background: var(--danger-bg); display: inline-block; padding: 3px 6px; border-radius: 4px; border: 1px solid #f87171;">📉 Общий долг: ${Math.abs(clientBalance).toLocaleString('ru-RU')} ₽</div>`;
         } else {
-            clientBalanceBadge = `<div style="margin-top: 5px; font-size: 11px; color: #475569; font-weight: bold; background: #f1f5f9; display: inline-block; padding: 3px 6px; border-radius: 4px; border: 1px solid #cbd5e1;">⚖️ Взаиморасчеты: 0 ₽</div>`;
+            clientBalanceBadge = `<div style="margin-top: 5px; font-size: 11px; color: var(--text-muted); font-weight: bold; background: var(--surface-alt); display: inline-block; padding: 3px 6px; border-radius: 4px; border: 1px solid var(--border);">⚖️ Взаиморасчеты: 0 ₽</div>`;
         }
 
         // --- 4. ПРОГНОЗ БАЛАНСА (С УЧЕТОМ ВСЕХ ЗАКАЗОВ) ---
@@ -838,13 +990,13 @@ function renderBlankOrdersTable() {
 
         // --- РЕНДЕР СТРОКИ ---
         return `
-        <tr style="transition: 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor=''">
+        <tr style="transition: 0.2s;" onmouseover="this.style.backgroundColor='var(--surface-hover)'" onmouseout="this.style.backgroundColor=''">
             <td style="color: var(--text-muted); font-size: 13px;">
                 ${o.date_formatted}<br>
-                <span style="color: #d97706; font-weight: bold;">до ${o.deadline || 'Не указан'}</span>
+                <span style="color: var(--warning-text); font-weight: bold;">до ${o.deadline || 'Не указан'}</span>
             </td>
             <td>
-                <strong style="color: #8b5cf6; font-size: 14px;">${o.doc_number}</strong><br>
+                <strong style="color: var(--info); font-size: 14px;">${o.doc_number}</strong><br>
                 <span style="font-size: 12px; font-weight: bold; color: var(--text-main);">${totalAmt.toLocaleString('ru-RU')} ₽</span>
             </td>
             <td style="vertical-align: top;">
@@ -860,8 +1012,8 @@ function renderBlankOrdersTable() {
             <td style="text-align: right; min-width: 250px; vertical-align: middle;">
                 <div style="display: flex; justify-content: flex-end; gap: 5px; align-items: center;">
                     ${offsetBtn}
-                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: #0284c7; border-color: #0284c7;" onclick="openInvoiceModal('${o.doc_number}', ${debtAmt > 0 ? debtAmt : totalAmt})" title="Счет на оплату">🖨️ Счет</button>
-                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: #8b5cf6; border-color: #8b5cf6;" onclick="openOrderManager(${o.id})">⚙️ Управл.</button>
+                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--info); border-color: var(--info);" onclick="openInvoiceModal('${o.doc_number}', ${debtAmt > 0 ? debtAmt : totalAmt})" title="Счет на оплату">🖨️ Счет</button>
+                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--info); border-color: var(--info);" onclick="openOrderManager(${o.id})">⚙️ Управл.</button>
                     <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--danger); border-color: var(--danger);" onclick="confirmDeleteOrder(${o.id}, '${o.doc_number}')" title="Отменить и удалить заказ">❌</button>
                 </div>
             </td>
@@ -901,13 +1053,22 @@ window.executeDeleteOrder = async function (orderId) {
 // === ИСТОРИЯ ОТГРУЗОК (АРХИВ) ===
 // ==========================================
 async function loadSalesHistory() {
+    // 🚀 Задача №14: Привязка фильтров даты и страниц
+    const query = new URLSearchParams({
+        page: historyPage,
+        search: historySearch,
+        start: historyDateRange.start,
+        end: historyDateRange.end,
+        _t: Date.now()
+    }).toString();
+
     try {
-        const res = await fetch('/api/sales/history');
-        if (res.ok) {
-            allSalesHistory = await res.json();
-            populateSalesFilters(); // <--- ДОБАВЛЕНО
-            renderHistoryTable();
-        }
+        const res = await fetch(`/api/sales/history?${query}`);
+        const data = await res.json();
+
+        // Предполагаем, что сервер возвращает { data: [], totalPages: X }
+        allSalesHistory = data.data || data;
+        renderHistoryTable();
     } catch (e) { console.error(e); }
 }
 
@@ -970,7 +1131,7 @@ function renderHistoryTable() {
         const sumText = rowSum > 0 ? rowSum.toLocaleString('ru-RU') + ' ₽' : '-';
 
         return `
-        <tr style="transition: 0.2s;" onmouseover="this.style.backgroundColor='#f8fafc'" onmouseout="this.style.backgroundColor=''">
+        <tr style="transition: 0.2s;" onmouseover="this.style.backgroundColor='var(--surface-hover)'" onmouseout="this.style.backgroundColor=''">
             <td style="color: var(--text-muted); font-size: 13px;">${h.date_formatted}</td>
             <td><strong style="color: var(--primary);">${h.doc_num}</strong></td>
             <td><b>${escapeHTML(h.client_name || 'Неизвестный клиент')}</b><br><span style="font-size: 11px; color: var(--text-muted);">${h.payment || ''}</span></td>
@@ -980,8 +1141,8 @@ function renderHistoryTable() {
             
             <td style="text-align: right; min-width: 250px;">
             <div style="display: flex; justify-content: flex-end; gap: 5px; align-items: center;">
-                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: #8b5cf6; border-color: #8b5cf6;" onclick="window.open('/print/upd?docNum=${h.doc_num}', '_blank')" title="УПД и Пропуск на выезд">🖨️ УПД + Пропуск</button>
-                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: #d97706; border-color: #d97706;" onclick="window.open('/print/specification?docNum=${h.doc_num}', '_blank')" title="Спецификация">🖨️ Спец.</button>
+                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--info); border-color: var(--info);" onclick="window.open('/print/upd?docNum=${h.doc_num}', '_blank')" title="УПД и Пропуск на выезд">🖨️ УПД + Пропуск</button>
+                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--warning-text); border-color: var(--warning-text);" onclick="window.open('/print/specification?docNum=${h.doc_num}', '_blank')" title="Спецификация">🖨️ Спец.</button>
                 <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--primary); border-color: var(--primary);" onclick="window.open('/print/waybill?docNum=${h.doc_num}', '_blank')" title="Накладная">🖨️ Накладная</button>
                 <button class="btn btn-outline" style="color: var(--danger); border-color: var(--danger); padding: 4px 8px; font-size: 12px;" onclick="cancelShipment('${h.doc_num}')" title="Отменить">❌</button>
             </div>
@@ -1032,16 +1193,16 @@ window.openPriceListModal = async function () {
         const products = await res.json();
 
         let tbody = products.map(p => `
-            <tr style="border-bottom: 1px solid #e2e8f0;">
+            <tr style="border-bottom: 1px solid var(--border);">
                 <td style="padding: 8px;">
-                    <span class="badge" style="background: #f1f5f9; color: #475569; font-size: 11px; margin-right: 8px; font-family: monospace;">${p.article || 'НЕТ АРТИКУЛА'}</span>
-                    <b>${p.name}</b> <span style="font-size: 10px; color: gray;">(${p.unit})</span>
+                    <span class="badge" style="background: var(--surface-alt); color: var(--text-muted); font-size: 11px; margin-right: 8px; font-family: monospace;">${p.article || 'НЕТ АРТИКУЛА'}</span>
+                    <b>${p.name}</b> <span style="font-size: 10px; color: var(--text-muted);">(${p.unit})</span>
                 </td>
                 <td style="padding: 8px; text-align: center;">
                     <input type="number" class="input-modern price-basic" data-id="${p.id}" value="${p.current_price}" style="width: 90px; text-align: center;">
                 </td>
                 <td style="padding: 8px; text-align: center;">
-                    <input type="number" class="input-modern price-dealer" data-id="${p.id}" value="${p.dealer_price || 0}" style="width: 90px; text-align: center; border-color: #8b5cf6;">
+                    <input type="number" class="input-modern price-dealer" data-id="${p.id}" value="${p.dealer_price || 0}" style="width: 90px; text-align: center; border-color: var(--info);">
                 </td>
             </tr>
         `).join('');
@@ -1050,11 +1211,11 @@ window.openPriceListModal = async function () {
             <style>.modal-content { max-width: 700px !important; }</style>
             <div style="max-height: 60vh; overflow-y: auto; padding-right: 10px;">
                 <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-                    <thead style="background: #f8fafc; position: sticky; top: 0;">
+                    <thead style="background: var(--surface-hover); position: sticky; top: 0;">
                         <tr>
                             <th style="padding: 10px; text-align: left;">Товар</th>
                             <th style="padding: 10px; text-align: center; color: var(--text-main);">Основная (Розница)</th>
-                            <th style="padding: 10px; text-align: center; color: #8b5cf6;">Дилерская (Опт)</th>
+                            <th style="padding: 10px; text-align: center; color: var(--info);">Дилерская (Опт)</th>
                         </tr>
                     </thead>
                     <tbody>${tbody}</tbody>
@@ -1070,7 +1231,7 @@ window.openPriceListModal = async function () {
                         📥 Загрузить Базовый (Розница)
                         <input type="file" accept=".csv" style="display: none;" onchange="handleBasicCsvImport(event)">
                     </label>
-                    <label class="btn btn-outline" style="cursor: pointer; border-color: #8b5cf6; color: #8b5cf6; font-size: 12px; padding: 6px 12px;">
+                    <label class="btn btn-outline" style="cursor: pointer; border-color: var(--info); color: var(--info); font-size: 12px; padding: 6px 12px;">
                         📥 Загрузить Дилерский (Опт)
                         <input type="file" accept=".csv" style="display: none;" onchange="handleDealerCsvImport(event)">
                     </label>
@@ -1108,46 +1269,213 @@ window.savePriceList = async function () {
     } catch (e) { console.error(e); }
 };
 
-window.openContractManager = function () {
+window.openContractManager = async function () {
     const cpId = document.getElementById('sale-client').value;
     const cpName = document.getElementById('sale-client').options[document.getElementById('sale-client').selectedIndex].text;
     if (!cpId) return UI.toast('Сначала выберите клиента!', 'warning');
 
-    const html = `
-        <div style="margin-bottom: 20px; padding: 15px; background: #f8fafc; border: 1px solid var(--border); border-radius: 6px;">
-            <h4 style="margin: 0 0 10px 0; color: var(--primary);">📄 Новый договор</h4>
-            <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
-                <div class="form-group"><label>Номер договора:</label><input type="text" id="new-contract-num" class="input-modern" placeholder="Напр: 45-А"></div>
-                <div class="form-group"><label>Дата:</label><input type="date" id="new-contract-date" class="input-modern" value="${new Date().toISOString().split('T')[0]}"></div>
-            </div>
-            <button class="btn btn-blue" onclick="saveNewContract(${cpId})" style="width: 100%; padding: 8px;">➕ Создать договор</button>
-        </div>
+    try {
+        const res = await fetch(`/api/counterparties/${cpId}/contracts`);
+        const data = await res.json();
 
-        <div style="padding: 15px; border: 1px solid var(--border); border-radius: 6px;">
-            <h4 style="margin: 0 0 10px 0; color: #d97706;">📎 Новая спецификация (Приложение)</h4>
-            <div class="form-group">
-                <label>К какому договору:</label>
-                <select id="new-spec-contract-id" class="input-modern"></select>
+        const contractsMap = new Map();
+        const specCounts = {}; // Для умной нумерации
+
+        data.forEach(row => {
+            if (!contractsMap.has(row.contract_id)) {
+                contractsMap.set(row.contract_id, {
+                    id: row.contract_id, number: row.contract_number, date: row.contract_date, specs: []
+                });
+            }
+            if (row.spec_id) {
+                contractsMap.get(row.contract_id).specs.push({
+                    id: row.spec_id, number: row.spec_number, date: row.spec_date
+                });
+            }
+        });
+
+        let listHtml = '';
+        if (contractsMap.size === 0) {
+            listHtml = '<div style="color: var(--text-muted); text-align: center; padding: 10px;">Нет заключенных договоров</div>';
+        } else {
+            contractsMap.forEach(c => {
+                specCounts[c.id] = c.specs.length + 1; // Считаем следующий номер
+
+                listHtml += `
+                    <div style="border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 10px; background: var(--surface); padding: 10px; box-shadow: 0 1px 3px var(--shadow-sm);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #e2e8f0; padding-bottom: 8px; margin-bottom: 8px;">
+                            <strong style="color: #0f172a; font-size: 14px;">📄 Договор №${c.number} от ${c.date}</strong>
+                            <div style="display: flex; gap: 5px;">
+                                <button class="btn btn-outline" style="padding: 2px 8px; font-size: 11px; border-color: var(--info); color: var(--info);" onclick="window.open('/print/contract?id=${c.id}', '_blank')" title="Распечатать">🖨️</button>
+                                <button class="btn btn-outline" style="padding: 2px 8px; font-size: 11px; border-color: #ef4444; color: #ef4444;" onclick="deleteContract(${c.id})" title="Удалить">❌</button>
+                            </div>
+                        </div>
+                        <div style="padding-left: 15px;">
+                            ${c.specs.length === 0 ? '<span style="font-size: 11px; color: #94a3b8;">Нет прикрепленных спецификаций</span>' : ''}
+                            ${c.specs.map(s => `
+                                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; margin-bottom: 4px; color: var(--text-muted);">
+                                    <span>↳ Спецификация №${s.number} от ${s.date}</span>
+                                    <div style="display: flex; gap: 5px;">
+                                        <button class="btn btn-outline" style="padding: 2px 6px; font-size: 10px; border-color: var(--info); color: var(--info); border: none;" onclick="window.open('/print/specification_doc?id=${s.id}', '_blank')" title="Печать спецификации">🖨️</button>
+                                        <button class="btn btn-outline" style="padding: 2px 6px; font-size: 10px; border-color: #ef4444; color: #ef4444; border: none;" onclick="deleteSpecification(${s.id})" title="Удалить спецификацию">❌</button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        const html = `
+            <div style="max-height: 350px; overflow-y: auto; margin-bottom: 20px; padding-right: 5px; border-bottom: 2px solid var(--border); padding-bottom: 15px;">
+                <h4 style="margin: 0 0 10px 0; color: var(--text-muted);">Актуальные документы:</h4>
+                ${listHtml}
             </div>
-            <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
-                <div class="form-group"><label>№ Спецификации:</label><input type="text" id="new-spec-num" class="input-modern" placeholder="Напр: 1"></div>
-                <div class="form-group"><label>Дата:</label><input type="date" id="new-spec-date" class="input-modern" value="${new Date().toISOString().split('T')[0]}"></div>
+
+            <div style="margin-bottom: 15px; padding: 15px; background: var(--surface-hover); border: 1px solid var(--border); border-radius: 6px;">
+                <h4 style="margin: 0 0 10px 0; color: var(--primary);">📄 Создать новый договор</h4>
+                <input type="text" style="display:none" autocomplete="username">
+                <input type="password" style="display:none" autocomplete="current-password">
+                <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
+                    <div class="form-group"><label>Номер договора:</label><input type="text" id="new-contract-num" class="input-modern" autocomplete="nope" placeholder="Напр: 45-А"></div>
+                    <div class="form-group"><label>Дата:</label><input type="date" id="new-contract-date" class="input-modern" value="${new Date().toISOString().split('T')[0]}"></div>
+                </div>
+                <button class="btn btn-blue" onclick="saveNewContract(${cpId})" style="width: 100%; padding: 8px;">➕ Сохранить договор</button>
             </div>
-            <button class="btn btn-outline" onclick="saveNewSpecification()" style="width: 100%; padding: 8px; border-color: #d97706; color: #d97706;">➕ Добавить спецификацию</button>
+
+            <div style="padding: 15px; border: 1px solid var(--border); border-radius: 6px;">
+                <h4 style="margin: 0 0 10px 0; color: var(--warning-text);">📎 Добавить спецификацию</h4>
+                <div class="form-group">
+                    <label>К какому договору (Основание):</label>
+                    <select id="new-spec-contract-id" class="input-modern">
+                        ${Array.from(contractsMap.values()).map(c => `<option value="${c.id}">Договор №${c.number} от ${c.date}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
+                    <div class="form-group"><label>№ Спецификации:</label><input type="text" id="new-spec-num" class="input-modern"></div>
+                    <div class="form-group"><label>Дата:</label><input type="date" id="new-spec-date" class="input-modern" value="${new Date().toISOString().split('T')[0]}"></div>
+                </div>
+                <button class="btn btn-outline" onclick="saveNewSpecification()" style="width: 100%; padding: 8px; border-color: var(--warning-text); color: var(--warning-text);">➕ Сохранить спецификацию</button>
+            </div>
+        `;
+
+        UI.showModal(`Управление договорами: ${cpName}`, html, `<button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>`);
+
+        // 🚀 ЛОГИКА АВТОНУМЕРАЦИИ
+        setTimeout(() => {
+            const select = document.getElementById('new-spec-contract-id');
+            const numInput = document.getElementById('new-spec-num');
+            if (select && numInput) {
+                numInput.value = specCounts[select.value] || 1; // Ставим номер при открытии
+                select.addEventListener('change', (e) => numInput.value = specCounts[e.target.value] || 1); // Меняем при выборе
+            }
+        }, 100);
+
+    } catch (e) { console.error(e); UI.toast('Ошибка', 'error'); }
+};
+
+// ==========================================
+// УДАЛЕНИЕ ДОГОВОРА
+// ==========================================
+
+// 1. ПОДГОТОВКА (Показ окна)
+window.deleteContract = function (id) {
+    const html = `
+        <div style="padding: 10px; font-size: 15px; text-align: center;">
+            <div style="font-size: 40px; margin-bottom: 10px;">🗑️</div>
+            Вы уверены, что хотите удалить этот договор?<br>
+            <span style="color: var(--text-muted); font-size: 13px;">Отменить это действие будет невозможно.</span>
         </div>
     `;
 
-    UI.showModal(`Договоры: ${cpName}`, html, `<button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>`);
+    const buttons = `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-blue" style="background: var(--danger); border-color: var(--danger);" 
+                onclick="executeDeleteContract(${id})">Удалить</button>
+    `;
 
-    fetch(`/api/counterparties/${cpId}/contracts`).then(r => r.json()).then(data => {
-        const sel = document.getElementById('new-spec-contract-id');
-        const uniqueContracts = [];
-        const map = new Map();
-        for (const item of data) {
-            if (!map.has(item.contract_id)) { map.set(item.contract_id, true); uniqueContracts.push(item); }
+    UI.showModal('Удаление договора', html, buttons);
+};
+
+// 2. ВЫПОЛНЕНИЕ
+window.executeDeleteContract = async function (id) {
+    UI.closeModal();
+    UI.toast('⏳ Удаление...', 'info');
+
+    try {
+        const res = await fetch(`/api/contracts/${id}`, { method: 'DELETE' });
+
+        if (res.ok) {
+            UI.toast('✅ Договор удален', 'success');
+
+            // Фоновое обновление выпадающего списка в корзине
+            const clientSelect = document.getElementById('sale-client');
+            const cpId = clientSelect ? clientSelect.value : null;
+            if (cpId && typeof loadClientContracts === 'function') {
+                await loadClientContracts(cpId);
+            }
+
+            // Перерисовываем список договоров
+            if (typeof openContractManager === 'function') {
+                openContractManager();
+            }
+        } else {
+            // Ловим красную ошибку с сервера (если внутри есть спецификации)
+            const err = await res.json().catch(() => ({}));
+            UI.toast(err.error || 'Ошибка удаления', 'error');
         }
-        uniqueContracts.forEach(c => sel.add(new Option(`Договор №${c.contract_number} от ${c.contract_date}`, c.contract_id)));
-    });
+    } catch (e) {
+        console.error(e);
+        UI.toast('Критическая ошибка связи с сервером', 'error');
+    }
+};
+
+// === КРАСИВОЕ УДАЛЕНИЕ СПЕЦИФИКАЦИИ ===
+window.deleteSpecification = function (id) {
+    const html = `
+        <div style="padding: 15px; text-align: center; font-size: 15px;">
+            Вы уверены, что хотите удалить эту спецификацию?<br>
+            <small style="color: var(--text-muted);">Это действие нельзя отменить.</small>
+        </div>`;
+
+    UI.showModal('⚠️ Удаление спецификации', html, `
+        <button class="btn btn-outline" onclick="cancelDeleteSpecification()">Отмена</button>
+        <button class="btn btn-blue" style="background: #ef4444; border-color: #ef4444;" onclick="executeDeleteSpecification(${id})">🗑️ Да, удалить</button>
+    `);
+};
+
+// Функция возврата (чтобы не зависало при отмене)
+window.cancelDeleteSpecification = function () {
+    UI.closeModal();
+    // Возвращаем окно управления договорами, откуда и вызывалось удаление
+    if (typeof openContractManager === 'function') openContractManager();
+};
+
+window.executeDeleteSpecification = async function (id) {
+    try {
+        const res = await fetch(`/api/specifications/${id}`, { method: 'DELETE' });
+
+        if (res.ok) {
+            UI.toast('✅ Спецификация удалена', 'success');
+            UI.closeModal();
+
+            // Обновляем данные на фоне и перерисовываем менеджер договоров
+            const saleClient = document.getElementById('sale-client');
+            if (saleClient && typeof loadClientContracts === 'function') {
+                await loadClientContracts(saleClient.value);
+            }
+            if (typeof openContractManager === 'function') openContractManager();
+        } else {
+            // Если бэкенд не дал удалить (например, есть привязанные товары/заказы)
+            const err = await res.json();
+            UI.toast(err.error || 'Ошибка при удалении', 'error');
+            cancelDeleteSpecification();
+        }
+    } catch (e) {
+        console.error(e);
+        UI.toast('Ошибка сети', 'error');
+    }
 };
 
 window.saveNewContract = async function (cpId) {
@@ -1201,7 +1529,7 @@ window.openOrderManager = async function (orderId) {
             const remainText = remain > 0 ? remain : 0;
 
             return `
-                <tr style="border-bottom: 1px solid #eee;">
+                <tr style="border-bottom: 1px solid var(--border);">
                     <td style="padding: 8px;">${i.name}</td>
                     <td style="padding: 8px; text-align: center; font-weight: bold;">${ordered} ${i.unit}</td>
                     <td style="padding: 8px; text-align: center; color: var(--success); font-weight: bold;">${shipped} ${i.unit}</td>
@@ -1218,13 +1546,13 @@ window.openOrderManager = async function (orderId) {
 
         const html = `
             <div style="padding: 10px;">
-                <div style="background: #f1f5f9; padding: 12px; border-radius: 6px; margin-bottom: 15px;">
+                <div style="background: var(--surface-alt); padding: 12px; border-radius: 6px; margin-bottom: 15px;">
                     <p style="margin: 0 0 5px 0;"><b>Клиент:</b> ${order.client_name}</p>
                     <p style="margin: 0;"><b>Адрес доставки:</b> ${order.delivery_address || 'Самовывоз'}</p>
                 </div>
                 
                 <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
-                    <thead style="background: #e0f2fe;">
+                    <thead style="background: var(--info-bg);">
                         <tr>
                             <th style="padding: 8px; text-align: left;">Продукция</th>
                             <th style="padding: 8px; text-align: center;">Заказано</th>
@@ -1235,8 +1563,8 @@ window.openOrderManager = async function (orderId) {
                     <tbody>${itemsHtml}</tbody>
                 </table>
 
-                <div style="background: #f8fafc; padding: 10px; border-radius: 6px; border: 1px dashed #cbd5e1;">
-                    <h4 style="margin: 0 0 10px 0; color: #475569;">Данные для этой отгрузки (Машина)</h4>
+                <div style="background: var(--surface-hover); padding: 10px; border-radius: 6px; border: 1px dashed var(--border);">
+                    <h4 style="margin: 0 0 10px 0; color: var(--text-muted);">Данные для этой отгрузки (Машина)</h4>
                     <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
                         <div class="form-group" style="margin: 0;"><input type="text" id="ship-driver" class="input-modern" placeholder="ФИО Водителя"></div>
                         <div class="form-group" style="margin: 0;"><input type="text" id="ship-auto" class="input-modern" placeholder="Гос. номер авто"></div>
@@ -1251,21 +1579,26 @@ window.openOrderManager = async function (orderId) {
 
         UI.showModal(`Управление заказом: ${order.doc_number}`, html, `
             <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-            <button class="btn btn-blue" onclick="executePartialShipment(${order.id})">🚚 Отгрузить выбранное</button>
+            <button class="btn btn-blue" id="btn-do-ship" onclick="executePartialShipment(${order.id}, this)">🚚 Отгрузить выбранное</button>
         `);
 
     } catch (e) { console.error(e); UI.toast('Ошибка', 'error'); }
 };
 
-window.executePartialShipment = async function (orderId) {
+window.executePartialShipment = async function (orderId, btnElement) {
     const inputs = document.querySelectorAll('.ship-qty-input');
     const items_to_ship = [];
     let totalToShip = 0;
+    let hasError = false;
 
     // Собираем то, что менеджер решил отгрузить прямо сейчас
     inputs.forEach(inp => {
         const qty = parseFloat(inp.value) || 0;
-        if (qty > 0) {
+        const maxAllowed = parseFloat(inp.getAttribute('max')) || 0;
+
+        if (qty > maxAllowed) {
+            hasError = true; // Защита: нельзя отгрузить больше, чем заказано
+        } else if (qty > 0) {
             items_to_ship.push({
                 coi_id: inp.getAttribute('data-coi-id'),
                 item_id: inp.getAttribute('data-item-id'),
@@ -1275,7 +1608,11 @@ window.executePartialShipment = async function (orderId) {
         }
     });
 
+    if (hasError) return UI.toast('❌ Ошибка: Нельзя отгрузить товара больше, чем осталось в заказе!', 'error');
     if (totalToShip === 0) return UI.toast('Укажите количество для отгрузки!', 'warning');
+
+    // Блокируем кнопку, чтобы не нажали дважды
+    if (btnElement) btnElement.disabled = true;
 
     const driver = document.getElementById('ship-driver').value.trim();
     const auto = document.getElementById('ship-auto').value.trim();
@@ -1298,16 +1635,19 @@ window.executePartialShipment = async function (orderId) {
                 UI.toast('🎉 Заказ полностью выполнен!', 'success');
             }
 
-            // Обновляем таблицы
-            loadActiveOrders();
-            loadSalesHistory();
-
-            if (typeof loadTable === 'function') loadTable(); // Обновляем остатки на складах
-            if (typeof onClientChange === 'function') onClientChange();
+            // Обновляем таблицы и канбан
+            if (typeof loadActiveOrders === 'function') loadActiveOrders();
+            if (typeof loadSalesHistory === 'function') loadSalesHistory();
+            if (typeof loadTable === 'function') loadTable();
         } else {
             UI.toast('Ошибка отгрузки: ' + await res.text(), 'error');
         }
-    } catch (e) { console.error(e); UI.toast('Ошибка', 'error'); }
+    } catch (e) {
+        console.error(e);
+        UI.toast('Ошибка', 'error');
+    } finally {
+        if (btnElement) btnElement.disabled = false;
+    }
 };
 
 // ==========================================
@@ -1331,8 +1671,8 @@ window.openReturnModal = async function () {
                     <select id="ret-client" class="input-modern">${clientOptions}</select>
                 </div>
 
-                <div style="background: #f8fafc; padding: 10px; border-radius: 6px; border: 1px dashed #cbd5e1; margin-bottom: 15px;">
-                    <h4 style="margin: 0 0 10px 0; color: #475569;">🧱 Возврат продукции (если есть)</h4>
+                <div style="background: var(--surface-hover); padding: 10px; border-radius: 6px; border: 1px dashed var(--border); margin-bottom: 15px;">
+                    <h4 style="margin: 0 0 10px 0; color: var(--text-muted);">🧱 Возврат продукции (если есть)</h4>
                     <div class="form-grid" style="grid-template-columns: 2fr 1fr 1fr; gap: 10px; align-items: end;">
                         <div class="form-group" style="margin: 0;">
                             <label>Товар:</label>
@@ -1358,7 +1698,7 @@ window.openReturnModal = async function () {
 
                 <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
                     <div class="form-group" style="margin: 0;">
-                        <label style="color: #d97706; font-weight: bold;">Возврат поддонов (шт):</label>
+                        <label style="color: var(--warning-text); font-weight: bold;">Возврат поддонов (шт):</label>
                         <input type="number" id="ret-pallets" class="input-modern" placeholder="Сколько пустых вернули?">
                     </div>
                     <div class="form-group" style="margin: 0;">
@@ -1421,7 +1761,7 @@ window.addReturnItem = function () {
 window.renderReturnCart = function () {
     const tbody = document.getElementById('ret-items-table');
     tbody.innerHTML = window.returnCart.map((c, idx) => `
-        <tr style="border-bottom: 1px solid #eee;">
+        <tr style="border-bottom: 1px solid var(--border);">
             <td style="padding: 4px 0;">${c.name}</td>
             <td style="padding: 4px 0; text-align: center;"><b>${c.qty}</b> ед.</td>
             <td style="padding: 4px 0; color: var(--text-muted); font-size: 11px;">${c.whText}</td>
@@ -1469,60 +1809,77 @@ window.executeReturn = async function () {
 // ==========================================
 window.openClientDocsModal = function () {
     const html = `
-        <div style="padding: 10px;">
-            <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 20px;">
-                Выберите документ для выдачи клиенту (формат PDF).
-            </p>
-
-            <div style="display: flex; flex-direction: column; gap: 15px;">
-                
-                <div style="background: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
-                    <b style="font-size: 14px;">Прайс-листы</b><br>
-                    <span style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px; display: block;">Актуальные цены и ассортимент</span>
-                    <div style="display: flex; gap: 10px;">
-                        <button class="btn btn-outline" style="flex-grow: 1;" onclick="window.open('/files/price_main.pdf', '_blank')">📄 Основной</button>
-                        <button class="btn btn-outline" style="flex-grow: 1; color: #d97706; border-color: #d97706;" onclick="window.open('/files/price_dealer.pdf', '_blank')">📄 Дилерский</button>
-                    </div>
+        <style>
+            #app-modal .modal-content { max-width: 500px !important; }
+            .doc-section { margin-bottom: 20px; }
+            .doc-section-title { 
+                font-size: 11px; 
+                text-transform: uppercase; 
+                letter-spacing: 1px; 
+                color: var(--text-muted); 
+                margin-bottom: 10px; 
+                display: block;
+                font-weight: 700;
+            }
+        </style>
+        
+        <div style="padding: 5px;">
+            <div class="doc-section">
+                <label class="doc-section-title">📊 ПРАЙС-ЛИСТЫ</label>
+                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <button class="doc-btn" onclick="printFile('price_main.pdf')">📄 Основной</button>
+                    <button class="doc-btn" onclick="printFile('price_dealer.pdf')">📄 Дилерский</button>
                 </div>
+            </div>
 
-                <div style="background: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
-                    <b style="font-size: 14px;">Сертификаты соответствия (ГОСТ)</b><br>
-                    <span style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px; display: block;">Нормативные документы на продукцию</span>
-                    <div style="display: flex; gap: 10px;">
-                        <button class="btn btn-outline" style="flex-grow: 1;" onclick="window.open('/files/cert_tiles.pdf', '_blank')">📜 На плитку</button>
-                        <button class="btn btn-outline" style="flex-grow: 1;" onclick="window.open('/files/cert_curbs.pdf', '_blank')">📜 На бордюры</button>
-                    </div>
+            <div class="doc-section">
+                <label class="doc-section-title">📜 СЕРТИФИКАТЫ ГОСТ</label>
+                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <button class="doc-btn" onclick="printFile('cert_tiles.pdf')">🧩 На плитку</button>
+                    <button class="doc-btn" onclick="printFile('cert_curbs.pdf')">🛣️ На бордюры</button>
                 </div>
+            </div>
 
-                <div style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
-                    <div>
-                        <b style="font-size: 14px;">Бланк: Паспорт продукции</b><br>
-                        <span style="font-size: 12px; color: var(--text-muted);">Пустой бланк для ручного заполнения</span>
-                    </div>
-                    <button class="btn btn-outline" onclick="window.open('/files/passport_blank.pdf', '_blank')">📑 Открыть</button>
-                </div>
+            <div class="doc-section">
+                <label class="doc-section-title">📑 ТЕХНИЧЕСКАЯ ДОКУМЕНТАЦИЯ</label>
+                <button class="doc-btn" onclick="printFile('passport_blank.pdf')">
+                    📝 Пустой бланк: Паспорт продукции
+                </button>
+            </div>
 
-                <div style="background: #e0f2fe; padding: 12px; border-radius: 6px; border: 1px solid #bae6fd;">
-                    <b style="font-size: 14px; color: #0284c7;">Карточка предприятия (Реквизиты)</b><br>
-                    <span style="font-size: 12px; color: #0369a1; margin-bottom: 10px; display: block;">Выберите банк для генерации:</span>
-                    <div style="display: flex; gap: 10px;">
-                        <select id="doc-bank-select" class="input-modern" style="flex-grow: 1; border-color: #7dd3fc;">
-                            <option value="alfa">Альфа-Банк</option>
-                            <option value="tochka">Точка Банк</option>
-                        </select>
-                        <button class="btn btn-blue" onclick="printCompanyCard()">🏢 Открыть</button>
-                    </div>
+            <div style="border-top: 1px dashed var(--border); margin: 20px 0;"></div>
+
+            <div class="doc-section mb-0">
+                <label class="doc-section-title" style="color: var(--primary);">🏢 КАРТОЧКА ПРЕДПРИЯТИЯ</label>
+                <div class="bank-select-group">
+                    <select id="bank-select-docs" class="input-modern" style="flex: 1;">
+                        <option value="tochka" selected>Точка банк</option>
+                        <option value="alfa">Альфа-банк</option>
+                    </select>
+                    <button class="btn btn-blue" onclick="printBankRequisites()">
+                        Открыть
+                    </button>
                 </div>
             </div>
         </div>
     `;
 
-    UI.showModal('🖨️ Документы для выдачи', html, `<button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>`);
+    UI.showModal('🖨️ Документы для выдачи', html, `
+        <button class="btn btn-gray" onclick="UI.closeModal()">Закрыть</button>
+    `);
 };
 
-window.printCompanyCard = function () {
-    const bank = document.getElementById('doc-bank-select').value;
-    window.open(`/files/card_${bank}.pdf`, '_blank');
+// Универсальная функция для открытия файлов из папки /files/
+window.printFile = function (fileName) {
+    if (!fileName) return;
+    window.open(`/files/${fileName}`, '_blank');
+};
+
+// Функция для открытия реквизитов выбранного банка
+window.printBankRequisites = function () {
+    const bank = document.getElementById('bank-select-docs').value;
+    // Теперь обращаемся к серверу, а он сам решит: отдать EJS или PDF
+    window.open(`/print/requisites?bank=${bank}`, '_blank');
 };
 
 // === КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ (КП) ===
@@ -1531,16 +1888,57 @@ window.generateKP = function () {
     if (!clientId) return UI.toast('Выберите контрагента для выставления КП!', 'warning');
     if (cart.length === 0) return UI.toast('Корзина пуста!', 'warning');
 
-    const discount = document.getElementById('sale-discount').value;
-    const logisticsCost = document.getElementById('sale-logistics-cost').value;
+    const discount = document.getElementById('sale-discount').value || 0;
+    const logisticsCost = document.getElementById('sale-logistics-cost').value || 0;
 
-    // Создаем невидимую форму для отправки данных корзины на сервер
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = '/print/kp';
-    form.target = '_blank'; // Открываем в новой вкладке
+    form.target = '_blank';
 
     const data = { client_id: clientId, items: cart, discount: discount, logistics: logisticsCost };
+    
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'data';
+    input.value = JSON.stringify(data);
+
+    form.appendChild(input);
+    document.body.appendChild(form);
+    form.submit();
+    document.body.removeChild(form);
+};
+
+// === ПЕЧАТЬ БЛАНК-ЗАКАЗА ИЗ КОРЗИНЫ ===
+window.generateBlankOrder = function () {
+    const clientId = document.getElementById('sale-client').value;
+    if (!clientId) return UI.toast('Выберите контрагента!', 'warning');
+    if (cart.length === 0) return UI.toast('Корзина пуста!', 'warning');
+
+    const discount = document.getElementById('sale-discount').value || 0;
+    const logisticsCost = document.getElementById('sale-logistics-cost').value || 0;
+    
+    // Считываем новые данные: Оплата и Поддоны
+    const paymentMethod = document.getElementById('sale-payment-method').value;
+    const advanceAmount = document.getElementById('sale-advance-amount')?.value || 0;
+    const pallets = document.getElementById('sale-pallets')?.value || 0;
+    const deliveryAddress = document.getElementById('sale-delivery-address')?.value || '';
+
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/print/blank_order_draft';
+    form.target = '_blank'; 
+
+    const data = { 
+        client_id: clientId, 
+        items: cart, 
+        discount: discount, 
+        logistics: logisticsCost,
+        pallets: pallets,
+        paymentMethod: paymentMethod,
+        advanceAmount: advanceAmount,
+        delivery_address: deliveryAddress
+    };
 
     const input = document.createElement('input');
     input.type = 'hidden';
@@ -1557,11 +1955,11 @@ window.generateKP = function () {
 window.openInvoiceModal = function (docNum, debtAmt) {
     const html = `
         <div style="padding: 10px;">
-            <p style="margin-top: 0; color: #475569; font-size: 13px;">Счет для заказа <b>${docNum}</b>.</p>
+            <p style="margin-top: 0; color: var(--text-muted); font-size: 13px;">Счет для заказа <b>${docNum}</b>.</p>
             <div class="form-group" style="margin-bottom: 15px;">
                 <label style="font-weight: bold; color: var(--primary);">Сумма счета (₽):</label>
                 <input type="number" id="invoice-custom-amount" class="input-modern" placeholder="${debtAmt}" step="0.01">
-                <span style="font-size: 11px; color: gray;">Оставьте поле пустым, чтобы выставить счет на весь остаток долга.</span>
+                <span style="font-size: 11px; color: var(--text-muted);">Оставьте поле пустым, чтобы выставить счет на весь остаток долга.</span>
             </div>
             <div class="form-group">
                 <label>Выберите наши реквизиты (Банк):</label>
@@ -1581,36 +1979,72 @@ window.openInvoiceModal = function (docNum, debtAmt) {
 window.executePrintInvoice = function (docNum) {
     const bank = document.getElementById('invoice-bank').value;
     const customAmt = document.getElementById('invoice-custom-amount').value;
+
+    if (customAmt && parseFloat(customAmt) <= 0) {
+        return UI.toast('Сумма счета должна быть больше нуля', 'error');
+    }
+
     window.open(`/print/invoice?docNum=${docNum}&bank=${bank}&custom_amount=${customAmt}`, '_blank');
     UI.closeModal();
     setTimeout(() => { if (typeof loadActiveOrders === 'function') loadActiveOrders(); }, 600);
 };
 
 // МАГИЯ ВЗАИМОЗАЧЕТА
-window.offsetOrderAdvance = function (docNum, amount) {
+window.offsetOrderAdvance = async function (docNum, amount) {
+    let accOptions = '<option value="">Автоматически (Основная касса)</option>';
+    try {
+        const accRes = await fetch('/api/accounts');
+        if (accRes.ok) {
+            const accounts = await accRes.json();
+            accounts.forEach(a => {
+                accOptions += `<option value="${a.id}">${a.name} (${a.balance} ₽)</option>`;
+            });
+        }
+    } catch (e) { }
+
     UI.showModal('Взаимозачет аванса', `
         <div style="padding: 10px; font-size: 14px; text-align: center;">
             На балансе клиента есть свободные средства.<br>
             Зачесть <b>${amount.toLocaleString('ru-RU')} ₽</b> в счет оплаты заказа <b>${docNum}</b>?
+            
+            <div style="margin-top: 20px; text-align: left; background: var(--surface-hover); padding: 10px; border-radius: 6px; border: 1px dashed var(--border);">
+                <label style="font-size: 12px; color: var(--text-muted); font-weight: bold;">Через какую кассу провести операцию:</label>
+                <select id="offset-account-select" class="input-modern" style="margin-top: 5px;">
+                    ${accOptions}
+                </select>
+                <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 5px;">Будет создана парная операция (расход+приход) для закрытия долга.</span>
+            </div>
         </div>`, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-        <button class="btn btn-blue" style="background: #059669; border-color: #059669;" onclick="executeOffset('${docNum}', ${amount})">✅ Провести зачет</button>
+        <button class="btn btn-blue" id="btn-do-offset" style="background: #059669; border-color: #059669;" onclick="executeOffset('${docNum}', ${amount}, this)">✅ Провести зачет</button>
     `);
 };
 
-window.executeOffset = async function (docNum, amount) {
+window.executeOffset = async function (docNum, amount, btnElement) {
+    if (btnElement) btnElement.disabled = true;
+    const accountId = document.getElementById('offset-account-select')?.value || null;
+
     try {
-        await fetch('/api/sales/orders/offset', {
+        const res = await fetch('/api/sales/orders/offset', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ docNum, amount })
+            body: JSON.stringify({ docNum, amount, account_id: accountId })
         });
-        UI.closeModal();
-        UI.toast('Взаимозачет успешно проведен!', 'success');
-        loadActiveOrders(); // Обновляем доску
 
-        if (typeof onClientChange === 'function') onClientChange();
-    } catch (e) { console.error(e); }
+        if (res.ok) {
+            UI.closeModal();
+            UI.toast('Взаимозачет успешно проведен!', 'success');
+            if (typeof loadActiveOrders === 'function') loadActiveOrders();
+            if (typeof onClientChange === 'function') onClientChange();
+        } else {
+            UI.toast('Ошибка: ' + await res.text(), 'error');
+        }
+    } catch (e) {
+        console.error(e);
+        UI.toast('Ошибка сети', 'error');
+    } finally {
+        if (btnElement) btnElement.disabled = false;
+    }
 };
 
 // === ОТЧЕТ: ДОЛЖНИКИ ПО ТАРЕ (ПОДДОНЫ) ===
@@ -1620,14 +2054,14 @@ window.openPalletsReport = async function () {
         const data = await res.json();
 
         let tbody = data.map(c => `
-            <tr style="border-bottom: 1px solid #eee;">
+            <tr style="border-bottom: 1px solid var(--border);">
                 <td style="padding: 10px;"><b>${c.name}</b></td>
                 <td style="padding: 10px; color: var(--text-muted);">${c.phone || 'Нет телефона'}</td>
-                <td style="padding: 10px; text-align: right; color: #d97706; font-weight: bold; font-size: 16px;">${c.pallets_balance} шт.</td>
+                <td style="padding: 10px; text-align: right; color: var(--warning-text); font-weight: bold; font-size: 16px;">${c.pallets_balance} шт.</td>
             </tr>
         `).join('');
 
-        if (data.length === 0) tbody = '<tr><td colspan="3" style="text-align: center; padding: 20px; color: gray;">Нет должников по таре 🎉</td></tr>';
+        if (data.length === 0) tbody = '<tr><td colspan="3" style="text-align: center; padding: 20px; color: var(--text-muted);">Нет должников по таре 🎉</td></tr>';
 
         const totalPallets = data.reduce((sum, c) => sum + parseInt(c.pallets_balance), 0);
 
@@ -1635,10 +2069,10 @@ window.openPalletsReport = async function () {
             <div style="padding: 10px;">
                 <div style="background: #fffbeb; padding: 15px; border-radius: 8px; border: 1px solid #fde68a; margin-bottom: 15px; text-align: center;">
                     <span style="color: #b45309; font-size: 14px;">Всего деревянных поддонов зависло у клиентов:</span><br>
-                    <strong style="font-size: 26px; color: #d97706;">${totalPallets} шт.</strong>
+                    <strong style="font-size: 26px; color: var(--warning-text);">${totalPallets} шт.</strong>
                 </div>
                 <table style="width: 100%; border-collapse: collapse;">
-                    <thead style="background: #f8fafc; text-align: left;">
+                    <thead style="background: var(--surface-hover); text-align: left;">
                         <tr>
                             <th style="padding: 10px;">Клиент</th>
                             <th style="padding: 10px;">Телефон для связи</th>
@@ -1678,27 +2112,27 @@ window.openSalesDashboard = async function () {
 
         // Рисуем список клиентов
         let clientsHtml = data.topClients.map((c, idx) => `
-            <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px;">
-                <span><b style="color: #64748b;">${idx + 1}.</b> ${c.name}</span>
-                <strong style="color: #0284c7;">${formatSum(c.total_sum)}</strong>
+            <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--surface-alt); font-size: 13px;">
+                <span><b style="color: var(--text-muted);">${idx + 1}.</b> ${c.name}</span>
+                <strong style="color: var(--info);">${formatSum(c.total_sum)}</strong>
             </div>
         `).join('');
 
         const html = `
             <style>.modal-content { max-width: 800px !important; }</style>
             <div style="padding: 10px;">
-                <div style="background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: white; padding: 25px; border-radius: 12px; text-align: center; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <div style="background: linear-gradient(135deg, #3b82f6, var(--info)); color: white; padding: 25px; border-radius: 12px; text-align: center; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
                     <div style="font-size: 14px; opacity: 0.9; text-transform: uppercase; letter-spacing: 1px;">Выручка за текущий месяц</div>
                     <div style="font-size: 42px; font-weight: 900; margin-top: 5px;">${formatSum(data.monthRevenue)}</div>
                 </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 20px; border-radius: 12px;">
+                    <div style="background: var(--surface-hover); border: 1px solid #e2e8f0; padding: 20px; border-radius: 12px;">
                         <h4 style="margin-top: 0; color: #0f172a; margin-bottom: 20px;">🏆 Топ-5 товаров</h4>
-                        ${itemsHtml || '<div style="color: gray; text-align: center;">Нет продаж в этом месяце</div>'}
+                        ${itemsHtml || '<div style="color: var(--text-muted); text-align: center;">Нет продаж в этом месяце</div>'}
                     </div>
-                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 20px; border-radius: 12px;">
+                    <div style="background: var(--surface-hover); border: 1px solid #e2e8f0; padding: 20px; border-radius: 12px;">
                         <h4 style="margin-top: 0; color: #0f172a; margin-bottom: 10px;">🥇 Топ-5 клиентов</h4>
-                        ${clientsHtml || '<div style="color: gray; text-align: center;">Нет продаж в этом месяце</div>'}
+                        ${clientsHtml || '<div style="color: var(--text-muted); text-align: center;">Нет продаж в этом месяце</div>'}
                     </div>
                 </div>
             </div>
@@ -1733,9 +2167,9 @@ window.openLogisticsCalendar = function () {
     dates.forEach(date => {
         const isToday = date === new Date().toLocaleDateString('ru-RU');
         html += `
-            <div style="min-width: 320px; max-width: 320px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; flex-shrink: 0;">
+            <div style="min-width: 320px; max-width: 320px; background: var(--surface-hover); border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; flex-shrink: 0;">
                 <h4 style="margin-top: 0; color: #0f172a; border-bottom: 3px solid ${isToday ? '#ef4444' : '#38bdf8'}; padding-bottom: 8px; margin-bottom: 15px;">
-                    ${isToday ? '🔥 СЕГОДНЯ' : '📅 ' + date} <span style="font-weight: normal; font-size: 12px; color: gray; float: right;">${grouped[date].length} маш.</span>
+                    ${isToday ? '🔥 СЕГОДНЯ' : '📅 ' + date} <span style="font-weight: normal; font-size: 12px; color: var(--text-muted); float: right;">${grouped[date].length} маш.</span>
                 </h4>`;
 
         grouped[date].forEach(o => {
@@ -1744,14 +2178,14 @@ window.openLogisticsCalendar = function () {
             const percent = ordered > 0 ? Math.round((shipped / ordered) * 100) : 0;
 
             html += `
-                <div style="background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); cursor: pointer;" onclick="openOrderManager(${o.id})">
+                <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 10px; box-shadow: 0 2px 4px var(--shadow-sm); cursor: pointer;" onclick="openOrderManager(${o.id})">
                     <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                        <strong style="color: #8b5cf6;">${o.doc_number}</strong>
-                        <span style="font-size: 10px; font-weight: bold; background: ${percent === 100 ? '#dcfce3' : (percent > 0 ? '#e0f2fe' : '#fef08a')}; color: ${percent === 100 ? '#166534' : (percent > 0 ? '#0284c7' : '#854d0e')}; padding: 3px 6px; border-radius: 4px;">Собрано: ${percent}%</span>
+                        <strong style="color: var(--info);">${o.doc_number}</strong>
+                        <span style="font-size: 10px; font-weight: bold; background: ${percent === 100 ? 'var(--success-bg)' : (percent > 0 ? 'var(--info-bg)' : 'var(--warning-bg)')}; color: ${percent === 100 ? 'var(--success-text)' : (percent > 0 ? 'var(--info)' : 'var(--warning-text)')}; padding: 3px 6px; border-radius: 4px;">Собрано: ${percent}%</span>
                     </div>
                     <div style="font-size: 13px; font-weight: bold; margin-bottom: 5px;">${o.client_name || 'Неизвестно'}</div>
-                    <div style="font-size: 11px; color: #64748b; margin-bottom: 8px; background: #f1f5f9; padding: 5px; border-radius: 4px;">📍 ${o.delivery_address || 'Самовывоз со склада'}</div>
-                    <div style="font-size: 11px; color: #475569; padding-top: 8px; border-top: 1px dashed #e2e8f0; line-height: 1.5;">📦 ${o.items_list}</div>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px; background: var(--surface-alt); padding: 5px; border-radius: 4px;">📍 ${o.delivery_address || 'Самовывоз со склада'}</div>
+                    <div style="font-size: 11px; color: var(--text-muted); padding-top: 8px; border-top: 1px dashed #e2e8f0; line-height: 1.5;">📦 ${o.items_list}</div>
                 </div>`;
         });
         html += `</div>`;
@@ -1769,7 +2203,7 @@ window.openExport1CModal = function () {
 
     const html = `
         <div style="padding: 10px; text-align: center;">
-            <p style="color: #475569; font-size: 13px; margin-top: 0;">Выберите период для выгрузки реестра отгрузок. Файл скачается в формате CSV (Excel), оптимизированном для загрузки в 1С Бухгалтерию.</p>
+            <p style="color: var(--text-muted); font-size: 13px; margin-top: 0;">Выберите период для выгрузки реестра отгрузок. Файл скачается в формате CSV (Excel), оптимизированном для загрузки в 1С Бухгалтерию.</p>
             <div style="display: flex; gap: 10px; justify-content: center; margin-top: 20px;">
                 <div class="form-group" style="margin: 0;">
                     <label>Месяц</label>
@@ -1824,23 +2258,18 @@ window.handleDealerCsvImport = function (event) {
 
         if (lines.length < 2) return UI.toast('Файл пуст или нет данных', 'error');
 
-        // Умное определение разделителя
         const delimiter = lines[0].includes(';') ? ';' : ',';
-
-        // Читаем заголовки колонок (ищем, где артикул, а где цена)
         const headers = lines[0].split(delimiter).map(h => h.trim().toUpperCase().replace(/^"|"$/g, ''));
 
-        const articleIdx = headers.findIndex(h => h.includes('АРТИКУЛ'));
-        const priceIdx = headers.findIndex(h => h.includes('ЦЕНА') || h.includes('ДИЛЕР'));
+        const articleIdx = headers.findIndex(h => h.includes('АРТИКУЛ') || h.includes('ART'));
+        const priceIdx = headers.findIndex(h => h.includes('ЦЕНА') || h.includes('ДИЛЕР') || h.includes('ОПТ') || h.includes('PRICE'));
 
         if (articleIdx === -1 || priceIdx === -1) {
             console.error("Найденные колонки:", headers);
-            return UI.toast('❌ В первой строке файла обязательно должны быть заголовки "Артикул" и "Цена"', 'error');
+            return UI.toast('❌ В первой строке файла обязательно должны быть заголовки "Артикул" и "Цена" (или синонимы)', 'error');
         }
 
         let matchCount = 0;
-
-        // Пропускаем 1-ю строку (заголовки) и читаем данные
         for (let i = 1; i < lines.length; i++) {
             const cols = lines[i].split(delimiter).map(c => c.trim().replace(/^"|"$/g, ''));
             if (cols.length <= Math.max(articleIdx, priceIdx)) continue;
@@ -1850,14 +2279,12 @@ window.handleDealerCsvImport = function (event) {
             const price = parseFloat(priceRaw);
 
             if (csvArticle && !isNaN(price) && price > 0) {
-                // Ищем товар в базе СТРОГО ПО АРТИКУЛУ
                 const dbItem = Object.values(salesProductsInfo).find(item => item.article === csvArticle);
-
                 if (dbItem) {
                     const input = document.querySelector(`.price-dealer[data-id="${dbItem.id}"]`);
                     if (input) {
                         input.value = price;
-                        input.style.backgroundColor = '#dcfce3'; // Зеленая подсветка
+                        input.style.backgroundColor = 'var(--success-bg)';
                         input.style.border = '1px solid #22c55e';
                         matchCount++;
                     }
@@ -1914,11 +2341,10 @@ window.handleBasicCsvImport = function (event) {
                             const price = parseFloat(priceRaw);
 
                             if (!isNaN(price) && price > 0) {
-                                // ВАЖНО: Здесь ищем input базовой цены (.price-basic)
                                 const input = document.querySelector(`.price-basic[data-id="${dbItem.id}"]`);
                                 if (input) {
                                     input.value = price;
-                                    input.style.backgroundColor = '#eff6ff'; // Голубая подсветка для розницы
+                                    input.style.backgroundColor = '#eff6ff';
                                     input.style.border = '1px solid #3b82f6';
                                     matchCount++;
                                 }
@@ -1979,10 +2405,377 @@ window.resetHistoryFilters = function () {
     document.getElementById('hist-search').value = '';
     document.getElementById('hist-client-filter').value = '';
 
-    // Очищаем умный календарь
-    const fpEl = document.getElementById('hist-date-filter');
-    if (fpEl && fpEl._flatpickr) fpEl._flatpickr.clear();
+    // Очищаем умный календарь и сбрасываем даты
     historyDateRange = { start: '', end: '' };
 
-    applyHistoryFilters();
+    if (historyDatePicker) {
+        historyDatePicker.clear(); // 👈 Автоматом вызовет applyHistoryFilters()
+    } else {
+        applyHistoryFilters();
+    }
+};
+
+// === CRM ВОРОНКА (КАНБАН) ===
+
+window.toggleSalesView = function (viewType) {
+    const tableWrap = document.getElementById('sales-table-wrapper');
+    const kanbanWrap = document.getElementById('sales-kanban-board');
+    const btnList = document.getElementById('view-btn-list');
+    const btnKanban = document.getElementById('view-btn-kanban');
+
+    if (viewType === 'kanban') {
+        if (tableWrap) tableWrap.style.display = 'none';
+        kanbanWrap.style.display = 'flex';
+        btnList.className = 'btn btn-outline';
+        btnKanban.className = 'btn btn-blue';
+        renderKanbanBoard();
+    } else {
+        kanbanWrap.style.display = 'none';
+        if (tableWrap) tableWrap.style.display = 'block';
+        btnList.className = 'btn btn-blue';
+        btnKanban.className = 'btn btn-outline';
+    }
+};
+
+window.renderKanbanBoard = function () {
+    // Очищаем колонки
+    document.querySelectorAll('.kanban-items-container').forEach(col => col.innerHTML = '');
+    let counts = { pending: 0, processing: 0 };
+
+    if (typeof allActiveOrders === 'undefined' || allActiveOrders.length === 0) return;
+
+    allActiveOrders.forEach(order => {
+        // Мы не показываем 'completed' на доске, они уходят в архив
+        if (order.status === 'completed') return;
+
+        counts[order.status] = (counts[order.status] || 0) + 1;
+
+        const card = document.createElement('div');
+        card.className = 'kanban-card';
+        card.draggable = true;
+        card.dataset.id = order.id;
+
+        const borderColor = order.status === 'processing' ? 'var(--success)' : '#3b82f6';
+        card.style = `background: var(--surface); padding: 15px; margin-bottom: 12px; border-radius: 8px; box-shadow: 0 1px 2px var(--shadow-sm); cursor: grab; border-left: 5px solid ${borderColor}; user-select: none; border-top: 1px solid var(--surface-alt); border-right: 1px solid var(--surface-alt); border-bottom: 1px solid var(--surface-alt);`;
+
+        card.innerHTML = `
+            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px; display: flex; justify-content: space-between;">
+                <span>${order.doc_number}</span>
+                <span title="Дедлайн">⏳ ${order.deadline || order.date_formatted}</span>
+            </div>
+            <div style="font-weight: bold; margin-bottom: 8px; color: #1e293b; font-size: 14px;">${escapeHTML(order.client_name)}</div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                ${escapeHTML(order.items_list)}
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--surface-alt); padding-top: 10px;">
+                <span style="font-size: 15px; font-weight: 800; color: #0f172a;">${parseFloat(order.total_amount).toLocaleString()} ₽</span>
+                
+                <button onclick="openOrderDetails(${order.id})" style="background:var(--surface-alt); border:none; padding: 4px 8px; border-radius: 4px; color: #3b82f6; cursor: pointer; font-size: 12px; font-weight: bold; transition: 0.2s;" onmouseover="this.style.background='var(--info-bg)'" onmouseout="this.style.background='var(--surface-alt)'">
+                    Детали ➔
+                </button>
+            </div>
+        `;
+
+        card.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', order.id);
+            setTimeout(() => card.style.opacity = '0.4', 0);
+        });
+        card.addEventListener('dragend', () => card.style.opacity = '1');
+
+        const column = document.querySelector(`.kanban-column[data-status="${order.status}"] .kanban-items-container`);
+        if (column) column.appendChild(card);
+    });
+
+    // Обновляем счетчики в заголовках колонок
+    document.querySelector('.kanban-column[data-status="pending"] .column-count').innerText = counts.pending;
+    document.querySelector('.kanban-column[data-status="processing"] .column-count').innerText = counts.processing;
+
+    // Настраиваем Drag & Drop
+    document.querySelectorAll('.kanban-column').forEach(col => {
+        // Чтобы событие не дублировалось при перерисовке
+        col.removeEventListener('dragover', window.handleDragOver);
+        col.removeEventListener('dragleave', window.handleDragLeave);
+        col.removeEventListener('drop', window.handleDrop);
+
+        window.handleDragOver = e => { e.preventDefault(); col.style.background = '#e2e8f0'; };
+        window.handleDragLeave = e => { col.style.background = ''; };
+        window.handleDrop = async (e) => {
+            e.preventDefault();
+            col.style.background = '';
+
+            const orderId = e.dataTransfer.getData('text/plain');
+            const newStatus = col.dataset.status;
+
+            const order = allActiveOrders.find(o => o.id == orderId);
+            if (order && order.status !== newStatus) {
+                order.status = newStatus;
+                renderKanbanBoard(); // Мгновенно перерисовываем
+
+                try {
+                    const res = await fetch(`/api/sales/orders/${orderId}/status`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ status: newStatus })
+                    });
+                    if (!res.ok) throw new Error();
+                    UI.toast('Статус заказа изменен', 'success');
+                } catch (err) {
+                    UI.toast('Ошибка сохранения статуса', 'error');
+                    if (typeof loadSalesData === 'function') loadSalesData(false); // Откат
+                }
+            }
+        };
+
+        col.addEventListener('dragover', window.handleDragOver);
+        col.addEventListener('dragleave', window.handleDragLeave);
+        col.addEventListener('drop', window.handleDrop);
+    });
+};
+
+// === ФУНКЦИЯ ОТКРЫТИЯ ДЕТАЛЕЙ ЗАКАЗА ===
+window.openOrderDetails = async function (orderId) {
+    try {
+        // Запрашиваем данные заказа с бэкенда
+        const res = await fetch(`/api/sales/orders/${orderId}`);
+        if (!res.ok) throw new Error('Ошибка при загрузке данных заказа');
+
+        const data = await res.json();
+        const order = data.order;
+        const items = data.items;
+
+        // Формируем таблицу с составом заказа
+        let itemsHtml = `
+            <table style="width: 100%; margin-bottom: 15px; border-collapse: collapse; font-size: 13px;">
+                <thead style="background: var(--surface-hover); text-align: left;">
+                    <tr>
+                        <th style="padding: 8px; border-bottom: 1px solid var(--border);">Товар</th>
+                        <th style="padding: 8px; border-bottom: 1px solid var(--border); text-align: center;">Заказано</th>
+                        <th style="padding: 8px; border-bottom: 1px solid var(--border); text-align: center;">Отгружено</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        items.forEach(item => {
+            const ordered = parseFloat(item.qty_ordered);
+            const shipped = parseFloat(item.qty_shipped || 0);
+            // Подсветка статуса отгрузки: зеленый (полностью), желтый (частично), красный (не отгружалось)
+            const color = shipped >= ordered ? 'color: var(--success);' : (shipped > 0 ? 'color: #f59e0b;' : 'color: #ef4444;');
+
+            itemsHtml += `
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid var(--surface-alt);">${escapeHTML(item.name)}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid var(--surface-alt); text-align: center; font-weight: bold;">${ordered} ${item.unit}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid var(--surface-alt); text-align: center; font-weight: bold; ${color}">${shipped}</td>
+                </tr>
+            `;
+        });
+        itemsHtml += `</tbody></table>`;
+
+        // Формируем тело модального окна
+        const htmlBody = `
+            <div style="margin-bottom: 15px; background: var(--surface-hover); padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 14px;">
+                <div style="margin-bottom: 8px;"><strong>👤 Клиент:</strong> ${escapeHTML(order.client_name)}</div>
+                <div style="margin-bottom: 8px;"><strong>📍 Адрес доставки:</strong> ${escapeHTML(order.delivery_address || 'Самовывоз')}</div>
+                <div style="margin-bottom: 8px;"><strong>💰 Сумма заказа:</strong> <span style="color: #0f172a; font-weight: bold;">${parseFloat(order.total_amount).toLocaleString()} ₽</span></div>
+                <div style="margin-bottom: 0;"><strong>📅 Плановая отгрузка:</strong> ${order.planned_shipment_date ? new Date(order.planned_shipment_date).toLocaleDateString() : 'Не указана'}</div>
+            </div>
+            <h4 style="margin: 0 0 10px 0; color: var(--text-muted);">📦 Состав заказа:</h4>
+            ${itemsHtml}
+        `;
+
+        // Формируем кнопки управления
+        const buttonsHtml = `
+            <button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>
+        `;
+
+        // Открываем окно через глобальный UI-контроллер
+        UI.showModal(`📄 Заказ ${order.doc_number}`, htmlBody, buttonsHtml);
+    } catch (e) {
+        UI.toast(e.message, 'error');
+    }
+};
+
+// ==========================================
+// === МИНИ-МОДАЛКИ (СОЗДАНИЕ КЛИЕНТА И ДОГОВОРА) ===
+// ==========================================
+
+window.openMiniClientModal = function () {
+    const html = `
+        <div style="padding: 10px;">
+            <input type="text" style="display:none" autocomplete="username">
+            <input type="password" style="display:none" autocomplete="current-password">
+
+            <div class="form-group">
+                <label>Наименование (ФИО или Орг.):</label>
+                <input type="text" id="m-cl-name" class="input-modern" autocomplete="nope" placeholder="Иванов И.И.">
+            </div>
+            <div class="form-group">
+                <label>Телефон:</label>
+                <input type="text" id="m-cl-phone" class="input-modern" autocomplete="nope" placeholder="+7...">
+            </div>
+        </div>
+    `;
+    UI.showModal('➕ Новый контрагент', html, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-blue" onclick="saveMiniClient()">💾 Сохранить</button>
+    `);
+};
+
+window.openMiniContractModal = function () {
+    const cpId = document.getElementById('sale-client').value;
+    if (!cpId) return UI.toast('Сначала выберите клиента!', 'warning');
+
+    const html = `
+        <div style="padding: 10px;">
+            <input type="text" style="display:none" autocomplete="username">
+            <input type="password" style="display:none" autocomplete="current-password">
+
+            <div class="form-group">
+                <label>Номер договора:</label>
+                <input type="text" id="m-ct-num" class="input-modern" autocomplete="nope" placeholder="Напр: 125/2026">
+            </div>
+            <div class="form-group">
+                <label>Дата договора:</label>
+                <input type="date" id="m-ct-date" class="input-modern" value="${new Date().toISOString().split('T')[0]}">
+            </div>
+        </div>
+    `;
+    UI.showModal('📄 Новый договор', html, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-blue" onclick="saveMiniContract()">✅ Создать</button>
+    `);
+};
+
+window.saveMiniClient = async function () {
+    const name = document.getElementById('m-cl-name').value.trim();
+    const phone = document.getElementById('m-cl-phone').value.trim();
+    if (!name) return UI.toast('Введите наименование!', 'error');
+
+    try {
+        const res = await fetch('/api/counterparties', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, phone, type: 'Покупатель' })
+        });
+
+        if (res.ok) {
+            const client = await res.json();
+            UI.toast('Клиент добавлен', 'success');
+            UI.closeModal();
+
+            // ЖЕЛЕЗОБЕТОННАЯ СТРАХОВКА: Ищем ID даже если сервер вернул странный ответ
+            let newId = client.id;
+            if (!newId) {
+                const listRes = await fetch('/api/counterparties');
+                const list = await listRes.json();
+                const found = list.find(c => c.name === name);
+                if (found) newId = found.id;
+            }
+
+            // Передаем ID в мозг списка. Он сам выберет его и откроет розовую карточку!
+            if (newId) {
+                await syncClientsDropdown(newId);
+            } else {
+                await syncClientsDropdown(); // Если совсем не нашли, просто обновим список
+            }
+        } else {
+            UI.toast('Ошибка сохранения', 'error');
+        }
+    } catch (e) { UI.toast('Ошибка сети', 'error'); }
+};
+
+window.saveMiniContract = async function () {
+    const clientId = document.getElementById('sale-client').value;
+    const number = document.getElementById('m-ct-num').value.trim();
+    const date = document.getElementById('m-ct-date').value;
+
+    if (!number) return UI.toast('Введите номер договора!', 'error');
+
+    try {
+        const res = await fetch('/api/contracts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ counterparty_id: clientId, number: number, date: date }) // Ключи точно под твой бэкенд
+        });
+        if (res.ok) {
+            UI.toast('Договор создан', 'success');
+            UI.closeModal();
+            onClientChange(); // Обновляет список договоров в селекторе
+        } else {
+            UI.toast('Ошибка сохранения', 'error');
+        }
+    } catch (e) { UI.toast('Ошибка сети', 'error'); }
+};
+
+window.changeSalesHistoryPage = function (dir) {
+    historyPage += dir;
+    if (historyPage < 1) historyPage = 1;
+    loadSalesHistory();
+};
+
+window.triggerSalesSearch = function () {
+    historySearch = document.getElementById('sales-history-search').value;
+    historyPage = 1;
+    loadSalesHistory();
+};
+
+// --- ЗАПУСК МОДУЛЯ ПРОДАЖ ---
+document.addEventListener('DOMContentLoaded', () => {
+    if (typeof initSales === 'function') {
+        initSales();
+    } else {
+        console.error("❌ Функция initSales не найдена!");
+    }
+});
+
+  // ==========================================================================
+// ГЛОБАЛЬНЫЙ ЦЕНТР ПЕЧАТИ ДОКУМЕНТОВ (Связь с docs.js)
+// ==========================================================================
+window.AppPrint = {
+    // 1. Счет на оплату
+    invoice: function(id) {
+        if (!id) return UI.toast('ID счета не указан', 'error');
+        window.open(`/print/invoice?id=${id}`, '_blank');
+    },
+    // 2. Расходная накладная
+    waybill: function(docNum) {
+        if (!docNum) return UI.toast('Номер документа не указан', 'error');
+        window.open(`/print/waybill?docNum=${docNum}`, '_blank');
+    },
+    // 3. УПД
+    upd: function(docNum) {
+        if (!docNum) return UI.toast('Номер документа не указан', 'error');
+        window.open(`/print/upd?docNum=${docNum}`, '_blank');
+    },
+    // 4. Договор
+    contract: function(id) {
+        if (!id) return UI.toast('ID договора не указан', 'error');
+        window.open(`/print/contract?id=${id}`, '_blank');
+    },
+    // 5. Спецификация (по номеру заказа)
+    specification: function(docNum) {
+        if (!docNum) return UI.toast('Номер заказа не указан', 'error');
+        window.open(`/print/specification?docNum=${docNum}`, '_blank');
+    },
+    // 6. Спецификация (отдельный документ)
+    specificationDoc: function(id) {
+        if (!id) return UI.toast('ID спецификации не указан', 'error');
+        window.open(`/print/specification_doc?id=${id}`, '_blank');
+    },
+    // 7. Акт сверки
+    act: function(cpId, startDate, endDate) {
+        if (!cpId || !startDate || !endDate) return UI.toast('Укажите контрагента и период', 'error');
+        window.open(`/print/act?cpId=${cpId}&start=${startDate}&end=${endDate}`, '_blank');
+    },
+    // 8. Бланк заказа
+    blankOrder: function(docNum) {
+        if (!docNum) return UI.toast('Номер заказа не указан', 'error');
+        window.open(`/print/blank_order?docNum=${docNum}`, '_blank');
+    },
+    // 9. Паспорт партии (Производство)
+    passport: function(batchId) {
+        if (!batchId) return UI.toast('ID партии не указан', 'error');
+        window.open(`/print/passport?batchId=${batchId}`, '_blank');
+    }
 };

@@ -1,172 +1,159 @@
 <div id="salary-mod" class="module">
-    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
-        <div>
-            <h2>👷‍♂️ Кадры, Табель и Зарплата</h2>
-            <div class="form-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 20px;"
-                id="salary-summary-boxes">
-            </div>
-            <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Управление сотрудниками, окладами и рабочим
-                временем</p>
+    <div class="flex-between mb-20" style="align-items: flex-end;">
+        <div class="w-100">
+            <h2 class="mt-0">👷‍♂️ Кадры, Табель и Зарплата</h2>
+            <div class="summary-grid" id="salary-summary-boxes"></div>
+            <p class="text-muted" style="font-size: 13px; margin: 0;">Управление сотрудниками, окладами и рабочим временем</p>
         </div>
     </div>
 
-    <div class="accordion-header" onclick="toggleAccordion('acc-employees', this)"
-        style="border-left: 4px solid var(--success);">
+    <div class="accordion-header" onclick="toggleAccordion('acc-employees', this)" style="border-left: 4px solid var(--success);">
         <div>👥 База сотрудников и оклады</div>
         <div class="icon">▼</div>
     </div>
     <div id="acc-employees" class="accordion-body">
-        <div
-            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; background: #f8fafc; padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
-            <div style="display: flex; gap: 10px;">
-                <input type="text" id="emp-search-input" class="input-modern"
-                    placeholder="🔍 Поиск по ФИО или должности..." oninput="renderEmployeesTable()"
-                    style="width: 250px;">
-                <select id="emp-dep-filter" class="input-modern" onchange="renderEmployeesTable()">
-                    <option value="all">🌐 Все отделы</option>
+        <div class="flex-between mb-15 card-alt" style="padding: 10px; border-radius: 8px;">
+            <div class="toolbar-group flex-grow-1" style="max-width: 600px;">
+                <input type="text" id="emp-search-input" class="input-modern flex-grow-1" placeholder="🔍 Поиск по ФИО..." oninput="filterEmployees()">
+                <select id="emp-dep-filter" class="input-modern" style="width: 180px;" onchange="filterEmployees()">
+                    <option value="all">Все отделы</option>
                     <option value="Офис">Офис</option>
                     <option value="Цех">Цех</option>
                     <option value="Охрана">Охрана</option>
                 </select>
             </div>
-            <button class="btn btn-outline" style="border-color: var(--success); color: var(--success);"
-                onclick="openEmployeeModal()">➕ Добавить сотрудника</button>
+            <button class="btn btn-blue" onclick="openEmployeeForm()">➕ Добавить сотрудника</button>
         </div>
+
         <div class="table-container">
             <table>
-                <thead style="background: #f8fafc;">
+                <thead>
                     <tr>
                         <th>ФИО</th>
                         <th>Должность</th>
-                        <th>Отдел (График)</th>
-                        <th style="text-align: right;">Оклад (Нал)</th>
-                        <th style="text-align: right;">Офиц. ЗП</th>
-                        <th style="text-align: right; color: var(--danger);">Удержание (Нал)</th>
-                        <th style="text-align: right; color: var(--primary);">± Остаток</th>
-                        <th style="text-align: center;">Действия</th>
+                        <th>Отдел / График</th>
+                        <th class="text-right">Оклад (Нал)</th>
+                        <th class="text-right">Офиц. ЗП</th>
+                        <th class="text-right">Налог</th>
+                        <th class="text-right">Текущий остаток</th>
+                        <th class="text-center" style="width: 80px;">Действие</th>
                     </tr>
                 </thead>
-                <tbody id="employees-table-body">
-                    <tr>
-                        <td colspan="8" style="text-align: center;">Загрузка...</td>
-                    </tr>
-                </tbody>
+                <tbody id="employees-table-body"></tbody>
             </table>
         </div>
 
-        <div class="accordion-header" onclick="toggleAccordion('acc-fired-employees', this)"
-            style="border-left: 4px solid var(--text-muted); margin-top: 25px;">
-            <div style="color: var(--text-muted);">🛑 Архив: Уволенные сотрудники</div>
+        <div class="accordion-header mt-20" onclick="toggleAccordion('acc-fired-employees', this)" style="border-left: 4px solid var(--danger);">
+            <div>🗑️ Архив (Уволенные сотрудники)</div>
             <div class="icon">▼</div>
         </div>
-        <div id="acc-fired-employees" class="accordion-body">
+        <div id="acc-fired-employees" class="accordion-body" style="background: var(--danger-bg);">
             <div class="table-container">
-                <table style="opacity: 0.85;">
-                    <thead style="background: #f8fafc;">
+                <table>
+                    <thead>
                         <tr>
                             <th>ФИО</th>
                             <th>Должность</th>
-                            <th>Отдел (График)</th>
-                            <th style="text-align: right;">Оклад (Нал)</th>
-                            <th style="text-align: right;">Офиц. ЗП</th>
-                            <th style="text-align: right; color: var(--danger);">Удержание (Нал)</th>
-                            <th style="text-align: right; color: var(--primary);">± Остаток</th>
-                            <th style="text-align: center;">Действия</th>
+                            <th>Последний отдел</th>
+                            <th class="text-right">Финальный долг</th>
+                            <th class="text-center" style="width: 80px;">Действие</th>
                         </tr>
                     </thead>
-                    <tbody id="fired-employees-table-body">
-                        <tr>
-                            <td colspan="8" style="text-align: center;">Пусто</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-        </div>
-
-
-        <div class="accordion-header open" onclick="toggleAccordion('acc-timesheet', this)"
-            style="border-left: 4px solid var(--primary);">
-            <div>📅 Матричный табель рабочего времени</div>
-            <div class="icon">▼</div>
-        </div>
-        <div id="acc-timesheet" class="accordion-body">
-            <div
-                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid var(--border);">
-                <div style="display: flex; gap: 10px; align-items: center;">
-                    <span style="font-weight: bold;">Архив табелей:</span>
-                    <input type="month" id="ts-month-picker" class="input-modern"
-                        style="width: 150px; display: inline-block;" onchange="loadMonthlyTimesheet()">
-                    <button class="btn btn-outline"
-                        style="border-color: var(--primary); color: var(--primary); padding: 6px 12px; margin-left: 10px;"
-                        onclick="openPieceRateModal()">
-                        🏭 Начислить сделку (Цех)
-                    </button>
-                    <button class="btn btn-green" style="padding: 6px 12px; font-size: 13px;"
-                        onclick="fillTodayBySchedule()">
-                        ✅ Заполнить по графику (Сегодня)
-                    </button>
-                </div>
-                <div style="display: flex; gap: 10px; font-size: 12px; font-weight: 600;">
-                    <span style="display:flex; align-items:center; gap:5px;">
-                        <div class="ts-cell status-present" style="width:16px; height:16px;"></div> Был
-                    </span>
-                    <span style="display:flex; align-items:center; gap:5px;">
-                        <div class="ts-cell status-absent" style="width:16px; height:16px;"></div> Прогул
-                    </span>
-                    <span style="display:flex; align-items:center; gap:5px;">
-                        <div class="ts-cell status-sick" style="width:16px; height:16px;"></div> Болел
-                    </span>
-                    <span style="display:flex; align-items:center; gap:5px;">
-                        <div class="ts-cell status-vacation" style="width:16px; height:16px;"></div> Отпуск
-                    </span>
-                </div>
-            </div>
-
-            <div class="table-container" style="overflow-x: auto;">
-                <table id="monthly-ts-table" style="min-width: 1000px;">
-                    <thead id="monthly-ts-head"></thead>
-                    <tbody id="monthly-ts-body">
-                        <tr>
-                            <td style="text-align: center; padding: 30px;">Загрузка матрицы...</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="accordion-header" onclick="toggleAccordion('acc-payouts', this)"
-            style="border-left: 4px solid var(--danger);">
-            <div>💳 Выдача Авансов и Зарплаты (Касса)</div>
-            <div class="icon">▼</div>
-        </div>
-        <div id="acc-payouts" class="accordion-body">
-            <p style="font-size: 13px; color: var(--text-muted); margin-top: 0;">Расчет: Заработано на сегодня - Налоги
-                (13%
-                с офиц. ЗП) ± Долг с прошлого месяца - Выданные авансы = К получению.</p>
-
-            <div class="table-container">
-                <table>
-                    <thead style="background: #f8fafc;">
-                        <tr>
-                            <th width="20%">Сотрудник</th>
-                            <th style="text-align: right; font-weight: bold;">Заработал на сегодня</th>
-                            <th style="text-align: right; color: var(--primary);">± Остаток</th>
-                            <th style="text-align: right; color: var(--danger);">Удержание (Налоги)</th>
-                            <th style="text-align: right; color: var(--text-muted);">Авансы (тек. мес)</th>
-                            <th style="text-align: right; color: #d97706;">Доп. операции</th>
-                            <th style="text-align: right; background: #dcfce3; color: var(--success); font-size: 14px;">
-                                К
-                                ВЫДАЧЕ</th>
-                            <th style="text-align: center;">Действие</th>
-                        </tr>
-                    </thead>
-                    <tbody id="payouts-table-body">
-                        <tr>
-                            <td colspan="7" style="text-align: center;">Загрузка расчетов...</td>
-                        </tr>
-                    </tbody>
+                    <tbody id="fired-employees-table-body"></tbody>
                 </table>
             </div>
         </div>
     </div>
+
+    <div class="accordion-header mt-20" onclick="toggleAccordion('acc-timesheet', this)" style="border-left: 4px solid var(--primary);">
+        <div>📅 Электронный табель учета времени</div>
+        <div class="icon">▼</div>
+    </div>
+    <div id="acc-timesheet" class="accordion-body">
+        <div class="flex-between mb-15 card-alt" style="padding: 10px; border-radius: 8px;">
+            <div class="toolbar-group flex-grow-1">
+                <input type="month" id="ts-month-picker" class="input-modern" style="width: 160px; font-weight: bold;" onchange="loadMonthlyTimesheet()">
+                <input type="text" id="ts-search-input" class="input-modern flex-grow-1" style="max-width: 250px;" placeholder="🔍 Поиск в табеле..." oninput="reRenderTimesheet()">
+                <select id="ts-dep-filter" class="input-modern" style="width: 150px;" onchange="reRenderTimesheet()">
+                    <option value="all">Все отделы</option>
+                    <option value="Офис">Офис</option>
+                    <option value="Цех">Цех</option>
+                    <option value="Охрана">Охрана</option>
+                </select>
+                <button class="btn btn-outline btn-outline-success" onclick="fillTodayBySchedule()" title="Заполнить явку всем сотрудникам 5/2 за текущий день">⚡ Заполнить 5/2 (Сегодня)</button>
+            </div>
+
+            <div class="toolbar-group">
+                <span class="text-muted" style="font-size: 11px; max-width: 120px; line-height: 1.2;">* Клик на ячейку для смены статуса</span>
+                <button class="btn btn-outline" onclick="printTimesheet()">🖨️ Печать</button>
+            </div>
+        </div>
+        <div id="timesheet-container" class="table-container" style="overflow-x: auto;">
+            <table style="min-width: 1200px;">
+                <thead id="monthly-ts-head"></thead>
+                <tbody id="monthly-ts-body">
+                    <tr>
+                        <td class="text-center text-muted" style="padding: 20px;">Загрузка табеля...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="accordion-header mt-20 admin-only" onclick="toggleAccordion('acc-payouts', this)" style="border-left: 4px solid var(--warning);">
+        <div>💰 Расчет выплат и выдача ЗП</div>
+        <div class="icon">▼</div>
+    </div>
+    <div id="acc-payouts" class="accordion-body admin-only">
+        <div id="salary-summary-boxes" class="summary-grid"></div>
+
+        <div class="flex-between mb-15">
+            <h3 class="mt-0" style="font-size: 16px;" id="payout-month-title">Расчетный лист за период</h3>
+            <p class="text-muted mb-0" style="font-size: 12px;">Формула: Начислено ± Остаток - Налоги - Авансы ± Доп. операции = К выдаче</p>
+        </div>
+
+        <div class="flex-between mb-15 card-alt" style="padding: 10px; border-radius: 8px; flex-wrap: wrap; gap: 15px;">
+            <div class="toolbar-group flex-grow-1" style="min-width: 300px;">
+                <input type="text" id="pay-search-input" class="input-modern flex-grow-1" placeholder="🔍 Поиск сотрудника..." oninput="reRenderTimesheet()">
+                <select id="pay-dep-filter" class="input-modern" style="width: 150px;" onchange="reRenderTimesheet()">
+                    <option value="all">Все отделы</option>
+                    <option value="Офис">Офис</option>
+                    <option value="Цех">Цех</option>
+                    <option value="Охрана">Охрана</option>
+                </select>
+            </div>
+
+            <div class="toolbar-group">
+                <button class="btn btn-outline btn-outline-info" onclick="openPieceRateModal()">🏭 Сдельная ЗП</button>
+                <div class="v-divider"></div>
+                <button class="btn btn-outline" onclick="printAdvancesSheet()">🖨️ Авансы</button>
+                <button class="btn btn-outline btn-outline-success" onclick="exportAdvancesToCSV()">📊 Excel (Авансы)</button>
+                <div class="v-divider"></div>
+                <button class="btn btn-outline" onclick="printSalarySheet()">🖨️ ЗП</button>
+                <button class="btn btn-outline btn-outline-primary" onclick="exportSalaryToCSV()">📊 Excel (ЗП)</button>
+            </div>
+        </div>
+        
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th width="20%">Сотрудник</th>
+                        <th class="text-right">Заработал</th>
+                        <th class="text-right text-primary">± Остаток</th>
+                        <th class="text-right text-danger">Налоги</th>
+                        <th class="text-right text-muted">Авансы</th>
+                        <th class="text-right text-warning">Доп. операции</th>
+                        <th class="text-right status-work">К ВЫДАЧЕ</th>
+                        <th class="text-center">Действие</th>
+                    </tr>
+                </thead>
+                <tbody id="payouts-table-body">
+                    <tr>
+                        <td colspan="8" class="text-center text-muted" style="padding: 20px;">Загрузка расчетов...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

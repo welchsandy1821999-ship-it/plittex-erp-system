@@ -1,191 +1,697 @@
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
     <meta charset="UTF-8">
-    <title>УПД - <%= docNum %></title>
+    <title>УПД №<%= docNum %>
+    </title>
     <style>
-        body { font-family: 'Arial', sans-serif; font-size: 10px; color: #000; margin: 0; padding: 15px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 9px; }
-        th, td { border: 1px solid #000; padding: 4px; text-align: left; }
-        th { text-align: center; font-weight: normal; }
-        .header { text-align: left; margin-bottom: 15px; }
-        .title { font-size: 14px; font-weight: bold; margin: 10px 0; }
-        
-        .pass-box { border: 4px solid #000; padding: 40px; border-radius: 15px; text-align: center; margin-top: 50px; }
-        .pass-title { font-size: 40px; font-weight: 900; margin: 0 0 10px 0; text-transform: uppercase; }
-        .pass-field { font-size: 20px; margin: 15px 0; border-bottom: 1px dashed #000; padding-bottom: 5px; text-align: left; }
-        
+        /* Базовые настройки */
+        body {
+            font-family: 'Arial', sans-serif;
+            font-size: 8px;
+            color: #000;
+            margin: 0;
+            padding: 0;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        /* === ПРАВИЛА ОРИЕНТАЦИИ СТРАНИЦ === */
+        /* 1. По умолчанию всё печатается горизонтально (для УПД) */
+        @page {
+            size: landscape;
+            margin: 0;
+        }
+
+        /* 2. Спец-правило для вертикальной страницы */
+        @page portrait-page {
+            size: portrait;
+            margin: 0;
+        }
+
+        /* Контейнер УПД */
+        .upd-page {
+            padding: 10mm 10mm 5mm 10mm;
+            width: 100%;
+            max-width: 297mm;
+            margin: 0 auto;
+            background: var(--surface);
+        }
+
+        /* Контейнер Пропуска (Верхняя половина вертикального листа) */
+        .pass-page {
+            padding: 10mm 15mm;
+            width: 100%;
+            max-width: 210mm;
+            margin: 0 auto;
+            background: var(--surface);
+            page: portrait-page;
+            /* Применяем вертикальную ориентацию */
+            page-break-before: always;
+            /* Всегда с новой страницы */
+            height: 148mm;
+            /* Строго половина листа А4 */
+        }
+
+        table {
+            border-collapse: collapse;
+        }
+
+        td,
+        th {
+            vertical-align: top;
+        }
+
+        /* Таблица сетки 1С */
+        .grid-1c {
+            width: 100%;
+            font-size: 8px;
+            line-height: 1.1;
+        }
+
+        .grid-1c td {
+            padding: 1px 2px;
+        }
+
+        /* Спец-классы для линий и текста */
+        .line-cell {
+            border-bottom: 1px solid #000;
+            position: relative;
+        }
+
+        .num-right {
+            float: right;
+            font-size: 7px;
+            margin-top: 1px;
+        }
+
+        .num-right-bracket {
+            float: right;
+            font-size: 8px;
+        }
+
+        .sub-center {
+            text-align: center;
+            font-size: 6px;
+            display: block;
+            margin-top: 1px;
+        }
+
+        /* Главная таблица (20 колонок) */
+        .main-table {
+            width: 100%;
+            margin: 5px 0;
+            border: 1px solid #000;
+        }
+
+        .main-table td,
+        .main-table th {
+            border: 1px solid #000;
+            padding: 2px 3px;
+            font-size: 7.5px;
+            vertical-align: top;
+        }
+
+        .main-table th {
+            text-align: center;
+            font-weight: normal;
+            vertical-align: middle;
+            padding: 1px;
+            font-size: 6px;
+        }
+
+        .col-idx {
+            background: #f0f0f0;
+            font-size: 6px;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .text-right {
+            text-align: right;
+        }
+
+        .bold {
+            font-weight: bold;
+        }
+
         /* Стили кнопок */
-        .action-buttons { display: flex; gap: 10px; justify-content: flex-end; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px dashed #ccc; }
-        .btn { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; color: white; font-size: 13px; transition: 0.2s; }
-        .btn-green { background: #10b981; } .btn-green:hover { background: #059669; }
-        .btn-gray { background: #64748b; } .btn-gray:hover { background: #475569; }
-        .btn-blue { background: #3b82f6; } .btn-blue:hover { background: #2563eb; }
-        @media print { .page-break { page-break-before: always; } .no-print { display: none !important; } body { padding: 0; background: #fff; } }
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            padding: 15px;
+            background: var(--surface-alt);
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .btn {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            color: white;
+            font-size: 12px;
+        }
+
+        .btn-green {
+            background: #10b981;
+        }
+
+        .btn-gray {
+            background: #64748b;
+        }
+
+        .btn-blue {
+            background: #3b82f6;
+        }
+
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+
+            body {
+                background: transparent;
+            }
+
+            .upd-page,
+            .pass-page {
+                padding: 0;
+                margin: 0;
+                max-width: none;
+            }
+
+            .upd-page {
+                width: 280mm;
+                padding: 5mm;
+            }
+
+            .pass-page {
+                width: 210mm;
+                padding: 10mm;
+            }
+        }
     </style>
 </head>
+
 <body>
     <div class="action-buttons no-print">
-        <button class="btn btn-blue" onclick="Export2Word('УПД_№<%= docNum %>')">📄 Сохранить в Word</button>
-        <button class="btn btn-gray" onclick="saveAndPrint(false, 'УПД_№<%= docNum %>')">🖨️ Сохранить PDF (Без печати)</button>
-        <button class="btn btn-green" onclick="saveAndPrint(true, 'УПД_№<%= docNum %>')">🖨️ Сохранить PDF (С печатью)</button>
+        <button class="btn btn-blue" onclick="Export2Word('УПД_№<%= docNum %>')">📄 Word</button>
+        <button class="btn btn-gray" onclick="saveAndPrint(false, 'УПД_№<%= docNum %>')">🖨️ PDF (Без печати)</button>
+        <button class="btn btn-green" onclick="saveAndPrint(true, 'УПД_№<%= docNum %>')">🖨️ PDF (С печатью)</button>
     </div>
 
     <div id="doc-content">
-        <div class="header">
-            <div style="text-align: right; font-size: 9px;">Приложение №1 к Постановлению Правительства РФ...<br>Универсальный передаточный документ</div>
-            <div style="font-size: 14px; margin-top: 10px;"><b>Статус: 1</b> (Счет-фактура и передаточный документ)</div>
-        </div>
-
-        <div class="title">Счет-фактура № <%= docNum %> от <%= date %></div>
-
-        <div style="display: flex; justify-content: space-between; margin-bottom: 15px; line-height: 1.4;">
-            <div style="width: 48%;">
-                <b>Продавец:</b> ООО "ПЛИТТЕКС"<br>
-                <b>ИНН/КПП:</b> 2372029123 / 237201001<br>
-                <b>Адрес:</b> 352244, Краснодарский край, г. Новокубанск, ул. Кузнечная, д. 1 оф.2
-            </div>
-            <div style="width: 48%;">
-                <b>Покупатель:</b> <%= clientName %><br>
-                <b>ИНН/КПП:</b> <%= cpInfo.inn || '_________' %> / <%= cpInfo.kpp || '_________' %><br>
-                <b>Адрес:</b> <%= cpInfo.legal_address || '___________________________' %>
-            </div>
-        </div>
-
-        <table>
-            <thead>
+        <div class="upd-page">
+            <table class="grid-1c" style="margin-bottom: 5px;">
                 <tr>
-                    <th rowspan="2" style="width: 3%;">№</th>
-                    <th rowspan="2">Наименование товара (услуги)</th>
-                    <th rowspan="2" style="width: 5%;">Ед. изм.</th>
-                    <th rowspan="2" style="width: 6%;">Кол-во</th>
-                    <th rowspan="2" style="width: 8%;">Цена (руб.)<br>без НДС</th>
-                    <th rowspan="2" style="width: 9%;">Стоимость<br>без НДС</th>
-                    <th rowspan="2" style="width: 5%;">В т.ч.<br>акциз</th>
-                    <th rowspan="2" style="width: 5%;">Налог.<br>ставка</th>
-                    <th rowspan="2" style="width: 8%;">Сумма<br>налога</th>
-                    <th rowspan="2" style="width: 9%;">Стоимость<br>с НДС</th>
-                </tr>
-                <tr></tr> 
-            </thead>
-            <tbody>
-                <% 
-                let num = 1; let totalQty = 0; 
-                let grandTotalNoVat = 0; let grandTotalVat = 0; let grandTotal = 0;
-                const VAT_RATE = 0.22;
-                items.forEach(function(item) { 
-                    totalQty += parseFloat(item.qty); 
-                    const priceWithVat = parseFloat(item.price) || 0;
-                    const costWithVat = parseFloat(item.qty) * priceWithVat;
-                    const priceNoVat = priceWithVat / (1 + VAT_RATE);
-                    const costNoVat = costWithVat / (1 + VAT_RATE);
-                    const vatAmount = costWithVat - costNoVat;
+                    <td style="width: 140px; padding: 0;">
+                        <div style="font-size: 7px; line-height: 1.1;">Универсальный<br>передаточный<br>документ</div>
+                        <div
+                            style="border: 2px solid #000; padding: 2px; width: 70px; text-align: center; margin: 3px 0;">
+                            Статус: <b>1</b></div>
+                        <div style="font-size: 5px; line-height: 1;">1 - счет-фактура и передаточный<br>документ
+                            (акт)<br>2 - передаточный документ (акт)</div>
+                    </td>
+                    <td style="padding: 0;">
+                        <table class="grid-1c">
+                            <tr>
+                                <td style="width: 80px;">Счет-фактура №</td>
+                                <td class="line-cell bold text-center" style="width: 120px;">
+                                    <%= docNum %>
+                                </td>
+                                <td style="width: 20px; text-align: center;">от</td>
+                                <td class="line-cell bold text-center" style="width: 100px;">
+                                    <%= date %>
+                                </td>
+                                <td style="width: 20px;"><span class="num-right">(1)</span></td>
+                                <td rowspan="2"
+                                    style="text-align: right; font-size: 6px; padding-left: 10px; line-height: 1.1;">
+                                    Приложение № 1 к постановлению Правительства Российской Федерации от 26 декабря 2011
+                                    г. № 1137<br>
+                                    (в редакции постановления Правительства Российской Федерации от 16 августа 2024 г. №
+                                    1096)
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Исправление №</td>
+                                <td class="line-cell text-center">--</td>
+                                <td class="text-center">от</td>
+                                <td class="line-cell text-center">--</td>
+                                <td><span class="num-right">(1а)</span></td>
+                            </tr>
+                        </table>
 
-                    grandTotalNoVat += costNoVat;
-                    grandTotalVat += vatAmount;
-                    grandTotal += costWithVat;
-                %>
+                        <table class="grid-1c" style="margin-top: 5px;">
+                            <tr>
+                                <td style="width: 70px;">Продавец:</td>
+                                <td class="line-cell bold" style="width: 35%;">ООО "ПЛИТТЕКС" <span
+                                        class="num-right">(2)</span></td>
+                                <td style="width: 70px; padding-left: 10px;">Покупатель:</td>
+                                <td class="line-cell bold">
+                                    <%= clientName %> <span class="num-right">(6)</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Адрес:</td>
+                                <td class="line-cell">352244, Краснодарский край, г. Новокубанск, ул. Кузнечная, д. 1
+                                    оф.2 <span class="num-right">(2а)</span></td>
+                                <td style="padding-left: 10px;">Адрес:</td>
+                                <td class="line-cell">
+                                    <%= locals.cpInfo ? cpInfo.legal_address : '' %> <span class="num-right">(6а)</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>ИНН/КПП продавца:</td>
+                                <td class="line-cell">2372029123 / 237201001 <span class="num-right">(2б)</span></td>
+                                <td style="padding-left: 10px;">ИНН/КПП покупателя:</td>
+                                <td class="line-cell">
+                                    <%= locals.cpInfo ? cpInfo.inn : '' %> / <%= locals.cpInfo ? cpInfo.kpp : '' %>
+                                            <span class="num-right">(6б)</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Грузоотправитель и его адрес:</td>
+                                <td class="line-cell">он же <span class="num-right">(3)</span></td>
+                                <td style="padding-left: 10px;">Валюта: наименование, код</td>
+                                <td class="line-cell">Российский рубль, 643 <span class="num-right">(7)</span></td>
+                            </tr>
+                            <tr>
+                                <td>Грузополучатель и его адрес:</td>
+                                <td class="line-cell">
+                                    <%= clientName %>, <%= locals.cpInfo ? cpInfo.legal_address : '' %> <span
+                                                class="num-right">(4)</span>
+                                </td>
+                                <td style="padding-left: 10px;">Идентификатор госконтракта:</td>
+                                <td class="line-cell"><span class="num-right">(8)</span></td>
+                            </tr>
+                            <tr>
+                                <td>К платежно-расчетному документу №</td>
+                                <td class="line-cell"> <span style="margin: 0 40px;">от</span> <span
+                                        class="num-right">(5)</span></td>
+                                <td colspan="2"></td>
+                            </tr>
+                            <tr>
+                                <td>Документ об отгрузке:</td>
+                                <td class="line-cell">Универсальный передаточный документ № <%= docNum %> от <%= date %>
+                                            <span class="num-right">(5а)</span></td>
+                                <td colspan="2"></td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+
+            <table class="main-table">
+                <thead>
+                    <tr>
+                        <th rowspan="2" style="width: 25px;">Код товара/<br>работ, услуг</th>
+                        <th rowspan="2" style="width: 15px;">№<br>п/п</th>
+                        <th rowspan="2">Наименование товара (описание<br>выполненных работ, оказанных<br>услуг),
+                            имущественного права</th>
+                        <th rowspan="2" style="width: 25px;">Код<br>вида<br>товара</th>
+                        <th colspan="2">Единица измерения</th>
+                        <th rowspan="2" style="width: 30px;">Коли-<br>чество<br>(объем)</th>
+                        <th rowspan="2" style="width: 40px;">Цена (тариф)<br>за единицу<br>измерения</th>
+                        <th rowspan="2" style="width: 50px;">Стоимость<br>товаров (работ,<br>услуг), имущест-<br>венных
+                            прав без<br>налога - всего</th>
+                        <th rowspan="2" style="width: 25px;">В том<br>числе<br>сумма<br>акциза</th>
+                        <th rowspan="2" style="width: 25px;">Нало-<br>говая<br>став-<br>ка</th>
+                        <th rowspan="2" style="width: 40px;">Сумма налога,<br>предъявляемая<br>покупателю</th>
+                        <th rowspan="2" style="width: 50px;">Стоимость<br>товаров (работ,<br>услуг), имущест-<br>венных
+                            прав с<br>налогом - всего</th>
+                        <th colspan="2">Страна происхожде-<br>ния товара</th>
+                        <th rowspan="2" style="width: 50px;">Регистрационный<br>номер декларации на<br>товары или
+                            регист-<br>рационный номер...</th>
+                        <th colspan="2">Количественная единица<br>измерения товара...</th>
+                        <th rowspan="2" style="width: 30px;">Количество<br>товара...</th>
+                        <th rowspan="2" style="width: 40px;">Стоимость<br>товара...</th>
+                    </tr>
+                    <tr>
+                        <th style="width: 20px;">код</th>
+                        <th style="width: 30px;">условное<br>обозна-<br>чение</th>
+                        <th style="width: 20px;">циф-<br>ровой<br>код</th>
+                        <th style="width: 30px;">краткое<br>наимено-<br>вание</th>
+                        <th style="width: 20px;">код</th>
+                        <th style="width: 30px;">условное<br>обозна-<br>чение</th>
+                    </tr>
+                    <tr class="col-idx">
+                        <td>А</td>
+                        <td>1</td>
+                        <td>1а</td>
+                        <td>1б</td>
+                        <td>2</td>
+                        <td>2а</td>
+                        <td>3</td>
+                        <td>4</td>
+                        <td>5</td>
+                        <td>6</td>
+                        <td>7</td>
+                        <td>8</td>
+                        <td>9</td>
+                        <td>10</td>
+                        <td>10а</td>
+                        <td>11</td>
+                        <td>12</td>
+                        <td>12а</td>
+                        <td>13</td>
+                        <td>14</td>
+                    </tr>
+                </thead>
+                <tbody>
+                    <% /* 🚀 Задача №7: Динамический расчет через vatRate */ %>
+                    <% let totalQty=0; let totalNoVat=0; let totalVat=0; let totalSum=0; 
+                       let vatDivisor = 1 + (vatRate / 100);
+                       
+                       items.forEach((item, idx)=> {
+                        const sum = item.qty * item.price;
+                        const noVat = sum / vatDivisor;
+                        const vat = sum - noVat;
+                        totalQty += parseFloat(item.qty); 
+                        totalNoVat += noVat; 
+                        totalVat += vat; 
+                        totalSum += sum;
+
+                        const itemCode = item.code || item.article || '23.61.11.530';
+                        %>
+                        <tr>
+                            <td class="text-center">
+                                <%= itemCode %>
+                            </td>
+                            <td class="text-center">
+                                <%= idx + 1 %>
+                            </td>
+                            <td>
+                                <%= item.name %>
+                            </td>
+                            <td></td>
+                            <td class="text-center">796</td>
+                            <td class="text-center">
+                                <%= item.unit %>
+                            </td>
+                            <td class="text-right">
+                                <%= item.qty %>
+                            </td>
+                            <td class="text-right">
+                                <%= (item.price / vatDivisor).toFixed(2) %>
+                            </td>
+                            <td class="text-right">
+                                <%= noVat.toFixed(2) %>
+                            </td>
+                            <td class="text-center">без акциза</td>
+                            <td class="text-center"><%= vatRate %>%</td>
+                            <td class="text-right">
+                                <%= vat.toFixed(2) %>
+                            </td>
+                            <td class="text-right">
+                                <%= sum.toFixed(2) %>
+                            </td>
+                            <td class="text-center">643</td>
+                            <td class="text-center">Россия</td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                        </tr>
+                        <% }) %>
+                            <tr class="bold">
+                                <td colspan="8" class="text-right">Всего к оплате (9)</td>
+                                <td class="text-right">
+                                    <%= totalNoVat.toFixed(2) %>
+                                </td>
+                                <td class="text-center">Х</td>
+                                <td class="text-center">Х</td>
+                                <td class="text-right">
+                                    <%= totalVat.toFixed(2) %>
+                                </td>
+                                <td class="text-right">
+                                    <%= totalSum.toFixed(2) %>
+                                </td>
+                                <td colspan="7"></td>
+                            </tr>
+                </tbody>
+            </table>
+
+            <table class="grid-1c" style="width: 100%; margin-top: 5px;">
                 <tr>
-                    <td style="text-align: center;"><%= num++ %></td>
-                    <td><%= item.name %></td>
-                    <td style="text-align: center;"><%= item.unit %></td>
-                    <td style="text-align: center;"><%= item.qty %></td>
-                    <td style="text-align: right;"><%= priceNoVat.toFixed(2) %></td>
-                    <td style="text-align: right;"><%= costNoVat.toFixed(2) %></td>
-                    <td style="text-align: center;">Без акциза</td>
-                    <td style="text-align: center;">22%</td>
-                    <td style="text-align: right;"><%= vatAmount.toFixed(2) %></td>
-                    <td style="text-align: right;"><%= costWithVat.toFixed(2) %></td>
+                    <td style="width: 120px;">Документ составлен на 1 листе</td>
+                    <td style="width: 130px; text-align: right;">Руководитель организации<br>или иное уполномоченное
+                        лицо</td>
+                    <td class="line-cell" style="width: 80px; position: relative;">
+                        <img src="/img/sign_dir.png" class="overlay-img"
+                            style="position: absolute; top: -10px; left: 10px; width: 60px; display: none; z-index: 5; mix-blend-mode: multiply;">
+                        <span class="sub-center" style="position: absolute; bottom: -8px; width: 100%;">(подпись)</span>
+                    </td>
+                    <td class="line-cell text-center" style="width: 100px;">
+                        Марченко С. М.
+                        <span class="sub-center" style="position: absolute; bottom: -8px; width: 100%;">(ф.и.о.)</span>
+                    </td>
+                    <td style="width: 130px; text-align: right;">Главный бухгалтер<br>или иное уполномоченное лицо</td>
+                    <td class="line-cell" style="width: 80px; position: relative;">
+                        <img src="/img/sign_buh.png" class="overlay-img"
+                            style="position: absolute; top: -10px; left: 10px; width: 60px; display: none; z-index: 5; mix-blend-mode: multiply;">
+                        <span class="sub-center" style="position: absolute; bottom: -8px; width: 100%;">(подпись)</span>
+                    </td>
+                    <td class="line-cell text-center" style="width: 100px;">
+                        Москвичева И. Ю.
+                        <span class="sub-center" style="position: absolute; bottom: -8px; width: 100%;">(ф.и.о.)</span>
+                    </td>
                 </tr>
-                <% }); %>
-                <tr style="font-weight: bold;">
-                    <td colspan="3" style="text-align: right;">Всего к оплате:</td>
-                    <td style="text-align: center;"><%= totalQty %></td>
-                    <td></td>
-                    <td style="text-align: right;"><%= grandTotalNoVat.toFixed(2) %></td>
-                    <td></td>
-                    <td></td>
-                    <td style="text-align: right;"><%= grandTotalVat.toFixed(2) %></td>
-                    <td style="text-align: right;"><%= grandTotal.toFixed(2) %></td>
-                </tr>
-            </tbody>
-        </table>
+            </table>
 
-        <div style="margin-top: 30px; display: flex; justify-content: space-between;">
-            <div style="width: 45%; position: relative;">
-                <b>Руководитель организации:</b> ___________________ / Марченко С.М.<br>
-                <span style="font-size: 8px; color: gray;">(подпись) (ф.и.о.)</span>
-                <img src="/img/stamp.png" class="overlay-img" style="position: absolute; top: -30px; left: 100px; width: 140px; opacity: 0.85; display: none; z-index: -2;">
-                <img src="/img/sign_dir.png" class="overlay-img" style="position: absolute; top: -10px; left: 60px; width: 100px; display: none; z-index: -1;">
+            <div style="margin-top: 15px; font-size: 8px;">
+                <div style="display: flex;">
+                    <div style="width: 250px;">Основание передачи (сдачи) / получения (приемки):</div>
+                    <div class="line-cell" style="flex-grow: 1; text-align: center;">
+                        <%= locals.contractInfo || 'Без договора' %> <span class="num-right-bracket">[8]</span>
+                    </div>
+                </div>
+                <div style="display: flex; margin-top: 3px;">
+                    <div style="width: 160px;">Данные о транспортировке и грузе:</div>
+                    <div class="line-cell" style="flex-grow: 1; text-align: center;">Автотранспорт: <%=
+                            locals.transportInfo || 'Самовывоз' %> <span class="num-right-bracket">[9]</span></div>
+                </div>
             </div>
-            <div style="width: 45%; position: relative;">
-                <b>Главный бухгалтер:</b> ___________________ / Москвичева И.Ю.<br>
-                <span style="font-size: 8px; color: gray;">(подпись) (ф.и.о.)</span>
-                <img src="/img/sign_buh.png" class="overlay-img" style="position: absolute; top: -10px; left: 60px; width: 100px; display: none; z-index: -1;">
-            </div>
+
+            <table class="grid-1c" style="width: 100%; margin-top: 10px;">
+                <tr>
+                    <td style="width: 48%; padding-right: 15px;">
+                        <div style="margin-bottom: 5px;">Товар (груз) передал / услуги, результаты работ, права сдал
+                        </div>
+                        <div style="display: flex;">
+                            <div class="line-cell" style="width: 30%;">Ген. директор<span class="sub-center"
+                                    style="position: absolute; bottom: -8px; width: 100%;">(должность)</span></div>
+                            <div class="line-cell" style="width: 30%; margin: 0 5px; position: relative;">
+                                <img src="/img/stamp.png" class="overlay-img"
+                                    style="position: absolute; top: -20px; left: -10px; width: 90px; opacity: 0.8; display: none; z-index: 10; mix-blend-mode: multiply;">
+                                <span class="sub-center"
+                                    style="position: absolute; bottom: -8px; width: 100%;">(подпись)</span>
+                            </div>
+                            <div class="line-cell" style="width: 40%;">Марченко С.М. <span
+                                    class="num-right-bracket">[10]</span><span class="sub-center"
+                                    style="position: absolute; bottom: -8px; width: 100%;">(ф.и.о.)</span></div>
+                        </div>
+
+                        <div style="display: flex; margin-top: 15px;">
+                            <div style="width: 140px;">Дата отгрузки, передачи (сдачи)</div>
+                            <div class="line-cell text-center" style="flex-grow: 1;">
+                                <%= date %> <span class="num-right-bracket">[11]</span>
+                            </div>
+                        </div>
+                        <div style="display: flex; margin-top: 5px;">
+                            <div style="width: 150px;">Иные сведения об отгрузке, передаче</div>
+                            <div class="line-cell" style="flex-grow: 1;"><span class="num-right-bracket">[12]</span>
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 10px;">Ответственный за правильность оформления факта хозяйственной
+                            жизни</div>
+                        <div style="display: flex;">
+                            <div class="line-cell" style="width: 30%;">Ген. директор<span class="sub-center"
+                                    style="position: absolute; bottom: -8px; width: 100%;">(должность)</span></div>
+                            <div class="line-cell" style="width: 30%; margin: 0 5px;">
+                                <span class="sub-center"
+                                    style="position: absolute; bottom: -8px; width: 100%;">(подпись)</span>
+                            </div>
+                            <div class="line-cell" style="width: 40%;">Марченко С.М. <span
+                                    class="num-right-bracket">[13]</span><span class="sub-center"
+                                    style="position: absolute; bottom: -8px; width: 100%;">(ф.и.о.)</span></div>
+                        </div>
+                        <div style="margin-top: 15px;">Наименование экономического субъекта – составителя документа
+                        </div>
+                        <div class="line-cell" style="width: 100%;">ООО "ПЛИТТЕКС", ИНН/КПП 2372029123/237201001 <span
+                                class="num-right-bracket">[14]</span></div>
+                    </td>
+
+                    <td style="width: 4%; border-left: 1px solid #ccc;"></td>
+
+                    <td style="width: 48%; padding-left: 10px;">
+                        <div style="margin-bottom: 5px;">Товар (груз) получил / услуги, результаты работ, права принял
+                        </div>
+                        <div style="display: flex;">
+                            <div class="line-cell" style="width: 30%;"><span class="sub-center"
+                                    style="position: absolute; bottom: -8px; width: 100%;">(должность)</span></div>
+                            <div class="line-cell" style="width: 30%; margin: 0 5px;"><span class="sub-center"
+                                    style="position: absolute; bottom: -8px; width: 100%;">(подпись)</span></div>
+                            <div class="line-cell" style="width: 40%;"><span class="num-right-bracket">[15]</span><span
+                                    class="sub-center"
+                                    style="position: absolute; bottom: -8px; width: 100%;">(ф.и.о.)</span></div>
+                        </div>
+
+                        <div style="display: flex; margin-top: 15px;">
+                            <div style="width: 120px;">Дата получения (приемки)</div>
+                            <div class="line-cell" style="flex-grow: 1;"><span class="num-right-bracket">[16]</span>
+                            </div>
+                        </div>
+                        <div style="display: flex; margin-top: 5px;">
+                            <div style="width: 150px;">Иные сведения о получении, приемке</div>
+                            <div class="line-cell" style="flex-grow: 1;"><span class="num-right-bracket">[17]</span>
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 10px;">Ответственный за правильность оформления факта хозяйственной
+                            жизни</div>
+                        <div style="display: flex;">
+                            <div class="line-cell" style="width: 30%;"><span class="sub-center"
+                                    style="position: absolute; bottom: -8px; width: 100%;">(должность)</span></div>
+                            <div class="line-cell" style="width: 30%; margin: 0 5px;"><span class="sub-center"
+                                    style="position: absolute; bottom: -8px; width: 100%;">(подпись)</span></div>
+                            <div class="line-cell" style="width: 40%;"><span class="num-right-bracket">[18]</span><span
+                                    class="sub-center"
+                                    style="position: absolute; bottom: -8px; width: 100%;">(ф.и.о.)</span></div>
+                        </div>
+                        <div style="margin-top: 15px;">Наименование экономического субъекта – составителя документа
+                        </div>
+                        <div class="line-cell" style="width: 100%;">
+                            <%= clientName %>, ИНН/КПП <%= locals.cpInfo ? cpInfo.inn : '' %>/<%= locals.cpInfo ?
+                                        cpInfo.kpp : '' %> <span class="num-right-bracket">[19]</span>
+                        </div>
+                    </td>
+                </tr>
+            </table>
         </div>
 
-        <div class="page-break"></div>
-
-        <div class="pass-box">
-            <div class="pass-title">ПРОПУСК НА ВЫЕЗД № <%= docNum.replace(/[^0-9]/g, '') %></div>
-            <div style="font-size: 18px; margin-bottom: 30px;">ООО "ПЛИТТЕКС" (Производственная база)</div>
-            
-            <div class="pass-field"><b>Дата и время отгрузки:</b> <%= date %> <b><%= time %></b></div>
-            <div class="pass-field"><b>Клиент:</b> <%= clientName %></div>
-            <div class="pass-field"><b>Транспорт (Авто / Водитель):</b> <span style="font-size: 24px; font-weight: bold;"><%= transportInfo %></span></div>
-            <div class="pass-field">
-                <b>К выезду разрешено (всего мест):</b> <%= totalQty %> 
-                <span style="font-size: 14px; color: gray;">(Включая тару: <%= palletsQty || 0 %> шт.)</span>
-            </div>
-
-            <div style="margin-top: 60px; display: flex; justify-content: space-between; font-size: 20px;">
-                <div><b>Отгрузил (Кладовщик):</b> ______________</div>
-                <div><b>Выезд разрешил (Охрана):</b> ______________</div>
+        <div class="pass-page">
+            <div
+                style="border: 3px solid #000; padding: 30px; border-radius: 10px; text-align: center; height: 100%; box-sizing: border-box;">
+                <div style="font-size: 28pt; font-weight: 900; margin-bottom: 20px;">ПРОПУСК № <%=
+                        docNum.replace(/[^0-9]/g, '' ) %>
+                </div>
+                <div style="font-size: 16pt; margin-bottom: 25px;">ООО "ПЛИТТЕКС" (Производственная база)</div>
+                <div
+                    style="font-size: 16pt; margin: 12px 0; border-bottom: 1px dashed #000; text-align: left; padding-bottom: 3px;">
+                    <b>Дата отгрузки:</b>
+                    <%= date %>
+                </div>
+                <div
+                    style="font-size: 16pt; margin: 12px 0; border-bottom: 1px dashed #000; text-align: left; padding-bottom: 3px;">
+                    <b>Клиент:</b>
+                    <%= clientName %>
+                </div>
+                <div
+                    style="font-size: 16pt; margin: 12px 0; border-bottom: 1px dashed #000; text-align: left; padding-bottom: 3px;">
+                    <b>Транспорт:</b> <span style="font-size: 22pt; font-weight: bold;">
+                        <%= locals.transportInfo || '________________' %>
+                    </span></div>
+                <div
+                    style="font-size: 16pt; margin: 12px 0; border-bottom: 1px dashed #000; text-align: left; padding-bottom: 3px;">
+                    <b>Всего мест:</b>
+                    <%= totalQty %> <small style="font-size: 12pt; color: gray;">(в т.ч. тара: <%= locals.palletsQty ||
+                                0 %> шт.)</small>
+                </div>
+                <div style="margin-top: 50px; display: flex; justify-content: space-between; font-size: 18pt;">
+                    <div>Кладовщик: __________</div>
+                    <div>Охрана: __________</div>
+                </div>
             </div>
         </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script>
+        // Асинхронная функция генерации и сохранения PDF-документа
         async function saveAndPrint(withStamp, docName) {
+            // Включаем или отключаем отображение печатей и подписей
             const overlays = document.querySelectorAll('.overlay-img');
             overlays.forEach(el => el.style.display = withStamp ? 'block' : 'none');
+
+            // Скрываем панель с кнопками, чтобы она не попала в документ
             const actionBtns = document.querySelector('.action-buttons');
             if (actionBtns) actionBtns.style.display = 'none';
 
+            // Задержка 150мс, чтобы браузер успел отрисовать наложенные картинки печатей
+            await new Promise(resolve => setTimeout(resolve, 150));
+
+            // Выбираем основной контейнер с документом
             const element = document.getElementById('doc-content');
-            const opt = { margin: [10, 10, 10, 10], filename: `${docName}_${withStamp ? 'С_печатью' : 'Без_печати'}_${Date.now()}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
+
+            // Настройки для библиотеки html2pdf
+            const opt = {
+                margin: [5, 5, 5, 5],
+                filename: `${docName}_${withStamp ? 'С_Печатью' : 'Без_Печати'}_${Date.now()}.pdf`,
+                image: { type: 'jpeg', quality: 1.0 },
+                html2canvas: { scale: 2, useCORS: true, allowTaint: true },
+                // Базовый формат ставим landscape (УПД будет на весь лист)
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+                // Жестко приказываем библиотеке сделать разрыв страницы перед пропуском
+                pagebreak: { mode: ['css', 'legacy'], before: '.pass-page' }
+            };
 
             try {
+                // Создаем PDF и переводим его в формат base64 для отправки
                 const pdfBase64 = await html2pdf().set(opt).from(element).outputPdf('datauristring');
-                await fetch('/api/docs/save-pdf', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: opt.filename, fileData: pdfBase64 }) });
-            } catch (error) { console.error("Ошибка:", error); }
 
+                // Получаем токен из локального хранилища браузера для прохождения авторизации
+                const token = localStorage.getItem('token');
+
+                // Отправляем файл на наш бэкенд (роутер docs.js)
+                const response = await fetch('/api/docs/save-pdf', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ filename: opt.filename, fileData: pdfBase64 })
+                });
+
+                // Проверяем успешность сохранения файла на сервере
+                if (response.ok) {
+                    console.log(`✅ Файл ${opt.filename} успешно сохранен в public/saved_docs`);
+                } else {
+                    const errText = await response.text();
+                    console.error('❌ Ошибка сервера при сохранении ПДФ:', errText);
+                }
+            } catch (e) {
+                console.error('❌ Ошибка генерации ПДФ:', e);
+            }
+
+            // Вызываем системное окно печати браузера
             window.print();
+
+            // Возвращаем панель с кнопками обратно на экран
             if (actionBtns) actionBtns.style.display = 'flex';
         }
 
-        function Export2Word(filename = '') {
+        function Export2Word(filename) {
             const overlays = document.querySelectorAll('.overlay-img');
             overlays.forEach(el => el.style.display = 'none');
-            const actionBtns = document.querySelector('.action-buttons');
-            if (actionBtns) actionBtns.style.display = 'none';
-
-            var preHtml = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Export</title></head><body>";
-            var postHtml = "</body></html>";
-            var html = preHtml + document.getElementById('doc-content').innerHTML + postHtml;
-
-            var blob = new Blob(['\\ufeff', html], { type: 'application/msword' });
-            var url = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(html);
-            var downloadLink = document.createElement("a");
-            
-            document.body.appendChild(downloadLink);
-            if(navigator.msSaveOrOpenBlob ){ navigator.msSaveOrOpenBlob(blob, filename+'.doc'); }
-            else{ downloadLink.href = url; downloadLink.download = filename+'.doc'; downloadLink.click(); }
-            document.body.removeChild(downloadLink);
-            if (actionBtns) actionBtns.style.display = 'flex';
+            const content = document.getElementById('doc-content').innerHTML;
+            const blob = new Blob(['\ufeff', content], { type: 'application/msword' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url; link.download = filename + '.doc'; link.click();
         }
     </script>
 </body>
+
 </html>

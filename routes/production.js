@@ -26,15 +26,48 @@ module.exports = function (pool, getWhId, withTransaction) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
+
+    // ==========================================
+    // ВРЕМЕННАЯ ТАБЛЕТКА: РАСШИРЕНИЕ ВСЕХ ЛИМИТОВ БД (ЧАСТЬ 2)
+    // ==========================================
+    router.get('/fix-db', async (req, res) => {
+        try {
+            await pool.query(`
+                -- Добиваем финансовые колонки амортизации
+                ALTER TABLE production_batches ALTER COLUMN machine_amort_cost TYPE NUMERIC(15,2);
+                ALTER TABLE production_batches ALTER COLUMN mold_amort_cost TYPE NUMERIC(15,2);
+                -- Расширяем колонку циклов в самой партии
+                ALTER TABLE production_batches ALTER COLUMN cycles_count TYPE NUMERIC(15,2);
+                -- На всякий случай расширяем цены в справочнике
+                ALTER TABLE items ALTER COLUMN current_price TYPE NUMERIC(15,2);
+                ALTER TABLE items ALTER COLUMN amortization_per_cycle TYPE NUMERIC(15,4);
+            `);
+            res.send('<h1>✅ Успешно (Часть 2)!</h1><p>Абсолютно все финансовые и количественные лимиты расширены до десятков миллионов.</p>');
+        } catch (err) {
+            res.send(`<h1>❌ Ошибка:</h1><p>${err.message}</p>`);
+        }
+    });
+
     router.get('/api/production/history', async (req, res) => {
+        const { date } = req.query;
         try {
             const result = await pool.query(`
-                SELECT pb.id, pb.batch_number, i.name as product_name, pb.planned_quantity, pb.mat_cost_total, pb.created_at
-                FROM production_batches pb JOIN items i ON pb.product_id = i.id
-                WHERE pb.created_at::date = $1 ORDER BY pb.id DESC
-            `, [req.query.date]);
-            res.json(result.rows);
-        } catch (err) { res.status(500).json({ error: err.message }); }
+            SELECT 
+                b.id,                -- 🚩 Убедитесь, что это INTEGER ID
+                b.batch_number, 
+                b.planned_quantity,  -- А это 50.00
+                p.name as product_name,
+                b.mat_cost_total
+            FROM production_batches b
+            JOIN items p ON b.product_id = p.id
+            WHERE b.production_date = $1
+            ORDER BY b.created_at DESC
+        `, [date]);
+            res.json(result.rows); // Должен возвращать МАССИВ
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: err.message }); // Возвращает ОБЪЕКТ (причина ошибки .map)
+        }
     });
 
     router.get('/api/production/batch/:id/materials', async (req, res) => {
@@ -96,122 +129,159 @@ module.exports = function (pool, getWhId, withTransaction) {
 
 
     // --- ТРАНЗАКЦИОННЫЕ МАРШРУТЫ (БЕЗОПАСНЫЕ) ---
-
     router.post('/api/production', async (req, res) => {
         let { date, shiftName, products, materialsUsed } = req.body;
 
         try {
             await withTransaction(pool, async (client) => {
-                if (materialsUsed) materialsUsed = materialsUsed.filter(m => m.id && String(m.id).trim() !== '');
+                // [РЕШЕНИЕ 4] Валидация даты на бэкенде (на всякий случай)
+                const requestDate = new Date(date);
+                const today = new Date();
+                today.setHours(23, 59, 59, 999);
+                if (requestDate > today) throw new Error('Нельзя закрывать смену будущим числом.');
 
-                // ЗАЩИТА ОТ ГОНКИ: Блокируем сырье
+                // [РЕШЕНИЕ 1] Динамический поиск ID складов вместо хардкода (1 и 3)
+                const materialsWh = await getWhId(client, 'materials'); // Обычно склад №1
+                const dryingWh = await getWhId(client, 'drying');       // Обычно склад сушилки №3
+
+                // [РЕШЕНИЕ 3] Жесткая очистка материалов от мусора и пустых ID
+                if (materialsUsed) {
+                    materialsUsed = materialsUsed.filter(m => m.id && String(m.id).trim() !== '' && !isNaN(m.id));
+                }
+                if (!products || products.length === 0) throw new Error('Список продукции пуст.');
+
+                // 2. Проверка остатков
                 if (materialsUsed && materialsUsed.length > 0) {
                     const matIds = materialsUsed.map(m => m.id);
                     await client.query(`SELECT id FROM items WHERE id = ANY($1::int[]) FOR UPDATE`, [matIds]);
+
+                    // 🚀 ИСПРАВЛЕНИЕ ЗАДАЧИ №12: Проверяем остаток только на складе МАТЕРИАЛОВ
+                    const stockRes = await client.query(`
+                        SELECT item_id as id, SUM(quantity) as total_qty
+                        FROM inventory_movements
+                        WHERE item_id = ANY($1::int[]) AND warehouse_id = $2
+                        GROUP BY item_id
+                    `, [matIds, materialsWh]);
+
+                    const namesRes = await client.query(`SELECT id, name FROM items WHERE id = ANY($1::int[])`, [matIds]);
+
+                    let insufficient = [];
+                    for (let mat of materialsUsed) {
+                        const stockItem = stockRes.rows.find(s => s.id == mat.id);
+                        const nameObj = namesRes.rows.find(n => n.id == mat.id);
+                        const available = new Big(stockItem ? stockItem.total_qty : 0);
+                        const required = new Big(mat.qty || 0);
+
+                        if (required.gt(available)) {
+                            const missing = required.minus(available);
+                            insufficient.push(`${nameObj?.name || 'ID ' + mat.id}: не хватает ${missing.toFixed(2)}`);
+                        }
+                    }
+
+                    if (insufficient.length > 0) {
+                        const error = new Error('insufficient_stock');
+                        error.details = insufficient.join('; ');
+                        throw error;
+                    }
                 }
 
-                let itemPrices = [];
-                if (materialsUsed && materialsUsed.length > 0) {
-                    const matIds = materialsUsed.map(m => m.id);
-                    const itemsRes = await client.query(`SELECT id, current_price FROM items WHERE id = ANY($1::int[])`, [matIds]);
-                    itemPrices = itemsRes.rows;
-                }
+                // 3. Сбор цен и параметров (фиксируем цену на момент закрытия)
+                const matIds = materialsUsed?.map(m => m.id) || [];
+                const itemPricesRes = await client.query(`SELECT id, current_price FROM items WHERE id = ANY($1::int[])`, [matIds]);
+                const itemPrices = itemPricesRes.rows;
 
                 const productIds = products.map(p => p.id);
                 const prodInfoRes = await client.query(`
-                    SELECT i.id, i.amortization_per_cycle as manual_amort, (e.purchase_cost / NULLIF(e.planned_cycles, 0)) as mold_amort
-                    FROM items i LEFT JOIN equipment e ON i.mold_id = e.id
-                    WHERE i.id = ANY($1::int[])
-                `, [productIds]);
+                SELECT i.id, i.amortization_per_cycle as manual_amort, (e.purchase_cost / NULLIF(e.planned_cycles, 0)) as mold_amort, i.mold_id
+                FROM items i LEFT JOIN equipment e ON i.mold_id = e.id
+                WHERE i.id = ANY($1::int[])
+            `, [productIds]);
 
                 const machineRes = await client.query(`
-                    SELECT (purchase_cost / NULLIF(planned_cycles, 0)) as machine_amort 
-                    FROM equipment 
-                    WHERE equipment_type = 'machine' AND status = 'active' ORDER BY id ASC LIMIT 1
-                `);
+                SELECT id, (purchase_cost / NULLIF(planned_cycles, 0)) as machine_amort 
+                FROM equipment 
+                WHERE equipment_type = 'machine' AND status = 'active' ORDER BY id ASC LIMIT 1
+            `);
                 const machineAmort = machineRes.rows.length > 0 ? parseFloat(machineRes.rows[0].machine_amort) || 0 : 0;
-                const prodInfos = prodInfoRes.rows;
+                const machineId = machineRes.rows.length > 0 ? machineRes.rows[0].id : null;
 
-                const totalProductsVolume = products.reduce((sum, p) => sum + parseFloat(p.quantity), 0);
+                // 4. Создание партий
+                const totalVolume = products.reduce((sum, p) => sum + (parseFloat(p.quantity) || 0), 0);
                 const createdBatches = [];
+                let totalShiftCycles = 0;
 
                 for (let p of products) {
-                    const batchNumber = `П-${date.replace(/-/g, '')}-${Math.floor(Math.random() * 1000)}`;
-                    const volumeFraction = totalProductsVolume > 0 ? (parseFloat(p.quantity) / totalProductsVolume) : 0;
+                    const batchNum = `П-${date.replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
+                    const pQty = parseFloat(p.quantity) || 0;
+                    const pCycles = parseFloat(p.cycles) || 0;
+                    const fraction = totalVolume > 0 ? (pQty / totalVolume) : 0;
 
-                    const pInfo = prodInfos.find(info => info.id == p.id);
-                    const manualAmort = pInfo ? (parseFloat(pInfo.manual_amort) || 0) : 0;
-                    const moldAmort = pInfo ? (parseFloat(pInfo.mold_amort) || 0) : 0;
+                    const pInfo = prodInfoRes.rows.find(info => info.id == p.id);
+                    const actualAmort = (parseFloat(pInfo?.manual_amort) || 0) > 0 ? parseFloat(pInfo.manual_amort) : (parseFloat(pInfo?.mold_amort) || 0);
 
-                    const actualMoldAmortPerCycle = manualAmort > 0 ? manualAmort : moldAmort;
-                    const totalMoldAmortCost = (parseFloat(p.cycles) || 0) * actualMoldAmortPerCycle;
-                    const totalMachineAmortCost = (parseFloat(p.cycles) || 0) * machineAmort;
-                    const totalAmortCost = totalMoldAmortCost + totalMachineAmortCost;
+                    const moldCost = pCycles * actualAmort;
+                    const machineCost = pCycles * machineAmort;
+                    const safeOverhead = Math.round((moldCost + machineCost) * 100) / 100;
 
-                    const batchRes = await client.query(`
-                        INSERT INTO production_batches 
-                        (batch_number, product_id, planned_quantity, status, cycles_count, shift_name, mat_cost_total, overhead_cost_total, machine_amort_cost, mold_amort_cost)
-                        VALUES ($1, $2, $3, 'in_drying', $4, $5, 0, $6, $7, $8) RETURNING id
-                    `, [batchNumber, p.id, p.quantity, p.cycles, shiftName, totalAmortCost, totalMachineAmortCost, totalMoldAmortCost]);
+                    // [ИЗМЕНЕНИЕ] Добавлено поле production_date и параметр $9 в запрос
+                    const bRes = await client.query(`
+                    INSERT INTO production_batches 
+                    (batch_number, product_id, planned_quantity, status, cycles_count, shift_name, mat_cost_total, overhead_cost_total, machine_amort_cost, mold_amort_cost, production_date)
+                    VALUES ($1, $2, $3, 'in_drying', $4, $5, 0, $6, $7, $8, $9) RETURNING id
+                `, [batchNum, p.id, pQty, pCycles, shiftName, safeOverhead, machineCost, moldCost, date]);
 
-                    createdBatches.push({
-                        batchId: batchRes.rows[0].id, batchNumber: batchNumber, productId: p.id,
-                        quantity: p.quantity, fraction: volumeFraction, accumulatedCost: new Big(0) // 👈 Используем Big для денег
-                    });
+                    createdBatches.push({ id: bRes.rows[0].id, num: batchNum, productId: p.id, qty: pQty, fraction, accCost: new Big(0), moldId: pInfo?.mold_id });
+                    if (pCycles > 0) totalShiftCycles += pCycles;
                 }
 
-                if (materialsUsed && materialsUsed.length > 0) {
-                    for (let mat of materialsUsed) {
-                        const priceObj = itemPrices.find(p => p.id == mat.id);
-                        const currentPrice = priceObj ? (parseFloat(priceObj.current_price) || 0) : 0;
-
-                        for (let batch of createdBatches) {
-                            // 👈 Точная математика для стоимости
-                            const qtyForBatch = new Big(mat.qty).times(batch.fraction);
-                            const costForBatch = qtyForBatch.times(currentPrice);
-
-                            if (qtyForBatch.gt(0)) {
-                                batch.accumulatedCost = batch.accumulatedCost.plus(costForBatch);
-                                await client.query(`
-                                    INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id) 
-                                    VALUES ($1, $2, 'production_expense', $3, 1, $4)
-                                `, [mat.id, qtyForBatch.times(-1).toFixed(4), `Замес смены: Партия ${batch.batchNumber}`, batch.batchId]);
-                            }
+                // 5. Списание сырья и приход
+                for (let mat of (materialsUsed || [])) {
+                    const price = itemPrices.find(p => p.id == mat.id)?.current_price || 0;
+                    for (let b of createdBatches) {
+                        const bQty = new Big(mat.qty).times(b.fraction);
+                        if (bQty.gt(0)) {
+                            b.accCost = b.accCost.plus(bQty.times(price));
+                            // Используем materialsWh вместо "1"
+                            await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id) VALUES ($1, $2, 'production_expense', $3, $4, $5)`,
+                                [mat.id, bQty.times(-1).toFixed(4), `Замес: Партия ${b.num}`, materialsWh, b.id]);
                         }
                     }
                 }
 
-                for (let batch of createdBatches) {
-                    await client.query(`UPDATE production_batches SET mat_cost_total = $1 WHERE id = $2`, [batch.accumulatedCost.toFixed(2), batch.batchId]);
-                    await client.query(`
-                        INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id) 
-                        VALUES ($1, $2, 'production_receipt', $3, 3, $4)
-                    `, [batch.productId, batch.quantity, `Партия ${batch.batchNumber} (Сушка)`, batch.batchId]);
-                }
+                for (let b of createdBatches) {
+                    await client.query(`UPDATE production_batches SET mat_cost_total = $1 WHERE id = $2`, [b.accCost.toFixed(2), b.id]);
+                    // Используем dryingWh вместо "3"
+                    await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id) VALUES ($1, $2, 'production_receipt', $3, $4, $5)`,
+                        [b.productId, Number(b.qty).toFixed(4), `Выпуск: Партия ${b.num}`, dryingWh, b.id]);
 
-                let totalShiftCycles = 0;
-                for (let batch of createdBatches) {
-                    const origProd = products.find(p => p.id === batch.productId);
-                    if (origProd && origProd.cycles > 0) {
-                        totalShiftCycles += parseFloat(origProd.cycles);
-                        if (origProd.mold_id) {
-                            await client.query(`UPDATE equipment SET current_cycles = COALESCE(current_cycles, 0) + $1 WHERE id = $2 AND equipment_type = 'mold'`, [origProd.cycles, origProd.mold_id]);
-                        }
+                    if (b.moldId && totalShiftCycles > 0) {
+                        const bCycles = products.find(p => p.id == b.productId)?.cycles || 0;
+                        await client.query(`UPDATE equipment SET current_cycles = COALESCE(current_cycles, 0) + $1 WHERE id = $2`, [bCycles, b.moldId]);
                     }
                 }
 
+                // 6. Оборудование
                 if (totalShiftCycles > 0) {
-                    await client.query(`UPDATE equipment SET current_cycles = COALESCE(current_cycles, 0) + $1 WHERE id = (SELECT id FROM equipment WHERE equipment_type = 'machine' AND status = 'active' ORDER BY id ASC LIMIT 1)`, [totalShiftCycles]);
-                    await client.query(`UPDATE equipment SET current_cycles = COALESCE(current_cycles, 0) + $1 WHERE id = (SELECT id FROM equipment WHERE equipment_type = 'pallets' AND status = 'active' ORDER BY id ASC LIMIT 1)`, [totalShiftCycles]);
+                    if (machineId) await client.query(`UPDATE equipment SET current_cycles = COALESCE(current_cycles, 0) + $1 WHERE id = $2`, [totalShiftCycles, machineId]);
+
+                    // [РЕШЕНИЕ 2] Обновляем износ только для активных поддонов, но не "всем подряд" без разбора
+                    await client.query(`
+                    UPDATE equipment SET current_cycles = COALESCE(current_cycles, 0) + $1 
+                    WHERE equipment_type = 'pallets' AND status = 'active'
+                `, [totalShiftCycles]);
                 }
             });
+
             const io = req.app.get('io');
             if (io) io.emit('inventory_updated');
-            sendNotify(`🔨 <b>Производство: Смена закрыта</b>\nСырье успешно списано, готовая плитка добавлена на склад.`);
-
             res.json({ success: true, message: 'Смена успешно зафиксирована' });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            console.error('PROD ERROR:', err);
+            const isStockErr = err.message === 'insufficient_stock';
+            res.status(isStockErr ? 400 : 500).json({
+                error: isStockErr ? 'Недостаточно сырья на складе' : err.message,
+                details: err.details || null
+            });
         }
     });
 
@@ -294,28 +364,40 @@ module.exports = function (pool, getWhId, withTransaction) {
         }
     });
 
+    // ------------------------------------------------------------------
+    // ЗАДАЧА №8 (ПОЛНАЯ ВЕРСИЯ): УДАЛЕНИЕ С ОТКАТОМ ИЗНОСА И ВАЛИДАЦИЕЙ ID
+    // ------------------------------------------------------------------
     router.delete('/api/production/batch/:id', async (req, res) => {
-        const batchId = req.params.id;
+        const batchId = parseInt(req.params.id); // 🚀 Отсекаем ".00"
+
+        if (isNaN(batchId)) {
+            return res.status(400).json({ error: `Неверный формат ID: ${req.params.id}` });
+        }
+
         try {
             await withTransaction(pool, async (client) => {
-                const batchInfo = await client.query(`SELECT pb.cycles_count, i.mold_id FROM production_batches pb JOIN items i ON pb.product_id = i.id WHERE pb.id = $1`, [batchId]);
-                if (batchInfo.rows.length > 0) {
-                    const cyclesToRevert = parseFloat(batchInfo.rows[0].cycles_count) || 0;
-                    const moldId = batchInfo.rows[0].mold_id;
-                    if (cyclesToRevert > 0) {
-                        if (moldId) await client.query(`UPDATE equipment SET current_cycles = GREATEST(0, COALESCE(current_cycles, 0) - $1) WHERE id = $2 AND equipment_type = 'mold'`, [cyclesToRevert, moldId]);
-                        await client.query(`UPDATE equipment SET current_cycles = GREATEST(0, COALESCE(current_cycles, 0) - $1) WHERE equipment_type IN ('machine', 'pallets') AND status = 'active'`, [cyclesToRevert]);
-                    }
+                // Теперь в запросе будет число 50 вместо строки "50.00"
+                const batchRes = await client.query('SELECT product_id FROM production_batches WHERE id = $1', [batchId]);
+                if (batchRes.rows.length === 0) throw new Error('Партия не найдена');
+                const batch = batchRes.rows[0];
+
+                // Удаляем движения по складу 
+                await client.query('DELETE FROM inventory_movements WHERE batch_id = $1', [batchId]);
+
+                // Откат износа формы 
+                const itemRes = await client.query('SELECT mold_id FROM items WHERE id = $1', [batch.product_id]);
+                const moldId = itemRes.rows[0]?.mold_id;
+
+                if (moldId && batch.cycles_count > 0) {
+                    await client.query(`
+                    UPDATE equipment SET current_cycles = GREATEST(0, COALESCE(current_cycles, 0) - $1) 
+                    WHERE id = $2
+                `, [batch.cycles_count, moldId]);
                 }
                 await client.query('DELETE FROM inventory_movements WHERE batch_id = $1', [batchId]);
                 await client.query('DELETE FROM production_batches WHERE id = $1', [batchId]);
             });
-            // === МАГИЯ WEBSOCKETS И TELEGRAM ===
-            const io = req.app.get('io');
-            if (io) io.emit('inventory_updated');
-            sendNotify(`❌ <b>Отмена формовки</b>\nПартия удалена, сырье возвращено на склад.`);
-
-            res.json({ success: true, message: 'Формовка отменена' });
+            res.json({ success: true });
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -397,6 +479,83 @@ module.exports = function (pool, getWhId, withTransaction) {
             });
             res.json({ success: true, message: `Успешно применено к ${targetProductIds.length} позициям.` });
         } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // НОВЫЙ МАРШРУТ: СВОДНЫЙ ПЛАН И ОБЩИЙ ДЕФИЦИТ СЫРЬЯ (MRP)
+    // ------------------------------------------------------------------
+    router.get('/api/production/mrp-summary', async (req, res) => {
+        try {
+            // 1. Собираем все невыполненные задачи из planned_production
+            // Учитываем только заказы со статусом pending или processing
+            const planRes = await pool.query(`
+                SELECT 
+                    pp.item_id, 
+                    i.name as item_name, 
+                    i.unit, 
+                    SUM(pp.quantity) as total_needed_qty
+                FROM planned_production pp
+                JOIN items i ON pp.item_id = i.id
+                JOIN client_order_items coi ON pp.order_item_id = coi.id
+                JOIN client_orders co ON coi.order_id = co.id
+                WHERE co.status IN ('pending', 'processing')
+                GROUP BY pp.item_id, i.name, i.unit
+                ORDER BY total_needed_qty DESC
+            `);
+
+            const productionPlan = planRes.rows;
+            const materialsNeeded = {};
+
+            // 2. Рассчитываем общую потребность в материалах по рецептам
+            for (let prod of productionPlan) {
+                // ВАЖНО: используем правильное название колонки quantity_per_unit
+                const recipeRes = await pool.query(
+                    `SELECT material_id, quantity_per_unit FROM recipes WHERE product_id = $1`,
+                    [prod.item_id]
+                );
+
+                for (let mat of recipeRes.rows) {
+                    const totalForThisProd = parseFloat(mat.quantity_per_unit) * parseFloat(prod.total_needed_qty);
+                    if (!materialsNeeded[mat.material_id]) materialsNeeded[mat.material_id] = 0;
+                    materialsNeeded[mat.material_id] += totalForThisProd;
+                }
+            }
+
+            // 3. Сопоставляем с остатками на Складе №1 (Сырье)
+            const deficitReport = [];
+            for (let matId in materialsNeeded) {
+                const stockRes = await pool.query(`
+                    SELECT i.name, i.unit, COALESCE(SUM(m.quantity), 0) as balance
+                    FROM items i
+                    LEFT JOIN inventory_movements m ON i.id = m.item_id AND m.warehouse_id = 1
+                    WHERE i.id = $1
+                    GROUP BY i.name, i.unit
+                `, [matId]);
+
+                if (stockRes.rows.length > 0) {
+                    const row = stockRes.rows[0];
+                    const needed = materialsNeeded[matId];
+                    const balance = parseFloat(row.balance);
+
+                    deficitReport.push({
+                        name: row.name,
+                        unit: row.unit,
+                        needed: needed.toFixed(2),
+                        stock: balance.toFixed(2),
+                        shortage: (needed > balance) ? (needed - balance).toFixed(2) : 0
+                    });
+                }
+            }
+
+            res.json({
+                success: true,
+                productionPlan,
+                deficitReport
+            });
+        } catch (err) {
+            console.error('Ошибка MRP:', err.message);
             res.status(500).json({ error: err.message });
         }
     });

@@ -1,184 +1,118 @@
+<% 
+    let b_name = 'ООО "Банк Точка" г. Москва';
+    let b_bik = '044525104';
+    let b_ks = '30101810745374525104';
+    let b_rs = '40702810901500100003';
+
+    if (typeof bank !== 'undefined' && bank === 'alfa') {
+        b_name = 'АО "АЛЬФА-БАНК" г. Москва'; b_bik = '044525593'; b_ks = '30101810200000000593'; b_rs = '40702810217100000002';
+    }
+
+    let c_name = 'ООО "ПЛИТТЕКС"'; let c_inn = '2372029123'; let c_kpp = '237201001';
+    let c_address = '352244, Краснодарский край, г. Новокубанск, ул. Кузнечная, д. 1 оф.2';
+
+    const pu = new Date(); pu.setDate(pu.getDate() + 5); 
+    const payUntil = `${String(pu.getDate()).padStart(2, '0')}.${String(pu.getMonth() + 1).padStart(2, '0')}.${pu.getFullYear()}`;
+
+    let currentVat = typeof vatRate !== 'undefined' ? vatRate : 20;
+    let totalInvoiceSum = 0;
+    items.forEach(item => { totalInvoiceSum += parseFloat(item.qty || 0) * parseFloat(item.price || 0); });
+    let vatAmount = (totalInvoiceSum * currentVat) / (100 + currentVat);
+
+    function num2str(num) {
+        let text = ""; let number = Math.floor(num); let kopecks = Math.round((num - number) * 100);
+        if (number === 0) return "Ноль рублей " + String(kopecks).padStart(2, '0') + " копеек";
+
+        const ones = ["", "один", "два", "три", "четыре", "пять", "шесть", "семь", "восемь", "девять"];
+        const ones_f = ["", "одна", "две", "три", "четыре", "пять", "шесть", "семь", "восемь", "девять"];
+        const teens = ["десять", "одиннадцать", "двенадцать", "тринадцать", "четырнадцать", "пятнадцать", "шестнадцать", "семнадцать", "восемнадцать", "девятнадцать"];
+        const tens = ["", "", "двадцать", "тридцать", "сорок", "пятьдесят", "шестьдесят", "семьдесят", "восемьдесят", "девяносто"];
+        const hundreds = ["", "сто", "двести", "триста", "четыреста", "пятьсот", "шестьсот", "семьсот", "восемьсот", "девятьсот"];
+        
+        function getSegment(n, isFemale) {
+            let res = ""; let h = Math.floor(n / 100); let t = Math.floor((n % 100) / 10); let o = n % 10;
+            if (h > 0) res += hundreds[h] + " ";
+            if (t === 1) res += teens[o] + " "; else { if (t > 1) res += tens[t] + " "; if (o > 0) res += (isFemale ? ones_f[o] : ones[o]) + " "; }
+            return res;
+        }
+
+        let m = Math.floor(number / 1000000); let th = Math.floor((number % 1000000) / 1000); let rem = number % 1000;
+
+        if (m > 0) { text += getSegment(m, false); text += (m % 100 >= 11 && m % 100 <= 14) ? "миллионов " : (m % 10 === 1 ? "миллион " : (m % 10 >= 2 && m % 10 <= 4 ? "миллиона " : "миллионов ")); }
+        if (th > 0) { text += getSegment(th, true); text += (th % 100 >= 11 && th % 100 <= 14) ? "тысяч " : (th % 10 === 1 ? "тысяча " : (th % 10 >= 2 && th % 10 <= 4 ? "тысячи " : "тысяч ")); }
+        if (rem > 0) text += getSegment(rem, false);
+
+        let rub = "рублей"; let lastRemTwo = rem % 100;
+        if (lastRemTwo >= 11 && lastRemTwo <= 14) rub = "рублей"; else if (rem % 10 === 1) rub = "рубль"; else if (rem % 10 >= 2 && rem % 10 <= 4) rub = "рубля";
+        
+        text += rub + " " + String(kopecks).padStart(2, '0') + " копеек";
+        return text.charAt(0).toUpperCase() + text.slice(1);
+    }
+%>
+
 <!DOCTYPE html>
 <html lang="ru">
-
 <head>
     <meta charset="UTF-8">
-    <title>Счет на оплату №<%= invoiceNum %>
-    </title>
+    <title>Счет на оплату № <%= invoiceNum %></title>
     <style>
-        body {
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 13px;
-            color: #000;
-            background: #fff;
-            padding: 40px;
-            max-width: 900px;
-            margin: auto;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 20px;
-        }
-
-        th,
-        td {
-            border: 1px solid #000;
-            padding: 6px 8px;
-            vertical-align: top;
-        }
-
-        .no-border,
-        .no-border td {
-            border: none;
-            padding: 4px 0;
-        }
-
-        .header-text {
-            font-size: 18px;
-            font-weight: bold;
-            margin-bottom: 15px;
-            border-bottom: 2px solid #000;
-            padding-bottom: 10px;
-        }
-
-        /* Стили для кнопок управления */
-        .action-buttons {
-            display: flex;
-            gap: 10px;
-            justify-content: flex-end;
-            margin-bottom: 20px;
-            padding-bottom: 20px;
-            border-bottom: 1px dashed #ccc;
-        }
-
-        .btn {
-            padding: 10px 16px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: bold;
-            color: white;
-            font-size: 13px;
-            transition: 0.2s;
-        }
-
-        .btn-green {
-            background: #10b981;
-        }
-
-        .btn-green:hover {
-            background: #059669;
-        }
-
-        .btn-gray {
-            background: #64748b;
-        }
-
-        .btn-gray:hover {
-            background: #475569;
-        }
-
-        .btn-blue {
-            background: #3b82f6;
-        }
-
-        .btn-blue:hover {
-            background: #2563eb;
-        }
+        body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #000; background: #e2e8f0; padding: 40px; display: flex; flex-direction: column; align-items: center; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        * { box-sizing: border-box; }
+        .action-buttons { width: 100%; max-width: 210mm; display: flex; gap: 10px; justify-content: flex-end; margin-bottom: 20px; }
+        .btn { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; color: white; font-size: 13px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .btn-green { background: #10b981; } .btn-gray { background: #64748b; } .btn-blue { background: #3b82f6; }
+        
+        .page-a4 { background: #ffffff; width: 210mm; padding: 15mm; box-shadow: 0 10px 25px rgba(0,0,0,0.1); position: relative; }
+        
+        table { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 12px; }
+        th, td { border: 1px solid #000; padding: 4px 6px; vertical-align: middle; }
+        .no-border, .no-border td { border: none; padding: 4px 0; }
+        .header-text { font-size: 18px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #000; padding-bottom: 10px; }
+        tr { page-break-inside: avoid; }
 
         @media print {
-            body {
-                padding: 0;
-                background: #fff;
-            }
-
-            .no-print {
-                display: none !important;
-            }
+            @page { margin: 5mm; size: A4 portrait; }
+            body { padding: 0; background: none; margin: 0; }
+            .no-print { display: none !important; }
+            .page-a4 { box-shadow: none; padding: 10mm; width: 100% !important; max-width: 100% !important; margin: 0; border: none; }
         }
     </style>
 </head>
-
 <body>
     <div class="action-buttons no-print">
-        <button class="btn btn-blue" onclick="Export2Word('Счет_Плиттекс_№<%= invoiceNum %>')">📄 Сохранить в
-            Word</button>
-        <button class="btn btn-gray" onclick="saveAndPrint(false, 'Счет_№<%= invoiceNum %>')">🖨️ Сохранить PDF (Без
-            печати)</button>
-        <button class="btn btn-green" onclick="saveAndPrint(true, 'Счет_№<%= invoiceNum %>')">🖨️ Сохранить PDF (С
-            печатью)</button>
+        <button class="btn btn-blue" onclick="Export2Word('Счет_Плиттекс_№<%= invoiceNum %>')">📄 Word</button>
+        <button class="btn btn-gray" onclick="saveAndPrint(false, 'Счет_№<%= invoiceNum %>')">🖨️ PDF (Без печати)</button>
+        <button class="btn btn-green" onclick="saveAndPrint(true, 'Счет_№<%= invoiceNum %>')">🖨️ PDF (С печатью)</button>
     </div>
 
-    <div id="doc-content">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
-            <div style="font-size: 14px; width: 70%;">
-                <b>Внимание!</b> Оплата данного счета означает согласие с условиями поставки товара.
-            </div>
-            <% if (typeof qrCodeUrl !=='undefined' ) { %>
-                <div style="width: 120px; text-align: right;">
-                    <img src="<%= qrCodeUrl %>" alt="QR Code"
-                        style="width: 100px; height: 100px; border: 1px solid #ccc; padding: 5px; border-radius: 8px;">
-                    <div style="font-size: 9px; text-align: center; margin-top: 5px; color: gray;">Наведите
-                        камеру<br>для оплаты</div>
-                </div>
-                <% } %>
-        </div>
-
-        <table style="margin-bottom: 25px;">
+    <div id="doc-content" class="page-a4">
+        <table style="margin-bottom: 20px; table-layout: fixed;">
             <tr>
-                <td colspan="2" rowspan="2">
-                    <%= myBank.name %><br><span style="font-size: 11px;">Банк получателя</span>
-                </td>
-                <td>БИК</td>
-                <td>
-                    <%= myBank.bik %>
+                <td colspan="2" rowspan="2" style="width: 50%;"><%= b_name %><br><span style="font-size: 10px;">Банк получателя</span></td>
+                <td style="width: 10%;">БИК</td><td style="width: 25%;"><%= b_bik %></td>
+                <td rowspan="4" style="width: 15%; text-align: center; padding: 2px;">
+                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=ST00012|Name=ООО ПЛИТТЕКС|PersonalAcc=40702810901500100003|BankName=ООО Банк Точка|BIC=044525104|CorrespAcc=30101810745374525104|PayeeINN=2372029123|KPP=237201001" style="width: 75px; height: 75px; display: block; margin: 0 auto;">
                 </td>
             </tr>
-            <tr>
-                <td>Сч. №</td>
-                <td>
-                    <%= myBank.corr %>
-                </td>
-            </tr>
-            <tr>
-                <td>ИНН <%= myCompany.inn %>
-                </td>
-                <td>КПП <%= myCompany.kpp %>
-                </td>
-                <td rowspan="2">Сч. №</td>
-                <td rowspan="2">
-                    <%= myBank.account %>
-                </td>
-            </tr>
-            <tr>
-                <td colspan="2">
-                    <%= myCompany.name %><br><span style="font-size: 11px;">Получатель</span>
-                </td>
-            </tr>
+            <tr><td>Сч. №</td><td><%= b_ks %></td></tr>
+            <tr><td>ИНН <%= c_inn %></td><td>КПП <%= c_kpp %></td><td rowspan="2">Сч. №</td><td rowspan="2"><%= b_rs %></td></tr>
+            <tr><td colspan="2"><%= c_name %><br><span style="font-size: 10px;">Получатель</span></td></tr>
         </table>
 
-        <div class="header-text">Счет на оплату № <%= invoiceNum %> от <%= dateLong %>
-        </div>
+        <div class="header-text">Счет на оплату № <%= invoiceNum %> от <%= dateLong %></div>
 
-        <table class="no-border" style="margin-bottom: 20px;">
+        <table class="no-border" style="margin-bottom: 20px; width: 100%;">
             <tr>
-                <td style="width: 120px; padding: 5px;">Поставщик:</td>
-                <td style="font-weight: bold; padding: 5px;">
-                    <%= myCompany.name %>, ИНН <%= myCompany.inn %>, КПП <%= myCompany.kpp %>, <%= myCompany.address %>
-                </td>
+                <td style="width: 150px; padding: 2px 0;">Поставщик (Исполнитель):</td>
+                <td style="font-weight: bold; padding: 2px 0;"><%= c_name %>, ИНН <%= c_inn %>, КПП <%= c_kpp %>, <%= c_address %></td>
             </tr>
             <tr>
-                <td style="padding: 5px;">Покупатель:</td>
-                <td style="font-weight: bold; padding: 5px;">
-                    <%= cp.name %>, ИНН <%= cp.inn %>, КПП <%= cp.kpp %>, <%= cp.legal_address %>
-                </td>
+                <td style="padding: 2px 0;">Покупатель (Заказчик):</td>
+                <td style="font-weight: bold; padding: 2px 0;"><%= clientName %>, ИНН <%= clientInn %>, <%= clientAddress %></td>
             </tr>
             <tr>
-                <td style="padding: 5px;">Основание:</td>
-                <td style="font-weight: bold; padding: 5px;">Заказ клиента <%= docNum %>
-                </td>
+                <td style="padding: 2px 0;">Основание:</td>
+                <td style="font-weight: bold; padding: 2px 0;"><%= purposeText %></td>
             </tr>
         </table>
 
@@ -186,7 +120,7 @@
             <thead>
                 <tr>
                     <th style="width: 5%;">№</th>
-                    <th style="width: 45%;">Наименование товара, работ, услуг</th>
+                    <th style="width: 45%;">Товары (работы, услуги)</th>
                     <th style="width: 10%;">Кол-во</th>
                     <th style="width: 10%;">Ед.</th>
                     <th style="width: 15%;">Цена</th>
@@ -194,104 +128,69 @@
                 </tr>
             </thead>
             <tbody>
-                <% let sumTotal=0; %>
-                    <% items.forEach((item, index)=> { %>
-                        <% const rowSum=item.qty * item.price; sumTotal +=rowSum; %>
-                            <tr>
-                                <td align="center">
-                                    <%= index + 1 %>
-                                </td>
-                                <td>
-                                    <%= item.name %>
-                                </td>
-                                <td align="center">
-                                    <%= item.qty %>
-                                </td>
-                                <td align="center">
-                                    <%= item.unit %>
-                                </td>
-                                <td align="right">
-                                    <%= parseFloat(item.price).toLocaleString('ru-RU', {minimumFractionDigits: 2}) %>
-                                </td>
-                                <td align="right">
-                                    <%= parseFloat(rowSum).toLocaleString('ru-RU', {minimumFractionDigits: 2}) %>
-                                </td>
-                            </tr>
-                            <% }) %>
-
-                                <% if (totalOrderSum> amount) { %>
-                                    <tr>
-                                        <td colspan="5" align="right" style="border: none; padding-right: 15px;">
-                                            <b>Итого по заказу:</b>
-                                        </td>
-                                        <td align="right" style="border: none;"><b>
-                                                <%= parseFloat(totalOrderSum).toLocaleString('ru-RU',
-                                                    {minimumFractionDigits: 2}) %>
-                                            </b></td>
-                                    </tr>
-                                    <tr>
-                                        <td colspan="5" align="right" style="border: none; padding-right: 15px;">
-                                            <b>Ранее оплачено (Аванс):</b>
-                                        </td>
-                                        <td align="right" style="border: none;"><b>
-                                                <%= parseFloat(totalOrderSum - amount).toLocaleString('ru-RU',
-                                                    {minimumFractionDigits: 2}) %>
-                                            </b></td>
-                                    </tr>
-                                    <% } %>
-                                        <tr>
-                                            <td colspan="5" align="right"
-                                                style="border: none; padding-right: 15px; padding-top: 15px;"><b>Итого к
-                                                    оплате по счету:</b></td>
-                                            <td align="right" style="border: none; padding-top: 15px;"><b>
-                                                    <%= parseFloat(amount).toLocaleString('ru-RU',
-                                                        {minimumFractionDigits: 2}) %>
-                                                </b></td>
-                                        </tr>
-                                        <tr>
-                                            <td colspan="5" align="right" style="border: none; padding-right: 15px;">
-                                                <b>В том числе НДС 22%:</b>
-                                            </td>
-                                            <td align="right" style="border: none;"><b>
-                                                    <%= vatAmount.toLocaleString('ru-RU', {minimumFractionDigits: 2}) %>
-                                                </b></td>
-                                        </tr>
+                <% items.forEach((item, index) => { %>
+                    <% const rowSum = parseFloat(item.qty || 0) * parseFloat(item.price || 0); %>
+                    <tr>
+                        <td align="center"><%= index + 1 %></td>
+                        <td style="text-align: left;"><%= item.name %></td>
+                        <td align="center"><%= item.qty %></td>
+                        <td align="center"><%= item.unit %></td>
+                        <td align="right"><%= parseFloat(item.price || 0).toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
+                        <td align="right"><%= rowSum.toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
+                    </tr>
+                <% }) %>
             </tbody>
         </table>
 
-        <div style="font-size: 13px; margin-bottom: 25px;">
-            Всего наименований <%= items.length %>, на сумму к оплате <%= parseFloat(amount).toLocaleString('ru-RU',
-                    {minimumFractionDigits: 2}) %> руб.<br>
-                    <b>
-                        <%= amountWords %>
-                    </b>
+        <table class="no-border" style="width: 100%; font-weight: bold; font-size: 12px;">
+            <tr>
+                <td align="right" style="padding-right: 15px;">Итого:</td>
+                <td align="right" style="width: 120px;"><%= totalInvoiceSum.toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
+            </tr>
+            <tr>
+                <td align="right" style="padding-right: 15px;">В том числе НДС <%= currentVat %>%:</td>
+                <td align="right"><%= vatAmount.toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
+            </tr>
+            <tr>
+                <td align="right" style="padding-right: 15px;">Всего к оплате:</td>
+                <td align="right"><%= totalInvoiceSum.toLocaleString('ru-RU', {minimumFractionDigits: 2}) %></td>
+            </tr>
+        </table>
+
+        <div style="font-size: 12px; margin-bottom: 5px; margin-top: 10px;">
+            Всего наименований <%= items.length %>, на сумму <%= totalInvoiceSum.toLocaleString('ru-RU', {minimumFractionDigits: 2}) %> руб.
+        </div>
+        <div style="font-size: 12px; font-weight: bold; margin-bottom: 10px;">
+            <%= num2str(totalInvoiceSum) %>
+        </div>
+        
+        <hr style="border-top: 2px solid #000; margin-bottom: 15px;">
+
+        <div style="font-size: 11px; line-height: 1.4; margin-bottom: 30px;">
+            Оплатить не позднее <b><%= payUntil %></b><br>
+            Оплата данного счета означает согласие с условиями поставки товара. Уведомление об оплате обязательно, в противном случае не гарантируется наличие товара на складе.<br>
+            Товар отпускается по факту прихода денег на р/с Поставщика, самовывозом, при наличии доверенности и паспорта.
         </div>
 
-        <div style="font-size: 13px; line-height: 1.4; margin-bottom: 25px;">
-            Оплатить не позднее <b>
-                <%= payUntil %>
-            </b><br>
-            Товар отпускается по факту прихода денег на р/с Поставщика, самовывозом, при наличии доверенности и
-            паспорта.
-        </div>
-
-        <hr style="border-top: 2px solid #000; margin-bottom: 30px;">
-
-        <div style="display: flex; justify-content: space-between; font-weight: bold; position: relative;">
-            <div style="position: relative;">
-                Руководитель _________________ /Марченко С. М./
-                <img src="/img/sign_dir.png" class="overlay-img"
-                    style="position: absolute; top: -30px; left: 100px; width: 120px; display: none; z-index: -1;">
+        <div style="position: relative; page-break-inside: avoid; font-size: 13px; font-weight: bold; margin-top: 40px;">
+            
+            <div style="display: flex; align-items: flex-end; margin-bottom: 25px;">
+                <div style="width: 120px;">Руководитель</div>
+                <div style="width: 150px; border-bottom: 1px solid #000; position: relative; height: 20px;">
+                    <img src="/img/sign_dir.png" class="overlay-img" style="position: absolute; top: -20px; left: 25px; width: 100px; display: none; z-index: 10; mix-blend-mode: multiply;">
+                </div>
+                <div style="margin-left: 15px;">Марченко С. М.</div>
             </div>
 
-            <img src="/img/stamp.png" class="overlay-img"
-                style="position: absolute; top: -50px; left: 250px; width: 160px; opacity: 0.85; display: none; z-index: -2;">
-
-            <div style="position: relative;">
-                Бухгалтер _________________ /Москвичева И.Ю./
-                <img src="/img/sign_buh.png" class="overlay-img"
-                    style="position: absolute; top: -20px; left: 80px; width: 100px; display: none; z-index: -1;">
+            <div style="display: flex; align-items: flex-end;">
+                <div style="width: 120px;">Бухгалтер</div>
+                <div style="width: 150px; border-bottom: 1px solid #000; position: relative; height: 20px;">
+                    <img src="/img/sign_buh.png" class="overlay-img" style="position: absolute; top: -20px; left: 25px; width: 100px; display: none; z-index: 10; mix-blend-mode: multiply;">
+                </div>
+                <div style="margin-left: 15px;">Чернова Е. Г.</div>
             </div>
+
+            <img src="/img/stamp.png" class="overlay-img" style="position: absolute; top: -10px; left: 140px; width: 160px; opacity: 0.85; display: none; z-index: 15; mix-blend-mode: multiply;">
         </div>
     </div>
 
@@ -300,63 +199,38 @@
         async function saveAndPrint(withStamp, docName) {
             const overlays = document.querySelectorAll('.overlay-img');
             overlays.forEach(el => el.style.display = withStamp ? 'block' : 'none');
-
             const actionBtns = document.querySelector('.action-buttons');
-            if (actionBtns) actionBtns.style.display = 'none';
+            actionBtns.style.display = 'none';
+
+            await new Promise(resolve => setTimeout(resolve, 150));
 
             const element = document.getElementById('doc-content');
-            const opt = {
-                margin: [10, 10, 10, 10],
-                filename: `${docName}_${withStamp ? 'С_печатью' : 'Без_печати'}_${Date.now()}.pdf`,
-                image: { type: 'jpeg', quality: 0.98 },
-                html2canvas: { scale: 2, useCORS: true },
-                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-            };
+            const opt = { margin: 0, filename: `${docName}_${Date.now()}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
 
             try {
                 const pdfBase64 = await html2pdf().set(opt).from(element).outputPdf('datauristring');
-
-                await fetch('/api/docs/save-pdf', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ filename: opt.filename, fileData: pdfBase64 })
-                });
-            } catch (error) {
-                console.error("Ошибка сохранения:", error);
-            }
+                const token = localStorage.getItem('token');
+                await fetch('/api/docs/save-pdf', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ filename: opt.filename, fileData: pdfBase64 }) });
+            } catch (error) { console.error(error); }
 
             window.print();
-            if (actionBtns) actionBtns.style.display = 'flex';
+            actionBtns.style.display = 'flex';
+            overlays.forEach(el => el.style.display = 'none');
         }
 
         function Export2Word(filename = '') {
             const overlays = document.querySelectorAll('.overlay-img');
             overlays.forEach(el => el.style.display = 'none');
-
             const actionBtns = document.querySelector('.action-buttons');
-            if (actionBtns) actionBtns.style.display = 'none';
+            actionBtns.style.display = 'none';
 
-            var preHtml = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Export</title></head><body>";
-            var postHtml = "</body></html>";
-            var html = preHtml + document.getElementById('doc-content').innerHTML + postHtml;
-
-            var blob = new Blob(['\ufeff', html], { type: 'application/msword' });
-            var url = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(html);
-            var downloadLink = document.createElement("a");
-
-            document.body.appendChild(downloadLink);
-            if (navigator.msSaveOrOpenBlob) {
-                navigator.msSaveOrOpenBlob(blob, filename + '.doc');
-            } else {
-                downloadLink.href = url;
-                downloadLink.download = filename + '.doc';
-                downloadLink.click();
-            }
-
-            document.body.removeChild(downloadLink);
-            if (actionBtns) actionBtns.style.display = 'flex';
+            const content = document.getElementById('doc-content').innerHTML;
+            const blob = new Blob(['\ufeff', "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'></head><body>" + content + "</body></html>"], { type: 'application/msword' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url; link.download = filename + '.doc'; link.click();
+            actionBtns.style.display = 'flex';
         }
     </script>
 </body>
-
 </html>

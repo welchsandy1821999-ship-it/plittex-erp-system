@@ -23,7 +23,7 @@
         .btn-green { background: #10b981; } .btn-green:hover { background: #059669; }
         .btn-gray { background: #64748b; } .btn-gray:hover { background: #475569; }
         .btn-blue { background: #3b82f6; } .btn-blue:hover { background: #2563eb; }
-        @media print { .no-print { display: none !important; } body { padding: 0; background: #fff; } }
+        @media print { .no-print { display: none !important; } body { padding: 0; background: var(--surface); } }
     </style>
 </head>
 <body>
@@ -77,7 +77,8 @@
             <% } %>
             <div>Всего отпущено единиц: <%= totalQty.toLocaleString('ru-RU') %></div>
             <% if(totalAmount > 0) { %>
-                <div style="margin-top: 5px;">На сумму: <%= parseFloat(totalAmount).toLocaleString('ru-RU') %> руб.</div>
+                <% /* 🚀 Задача №7: Динамическое упоминание НДС */ %>
+                <div style="margin-top: 5px;">На сумму: <%= parseFloat(totalAmount).toLocaleString('ru-RU') %> руб. (в т.ч. НДС <%= vatRate %>%)</div>
             <% } %>
         </div>
 

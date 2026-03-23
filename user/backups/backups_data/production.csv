@@ -1,0 +1,3 @@
+"id","batch_number","product_id","created_at","planned_quantity","actual_good_qty","actual_grade2_qty","actual_scrap_qty","mat_cost_total","other_direct_costs","indirect_costs","status","labor_cost_total","overhead_cost_total","cycles_count","scrap_reason","shift_name","machine_amort_cost","mold_amort_cost","production_date"
+6,"П-20260319-2786",393,"2026-03-19 16:29:03.760605","227.800","0.000","0.000","0.000","98040.00","0.00","0.00","in_drying","0.00","11390.00","335.00",NULL,"Чухарев Е.","3350.00","8040.00","2026-03-19"
+8,"П-20260320-1962",453,"2026-03-20 19:43:40.953369","600.000","0.000","0.000","0.000","134594.00","0.00","0.00","in_drying","0.00","6800.00","200.00",NULL,"Чухарев Е.","2000.00","4800.00","2026-03-20"
