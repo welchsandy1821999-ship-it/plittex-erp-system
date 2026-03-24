@@ -419,48 +419,7 @@ module.exports = function (pool, withTransaction) {
         }
     });
 
-    /**
-     * Технический роут для настройки таблиц БД.
-     * Создает необходимые таблицы для HR, если их еще нет.
-     */
-    // === ФАЙЛ: routes/hr.js ===
-    router.get('/fix-comments', async (req, res) => {
-        try {
-            await pool.query(`
-            -- 1. Создаем таблицу закрытых периодов
-            CREATE TABLE IF NOT EXISTS closed_periods (
-                id SERIAL PRIMARY KEY,
-                period_str VARCHAR(7) NOT NULL,
-                module VARCHAR(50) NOT NULL,
-                closed_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE(period_str, module)
-            );
 
-            -- 2. Таблица табеля (проверяем наличие колонок комментариев)
-            CREATE TABLE IF NOT EXISTS timesheet_records (
-                id SERIAL PRIMARY KEY, 
-                employee_id INT REFERENCES employees(id) ON DELETE CASCADE,
-                record_date DATE NOT NULL, 
-                status VARCHAR(50) DEFAULT 'weekend',
-                bonus NUMERIC(15,2) DEFAULT 0, 
-                penalty NUMERIC(15,2) DEFAULT 0,
-                bonus_comment TEXT,
-                penalty_comment TEXT,
-                custom_rate NUMERIC(15,2),
-                ktu NUMERIC(5,2) DEFAULT 1.0,
-                UNIQUE(employee_id, record_date)
-            );
-            
-            -- Добавляем колонки, если их не было
-            ALTER TABLE timesheet_records ADD COLUMN IF NOT EXISTS bonus_comment TEXT;
-            ALTER TABLE timesheet_records ADD COLUMN IF NOT EXISTS penalty_comment TEXT;
-            ALTER TABLE closed_periods ADD COLUMN IF NOT EXISTS total_taxes NUMERIC(15,2) DEFAULT 0;
-        `);
-            res.send('<h1 style="color:#10b981;">✅ База данных Плиттекс обновлена (таблица периодов создана)</h1>');
-        } catch (err) {
-            res.status(500).send(`<h1 style="color:#ef4444;">❌ Ошибка БД: ${err.message}</h1>`);
-        }
-    });
 
     return router;
 };

@@ -88,7 +88,7 @@
                 <button class="btn btn-outline" onclick="printTimesheet()">🖨️ Печать</button>
             </div>
         </div>
-        <div id="timesheet-container" class="table-container" style="overflow-x: auto;">
+        <div id="timesheet-container" class="table-container timesheet-container" style="overflow-x: auto;">
             <table style="min-width: 1200px;">
                 <thead id="monthly-ts-head"></thead>
                 <tbody id="monthly-ts-body">
@@ -100,60 +100,62 @@
         </div>
     </div>
 
-    <div class="accordion-header mt-20 admin-only" onclick="toggleAccordion('acc-payouts', this)" style="border-left: 4px solid var(--warning);">
-        <div>💰 Расчет выплат и выдача ЗП</div>
-        <div class="icon">▼</div>
-    </div>
-    <div id="acc-payouts" class="accordion-body admin-only">
-        <div id="salary-summary-boxes" class="summary-grid"></div>
-
-        <div class="flex-between mb-15">
-            <h3 class="mt-0" style="font-size: 16px;" id="payout-month-title">Расчетный лист за период</h3>
-            <p class="text-muted mb-0" style="font-size: 12px;">Формула: Начислено ± Остаток - Налоги - Авансы ± Доп. операции = К выдаче</p>
+    <div class="admin-only">
+        <div class="accordion-header mt-20" onclick="toggleAccordion('acc-payouts', this)" style="border-left: 4px solid var(--warning);">
+            <div>💰 Расчет выплат и выдача ЗП</div>
+            <div class="icon">▼</div>
         </div>
+        <div id="acc-payouts" class="accordion-body">
+            <div id="salary-summary-boxes" class="summary-grid"></div>
 
-        <div class="flex-between mb-15 card-alt" style="padding: 10px; border-radius: 8px; flex-wrap: wrap; gap: 15px;">
-            <div class="toolbar-group flex-grow-1" style="min-width: 300px;">
-                <input type="text" id="pay-search-input" class="input-modern flex-grow-1" placeholder="🔍 Поиск сотрудника..." oninput="reRenderTimesheet()">
-                <select id="pay-dep-filter" class="input-modern" style="width: 150px;" onchange="reRenderTimesheet()">
-                    <option value="all">Все отделы</option>
-                    <option value="Офис">Офис</option>
-                    <option value="Цех">Цех</option>
-                    <option value="Охрана">Охрана</option>
-                </select>
+            <div class="flex-between mb-15">
+                <h3 class="mt-0" style="font-size: 16px;" id="payout-month-title">Расчетный лист за период</h3>
+                <p class="text-muted mb-0" style="font-size: 12px;">Формула: Начислено ± Остаток - Налоги - Авансы ± Доп. операции = К выдаче</p>
             </div>
 
-            <div class="toolbar-group">
-                <button class="btn btn-outline btn-outline-info" onclick="openPieceRateModal()">🏭 Сдельная ЗП</button>
-                <div class="v-divider"></div>
-                <button class="btn btn-outline" onclick="printAdvancesSheet()">🖨️ Авансы</button>
-                <button class="btn btn-outline btn-outline-success" onclick="exportAdvancesToCSV()">📊 Excel (Авансы)</button>
-                <div class="v-divider"></div>
-                <button class="btn btn-outline" onclick="printSalarySheet()">🖨️ ЗП</button>
-                <button class="btn btn-outline btn-outline-primary" onclick="exportSalaryToCSV()">📊 Excel (ЗП)</button>
+            <div class="flex-between mb-15 card-alt" style="padding: 10px; border-radius: 8px; flex-wrap: wrap; gap: 15px;">
+                <div class="toolbar-group flex-grow-1" style="min-width: 300px;">
+                    <input type="text" id="pay-search-input" class="input-modern flex-grow-1" placeholder="🔍 Поиск сотрудника..." oninput="reRenderTimesheet()">
+                    <select id="pay-dep-filter" class="input-modern" style="width: 150px;" onchange="reRenderTimesheet()">
+                        <option value="all">Все отделы</option>
+                        <option value="Офис">Офис</option>
+                        <option value="Цех">Цех</option>
+                        <option value="Охрана">Охрана</option>
+                    </select>
+                </div>
+
+                <div class="toolbar-group">
+                    <button class="btn btn-outline btn-outline-info" onclick="openPieceRateModal()">🏭 Сдельная ЗП</button>
+                    <div class="v-divider"></div>
+                    <button class="btn btn-outline" onclick="printAdvancesSheet()">🖨️ Авансы</button>
+                    <button class="btn btn-outline btn-outline-success" onclick="exportAdvancesToCSV()">📊 Excel (Авансы)</button>
+                    <div class="v-divider"></div>
+                    <button class="btn btn-outline" onclick="printSalarySheet()">🖨️ ЗП</button>
+                    <button class="btn btn-outline btn-outline-primary" onclick="exportSalaryToCSV()">📊 Excel (ЗП)</button>
+                </div>
             </div>
-        </div>
-        
-        <div class="table-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th width="20%">Сотрудник</th>
-                        <th class="text-right">Заработал</th>
-                        <th class="text-right text-primary">± Остаток</th>
-                        <th class="text-right text-danger">Налоги</th>
-                        <th class="text-right text-muted">Авансы</th>
-                        <th class="text-right text-warning">Доп. операции</th>
-                        <th class="text-right status-work">К ВЫДАЧЕ</th>
-                        <th class="text-center">Действие</th>
-                    </tr>
-                </thead>
-                <tbody id="payouts-table-body">
-                    <tr>
-                        <td colspan="8" class="text-center text-muted" style="padding: 20px;">Загрузка расчетов...</td>
-                    </tr>
-                </tbody>
-            </table>
+            
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th width="20%">Сотрудник</th>
+                            <th class="text-right">Заработал</th>
+                            <th class="text-right text-primary">± Остаток</th>
+                            <th class="text-right text-danger">Налоги</th>
+                            <th class="text-right text-muted">Авансы</th>
+                            <th class="text-right text-warning">Доп. операции</th>
+                            <th class="text-right status-work">К ВЫДАЧЕ</th>
+                            <th class="text-center">Действие</th>
+                        </tr>
+                    </thead>
+                    <tbody id="payouts-table-body">
+                        <tr>
+                            <td colspan="8" class="text-center text-muted" style="padding: 20px;">Загрузка расчетов...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>

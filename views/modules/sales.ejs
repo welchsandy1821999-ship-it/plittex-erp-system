@@ -13,7 +13,7 @@
                 🖨️ Документы клиенту
             </button>
             <button class="btn btn-outline" onclick="openReturnModal()"
-                style="padding: 8px 16px; border-color: #f59e0b; color: #f59e0b;">
+                style="padding: 8px 16px; border-color: var(--warning); color: var(--warning);">
                 🔙 Возврат
             </button>
 
@@ -27,7 +27,7 @@
                     <button onclick="openLogisticsCalendar()">🚚 Календарь логиста</button>
                     <button onclick="openPalletsReport()">📦 Отчет по таре</button>
                     <button onclick="openPriceListModal()">📋 Установка Прайс-листа</button>
-                    <button style="color: #10b981; font-weight: bold; background: #ecfdf5;"
+                    <button style="color: var(--success); font-weight: bold; background: var(--success-bg);"
                         onclick="openExport1CModal()">📥 Выгрузить в 1С (Excel)</button>
                 </div>
             </div>
@@ -214,27 +214,28 @@
                         </div>
                     </div>
 
-                    <div style="background: #fef2f2; padding: 10px; border-radius: 6px; border: 1px solid #fecaca;">
+                    <div
+                        style="background: var(--danger-bg); padding: 10px; border-radius: 6px; border: 1px solid var(--danger-border);">
                         <div
                             style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                            <label style="font-weight: bold; color: #991b1b; font-size: 13px;">Юридическое основание
-                                (Доверенность):</label>
+                            <label style="font-weight: bold; color: var(--danger-text); font-size: 13px;">Юридическое
+                                основание (Доверенность):</label>
                             <label
-                                style="font-size: 12px; display: flex; align-items: center; gap: 5px; cursor: pointer; color: #ef4444; font-weight: bold;">
+                                style="font-size: 12px; display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--danger); font-weight: bold;">
                                 <input type="checkbox" id="sale-no-poa" onchange="togglePoaMode()"> Отгрузка без
                                 доверенности
                             </label>
                         </div>
                         <div id="poa-select-group" style="display: flex; gap: 5px;">
                             <select id="sale-poa" class="input-modern"
-                                style="flex-grow: 1; border-color: #fca5a5;"></select>
+                                style="flex-grow: 1; border-color: var(--danger-border);"></select>
                             <button class="btn btn-outline" onclick="openPoaManager()" title="Добавить доверенность"
-                                style="padding: 0 12px; border-color: #fca5a5;">➕</button>
+                                style="padding: 0 12px; border-color: var(--danger-border);">➕</button>
                         </div>
                         <div id="poa-comment-group" style="display: none; margin-top: 10px;">
                             <input type="text" id="sale-poa-comment" class="input-modern"
                                 placeholder="Укажите, кто разрешил отгрузку без доверенности"
-                                style="border-color: #ef4444; background: var(--surface);">
+                                style="border-color: var(--danger); background: var(--surface);">
                         </div>
                     </div>
                 </div>
@@ -253,7 +254,7 @@
                         <label style="color: var(--warning-text); font-weight: bold;">Сумма внесенного аванса
                             (₽):</label>
                         <input type="number" id="sale-advance-amount" class="input-modern" placeholder="Например: 50000"
-                            style="border-color: #f59e0b; background: #fffbeb;">
+                            style="border-color: var(--warning); background: var(--warning-bg);">
                     </div>
 
                     <div class="form-group" id="sale-account-group" style="display: none; margin-bottom: 0;">
@@ -349,23 +350,23 @@
             <div id="sales-kanban-board"
                 style="display: none; gap: 20px; align-items: flex-start; overflow-x: auto; padding-bottom: 10px; min-height: 500px;">
                 <div class="kanban-column" data-status="pending"
-                    style="flex: 1; min-width: 320px; background: var(--surface-alt); border-radius: 8px; padding: 10px; border: 1px solid #e2e8f0;">
+                    style="flex: 1; min-width: 320px; background: var(--surface-alt); border-radius: 8px; padding: 10px; border: 1px solid var(--border);">
                     <h3
-                        style="margin: 0 0 15px 0; color: #64748b; font-size: 14px; text-transform: uppercase; display: flex; justify-content: space-between;">
+                        style="margin: 0 0 15px 0; color: var(--text-muted); font-size: 14px; text-transform: uppercase; display: flex; justify-content: space-between;">
                         <span>🆕 Новые заказы</span>
                         <span class="column-count"
-                            style="background: #e2e8f0; padding: 2px 8px; border-radius: 10px; font-size: 12px;">0</span>
+                            style="background: var(--surface-hover); color: var(--text-main); padding: 2px 8px; border-radius: 10px; font-size: 12px;">0</span>
                     </h3>
                     <div class="kanban-items-container" style="min-height: 400px;"></div>
                 </div>
 
                 <div class="kanban-column" data-status="processing"
-                    style="flex: 1; min-width: 320px; background: #f0fdf4; border-radius: 8px; padding: 10px; border: 1px solid #bbf7d0;">
+                    style="flex: 1; min-width: 320px; background: var(--success-bg); border-radius: 8px; padding: 10px; border: 1px solid var(--success-border);">
                     <h3
-                        style="margin: 0 0 15px 0; color: #16a34a; font-size: 14px; text-transform: uppercase; display: flex; justify-content: space-between;">
+                        style="margin: 0 0 15px 0; color: var(--success); font-size: 14px; text-transform: uppercase; display: flex; justify-content: space-between;">
                         <span>⚙️ В работе</span>
                         <span class="column-count"
-                            style="background: #dcfce7; padding: 2px 8px; border-radius: 10px; font-size: 12px;">0</span>
+                            style="background: var(--success-border); color: var(--success-text); padding: 2px 8px; border-radius: 10px; font-size: 12px;">0</span>
                     </h3>
                     <div class="kanban-items-container" style="min-height: 400px;"></div>
                 </div>

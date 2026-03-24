@@ -1,13 +1,20 @@
 const jwt = require('jsonwebtoken');
 
 const authenticateToken = (req, res, next) => {
-    // Маршруты-исключения
-    if (req.path === '/login' || req.path === '/api/login' || req.originalUrl === '/api/docs/save-pdf' || req.path.startsWith('/print') || req.path.startsWith('/files')) {
+    // Маршруты-исключения: только логин
+    if (req.path === '/login' || req.path === '/api/login') {
         return next();
     }
 
+    // Ищем токен: сначала в заголовке Authorization (Bearer), затем в query-параметрах
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+    let token = authHeader && authHeader.split(' ')[1];
+    
+    // Если в заголовках токена нет, проверяем GET-параметр ?token= 
+    // (актуально для /print/* и /files, открываемых в новой вкладке)
+    if (!token && req.query && req.query.token) {
+        token = req.query.token;
+    }
 
     if (!token) return res.status(401).json({ error: 'Нет доступа. Токен отсутствует.' });
 

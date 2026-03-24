@@ -389,19 +389,23 @@ window.renderTimesheetMatrix = function (year, month) {
     const normShifts13 = daysInMonth / 4;
 
     const thead = document.getElementById('monthly-ts-head');
-    let headHtml = `<tr><th style="position: sticky; left: 0; background: var(--surface-alt); z-index: 20; border-right: 2px solid var(--border); min-width: 250px;">Сотрудник</th>`;
+    const dayNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+    let headHtml = `<tr><th style="position: sticky; top: 0; left: 0; background: var(--surface-alt); z-index: 30; border-right: 2px solid var(--border); min-width: 250px; vertical-align: middle;">Сотрудник</th>`;
     for (let day = 1; day <= daysInMonth; day++) {
         const dow = new Date(year, month - 1, day).getDay();
         const isWeekend = dow === 0 || dow === 6;
         const isToday = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}` === todayStr;
 
-        let thStyle = `text-align: center; padding: 10px 4px; min-width: 35px; border-bottom: 2px solid var(--border); `;
-        if (isWeekend) thStyle += `background: var(--surface-hover); color: var(--danger); `;
-        if (isToday) thStyle += `background: var(--surface-hover); color: var(--primary); font-weight: 800; border-bottom: 2px solid var(--primary);`;
+        let thStyle = `position: sticky; top: 0; z-index: 20; text-align: center; padding: 6px 2px; min-width: 35px; border-bottom: 2px solid var(--border); background: var(--surface-alt); `;
+        if (isWeekend) thStyle += `color: var(--danger); `;
+        if (isToday) thStyle += `color: var(--primary); font-weight: 800; border-bottom: 2px solid var(--primary);`;
 
-        headHtml += `<th style="${thStyle}">${day}</th>`;
+        headHtml += `<th style="${thStyle}">
+            <div style="font-size: 10px; opacity: 0.8; font-weight: normal; margin-bottom: 3px;">${dayNames[dow]}</div>
+            <div>${day}</div>
+        </th>`;
     }
-    headHtml += `<th style="text-align: right; background: var(--surface-alt); border-left: 2px solid var(--border);">Итого (Дни / ₽)</th></tr>`;
+    headHtml += `<th style="position: sticky; top: 0; z-index: 20; text-align: right; background: var(--surface-alt); border-left: 2px solid var(--border); vertical-align: middle;">Итого (Дни / ₽)</th></tr>`;
 
     const tbody = document.getElementById('monthly-ts-body');
     let bodyHtml = '';
@@ -1077,7 +1081,7 @@ window.recalcPieceRate = function () {
 window.savePieceRate = async function (date) {
     const checkboxes = document.querySelectorAll('.piece-emp-checkbox:checked');
     const pieceRate = parseFloat(document.getElementById('piece-rate-price').value) || 0;
-    
+
     if (pieceRate < 0 || pieceRate > 10000) return UI.toast('Указана неверная расценка (лимит от 0 до 10000 ₽)', 'error');
     if (checkboxes.length === 0) return UI.toast('Выберите хотя бы одного сотрудника', 'error');
 
@@ -1088,9 +1092,9 @@ window.savePieceRate = async function (date) {
         const id = cb.value;
         const ktu = parseFloat(document.getElementById(`ktu-${id}`).value) || 0;
         const custom_rate = parseFloat(document.getElementById(`rate-${id}`).value) || 0;
-        
+
         if (ktu < 0 || ktu > 5) isValidKtu = false;
-        
+
         workersData.push({ employee_id: id, custom_rate, ktu });
     });
 
@@ -1099,22 +1103,22 @@ window.savePieceRate = async function (date) {
     UI.toast('⏳ Расчет премиального фонда на сервере...', 'info');
 
     try {
-        const res = await fetch('/api/timesheet/mass-bonus', { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify({ date, pieceRate, workersData }) 
+        const res = await fetch('/api/timesheet/mass-bonus', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date, pieceRate, workersData })
         });
 
         if (res.ok) {
-            UI.closeModal(); 
-            UI.toast('Сдельная премия безопасно зафиксирована и подсчитана!', 'success'); 
+            UI.closeModal();
+            UI.toast('Сдельная премия безопасно зафиксирована и подсчитана!', 'success');
             loadMonthlyTimesheet();
         } else {
             const err = await res.json();
             UI.toast(err.error || 'Ошибка при расчете сделки', 'error');
         }
-    } catch (e) { 
-        console.error(e); 
+    } catch (e) {
+        console.error(e);
         UI.toast('Критическая ошибка связи с сервером', 'error');
     }
 };
@@ -1140,99 +1144,96 @@ window.fillTodayBySchedule = async function () {
 
 // === ПЕЧАТЬ ТАБЕЛЯ УЧЕТА ВРЕМЕНИ ===
 window.printTimesheet = function () {
-    const monthStr = document.getElementById('ts-month-picker').value;
-    if (!monthStr) return UI.toast('Выберите месяц', 'warning');
+    // 1. Берем живой HTML таблицы прямо со страницы, чтобы не зависеть от мертвых переменных
+    // Ищем таблицу по ближайшему известному ID внутри нее
+    const thead = document.getElementById('monthly-ts-head');
+    if (!thead) return alert('Таблица не найдена на странице!');
+    const table = thead.closest('table');
+    const tableHtml = table.outerHTML;
 
-    const theadHtml = document.getElementById('monthly-ts-head')?.innerHTML;
-    const tbodyHtml = document.getElementById('monthly-ts-body')?.innerHTML;
-
-    if (!tbodyHtml || tbodyHtml.includes('Загрузка табеля...')) {
-        return UI.toast('Табель пуст или еще не загружен', 'warning');
+    // 2. Ищем или создаем скрытый iframe
+    let iframe = document.getElementById('print-iframe');
+    if (!iframe) {
+        iframe = document.createElement('iframe');
+        iframe.id = 'print-iframe';
+        iframe.style.position = 'absolute';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        iframe.style.border = 'none';
+        document.body.appendChild(iframe);
     }
 
-    let printWin = window.open('', '', 'width=1200,height=800');
-
-    // Улучшенный HTML с жестким сбросом веб-стилей для идеальной печати
-    let html = `
+    // 3. Формируем документ для печати с жестким DOCTYPE и белым фоном
+    const doc = iframe.contentWindow.document;
+    doc.open();
+    doc.write(`
+        <!DOCTYPE html>
         <html>
         <head>
-            <title>Табель - ${monthStr}</title>
-            <style>
-                /* Обнуляем отступы окна, принтер сам задаст поля */
-                body { font-family: Arial, sans-serif; margin: 0; padding: 0; font-size: 10px; }
-                h2 { text-align: center; margin: 15px 0 20px 0; text-transform: uppercase; font-size: 16px; }
-                
-                /* Жесткая фиксация таблицы на всю ширину листа */
-                table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-                
-                /* СБРОС ИНЛАЙН-СТИЛЕЙ (отключаем скролл и sticky) */
-                th, td { 
-                    border: 1px solid #334155 !important; 
-                    padding: 3px 2px !important; 
-                    text-align: center !important; 
-                    position: static !important; /* Убиваем sticky */
-                    min-width: 0 !important; /* Убиваем ширину из веба */
-                    font-size: 10px !important;
-                    word-wrap: break-word;
-                }
-                
-                /* Левая колонка (ФИО) - даем ей 16% ширины листа */
-                th:first-child, td:first-child {
-                    text-align: left !important;
-                    width: 20% !important;
-                    padding-left: 5px !important;
-                }
-                
-                /* Правая колонка (Итоги) - даем ей 14% ширины */
-                th:last-child, td:last-child {
-                    width: 7% !important;
-                    white-space: nowrap !important; /* Запрещаем перенос строк в суммах */
-                }
-                
-                /* Принудительная печать цветов фона */
-                * { -webkit-print-color-adjust: exact !important; color-adjust: exact !important; }
-                
-                /* Компактные ячейки статусов */
-                .ts-cell { display: block; width: 100%; min-height: 14px; line-height: 14px; }
-                .status-present { background-color: #dcfce7 !important; color: #166534 !important; font-weight: bold; }
-                .status-weekend { background-color: var(--surface-alt) !important; color: #94a3b8 !important; }
-                .status-sick { background-color: #fef08a !important; color: #854d0e !important; }
-                .status-absent { background-color: #fee2e2 !important; color: #991b1b !important; font-weight: bold; }
-                .status-vacation { background-color: #e0e7ff !important; color: #3730a3 !important; }
-                
-                /* Прячем бейджи уволенных и иконки премий, чтобы не мусорить на бумаге */
-                .badge { display: none !important; }
-                
+            <title>Печать Табеля</title>
+           <style>
                 @media print {
-                    /* Альбомная ориентация и минимальные поля (8мм) */
-                    @page { size: landscape; margin: 8mm; }
-                    .no-print { display: none !important; }
+                    @page { 
+                        size: A4 landscape; /* Альбомная ориентация */
+                        margin: 5mm; /* Делаем минимальные поля, чтобы влезло больше колонок */
+                    }
+                    body { 
+                        -webkit-print-color-adjust: exact; 
+                        print-color-adjust: exact; 
+                        background: white !important;
+                    }
                 }
+                body { 
+                    font-family: Arial, sans-serif; 
+                    background: white; 
+                    color: black; 
+                }
+                h2 {
+                    text-align: center;
+                    font-size: 16px;
+                    margin-bottom: 10px;
+                }
+                table { 
+                    width: 100%; 
+                    border-collapse: collapse; 
+                    /* УБРАЛИ table-layout: fixed, теперь браузер сам распределит место */
+                }
+                th, td { 
+                    border: 1px solid #000; 
+                    padding: 2px 1px; /* Минимальные отступы слева и справа */
+                    text-align: center; 
+                    font-size: 8px; /* Уменьшаем шрифт ячеек, чтобы дни месяца влезли */
+                    vertical-align: middle;
+                }
+                /* Первая колонка с ФИО (защищаем от сплющивания) */
+                th:first-child, td:first-child {
+                    text-align: left;
+                    padding-left: 4px;
+                    min-width: 150px; /* Даем жесткий минимум для ФИО и должности */
+                    font-size: 9px;
+                }
+
+                /* Стили статусов для сохранения визуальной раскраски ячеек */
+                .status-present { background-color: #dcfce7 !important; color: #166534 !important; }
+                .status-absent { background-color: #fee2e2 !important; color: #991b1b !important; }
+                .status-vacation { background-color: #e0e7ff !important; color: #3730a3 !important; }
+                .status-sick { background-color: #fef08a !important; color: #854d0e !important; }
+                .status-weekend { background-color: #f1f5f9 !important; color: #000000 !important; }
             </style>
         </head>
         <body>
-            <div class="no-print" style="text-align: center; margin-bottom: 20px;">
-                <button onclick="window.print()" style="padding: 10px 20px; background: #2563eb; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">🖨️ Отправить на принтер (Альбомная ориентация)</button>
-                <div style="margin-top: 10px; color: #64748b;">Если таблица не влезает, убедитесь, что в настройках принтера стоит "Масштаб: По размеру страницы"</div>
-            </div>
-            
-            <h2>Табель учета рабочего времени за ${monthStr}</h2>
-            
-            <table>
-                <thead>${theadHtml}</thead>
-                <tbody>${tbodyHtml}</tbody>
-            </table>
-            
-            <div style="margin-top: 30px; display: flex; justify-content: space-between; font-size: 14px; font-weight: bold;">
-                <div>Составил: _____________________</div>
-                <div>Утвердил: _____________________</div>
-            </div>
+            <h2>Табель учета рабочего времени</h2>
+            ${tableHtml}
         </body>
         </html>
-    `;
+    `);
+    doc.close();
 
-    printWin.document.write(html);
-    printWin.document.close();
+    // 4. Печатаем через iframe с небольшой задержкой для рендера стилей
+    setTimeout(() => {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+    }, 300);
 };
 
 // === ПЕЧАТЬ ЗАРПЛАТЫ И АВАНСОВ ===

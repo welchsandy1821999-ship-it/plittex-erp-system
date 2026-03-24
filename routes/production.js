@@ -27,26 +27,7 @@ module.exports = function (pool, getWhId, withTransaction) {
     });
 
 
-    // ==========================================
-    // ВРЕМЕННАЯ ТАБЛЕТКА: РАСШИРЕНИЕ ВСЕХ ЛИМИТОВ БД (ЧАСТЬ 2)
-    // ==========================================
-    router.get('/fix-db', async (req, res) => {
-        try {
-            await pool.query(`
-                -- Добиваем финансовые колонки амортизации
-                ALTER TABLE production_batches ALTER COLUMN machine_amort_cost TYPE NUMERIC(15,2);
-                ALTER TABLE production_batches ALTER COLUMN mold_amort_cost TYPE NUMERIC(15,2);
-                -- Расширяем колонку циклов в самой партии
-                ALTER TABLE production_batches ALTER COLUMN cycles_count TYPE NUMERIC(15,2);
-                -- На всякий случай расширяем цены в справочнике
-                ALTER TABLE items ALTER COLUMN current_price TYPE NUMERIC(15,2);
-                ALTER TABLE items ALTER COLUMN amortization_per_cycle TYPE NUMERIC(15,4);
-            `);
-            res.send('<h1>✅ Успешно (Часть 2)!</h1><p>Абсолютно все финансовые и количественные лимиты расширены до десятков миллионов.</p>');
-        } catch (err) {
-            res.send(`<h1>❌ Ошибка:</h1><p>${err.message}</p>`);
-        }
-    });
+
 
     router.get('/api/production/history', async (req, res) => {
         const { date } = req.query;

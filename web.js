@@ -111,7 +111,7 @@ async function withTransaction(pool, callback) {
 // [Блок 5: Безопасность и Авторизация]
 const { authenticateToken } = require('./middleware/auth');
 
-app.get('/', (req, res) => res.render('index'));
+app.get('/', (req, res) => res.render('index', { devMode: process.env.DEV_MODE === 'true' }));
 
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
@@ -185,6 +185,7 @@ const hrRoutes = require('./routes/hr')(pool, withTransaction);
 const financeRoutes = require('./routes/finance')(pool, upload, withTransaction, ERP_CONFIG);
 const salesRoutes = require('./routes/sales')(pool, getWhId, getNextDocNumber, withTransaction, ERP_CONFIG);
 const docsRoutes = require('./routes/docs')(pool, ERP_CONFIG, withTransaction, getNextDocNumber);
+const devRoutes = require('./routes/dev')(pool, withTransaction, logger);
 
 // Защита API (Глобальная проверка токена JWT)
 app.use('/api', authenticateToken);
@@ -197,6 +198,7 @@ app.use('/', dictionariesRoutes);
 app.use('/', hrRoutes);
 app.use('/', salesRoutes);
 app.use('/', docsRoutes);
+app.use('/api/dev', devRoutes);
 
 // [Блок 8: Telegram Бот (Интеграция)]
 if (bot) {

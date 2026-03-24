@@ -13,7 +13,7 @@
     <script src="/libs/flatpickr.min.js"></script>
     <script src="/libs/ru.min.js"></script>
 
-    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/style.css?v=<%= Date.now() %>">
     <script src="/socket.io/socket.io.js"></script>
 
     <script>
@@ -114,7 +114,7 @@
     <script src="/js/inventory.js"></script>
     <script src="/js/sales.js"></script>
     <script src="/js/finance.js"></script>
-    <script src="/js/salary.js"></script>
+    <script src="/js/salary.js?v=<%= Date.now() %>"></script>
     <script src="/js/docs_registry.js"></script>
     <script src="/js/dashboard.js"></script>
     <script src="/js/equipment.js"></script>
@@ -153,6 +153,10 @@
         };
 
         window.switchModule = function (moduleId, navElement) {
+            document.querySelectorAll('.modal-overlay').forEach(m => {
+                m.classList.remove('active');
+                m.style.display = 'none';
+            });
             document.querySelectorAll('.module').forEach(mod => mod.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
             const target = document.getElementById(moduleId);
@@ -227,6 +231,14 @@
                 } catch (e) { window.startApp(); }
             } else {
                 window.startApp();
+            }
+        });
+
+        // Закрытие модального окна при клике на темный фон (overlay)
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal-overlay')) {
+                e.target.classList.remove('active');
+                e.target.style.display = 'none';
             }
         });
 
@@ -318,6 +330,73 @@
             });
         } catch (e) { console.warn("Socket.io registration failed:", e); }
     </script>
-</body>
 
+<% if (locals.devMode) { %>
+    <div id="dev-toolbar" class="surface-alt border-top" style="position: fixed; bottom: 0; left: 0; width: 100%; padding: 10px 20px; z-index: 10000; display: flex; gap: 15px; align-items: center; justify-content: space-between; background: var(--surface);">
+        <div style="display: flex; gap: 10px; align-items: center; color: var(--warning);">
+            <span>🛠️ <strong>DEV PANEL</strong></span>
+            <span class="text-muted" style="font-size: 12px; color: var(--text-muted);">Работает поверх «Нотариуса»</span>
+        </div>
+        <div style="display: flex; gap: 5px;">
+            <button class="btn btn-warning btn-sm" onclick="openDevUnlockModal()">🔓 Разблокировать Заказ</button>
+            <button class="btn btn-dev-danger btn-sm" onclick="devHardDeleteTransaction()">💥 Hard Delete Транзакции</button>
+            <button class="btn btn-dev-danger btn-sm" onclick="devHardDeleteProduction()">🧹 Очистить Партию ЗП</button>
+        </div>
+    </div>
+    <script>
+        document.body.classList.add('dev-mode-active');
+        
+        async function openDevUnlockModal() {
+            const orderId = prompt("Введите ID заказа для разблокировки:");
+            if (!orderId) return;
+            if (!confirm(`ВНИМАНИЕ! Вы принудительно снимаете режим "Нотариус" с заказа ${orderId}. Продолжить?`)) return;
+            
+            try {
+                const res = await fetch(`/api/dev/unlock-order/${orderId}`, { method: 'POST' });
+                const data = await res.json();
+                if (res.ok) {
+                    alert('Готово. ' + data.message);
+                    if (typeof loadSalesData === 'function') loadSalesData(false);
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (e) { alert('Ошибка сети: ' + e.message); }
+        }
+
+        async function devHardDeleteTransaction() {
+            const txId = prompt("Введите ID транзакции для тотального удаления (Hard Delete):");
+            if (!txId) return;
+            if (!confirm(`ВНИМАНИЕ! Вы выполняете тотальное удаление данных (Hard Delete) напрямую из БД. Восстановление невозможно. Продолжить?`)) return;
+            
+            try {
+                const res = await fetch(`/api/dev/transactions/${txId}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (res.ok) {
+                    alert('Готово. Данные вычищены, балансы пересчитаны.');
+                    if (typeof loadFinanceData === 'function') loadFinanceData();
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (e) { alert('Ошибка сети: ' + e.message); }
+        }
+
+        async function devHardDeleteProduction() {
+            const batchId = prompt("Введите ID партии для удаления (Hard Delete):");
+            if (!batchId) return;
+            if (!confirm(`ВНИМАНИЕ! Вы удаляете ПАРТИЮ с полным откатом сырья и наработки из БД. Восстановление невозможно. Продолжить?`)) return;
+            
+            try {
+                const res = await fetch(`/api/dev/production/${batchId}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (res.ok) {
+                    alert('Готово. Данные вычищены.');
+                    if (typeof initProduction === 'function') initProduction();
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (e) { alert('Ошибка сети: ' + e.message); }
+        }
+    </script>
+<% } %>
+</body>
 </html>
