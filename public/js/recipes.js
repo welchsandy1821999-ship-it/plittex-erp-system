@@ -30,7 +30,38 @@ async function loadRecipeModuleData() {
             opt.setAttribute('data-price', m.current_price);
             matSelect.add(opt);
         });
+
+        initStaticRecipeSelects();
     } catch (e) { console.error("Ошибка загрузки данных рецептов:", e); }
+}
+
+function initStaticRecipeSelects() {
+    const prodEl = document.getElementById('recipe-product-select');
+    if (prodEl) {
+        if (!prodEl.tomselect) {
+            new TomSelect(prodEl, {
+                plugins: ['clear_button'],
+                dropdownParent: 'body',
+                onChange: function(value) {
+                    loadRecipeDetails();
+                }
+            });
+        } else {
+            prodEl.tomselect.sync();
+        }
+    }
+
+    const matEl = document.getElementById('recipe-material-select');
+    if (matEl) {
+        if (!matEl.tomselect) {
+            new TomSelect(matEl, {
+                plugins: ['clear_button'],
+                dropdownParent: 'body'
+            });
+        } else {
+            matEl.tomselect.sync();
+        }
+    }
 }
 
 // 2. Открытие конкретного рецепта при выборе продукции
@@ -368,6 +399,30 @@ async function initMassCopyTool() {
         catSelect.innerHTML = '<option value="" disabled selected>-- Выберите категорию для поиска --</option>';
         categories.forEach(c => catSelect.add(new Option(c, c)));
 
+        if (sourceSelect) {
+            if (!sourceSelect.tomselect) {
+                new TomSelect(sourceSelect, {
+                    plugins: ['clear_button'],
+                    dropdownParent: 'body'
+                });
+            } else {
+                sourceSelect.tomselect.sync();
+            }
+        }
+
+        if (catSelect) {
+            if (!catSelect.tomselect) {
+                new TomSelect(catSelect, {
+                    plugins: ['clear_button'],
+                    dropdownParent: 'body',
+                    onChange: function(value) {
+                        loadMassCopyTargets();
+                    }
+                });
+            } else {
+                catSelect.tomselect.sync();
+            }
+        }
     } catch (e) { console.error("Ошибка загрузки данных для клонирования:", e); }
 }
 

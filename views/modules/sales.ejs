@@ -100,8 +100,15 @@
 
                 <div class="form-group">
                     <label>Поиск (Весь справочник):</label>
-                    <input type="text" id="sale-product-input" class="input-modern" list="sale-products-datalist"
-                        placeholder="Например: Прямоугольник..." autocomplete="off" oninput="updateSaleMaxQty()">
+                    <div style="position: relative; display: inline-block; width: 100%;">
+                        <input type="text" id="sale-product-input" class="input-modern" list="sale-products-datalist"
+                            style="width: 100%; box-sizing: border-box;" placeholder="Например: Прямоугольник..."
+                            autocomplete="off" oninput="updateSaleMaxQty()"
+                            onfocus="this.select(); if(typeof this.showPicker === 'function') this.showPicker();">
+                        <span
+                            style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #64748b; font-size: 12px; padding: 5px;"
+                            onclick="this.previousElementSibling.focus();">▼</span>
+                    </div>
                     <datalist id="sale-products-datalist"></datalist>
                 </div>
 
@@ -120,6 +127,13 @@
                         <input type="number" id="sale-price" class="input-modern" placeholder="0"
                             onfocus="this.select()">
                     </div>
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <button type="button" class="btn btn-outline w-100" id="btn-calc-sales-cost"
+                        style="border-color: var(--warning-text); color: var(--warning-text); font-weight: bold; display: none;"
+                        onclick="openCostAnalysisModal()">
+                        📊 Рассчитать себестоимость
+                    </button>
                 </div>
                 <button class="btn btn-outline" onclick="addToCart()"
                     style="width: 100%; border-color: var(--primary); color: var(--primary); margin-top: 10px;">

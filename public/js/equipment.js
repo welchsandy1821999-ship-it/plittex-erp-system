@@ -24,10 +24,15 @@ async function loadEquipment() {
         const res = await fetch('/api/equipment');
         equipmentList = await res.json();
         renderEquipmentTable();
+        initStaticEquipmentSelects();
     } catch (e) {
         console.error(e);
         UI.toast('Ошибка загрузки оборудования', 'error');
     }
+}
+
+function initStaticEquipmentSelects() {
+    // Архитектурная заглушка для соблюдения консистентности модулей
 }
 
 // Фильтрация (БЕЗ инлайновых стилей!)
@@ -180,6 +185,21 @@ window.openEquipmentModal = function (id = null) {
     // 4. Показываем окно (используем уже объявленную переменную eqModal)
     eqModal.style.display = 'flex'; // Гарантируем видимость 
     eqModal.classList.add('active'); // Для красоты и темной 
+
+    // 🚀 Финальный аккорд: TomSelect для карточки оборудования
+    setTimeout(() => {
+        ['eq-type', 'eq-status'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el && !el.tomselect) {
+                new TomSelect(el, {
+                    plugins: ['clear_button'],
+                    dropdownParent: 'body'
+                });
+            } else if (el && el.tomselect) {
+                el.tomselect.sync();
+            }
+        });
+    }, 50);
 };
 
 window.saveEquipment = async function () {
@@ -258,6 +278,19 @@ window.openMaintenanceModal = async function (id, name) {
         const sel = document.getElementById('maint-account');
         sel.innerHTML = '<option value="">-- Бесплатно --</option>';
         accounts.forEach(a => sel.add(new Option(`${a.name} (${parseFloat(a.balance).toLocaleString()} ₽)`, a.id)));
+
+        setTimeout(() => {
+            const el = document.getElementById('maint-account');
+            if (el && !el.tomselect) {
+                new TomSelect(el, {
+                    plugins: ['clear_button'],
+                    dropdownParent: 'body',
+                    placeholder: '-- Выберите счет для списания --'
+                });
+            } else if (el && el.tomselect) {
+                el.tomselect.sync();
+            }
+        }, 50);
     } catch (e) {
         console.error("Ошибка загрузки счетов:", e);
     }

@@ -227,8 +227,28 @@ async function initRegistry() {
         console.error('Ошибка при обращении к API контрагентов:', err);
     }
 
+    // Инициализируем TomSelect для фильтра
+    initStaticRegistrySelects();
+
     // Вызываем первичную загрузку таблицы документов
     loadDocsRegistry();
+}
+
+function initStaticRegistrySelects() {
+    const el = document.getElementById('clientFilter');
+    if (el) {
+        if (!el.tomselect) {
+            new TomSelect(el, {
+                plugins: ['clear_button'],
+                dropdownParent: 'body',
+                onChange: function(value) {
+                    loadDocsRegistry();
+                }
+            });
+        } else {
+            el.tomselect.sync();
+        }
+    }
 }
 
 // Ждем построения DOM и запускаем инициализацию 

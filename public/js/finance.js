@@ -3,7 +3,6 @@ let currentAccounts = [];
 let financeCounterparties = [];
 let allTransactions = [];
 let currentAccountFilter = null;
-let financeDateRange = { start: '', end: '' };
 let financeInvoices = [];
 let currentFinancePage = 1;
 let financeTotalPages = 1;
@@ -14,77 +13,94 @@ let chartFlow = null;
 let chartCategories = null;
 let currentTransTypeFilter = 'all';
 let financeLockDate = null;
-let financeDatePicker = null;
-let currentFinanceRange = { start: '', end: '' };
+let financeDateRange = { start: '', end: '' }; // Оставлено для совместимости функций экспорта
 
-async function initFinance() {
-    const dateInput = document.getElementById('finance-date-filter');
-    if (dateInput && typeof flatpickr !== 'undefined') {
-        financeDatePicker = flatpickr(dateInput, {
-            mode: "range",
-            dateFormat: "Y-m-d",
-            altInput: true,
-            altFormat: "d.m.Y",
-            locale: "ru",
-            onChange: function (selectedDates, dateStr, instance) {
-                if (selectedDates.length === 2) {
-                    financeDateRange.start = instance.formatDate(selectedDates[0], "Y-m-d");
-                    financeDateRange.end = instance.formatDate(selectedDates[1], "Y-m-d");
-                    currentFinancePage = 1;
-                    loadFinanceData();
-                } else if (selectedDates.length === 0) {
-                    financeDateRange.start = '';
-                    financeDateRange.end = '';
-                    currentFinancePage = 1;
-                    loadFinanceData();
-                }
-            }
-        });
-    }
-    loadFinanceData();
-}
+// === ГЛОБАЛЬНОЕ СОСТОЯНИЕ КАЛЕНДАРЯ ===
+let finPeriodType = 'all'; // Дефолт: За всё время (P&L имеет свой автозапуск за месяц)
+let finPeriodValue = new Date().getMonth() + 1;
+let finYear = new Date().getFullYear();
+let finSpecificDate = new Date().toISOString().split('T')[0];
 
-window.setFinanceDateRange = function (type) {
-    if (!financeDatePicker) return;
-    const today = new Date();
-    let start = new Date(), end = new Date();
-    
-    switch (type) {
-        case 'today': break;
-        case 'week':
-            const day = today.getDay();
-            const diff = today.getDate() - day + (day === 0 ? -6 : 1);
-            start.setDate(diff); end = new Date(start); end.setDate(start.getDate() + 6);
-            break;
-        case 'month':
-            start = new Date(today.getFullYear(), today.getMonth(), 1);
-            end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-            break;
-        case 'quarter':
-            const q = Math.floor(today.getMonth() / 3);
-            start = new Date(today.getFullYear(), q * 3, 1);
-            end = new Date(today.getFullYear(), q * 3 + 3, 0);
-            break;
-        case 'year':
-            start = new Date(today.getFullYear(), 0, 1);
-            end = new Date(today.getFullYear(), 11, 31);
-            break;
+window.renderFinPeriodUI = function () {
+    let typeOptions = `
+        <option value="day" ${finPeriodType === 'day' ? 'selected' : ''}>День</option>
+        <option value="week" ${finPeriodType === 'week' ? 'selected' : ''}>Неделя</option>
+        <option value="month" ${finPeriodType === 'month' ? 'selected' : ''}>Месяц</option>
+        <option value="quarter" ${finPeriodType === 'quarter' ? 'selected' : ''}>Квартал</option>
+        <option value="year" ${finPeriodType === 'year' ? 'selected' : ''}>Год</option>
+        <option value="all" ${finPeriodType === 'all' ? 'selected' : ''}>Всё время</option>
+    `;
+
+    let valOptions = '';
+    if (finPeriodType === 'quarter') {
+        for (let i = 1; i <= 4; i++) valOptions += `<option value="${i}" ${finPeriodValue == i ? 'selected' : ''}>${i} Квартал</option>`;
+    } else if (finPeriodType === 'month') {
+        const months = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+        months.forEach((m, i) => valOptions += `<option value="${i + 1}" ${finPeriodValue == i + 1 ? 'selected' : ''}>${m}</option>`);
     }
-    financeDatePicker.setDate([start, end], true);
+
+    let yearOptions = '';
+    const currentY = new Date().getFullYear();
+    for (let y = currentY - 2; y <= currentY + 1; y++) yearOptions += `<option value="${y}" ${finYear == y ? 'selected' : ''}>${y} год</option>`;
+
+    let activeInputHtml = '';
+    if (finPeriodType === 'day') {
+        activeInputHtml = `<input type="date" class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px; width: 130px;" value="${finSpecificDate}" onchange="applyFinPeriod('date', this.value)">`;
+    } else if (finPeriodType !== 'all' && finPeriodType !== 'year') {
+        activeInputHtml = `<select class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px;" onchange="applyFinPeriod('value', this.value)">${valOptions}</select>`;
+    }
+
+    let yearHtml = '';
+    if (finPeriodType !== 'all' && finPeriodType !== 'day') {
+        yearHtml = `<select class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px;" onchange="applyFinPeriod('year', this.value)">${yearOptions}</select>`;
+    }
+
+    const html = `
+        <select class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px;" onchange="applyFinPeriod('type', this.value)">${typeOptions}</select>
+        ${activeInputHtml}
+        ${yearHtml}
+    `;
+
+    document.querySelectorAll('.finance-period-selector').forEach(container => {
+        container.innerHTML = html;
+        container.style.display = 'flex';
+        container.style.gap = '8px';
+    });
 };
 
-// Функция сброса:
-window.resetFinanceFilter = function () {
-    // 1. Блокируем случайные таймеры поиска
-    clearTimeout(financeSearchTimer);
-
-    // 2. Очищаем текстовое поле ПЕРВЫМ делом
-    const searchInput = document.getElementById('finance-search');
-    if (searchInput) {
-        searchInput.value = '';
+window.applyFinPeriod = function (field, value) {
+    if (field === 'type') {
+        finPeriodType = value;
+        if (value === 'quarter') finPeriodValue = Math.floor(new Date().getMonth() / 3) + 1;
+        else if (value === 'month') finPeriodValue = new Date().getMonth() + 1;
     }
+    else if (field === 'date') finSpecificDate = value;
+    else if (field === 'value') finPeriodValue = parseInt(value);
+    else if (field === 'year') finYear = parseInt(value);
 
-    // 3. Сбрасываем табы "Доход/Расход/Все"
+    renderFinPeriodUI();
+    currentFinancePage = 1;
+    loadFinanceData();
+};
+
+function initStaticFinanceSelects() {
+    ['finance-limit'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && !el.tomselect) new TomSelect(el, { plugins: ['clear_button'], allowEmptyOption: true });
+    });
+}
+
+async function initFinance() {
+    renderFinPeriodUI();
+    loadFinanceData();
+    initStaticFinanceSelects();
+}
+
+window.resetFinanceFilter = function () {
+    clearTimeout(financeSearchTimer);
+    const searchInput = document.getElementById('finance-search');
+    if (searchInput) searchInput.value = '';
+
     currentTransTypeFilter = 'all';
     document.querySelectorAll('.type-tab-btn').forEach(btn => {
         btn.classList.remove('btn-blue', 'btn-outline-success', 'btn-outline-danger');
@@ -96,70 +112,86 @@ window.resetFinanceFilter = function () {
         tabAll.classList.add('btn-blue');
     }
 
-    // 4. Сбрасываем плашки счетов (используем твой новый класс account-card-modern)
     currentAccountFilter = null;
     document.querySelectorAll('.account-card-modern').forEach(card => {
         card.classList.remove('selected');
     });
 
-    // 5. Сбрасываем даты через наш новый глобальный календарь
-    // ВАЖНО: clear() у календаря автоматически вызовет loadFinanceData(), 
-    // подхватив уже очищенные фильтры из шагов 2-4!
-    financeDateRange = { start: '', end: '' };
-    currentFinancePage = 1;
-
-    if (typeof financeDatePicker !== 'undefined' && financeDatePicker) {
-        financeDatePicker.clear(); // 👈 Это действие само запустит загрузку данных
-    } else {
-        loadFinanceData(); // Если календаря почему-то нет, грузим вручную
-    }
+    // Сброс на "За всё время"
+    finPeriodType = 'all';
+    applyFinPeriod('type', 'all');
 };
 
 async function loadFinanceData() {
     try {
-        // Читаем, что ввел пользователь в поиск (если поле существует)
         const searchInput = document.getElementById('finance-search');
         const searchQuery = searchInput ? searchInput.value.trim() : '';
 
+        // --- ЛОГИКА РАСЧЕТА ДАТ ИЗ НАЛОГОВОГО МОДУЛЯ ---
+        let start = '', end = '';
+        if (finPeriodType === 'day') {
+            start = finSpecificDate;
+            end = finSpecificDate;
+        } else if (finPeriodType === 'week') {
+            const now = new Date();
+            const dayOfWeek = now.getDay() || 7; // Пн=1 ... Вс=7
+            const monday = new Date(now);
+            monday.setDate(now.getDate() - dayOfWeek + 1);
+            start = monday.toISOString().split('T')[0];
+            end = now.toISOString().split('T')[0];
+        } else if (finPeriodType === 'year') {
+            start = `${finYear}-01-01`;
+            end = `${finYear}-12-31`;
+        } else if (finPeriodType === 'quarter') {
+            const startMonth = (finPeriodValue - 1) * 3 + 1;
+            start = `${finYear}-${String(startMonth).padStart(2, '0')}-01`;
+            const endDay = new Date(finYear, startMonth + 2, 0).getDate();
+            end = `${finYear}-${String(startMonth + 2).padStart(2, '0')}-${endDay}`;
+        } else if (finPeriodType === 'month') {
+            start = `${finYear}-${String(finPeriodValue).padStart(2, '0')}-01`;
+            const endDay = new Date(finYear, finPeriodValue, 0).getDate();
+            end = `${finYear}-${String(finPeriodValue).padStart(2, '0')}-${endDay}`;
+        }
+
+        financeDateRange = { start, end };
+
         let queryParams = new URLSearchParams();
-        if (financeDateRange.start && financeDateRange.end) {
-            queryParams.append('start', financeDateRange.start);
-            queryParams.append('end', financeDateRange.end);
+        if (start && end) {
+            queryParams.append('start', start);
+            queryParams.append('end', end);
         }
         if (currentAccountFilter) queryParams.append('account_id', currentAccountFilter);
-        if (searchQuery) queryParams.append('search', searchQuery); // Передаем поиск
+        if (searchQuery) queryParams.append('search', searchQuery);
 
         if (currentTransTypeFilter && currentTransTypeFilter !== 'all') {
             queryParams.append('type', currentTransTypeFilter);
         }
 
         queryParams.append('page', currentFinancePage);
-        queryParams.append('limit', currentFinanceLimit); // Передаем лимит
+        queryParams.append('limit', currentFinanceLimit);
 
-        // 🚀 ИСПРАВЛЕНИЕ: Добавляем метку времени в параметры поиска транзакций
         const timestamp = Date.now();
         queryParams.append('_t', timestamp);
 
         const queryStr = `?${queryParams.toString()}`;
 
-        // 🚀 ИСПРАВЛЕНИЕ: Теперь плашки знают, какой счет выбран!
         let reportQueryParams = new URLSearchParams();
-        if (financeDateRange.start && financeDateRange.end) {
-            reportQueryParams.append('start', financeDateRange.start);
-            reportQueryParams.append('end', financeDateRange.end);
+        if (start && end) {
+            reportQueryParams.append('start', start);
+            reportQueryParams.append('end', end);
         }
         if (currentAccountFilter) {
-            reportQueryParams.append('account_id', currentAccountFilter); // Передаем ID счета
+            reportQueryParams.append('account_id', currentAccountFilter);
         }
         reportQueryParams.append('_t', timestamp);
 
         let accUrl = `/api/accounts?_t=${timestamp}`;
-        if (financeDateRange.end) {
-            accUrl += `&end=${financeDateRange.end}`;
+        if (end) {
+            accUrl += `&end=${end}`;
         }
 
         const [reportRes, transRes, accRes, catRes, cpRes, invRes] = await Promise.all([
-            fetch(`/api/report/finance?${reportQueryParams.toString()}`), // Умный запрос плашек
+            fetch(`/api/report/finance?${reportQueryParams.toString()}`),
             fetch(`/api/transactions${queryStr}`),
             fetch(accUrl),
             fetch(`/api/finance/categories?_t=${timestamp}`),
@@ -314,10 +346,16 @@ window.renderOrderProfitability = async function () {
 };
 
 function renderAccounts(accounts) {
-    document.getElementById('accounts-container').innerHTML = accounts.map(acc => {
+    const mainAccounts = accounts.filter(acc => acc.type !== 'imprest');
+    const imprestAccounts = accounts.filter(acc => acc.type === 'imprest');
+
+    const totalImprestBalance = imprestAccounts.reduce((sum, acc) => sum + parseFloat(acc.balance || 0), 0);
+
+    const generateHtml = (accList) => accList.map(acc => {
         const isSelected = currentAccountFilter == acc.id;
         const displayName = acc.name.replace(/\s*\(?\d{20}\)?/g, '').trim();
-        const borderTopColor = acc.type === 'cash' ? 'var(--success)' : 'var(--primary)';
+        const borderTopColor = acc.type === 'cash' ? 'var(--success)' : (acc.type === 'imprest' ? 'var(--warning)' : 'var(--primary)');
+        const typeLabel = acc.type === 'cash' ? '💵 Наличные' : (acc.type === 'imprest' ? 'Подотчет' : '🏦 Банк');
 
         return `
         <div class="account-card-modern ${isSelected ? 'selected' : ''}" 
@@ -326,7 +364,7 @@ function renderAccounts(accounts) {
             
             <div class="flex-between mb-5">
                 <div style="font-size: 10px; color: var(--text-muted); font-weight: 800; text-transform: uppercase;">
-                    ${acc.type === 'cash' ? '💵 Наличные' : '🏦 Банк'}
+                    ${typeLabel}
                 </div>
                 <button class="btn-close" style="font-size: 14px; opacity: 0.5;" 
                         onclick="event.stopPropagation(); openEditAccountModal(${acc.id}, '${escapeHTML(acc.name)}')" title="Настроить">⚙️</button>
@@ -336,11 +374,162 @@ function renderAccounts(accounts) {
             <div style="font-size: 18px; font-weight: 800; color: var(--text-main);">${parseFloat(acc.balance).toLocaleString('ru-RU')} ₽</div>
         </div>`;
     }).join('');
+
+    let finalHtml = generateHtml(mainAccounts);
+
+    if (imprestAccounts.length > 0) {
+        finalHtml += `
+        <div class="account-card-modern" onclick="showImprestBreakdown()" style="border-top: 5px solid var(--warning); cursor: pointer;" title="Суммарный остаток у всех сотрудников">
+            <div class="flex-between mb-5">
+                <div style="font-size: 10px; color: var(--warning); font-weight: 800; text-transform: uppercase;">
+                    🙋‍♂️ Подотчет
+                </div>
+            </div>
+            <div style="font-size: 15px; font-weight: bold; margin: 5px 0; color: var(--text-main);">Все сотрудники</div>
+            <div style="font-size: 18px; font-weight: 800; color: var(--text-main);">${totalImprestBalance.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</div>
+        </div>`;
+    }
+
+    document.getElementById('accounts-container').innerHTML = finalHtml;
 }
 
-window.toggleAccountFilter = function (accountId) {
+window.showImprestBreakdown = function () {
+    const list = currentAccounts.filter(a => a.type === 'imprest' && Math.abs(parseFloat(a.balance)) > 0);
+    if (list.length === 0) {
+        return UI.toast('В подотчете пока нет задолженностей', 'info');
+    }
+
+    // Сортировка по размеру баланса убывающе
+    list.sort((a, b) => parseFloat(b.balance) - parseFloat(a.balance));
+
+    const html = `
+        <div style="max-height: 400px; overflow-y: auto; text-align: left; background: var(--surface); border-radius: 8px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                <tbody>
+                    ${list.map(acc => {
+        const name = acc.name.replace('Подотчет: ', '');
+        const balance = parseFloat(acc.balance);
+        const color = balance > 0 ? 'var(--primary)' : 'var(--danger)';
+        return `
+                        <tr style="border-bottom: 1px solid var(--border);">
+                            <td style="padding: 10px; font-weight: 600;">${name}</td>
+                            <td style="padding: 10px; text-align: right; font-weight: bold; color: ${color};">
+                                ${balance.toLocaleString()} ₽
+                                <button class="btn btn-outline" style="padding: 2px 8px; font-size: 11px; margin-left: 10px; border-color: var(--primary); color: var(--primary);" onclick="openImprestReportModal('${acc.id}', '${name.replace(/'/g, "\\'")}', ${balance})">Отчитаться</button>
+                            </td>
+                        </tr>
+                        `;
+    }).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+
+    UI.showModal('🙋‍♂️ Детализация: Подотчет (Сотрудники)', html, `<button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>`);
+};
+
+window.openImprestReportModal = function (accountId, employeeName, currentBalance) {
+    const today = new Date().toISOString().split('T')[0];
+
+    // Закрываем предыдущую модалку детализации перед открытием новой
+    UI.closeModal();
+
+    // Синхронизируем категории ДДС с основной формой
+    const expenseOptions = (window.financeCategories || [])
+        .filter(c => c.type === 'expense')
+        .map(c => `<option value="${c.name.replace(/"/g, '&quot;')}">`)
+        .join('');
+
+    const html = `
+        <div class="form-grid" style="grid-template-columns: 1fr; gap: 15px;">
+            <div class="form-group">
+                <label>Дата отчета:</label>
+                <input type="date" id="imprest-date" class="input-modern" value="${today}">
+            </div>
+            <div class="form-group">
+                <label>Потраченная сумма (₽): <span style="color:var(--danger)">*</span></label>
+                <input type="text" inputmode="decimal" id="imprest-amount" class="input-modern" style="font-size: 18px; font-weight: bold;" value="${Math.abs(parseFloat(currentBalance))}">
+                <label style="display: block; margin-top: 8px; font-size: 13px; cursor: pointer;">
+                    <input type="checkbox" id="imprest-close-check" checked> 
+                    Закрыть подотчет (остаток перенести в счет ЗП)
+                </label>
+            </div>
+            <div class="form-group">
+                <label style="color: var(--primary);">Категория (Выберите из списка или впишите новую):</label>
+                <div style="position: relative;">
+                    <input type="text" id="imprest-category" list="expense-categories" class="input-modern" style="font-weight: 600; width: 100%; box-sizing: border-box;" placeholder="Начните вводить или выберите..." autocomplete="off" onfocus="this.select(); if(typeof this.showPicker === 'function') this.showPicker();">
+                    <span style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #64748b; font-size: 10px; padding: 5px;" onclick="const inp = document.getElementById('imprest-category'); inp.focus(); if(typeof inp.showPicker === 'function') inp.showPicker();">▼</span>
+                </div>
+                <datalist id="expense-categories">
+                    ${expenseOptions}
+                </datalist>
+            </div>
+            <div class="form-group">
+                <label class="btn btn-outline-secondary w-100" style="cursor: pointer; border-style: dashed; padding: 10px; text-align: center;">
+                    📎 Прикрепить чек
+                    <input type="file" id="imprest-receipt" accept="image/*, .pdf" style="display: none;">
+                </label>
+            </div>
+            <div class="form-group">
+                <label>Основание (Комментарий):</label>
+                <input type="text" id="imprest-desc" class="input-modern" placeholder="Например: Аренда за март 2026...">
+            </div>
+        </div>
+    `;
+
+    UI.showModal(`🧾 Отчет за деньги: ${employeeName}`, html, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-blue" onclick="submitImprestReport(${account_id}, '${employeeName.replace(/'/g, "\\'")}', ${currentBalance})">💾 Сохранить отчет</button>
+    `);
+};
+
+window.submitImprestReport = async function (account_id, employeeName, currentBalance) {
+    const amountInput = document.getElementById('imprest-amount');
+    if (!amountInput) {
+        console.error('Не найдено поле imprest-amount');
+        return UI.toast('Ошибка интерфейса: поле суммы не найдено', 'error');
+    }
+
+    let rawAmount = amountInput.value.toString();
+    // Уничтожаем ВСЁ, кроме цифр, точек и запятых. Затем меняем запятую на точку.
+    let cleanAmount = rawAmount.replace(/[^0-9.,]/g, '').replace(',', '.');
+    const amount = parseFloat(cleanAmount);
+
+    if (isNaN(amount) || amount <= 0) {
+        return UI.toast('Введите корректную сумму', 'error');
+    }
+
+    const category = document.getElementById('imprest-category').value;
+    const date = document.getElementById('imprest-date').value;
+    const description = document.getElementById('imprest-desc').value.trim();
+    const isClosed = document.getElementById('imprest-close-check')?.checked || false;
+    if (!category) return UI.toast('Укажите категорию', 'warning');
+
+    const payload = { account_id, amount, category, description, date, employeeName, currentBalance, isClosed };
+    try {
+        const res = await fetch('/api/finance/imprest-report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            UI.closeModal();
+            UI.toast('✅ Отчет принят', 'success');
+            loadFinanceData();
+        } else {
+            UI.toast(data.error || 'Ошибка сохранения', 'error');
+        }
+    } catch (e) {
+        console.error(e);
+        UI.toast('Ошибка сети', 'error');
+    }
+};
+
+window.toggleAccountFilter = function (account_id) {
     // 🛡️ БЛОКИРОВКА: Если кликнули по уже выбранному счету — ничего не делаем
-    if (currentAccountFilter == accountId) {
+    if (currentAccountFilter == account_id) {
         return;
     }
 
@@ -390,11 +579,16 @@ function renderTransactionsTable() {
         const catBadge = cpObj ? window.getCategoryBadge(cpObj.client_category) : '';
 
         let htmlName = t.counterparty_name
-            ? `<div style="color: var(--primary); font-size: 14px; display: flex; align-items: center;">👤 ${escapeHTML(t.counterparty_name)} ${catBadge}</div>`
+            ? `<div style="color: var(--primary); font-size: 14px; display: flex; align-items: center;">👤 ${t.counterparty_id ? `<span class="entity-link" onclick="window.app.openEntity('client', ${t.counterparty_id})">${escapeHTML(t.counterparty_name)}</span>` : escapeHTML(t.counterparty_name)} ${catBadge}</div>`
             : '';
 
+        const systemCategories = ['Перевод', 'Техническая проводка', 'Возврат из подотчета'];
+        const isSystem = systemCategories.includes(t.category);
+        const rowStyle = isSystem ? 'opacity: 0.6; background-color: #f9f9f9;' : '';
+        const categoryIcon = isSystem ? '⚙️ ' : '';
+
         return `
-        <tr>
+        <tr style="${rowStyle}">
             <td style="text-align: center;">
                 ${isLocked ? '<span title="Период закрыт">🔒</span>' : `<input type="checkbox" class="trans-checkbox" value="${t.id}" onchange="toggleRowSelect(this)" ${isChecked}>`}
             </td>
@@ -403,7 +597,7 @@ function renderTransactionsTable() {
             
             <td style="font-weight: 600;">
                 ${htmlName}
-                <div style="font-size: 12px; color: var(--text-muted);">${escapeHTML(t.category)}</div>
+                <div style="font-size: 12px; color: var(--text-muted);">${t.category ? `${categoryIcon}<span class="entity-link" onclick="window.app.navigateCategory('${t.category.replace(/'/g, "\\'")}')">${escapeHTML(t.category)}</span>` : ''}</div>
             </td>
             
             <td style="color: var(--text-muted); font-size: 13px;">
@@ -425,7 +619,54 @@ function renderTransactionsTable() {
             </td>
         </tr>`;
     }).join('');
+
+    // ОБНОВЛЕНИЕ ИНФО-ПАНЕЛИ (SUMMARY BAR)
+    const searchInput = document.getElementById('finance-search');
+    if (searchInput && typeof updateFinanceSummary === 'function') {
+        updateFinanceSummary(searchInput.value.trim());
+    }
 }
+
+window.updateFinanceSummary = function (searchValue) {
+    const bar = document.getElementById('finance-summary-bar');
+    if (!bar) return;
+
+    if (!searchValue) {
+        bar.style.display = 'none';
+        return;
+    }
+
+    bar.style.display = 'flex';
+    document.getElementById('summary-filter-name').innerText = searchValue;
+
+    // Подсчет по загруженному массиву текущей страницы
+    const count = allTransactions.length;
+    let sum = 0;
+    allTransactions.forEach(t => {
+        const amt = parseFloat(t.amount) || 0;
+        sum += (t.transaction_type === 'income') ? amt : -amt;
+    });
+
+    document.getElementById('summary-filter-count').innerText = count;
+    // Окрашиваем сумму в зеленый или красный
+    const sumEl = document.getElementById('summary-filter-sum');
+    sumEl.innerText = (sum > 0 ? '+' : '') + sum.toLocaleString('ru-RU') + ' ₽';
+    sumEl.style.color = sum >= 0 ? 'var(--success)' : 'var(--danger)';
+};
+
+window.resetFinanceSummary = function () {
+    const input = document.getElementById('finance-search');
+    if (input) input.value = '';
+
+    const bar = document.getElementById('finance-summary-bar');
+    if (bar) bar.style.display = 'none';
+
+    if (typeof triggerFinanceSearch === 'function') {
+        triggerFinanceSearch();
+    } else {
+        loadFinanceData();
+    }
+};
 
 // 1. Удаление транзакции
 window.deleteTransaction = function (id) {
@@ -471,11 +712,50 @@ window.openCategoriesModal = function () {
 };
 
 window.addCategory = async function () {
-    const type = document.getElementById('new-cat-type').value;
-    const name = document.getElementById('new-cat-name').value.trim();
-    if (!name) return;
-    await fetch('/api/finance/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, type }) });
-    await loadFinanceData(); openCategoriesModal();
+    const typeEl = document.getElementById('new-cat-type');
+    const inputEl = document.getElementById('new-cat-name');
+
+    const type = typeEl ? typeEl.value : 'expense';
+    const name = inputEl ? inputEl.value.trim() : '';
+
+    if (!name) {
+        if (typeof UI !== 'undefined') UI.toast('Введите название категории', 'error');
+        return;
+    }
+
+    try {
+        const token = localStorage.getItem('token') || localStorage.getItem('jwtToken');
+        const res = await fetch('/api/finance/categories', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({ name, type })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+            if (data.error && (data.error.includes('unique constraint') || data.error.includes('duplicate key'))) {
+                throw new Error('Такая категория уже существует');
+            }
+            throw new Error(data.error || 'Ошибка при сохранении');
+        }
+
+        if (typeof UI !== 'undefined') UI.toast('Категория успешно добавлена', 'success');
+        if (inputEl) inputEl.value = '';
+
+        // Обновляем кэш вместо полного рендера страницы
+        if (typeof window.financeCategories !== 'undefined') {
+            window.financeCategories.push({ id: Date.now(), name: name, type: type });
+        }
+
+        openCategoriesModal();
+    } catch (err) {
+        console.error('[Finance] Ошибка добавления категории:', err);
+        if (typeof UI !== 'undefined') UI.toast(err.message, 'error');
+    }
 };
 
 // 4. Удаление категории (статьи ДДС)
@@ -503,11 +783,148 @@ window.autoSwitchPaymentMethod = function (accId) {
         } else {
             methodSelect.value = 'Безналичный расчет';
         }
+        if (methodSelect.tomselect) methodSelect.tomselect.sync();
     }
+};
+
+window.selectEmployeeMode = function (mode) {
+    try {
+        console.log('Вызван selectEmployeeMode. Режим:', mode);
+
+        // 1. Безопасное переключение кнопок
+        const lblSettlement = document.getElementById('label-emp-mode-settlement');
+        const lblImprest = document.getElementById('label-emp-mode-imprest');
+        const lblInstant = document.getElementById('label-emp-mode-instant');
+        const lblReturn = document.getElementById('label-emp-mode-return');
+
+        if (!lblSettlement) console.error('[DEBUG] Не найдена кнопка label-emp-mode-settlement!');
+        if (!lblImprest) console.error('[DEBUG] Не найдена кнопка label-emp-mode-imprest!');
+        if (!lblInstant) console.error('[DEBUG] Не найдена кнопка label-emp-mode-instant!');
+
+        if (lblSettlement) lblSettlement.className = 'btn ' + (mode === 'settlement' ? 'btn-blue' : 'btn-outline');
+        if (lblImprest) lblImprest.className = 'btn ' + (mode === 'imprest' ? 'btn-blue' : 'btn-outline');
+        if (lblInstant) lblInstant.className = 'btn ' + (mode === 'instant_expense' ? 'btn-blue' : 'btn-outline');
+        if (lblReturn) lblReturn.className = 'btn ' + (mode === 'return' ? 'btn-blue' : 'btn-outline');
+
+        const radio = document.querySelector(`input[name="employee-mode"][value="${mode}"]`);
+        if (!radio) console.error('[DEBUG] Не найдена radio-кнопка для режима:', mode);
+        if (radio) radio.checked = true;
+
+        // 2. Безопасный поиск элементов формы
+        const typeSelect = document.getElementById('trans-type');
+        const catWrapper = document.getElementById('category-wrapper');
+        const categoryInput = document.getElementById('trans-category');
+        const accountLabel = document.getElementById('trans-account-label');
+
+        if (!typeSelect) console.error('[DEBUG] Не найден trans-type!');
+        if (!catWrapper) console.error('[DEBUG] Не найден category-wrapper!');
+        if (!categoryInput) console.error('[DEBUG] Не найден trans-category!');
+        if (!accountLabel) console.error('[DEBUG] Не найден trans-account-label!');
+
+        console.log('[DEBUG] DOM элементы:', { typeSelect, catWrapper, categoryInput, accountLabel });
+
+        if (mode === 'imprest') {
+            if (typeSelect) {
+                typeSelect.value = 'transfer'; // Подотчет - это перевод
+                typeSelect.disabled = true;
+                // Скрываем весь контейнер поля — пользователю видеть его незачем
+                const typeWrapper = typeSelect.closest('.form-group');
+                if (typeWrapper) typeWrapper.style.display = 'none';
+            }
+            if (catWrapper) catWrapper.style.display = 'none';
+
+            if (categoryInput) {
+                categoryInput.value = 'Перевод';
+                categoryInput.required = false;
+            }
+
+            if (accountLabel) accountLabel.innerText = "Касса списания (Откуда):";
+
+            const cpNameInput = document.getElementById('trans-counterparty-name');
+            if (cpNameInput && cpNameInput.value && typeof updateAccountSelectForCounterparty === 'function') {
+                updateAccountSelectForCounterparty(cpNameInput.value, true);
+            }
+        } else if (mode === 'return') {
+            if (typeSelect) {
+                typeSelect.value = 'income'; // Возврат - это доход в кассу
+                typeSelect.disabled = true;
+                const typeWrapper = typeSelect.closest('.form-group');
+                if (typeWrapper) typeWrapper.style.display = 'none';
+            }
+            if (catWrapper) catWrapper.style.display = 'block';
+            if (categoryInput) {
+                categoryInput.required = true;
+                if (categoryInput.value === 'Перевод') categoryInput.value = ''; 
+            }
+            if (accountLabel) accountLabel.innerText = "Касса зачисления (Куда):";
+
+            const cpNameInput = document.getElementById('trans-counterparty-name');
+            if (cpNameInput && cpNameInput.value && typeof updateAccountSelectForCounterparty === 'function') {
+                updateAccountSelectForCounterparty(cpNameInput.value, true);
+            }
+        } else {
+            // Сброс в исходное состояние
+            if (typeSelect) {
+                typeSelect.disabled = false;
+                const typeWrapper = typeSelect.closest('.form-group');
+                if (typeWrapper) typeWrapper.style.display = 'block';
+            }
+            if (catWrapper) catWrapper.style.display = 'block';
+            if (categoryInput) {
+                categoryInput.required = true;
+                if (categoryInput.value === 'Перевод') categoryInput.value = '';
+            }
+            if (accountLabel) accountLabel.innerText = "Счет (Откуда/Куда):";
+        }
+
+        if (typeof updateCategoryList === 'function') updateCategoryList();
+    } catch (e) {
+        console.error("Ошибка в selectEmployeeMode:", e);
+    }
+};
+
+// Умный фильтр счетов в зависимости от контрагента
+window.updateAccountSelectForCounterparty = function (counterpartyName, skipModeReset = false) {
+    const select = document.getElementById('trans-account-id');
+    if (!select) return;
+
+    let allowedAccounts = [...currentAccounts];
+
+    if (counterpartyName) {
+        const cp = financeCounterparties.find(c => c.name === counterpartyName);
+        const modeWrapper = document.getElementById('employee-mode-wrapper');
+
+        if (cp && cp.is_employee) {
+            if (modeWrapper) modeWrapper.style.display = 'block';
+
+            // Читаем ТЕКУЩИЙ выбранный режим — НЕ перезаписываем его
+            const currentModeRadio = document.querySelector('input[name="employee-mode"]:checked');
+            const currentMode = currentModeRadio ? currentModeRadio.value : 'settlement';
+
+            // Устанавливаем settlement ТОЛЬКО при первичном выборе контрагента (если режим ещё не выбран)
+            if (!skipModeReset && !document.getElementById('label-emp-mode-imprest')?.classList.contains('btn-blue')) {
+                selectEmployeeMode('settlement');
+            }
+        } else {
+            if (modeWrapper) modeWrapper.style.display = 'none';
+        }
+    }
+
+    const currentVal = select.value;
+    select.innerHTML = allowedAccounts.map(acc => `<option value="${acc.id}">${acc.name} (${parseFloat(acc.balance).toLocaleString()} ₽)</option>`).join('');
+
+    if (allowedAccounts.some(a => a.id == currentVal)) {
+        select.value = currentVal;
+    }
+
+    autoSwitchPaymentMethod(select.value);
 };
 
 // --- ФУНКЦИЯ ПОДСТАНОВКИ КАТЕГОРИИ ---
 window.autoFillCategory = async function (counterpartyName) {
+    if (typeof updateAccountSelectForCounterparty === 'function') {
+        updateAccountSelectForCounterparty(counterpartyName);
+    }
     if (!counterpartyName) return;
 
     // 1. Ищем контрагента по имени в уже загруженном списке
@@ -545,6 +962,10 @@ window.openTransactionModal = function () {
     const html = `
         <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
             <div class="form-group" style="grid-column: span 2;">
+                <label style="font-weight: bold; color: var(--primary);">Дата платежа:</label>
+                <input type="date" id="trans-date" class="input-modern" style="font-size: 15px; font-weight: bold;" required>
+            </div>
+            <div class="form-group" style="grid-column: span 2;">
                 <label>Тип операции:</label>
                 <select id="trans-type" class="input-modern" style="font-size: 15px; font-weight: bold;" onchange="updateCategoryList()">
                     <option value="expense">🔴 Расход (Списание денег)</option>
@@ -558,7 +979,7 @@ window.openTransactionModal = function () {
             </div>
             
             <div class="form-group" style="background: var(--surface-alt); padding: 10px; border-radius: 6px; border: 1px dashed var(--border);">
-                <label style="font-weight: bold; color: var(--primary);">Счет (Откуда/Куда):</label>
+                <label id="trans-account-label" style="font-weight: bold; color: var(--primary);">Счет (Откуда/Куда):</label>
             <select id="trans-account-id" class="input-modern" style="font-size: 14px; font-weight: bold;" onchange="autoSwitchPaymentMethod(this.value)">
                  ${accountOptions}
             </select>
@@ -566,8 +987,29 @@ window.openTransactionModal = function () {
             
             <div class="form-group" style="grid-column: span 2;">
                 <label>Контрагент (Кому/От кого):</label>
-                <input type="text" id="trans-counterparty-name" list="cp-options" class="input-modern" style="font-size: 14px;" placeholder="-- Не выбран (Внутренняя операция) --" autocomplete="off" onclick="this.value=''" onchange="autoFillCategory(this.value)">
+                <div style="position: relative; display: inline-block; width: 100%;">
+                    <input type="text" id="trans-counterparty-name" list="cp-options" class="input-modern" style="font-size: 14px; width: 100%; box-sizing: border-box;" placeholder="-- Не выбран (Внутренняя операция) --" autocomplete="off" onchange="autoFillCategory(this.value)" onfocus="this.select(); if(typeof this.showPicker === 'function') this.showPicker();">
+                    <span style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #64748b; font-size: 12px; padding: 5px;" onclick="this.previousElementSibling.focus();">▼</span>
+                </div>
                 <datalist id="cp-options">${cpOptionsList}</datalist>
+
+                <div id="employee-mode-wrapper" style="display: none; margin-top: 10px; background: var(--surface-bg); padding: 10px; border-radius: 8px; border: 1px dashed var(--warning);">
+                    <label style="font-weight: bold; color: var(--text-main); font-size: 13px; margin-bottom: 8px; display: block;">⚙️ Режим работы с сотрудником:</label>
+                    <div style="display: flex; gap: 10px;">
+                        <label style="flex:1; cursor:pointer;" class="btn btn-outline" id="label-emp-mode-settlement" onclick="selectEmployeeMode('settlement')">
+                            <input type="radio" name="employee-mode" value="settlement" checked style="display:none;"> 💰 Расчет по ЗП
+                        </label>
+                        <label style="flex:1; cursor:pointer;" class="btn btn-outline" id="label-emp-mode-imprest" onclick="selectEmployeeMode('imprest')">
+                            <input type="radio" name="employee-mode" value="imprest" style="display:none;"> 💳 В подотчет
+                        </label>
+                        <label style="flex:1; cursor:pointer;" class="btn btn-outline" id="label-emp-mode-instant" onclick="selectEmployeeMode('instant_expense')">
+                            <input type="radio" name="employee-mode" value="instant_expense" style="display:none;"> 🛒 Покупка сейчас
+                        </label>
+                        <label style="flex:1; cursor:pointer;" class="btn btn-outline" id="label-emp-mode-return" onclick="selectEmployeeMode('return')">
+                            <input type="radio" name="employee-mode" value="return" id="mode-return" style="display:none;"> 🔄 Возврат в кассу
+                        </label>
+                    </div>
+                </div>
             </div>
 
             <div class="form-group" style="grid-column: span 2;">
@@ -579,12 +1021,31 @@ window.openTransactionModal = function () {
                 </select>
             </div>
             
-            <div class="form-group" style="grid-column: span 2;">
+            <div class="form-group" id="category-wrapper" style="grid-column: span 2;">
                 <label style="color: var(--primary);">Категория (Выберите из списка или впишите новую):</label>
-                <input type="text" id="trans-category" list="category-options" class="input-modern" style="font-weight: 600;" placeholder="Начните вводить или выберите..." autocomplete="off">
+                <div style="position: relative;">
+                    <input type="text" id="trans-category" list="category-options" class="input-modern" style="font-weight: 600; width: 100%; box-sizing: border-box;" placeholder="Начните вводить или выберите..." autocomplete="off" oninput="previewCategoryMatrix(this.value)" onfocus="this.select(); if(typeof this.showPicker === 'function') this.showPicker();">
+                    <span style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #64748b; font-size: 10px; padding: 5px;" onclick="const inp = document.getElementById('trans-category'); inp.focus(); if(typeof inp.showPicker === 'function') inp.showPicker();">▼</span>
+                </div>
                 <datalist id="category-options"></datalist>
+                <small id="category-matrix-preview" class="form-text mt-1" style="display:block; min-height: 20px; font-weight: bold;"></small>
             </div>
             
+            <div class="form-group" style="grid-column: span 2; margin-top: 5px; background: var(--surface-alt); padding: 12px; border-radius: 8px; border: 1px dashed var(--border);">
+                <label style="color: var(--primary);">🎯 Принудительная группа затрат (Исключение):</label>
+                <select id="trans-cost-group" class="input-modern" style="font-size: 13px; font-weight: 600;">
+                    <option value="" selected>Автоматически (По матрице)</option>
+                    <option value="direct">🟢 В Прямые (COGS)</option>
+                    <option value="overhead">🟠 В Оверхед (Косвенные)</option>
+                    <option value="capital">🟣 В Капитал (Скрытая прибыль / Не учитывать)</option>
+                </select>
+                
+                <label style="display: flex; align-items: center; gap: 8px; margin-top: 12px; cursor: pointer; padding: 8px; background: var(--surface); border-radius: 6px; border: 1px solid var(--border);">
+                    <input type="checkbox" id="trans-remember" style="width: 16px; height: 16px; cursor: pointer;">
+                    <span style="font-size: 12px; font-weight: bold; color: var(--text-main);">🤖 Запомнить правило для этого контрагента</span>
+                </label>
+            </div>
+
             <div class="form-group" style="grid-column: span 2;">
                 <label>Основание (Комментарий):</label>
                 <input type="text" id="trans-desc" class="input-modern" placeholder="Например: Аренда за март 2026...">
@@ -592,6 +1053,9 @@ window.openTransactionModal = function () {
         </div>
     `;
     UI.showModal('➕ Добавление операции', html, `<button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button><button class="btn btn-blue" onclick="saveTransaction(this)">💾 Сохранить</button>`);
+    
+    document.getElementById('trans-date').value = new Date().toISOString().split('T')[0];
+    
     updateCategoryList();
     autoSwitchPaymentMethod(document.getElementById('trans-account-id').value);
 };
@@ -624,6 +1088,7 @@ window.autoSwitchPaymentMethod = function (accId) {
     if (acc && methodSelect) {
         if (acc.type === 'cash') methodSelect.value = 'Наличные (Касса)';
         else methodSelect.value = 'Безналичный расчет';
+        if (methodSelect.tomselect) methodSelect.tomselect.sync();
     }
 };
 
@@ -640,16 +1105,50 @@ window.updateCategoryList = function () {
     if (catInput) catInput.value = '';
 };
 
+window.previewCategoryMatrix = async function (categoryName) {
+    const previewEl = document.getElementById('category-matrix-preview');
+    if (!previewEl) return;
+    
+    if (!categoryName || categoryName.trim() === '') {
+        previewEl.innerHTML = '';
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/finance/category-info?name=' + encodeURIComponent(categoryName));
+        const data = await res.json();
+        
+        if (data.cost_group) {
+            let groupName = 'OPEX (Косвенные)';
+            let color = 'var(--text-main)';
+            if (data.cost_group === 'direct') { groupName = 'COGS (Прямые)'; color = 'var(--success)'; }
+            else if (data.cost_group === 'overhead' || data.cost_group === 'opex') { groupName = 'OPEX (Косвенные)'; color = 'var(--warning)'; }
+            else if (data.cost_group === 'capital') { groupName = 'CAPEX (Капитал)'; color = 'var(--primary)'; }
+            
+            previewEl.innerHTML = `<span style="color: ${color};">📌 Автоматически: ${groupName}</span>`;
+        } else {
+            previewEl.innerHTML = `<span style="color: var(--text-muted);">📌 Новая категория (будет создана)</span>`;
+        }
+    } catch (e) {
+        previewEl.innerHTML = '';
+    }
+};
+
 window.saveTransaction = async function (btnElement) {
     if (btnElement) btnElement.disabled = true; // 🛡️ Блокируем кнопку от двойного клика
 
     const type = document.getElementById('trans-type').value;
+    const date = document.getElementById('trans-date').value;
     const amount = parseFloat(document.getElementById('trans-amount').value);
     const method = document.getElementById('trans-method').value;
     const category = document.getElementById('trans-category').value.trim();
     const desc = document.getElementById('trans-desc').value.trim();
     const account_id = document.getElementById('trans-account-id').value;
     const cpNameInput = document.getElementById('trans-counterparty-name').value.trim();
+
+    // Получаем текущий режим выбора сотрудника, если он есть
+    const empModeInput = document.querySelector('input[name="employee-mode"]:checked');
+    const employee_mode = empModeInput ? empModeInput.value : 'settlement';
     let counterparty_id = null;
 
     if (cpNameInput) {
@@ -670,27 +1169,50 @@ window.saveTransaction = async function (btnElement) {
         if (btnElement) btnElement.disabled = false;
         return UI.toast('Обязательно укажите основание/комментарий!', 'error');
     }
-    if (!category) {
+    if (!category && (type === 'income' || type === 'expense')) {
         if (btnElement) btnElement.disabled = false;
         return UI.toast('Укажите категорию!', 'error');
     }
 
+    // Автоматическая подстановка категории для переводов, если пусто
+    const finalCategory = (!category && type === 'transfer') ? 'Перевод' : category;
+
     // === АВТО-СОЗДАНИЕ КАТЕГОРИИ ===
-    const isCategoryExists = window.financeCategories.some(c => c.name.toLowerCase() === category.toLowerCase() && c.type === type);
-    if (!isCategoryExists) {
+    const isCategoryExists = window.financeCategories.some(c => c.name.toLowerCase() === finalCategory.toLowerCase() && c.type === type);
+    if (!isCategoryExists && finalCategory !== 'Перевод') {
         try {
             await fetch('/api/finance/categories', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: category, type: type })
+                body: JSON.stringify({ name: finalCategory, type: type })
             });
         } catch (e) { console.error("Ошибка сохранения категории", e); }
     }
+
+    // 🚀 ДОБАВИЛИ ЧТЕНИЕ НОВЫХ ПОЛЕЙ ИЗ ФОРМЫ
+    const costGroupEl = document.getElementById('trans-cost-group');
+    const rememberEl = document.getElementById('trans-remember');
+    const cost_group_override = costGroupEl ? (costGroupEl.value || null) : null;
+    const remember_rule = rememberEl ? rememberEl.checked : false;
 
     try {
         const res = await fetch('/api/transactions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ amount, type, category, description: desc, method, account_id, counterparty_id })
+            body: JSON.stringify({
+                amount,
+                type,
+                date,
+                category: finalCategory,
+                description: desc,
+                method,
+                account_id,
+                counterparty_id,
+                employee_mode, // 🚀 КРИТИЧЕСКИ ВАЖНО: передаем режим на бэкенд
+
+                // 🚀 ПЕРЕДАЕМ НОВЫЕ ПОЛЯ НА БЭКЕНД:
+                cost_group_override: cost_group_override,
+                remember_rule: remember_rule
+            })
         });
 
         if (res.ok) {
@@ -713,34 +1235,73 @@ window.openTransferModal = function () {
     const options = currentAccounts.map(acc => `<option value="${acc.id}">${acc.name} (${parseFloat(acc.balance).toLocaleString()} ₽)</option>`).join('');
 
     const html = `
+        <div class="form-group"><label>Дата перевода:</label><input type="date" id="transfer-date" class="input-modern" required></div>
         <div class="form-group"><label>Списать с:</label><select id="transfer-from" class="input-modern">${options}</select></div>
         <div class="form-group"><label>Зачислить на:</label><select id="transfer-to" class="input-modern">${options}</select></div>
         <div class="form-group"><label>Сумма:</label><input type="number" id="transfer-amount" class="input-modern"></div>
         <div class="form-group"><label>Комментарий:</label><input type="text" id="transfer-desc" class="input-modern"></div>
     `;
     UI.showModal('🔄 Перевод', html, `<button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button><button class="btn btn-blue" onclick="executeTransfer()">💸 Выполнить</button>`);
+    document.getElementById('transfer-date').value = new Date().toISOString().split('T')[0];
 };
 
 window.executeTransfer = async function () {
-    const from_id = document.getElementById('transfer-from').value;
-    const to_id = document.getElementById('transfer-to').value;
+    const from_account_id = document.getElementById('transfer-from').value;
+    const to_account_id = document.getElementById('transfer-to').value;
     const amount = parseFloat(document.getElementById('transfer-amount').value);
+    const date = document.getElementById('transfer-date').value;
     const description = document.getElementById('transfer-desc').value.trim();
 
-    if (from_id === to_id) return UI.toast('Выберите разные счета!', 'error');
-    const res = await fetch('/api/transactions/transfer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ from_id, to_id, amount, description }) });
+    if (from_account_id === to_account_id) return UI.toast('Выберите разные счета!', 'error');
+    const res = await fetch('/api/transactions/transfer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ from_account_id, to_account_id, amount, description, date }) });
     if (res.ok) { UI.closeModal(); UI.toast('✅ Переведено', 'success'); loadFinanceData(); }
 };
 
 /// === ОТКРЫТИЕ ОКНА РЕДАКТИРОВАНИЯ ===
+window.updateEditAccountSelectForCounterparty = function (counterpartyName) {
+    const select = document.getElementById('edit-trans-account');
+    if (!select) return;
+
+    let allowedAccounts = currentAccounts.filter(a => a.type !== 'imprest');
+
+    if (counterpartyName) {
+        const cp = financeCounterparties.find(c => c.name === counterpartyName);
+        if (cp && cp.is_employee) {
+            const impName = 'Подотчет: ' + cp.name;
+            const empAccount = currentAccounts.find(a => a.type === 'imprest' && a.name === impName);
+            if (empAccount) allowedAccounts.push(empAccount);
+        }
+    }
+
+    const currentVal = select.value;
+    select.innerHTML = '<option value="">-- ⚖️ Без движения денег (Корректировка) --</option>' +
+        allowedAccounts.map(acc => `<option value="${acc.id}">${acc.name} (${parseFloat(acc.balance).toLocaleString()} ₽)</option>`).join('');
+
+    if (allowedAccounts.some(a => a.id == currentVal)) {
+        select.value = currentVal;
+    } else {
+        select.value = "";
+    }
+};
+
 window.openEditTransactionModal = function (id) {
     const tr = allTransactions.find(t => t.id === id);
     if (!tr) return;
 
-    // 1. Формируем список счетов
+    const currentCp = financeCounterparties.find(cp => cp.id == tr.counterparty_id);
+    const currentCpName = currentCp ? currentCp.name : '';
+
+    // 1. Формируем первоначальный список счетов
+    let allowedAccounts = currentAccounts.filter(a => a.type !== 'imprest');
+    if (currentCp && currentCp.is_employee) {
+        const impName = 'Подотчет: ' + currentCp.name;
+        const empAccount = currentAccounts.find(a => a.type === 'imprest' && a.name === impName);
+        if (empAccount) allowedAccounts.push(empAccount);
+    }
+
     const accountOptions = `
         <option value="">-- ⚖️ Без движения денег (Корректировка) --</option>
-        ${currentAccounts.map(acc => `
+        ${allowedAccounts.map(acc => `
             <option value="${acc.id}" ${tr.account_id == acc.id ? 'selected' : ''}>
                 ${acc.name}
             </option>`).join('')}
@@ -748,14 +1309,40 @@ window.openEditTransactionModal = function (id) {
 
     // 2. Умный список контрагентов (datalist)
     const cpOptionsList = financeCounterparties.map(cp => `<option value="${cp.name.replace(/"/g, '&quot;')}">`).join('');
-    const currentCp = financeCounterparties.find(cp => cp.id == tr.counterparty_id);
-    const currentCpName = currentCp ? currentCp.name : '';
 
-    // 3. ВОССТАНОВЛЕННЫЕ СТРОЧКИ: Формируем список категорий (catOptions)
+    // 3. Формируем список категорий (catOptions)
     const filteredCats = window.financeCategories.filter(c => c.type === tr.transaction_type);
     const catOptions = filteredCats.map(c => `<option value="${c.name.replace(/"/g, '&quot;')}">`).join('');
 
+    // 🚀 ЛОГИКА ДЛЯ ПАНЕЛИ "ТЕКУЩЕЕ СОСТОЯНИЕ"
+    let groupColor = 'var(--warning)';
+    let groupName = '🟠 Оверхед (Косвенные)';
+    let groupBg = 'var(--warning-bg)';
+
+    if (tr.current_cost_group === 'direct') {
+        groupColor = 'var(--success)';
+        groupName = '🟢 Прямые затраты (COGS)';
+        groupBg = 'var(--success-bg)';
+    } else if (tr.current_cost_group === 'capital') {
+        groupColor = '#8b5cf6';
+        groupName = '🟣 Капитал (Скрытые / Не в себестоимости)';
+        groupBg = '#f3e8ff';
+    }
+
+    const overrideBadge = tr.cost_group_override
+        ? `<span style="font-size: 10px; background: rgba(0,0,0,0.1); padding: 3px 6px; border-radius: 4px; margin-left: 10px;">🎯 Задано вручную</span>`
+        : `<span style="font-size: 10px; background: rgba(0,0,0,0.05); padding: 3px 6px; border-radius: 4px; margin-left: 10px; color: var(--text-muted);">⚙️ По матрице</span>`;
+
     const html = `
+        <div style="background: ${groupBg}; padding: 12px 15px; border-radius: 8px; border: 1px solid ${groupColor}; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: bold; margin-bottom: 4px;">Текущая группа в Unit-экономике:</div>
+                <div style="font-size: 14px; font-weight: bold; color: ${groupColor}; display: flex; align-items: center;">
+                    ${groupName} ${overrideBadge}
+                </div>
+            </div>
+        </div>
+
         <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
             <input type="password" style="display:none;" autocomplete="new-password">
 
@@ -776,10 +1363,13 @@ window.openEditTransactionModal = function (id) {
             
             <div class="form-group" style="grid-column: span 2;">
                 <label style="color: var(--primary);">Категория (Выберите из списка или впишите новую):</label>
-                <input type="text" id="edit-trans-category" list="edit-category-options" class="input-modern" 
-                       value="${tr.category || ''}" style="font-weight: 600;" 
-                       autocomplete="new-password" 
-                       onclick="this.value=''"> 
+                <div style="position: relative; display: inline-block; width: 100%;">
+                    <input type="text" id="edit-trans-category" list="edit-category-options" class="input-modern" 
+                           value="${tr.category || ''}" style="font-weight: 600; width: 100%; box-sizing: border-box;" 
+                           autocomplete="new-password" 
+                           onfocus="this.select(); if(typeof this.showPicker === 'function') this.showPicker();"> 
+                    <span style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #64748b; font-size: 12px; padding: 5px;" onclick="this.previousElementSibling.focus();">▼</span>
+                </div>
                 <datalist id="edit-category-options">${catOptions}</datalist>
             </div>
 
@@ -790,9 +1380,28 @@ window.openEditTransactionModal = function (id) {
 
             <div class="form-group">
                 <label>Контрагент:</label>
-                <input type="text" id="edit-trans-cp-name" list="edit-cp-options" class="input-modern"
-                       value="${currentCpName.replace(/"/g, '&quot;')}" placeholder="-- Внутренняя операция --" autocomplete="off" onclick="this.value=''">
+                <div style="position: relative; display: inline-block; width: 100%;">
+                    <input type="text" id="edit-trans-cp-name" list="edit-cp-options" class="input-modern" style="width: 100%; box-sizing: border-box;"
+                           onchange="updateEditAccountSelectForCounterparty(this.value)"
+                           value="${currentCpName.replace(/"/g, '&quot;')}" placeholder="-- Внутренняя операция --" autocomplete="off" onfocus="this.select(); if(typeof this.showPicker === 'function') this.showPicker();">
+                    <span style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #64748b; font-size: 12px; padding: 5px;" onclick="this.previousElementSibling.focus();">▼</span>
+                </div>
                 <datalist id="edit-cp-options">${cpOptionsList}</datalist>
+            </div>
+
+            <div class="form-group" style="grid-column: span 2; margin-top: 5px; background: var(--surface-alt); padding: 12px; border-radius: 8px; border: 1px dashed var(--border);">
+                <label style="color: var(--primary);">🎯 Принудительная группа затрат (Исключение):</label>
+                <select id="edit-tx-cost-group" class="input-modern" style="font-size: 13px; font-weight: 600;">
+                    <option value="" ${!tr.cost_group_override ? 'selected' : ''}>Автоматически (По матрице)</option>
+                    <option value="direct" ${tr.cost_group_override === 'direct' ? 'selected' : ''}>🟢 В Прямые (COGS)</option>
+                    <option value="overhead" ${tr.cost_group_override === 'overhead' ? 'selected' : ''}>🟠 В Оверхед (Косвенные)</option>
+                    <option value="capital" ${tr.cost_group_override === 'capital' ? 'selected' : ''}>🟣 В Капитал (Скрытая прибыль / Не учитывать)</option>
+                </select>
+                
+                <label style="display: flex; align-items: center; gap: 8px; margin-top: 12px; cursor: pointer; padding: 8px; background: var(--surface); border-radius: 6px; border: 1px solid var(--border);">
+                    <input type="checkbox" id="edit-tx-remember" style="width: 16px; height: 16px; cursor: pointer;">
+                    <span style="font-size: 12px; font-weight: bold; color: var(--text-main);">🤖 Запомнить правило для этого контрагента</span>
+                </label>
             </div>
         </div>
     `;
@@ -802,69 +1411,51 @@ window.openEditTransactionModal = function (id) {
         <button class="btn btn-blue" onclick="saveEditedTransaction(${id})">💾 Сохранить изменения</button>
     `);
 };
-// === СОХРАНЕНИЕ ИЗМЕНЕНИЙ И АВТО-СОЗДАНИЕ КАТЕГОРИИ ===
+
+// 🚀 ОБНОВЛЕННАЯ ФУНКЦИЯ СОХРАНЕНИЯ (Добавь её сразу под окном)
 window.saveEditedTransaction = async function (id) {
-    const tr = allTransactions.find(t => t.id === id);
-    const description = document.getElementById('edit-trans-desc').value.trim();
-    const amount = parseFloat(document.getElementById('edit-trans-amount').value);
-    const date = document.getElementById('edit-trans-date').value;
-    const category = document.getElementById('edit-trans-category').value.trim();
-    const account_id = document.getElementById('edit-trans-account').value;
-    const cpNameInput = document.getElementById('edit-trans-cp-name').value.trim();
-    let counterparty_id = null;
-
-    if (cpNameInput) {
-        const foundCp = financeCounterparties.find(c => c.name.toLowerCase() === cpNameInput.toLowerCase());
-        if (foundCp) {
-            counterparty_id = foundCp.id;
-        } else {
-            return UI.toast('Контрагент не найден. Выберите из списка!', 'warning');
-        }
+    const cpName = document.getElementById('edit-trans-cp-name').value.trim();
+    let cpId = null;
+    if (cpName) {
+        const foundCp = financeCounterparties.find(c => c.name === cpName);
+        if (foundCp) cpId = foundCp.id;
     }
 
-    if (!amount || !description || !category) return UI.toast('Заполните сумму, основание и категорию!', 'warning');
+    const payload = {
+        description: document.getElementById('edit-trans-desc').value.trim(),
+        amount: parseFloat(document.getElementById('edit-trans-amount').value),
+        category: document.getElementById('edit-trans-category').value.trim(),
+        account_id: document.getElementById('edit-trans-account').value || null,
+        counterparty_id: cpId,
+        transaction_date: document.getElementById('edit-trans-date').value,
 
-    const isCategoryExists = window.financeCategories.some(c => c.name.toLowerCase() === category.toLowerCase() && c.type === tr.transaction_type);
-
-    if (!isCategoryExists) {
-        try {
-            await fetch('/api/finance/categories', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                // 🐛 ИСПРАВЛЕНО: Ранее здесь был критический баг со сломанными переменными!
-                body: JSON.stringify({ name: category, type: tr.transaction_type })
-            });
-            console.log(`Создана новая категория: ${category}`);
-        } catch (e) { console.error("Ошибка авто-создания категории:", e); }
-    }
+        // Передаем новые параметры на бэкенд
+        cost_group_override: document.getElementById('edit-tx-cost-group').value || null,
+        remember_rule: document.getElementById('edit-tx-remember').checked
+    };
 
     try {
         const res = await fetch(`/api/transactions/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                description,
-                amount,
-                category,
-                account_id: account_id || null, // 🚀 ИСПРАВЛЕНИЕ: шлем null вместо ""
-                counterparty_id: counterparty_id || null,
-                transaction_date: date
-            })
+            body: JSON.stringify(payload)
         });
 
         if (res.ok) {
             UI.closeModal();
-            UI.toast('✅ Платеж и баланс успешно обновлены', 'success');
-            loadFinanceData();
+            UI.toast('✅ Платеж успешно обновлен', 'success');
+            // Вызываем функцию обновления таблицы транзакций (замени на свою, если называется иначе)
+            if (typeof loadTransactions === 'function') loadTransactions();
+            if (typeof loadFinanceData === 'function') loadFinanceData();
         } else {
-            UI.toast('Ошибка сохранения на сервере', 'error');
+            const err = await res.json();
+            UI.toast(err.error || 'Ошибка сохранения', 'error');
         }
     } catch (e) {
         console.error(e);
-        UI.toast('Ошибка сети', 'error');
+        UI.toast('Ошибка связи с сервером', 'error');
     }
 };
-
 // ==========================================
 // МОЩНАЯ CRM: ПОИСК, СОРТИРОВКА И УПРАВЛЕНИЕ
 // ==========================================
@@ -896,6 +1487,7 @@ window.openCounterpartiesModal = function () {
                     <option value="all">Все типы</option>
                     <option value="Покупатель">Покупатели</option>
                     <option value="Поставщик">Поставщики</option>
+                    <option value="Сотрудник">👔 Сотрудники</option>
                 </select>
                 <select id="cp-sort" class="input-modern" onchange="updateCPList()" style="width: auto; margin:0; background: var(--surface);">
                     <option value="last_date_desc">🕒 Свежие операции</option>
@@ -905,7 +1497,7 @@ window.openCounterpartiesModal = function () {
                     <option value="expense">📉 По расходу (От нас)</option>
                     <option value="name">🔤 По алфавиту (А-Я)</option>
                 </select>
-                <button class="btn btn-blue" onclick="openAdvancedCPCard(0)">➕ Создать</button>
+                <button class="btn btn-blue" onclick="openAdvancedCPCard(0, document.getElementById('cp-search')?.value?.trim() || '')">➕ Создать</button>
             </div>
 
             <div id="cp-list-container" style="max-height: 550px; overflow-y: auto; padding-right: 5px; display: flex; flex-direction: column; gap: 8px;">
@@ -933,7 +1525,12 @@ function renderCPList() {
 
     let filtered = financeCounterparties.filter(c => {
         const matchesSearch = c.name.toLowerCase().includes(cpSearchQuery) || (c.inn && c.inn.includes(cpSearchQuery));
-        const matchesType = cpTypeFilter === 'all' || c.type === cpTypeFilter;
+        let matchesType = true;
+        if (cpTypeFilter === 'Сотрудник') {
+            matchesType = c.is_employee === true;
+        } else if (cpTypeFilter !== 'all') {
+            matchesType = c.type === cpTypeFilter;
+        }
         return matchesSearch && matchesType;
     });
 
@@ -976,9 +1573,10 @@ function renderCPList() {
                     <span class="badge" style="font-size: 10px; background: ${c.type === 'Покупатель' ? 'var(--success-bg)' : 'var(--surface-alt)'}; color: ${c.type === 'Покупатель' ? 'var(--success)' : 'var(--primary)'};">
                         ${c.type || 'Не задан'}
                     </span>
+                    ${c.is_employee ? `<span class="badge" style="font-size: 10px; background: var(--warning-bg, #fff3cd); color: var(--warning, #856404); border: 1px solid var(--warning, #856404);">👔 Сотрудник</span>` : ''}
                     <div style="font-weight: bold; font-size: 15px; color: var(--text-main); display: flex; align-items: center; justify-content: space-between; width: 100%; overflow: hidden;">
                         <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 8px;" title="${c.name}">
-                        ${c.name}
+                        ${c.id ? `<span class="entity-link" onclick="window.app.openEntity('client', ${c.id})">${escapeHTML(c.name)}</span>` : escapeHTML(c.name || '')}
                         </span>
                         <span style="flex-shrink: 0;">
                             ${window.getCategoryBadge(c.client_category)}
@@ -1007,6 +1605,19 @@ function renderCPList() {
         </div>
     `;
     }).join('');
+
+    setTimeout(() => {
+        ['cp-filter-type', 'cp-sort'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el && !el.tomselect) new TomSelect(el, { plugins: ['clear_button'] });
+        });
+    }, 50);
+    setTimeout(() => {
+        ['cp-filter-type', 'cp-sort'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el && !el.tomselect) new TomSelect(el, { plugins: ['clear_button'] });
+        });
+    }, 50);
 }
 
 window.deleteCounterparty = function (id) {
@@ -1093,6 +1704,12 @@ window.openFinanceInvoiceModal = async function (cpId, cpName) {
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
         <button class="btn btn-blue" onclick="executeFinanceInvoice(${cpId}, this)">🖨️ Сгенерировать PDF</button>
     `);
+    setTimeout(() => {
+        ['fin-invoice-type', 'fin-invoice-order', 'fin-invoice-bank'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el && !el.tomselect) new TomSelect(el, { plugins: ['clear_button'], dropdownParent: 'body' });
+        });
+    }, 50);
 };
 
 window.executeFinanceInvoice = async function (cpId, btnElement) {
@@ -1176,7 +1793,7 @@ function renderInvoicesTable() {
     tbody.innerHTML = financeInvoices.map(inv => `
         <tr>
             <td style="font-size: 13px; color: var(--text-muted); font-weight: bold;">${inv.date_formatted}</td>
-            <td style="font-weight: bold;">№ ${inv.invoice_number}</td>
+            <td style="font-weight: bold;">№ ${inv.id ? `<span class="entity-link" onclick="window.app.openEntity('document_invoice', ${inv.id})">${inv.invoice_number}</span>` : inv.invoice_number}</td>
             <td style="color: var(--primary); font-weight: 600;">👤 ${inv.counterparty_name}</td>
             <td style="font-size: 13px;">${inv.description}</td>
             <td style="text-align: right; font-weight: bold; font-size: 15px; color: var(--warning-text);">${parseFloat(inv.amount).toLocaleString('ru-RU')} ₽</td>
@@ -1200,6 +1817,12 @@ window.markInvoicePaidModal = function (id) {
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
        <button class="btn btn-blue" onclick="executeInvoicePay(${id}, this)">💰 Подтвердить приход</button>.
     `);
+    setTimeout(() => {
+        ['pay-inv-account'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el && !el.tomselect) new TomSelect(el, { plugins: ['clear_button'], dropdownParent: 'body' });
+        });
+    }, 50);
 };
 
 window.executeInvoicePay = async function (id, btnElement) {
@@ -1831,8 +2454,14 @@ window.openPnlReportModal = async function (customStart = '', customEnd = '') {
     let queryParams = '';
     let periodText = 'За всё время';
 
+    // 🚀 АВТОЗАПУСК: если даты не переданы — ставим текущий месяц (1-е число → сегодня)
     let start = customStart;
     let end = customEnd;
+    if (!start && !end) {
+        const now = new Date();
+        start = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+        end = now.toISOString().split('T')[0];
+    }
 
     if (start && end) {
         queryParams = `?start=${start}&end=${end}`;
@@ -1888,19 +2517,19 @@ window.openPnlReportModal = async function (customStart = '', customEnd = '') {
                 <!-- БЛОК РАСХОДОВ -->
                 <h4 style="margin: 15px 0 10px; color: var(--text-main); font-size: 16px; border-bottom: 1px solid var(--border); padding-bottom: 5px;">РАСХОДЫ</h4>
                 <div style="display: flex; justify-content: space-between; padding: 10px 15px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 5px;">
-                    <span style="font-size: 15px;">Себестоимость продаж (COGS) отгруженных партий:</span>
+                    <span style="font-size: 15px;">🟢 Прямые затраты (COGS — сырьё, доставка сырья):</span>
                     <span style="font-size: 16px; font-weight: bold; color: var(--danger);">-${fmt(data.cogs)} ₽</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; padding: 10px 15px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 5px;">
-                    <span style="font-size: 15px;">Зарплатный фонд (ФОТ + Сдельщина по всем сотрудникам):</span>
-                    <span style="font-size: 16px; font-weight: bold; color: var(--danger);">-${fmt(data.laborCosts)} ₽</span>
+                    <span style="font-size: 15px;">🟠 Косвенные расходы (OPEX — аренда, ЗП, логистика, офис):</span>
+                    <span style="font-size: 16px; font-weight: bold; color: var(--danger);">-${fmt(data.opex)} ₽</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; padding: 10px 15px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px;">
-                    <span style="font-size: 15px;">Косвенные расходы (Аренда, Логистика, Налоги, Офис):</span>
-                    <span style="font-size: 16px; font-weight: bold; color: var(--danger);">-${fmt(data.indirectCosts)} ₽</span>
+                <div style="display: flex; justify-content: space-between; padding: 8px 15px; background: var(--surface); border: 1px dashed var(--border); border-radius: 6px; margin-bottom: 10px; opacity: 0.7;">
+                    <span style="font-size: 13px; color: var(--text-muted);">📋 Справочно: ФОТ по начислению (Табель: оклады + сделка − штрафы):</span>
+                    <span style="font-size: 13px; font-weight: bold; color: var(--text-muted);">${fmt(data.laborCosts)} ₽</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; padding: 12px 15px; background: var(--surface-alt); border-right: 3px solid var(--danger); margin-bottom: 20px; align-items: center;">
-                    <span style="font-size: 15px; font-weight: bold;">ИТОГО РАСХОДЫ:</span>
+                    <span style="font-size: 15px; font-weight: bold;">ИТОГО РАСХОДЫ (COGS + OPEX):</span>
                     <span style="font-size: 18px; font-weight: 900; color: var(--danger);">-${fmt(data.totalExpenses)} ₽</span>
                 </div>
 
@@ -1993,7 +2622,7 @@ window.openCounterpartyProfile = async function (id) {
         }).join('') || '<div style="padding:15px; text-align:center; color:var(--text-muted);">Операций нет</div>';
         const invHtml = data.invoices.map(i => `
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px;">
-                <div><b>Счет №${i.invoice_number}</b> от ${i.date}<br><span style="color: var(--text-muted);">${i.description}</span></div>
+                <div><b>Счет №${i.id ? `<span class="entity-link" onclick="window.app.openEntity('document_invoice', ${i.id})">${i.invoice_number}</span>` : i.invoice_number}</b> от ${i.date}<br><span style="color: var(--text-muted);">${i.description}</span></div>
                 <div style="font-weight: bold;">${parseFloat(i.amount).toLocaleString('ru-RU')} ₽</div>
                 <div><span class="badge" style="background: ${i.status === 'paid' ? 'var(--success-bg)' : 'var(--warning-bg)'}; color: ${i.status === 'paid' ? 'var(--success)' : 'var(--warning-text)'};">${i.status === 'paid' ? 'Оплачен' : 'Ожидает'}</span></div>
             </div>
@@ -2001,7 +2630,7 @@ window.openCounterpartyProfile = async function (id) {
 
         const contractsHtml = data.contracts.map(c => `
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px;">
-                <div><b>Договор №${c.number}</b> от ${c.date}</div>
+                <div><b>Договор №${c.id ? `<span class="entity-link" onclick="window.app.openEntity('document_contract', ${c.id})">${c.number}</span>` : c.number}</b> от ${c.date}</div>
                 <div style="display: flex; gap: 5px;">
                     <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--info); border-color: var(--info);" onclick="window.open('/print/contract?id=${c.id}', '_blank')" title="Распечатать">🖨️</button>
                     <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--danger); border-color: var(--danger);" onclick="deleteContract(${c.id}, ${cp.id})" title="Удалить договор">❌</button>
@@ -2015,18 +2644,18 @@ window.openCounterpartyProfile = async function (id) {
                 <div style="flex: 1;">
                     <div style="background: var(--surface-alt); padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 15px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                            <span class="badge" style="background: var(--surface-alt); color: var(--primary);">${cp.type}</span>
+                            <span class="badge" style="background: var(--surface-alt); color: var(--primary);">${cp.role || cp.type || '—'}</span>
                             <div style="display: flex; gap: 5px;">
                                  <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px;" onclick="openAdvancedCPCard(${cp.id})">✏️ Изменить</button>
                                  <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--danger); border-color: var(--danger);" onclick="deleteCounterparty(${cp.id})">🗑️ Удалить</button>
                             </div>
                         </div>
-                        <h3 style="margin: 0 0 10px 0; display: flex; align-items: center;">${cp.name} ${window.getCategoryBadge(cp.client_category)}</h3>
+                        <h3 style="margin: 0 0 10px 0; display: flex; align-items: center;">${cp.name || '—'} ${window.getCategoryBadge(cp.client_category)}</h3>
                         <div style="font-size: 12px; color: var(--text-muted); line-height: 1.6;">
                             <b>ИНН:</b> ${cp.inn || '—'} | <b>КПП:</b> ${cp.kpp || '—'}<br>
                             <b>Телефон:</b> ${cp.phone || '—'}<br>
                             <b>Юр. адрес:</b> ${cp.legal_address || '—'}<br>
-                            <b>Банк:</b> ${cp.bank_name || '—'} (Р/С: ${cp.checking_account || '—'})
+                            <b>Банк:</b> ${cp.bank_name || '—'} (Р/С: ${cp.checking_account || cp.bank_account || '—'})
                         </div>
                     </div>
 
@@ -2192,6 +2821,12 @@ window.executePlannedExpense = function (id, amount) {
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
         <button class="btn btn-blue" onclick="confirmPlannedPay(${id})">✅ Подтвердить списание</button>
     `);
+    setTimeout(() => {
+        ['pay-planned-account'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el && !el.tomselect) new TomSelect(el, { plugins: ['clear_button'], dropdownParent: 'body' });
+        });
+    }, 50);
 };
 
 window.confirmPlannedPay = async function (id) {
@@ -2263,9 +2898,9 @@ window.saveAccountName = async function (id) {
     }
 };
 
-window.openAdvancedCPCard = async function (id = 0) {
+window.openAdvancedCPCard = async function (id = 0, initialName = '') {
     try {
-        let cp = { id: 0, name: '', role: 'Покупатель', client_category: 'Обычный', inn: '', kpp: '', ogrn: '', legal_address: '', fact_address: '', bank_name: '', bank_bik: '', bank_account: '', bank_corr: '', director_name: '', phone: '', email: '', comment: '' };
+        let cp = { id: 0, name: initialName || '', role: 'Покупатель', client_category: 'Обычный', inn: '', kpp: '', ogrn: '', legal_address: '', fact_address: '', bank_name: '', bank_bik: '', bank_account: '', bank_corr: '', director_name: '', phone: '', email: '', comment: '', entity_type: 'legal', is_buyer: true, is_supplier: false };
         let fin = { balance: 0, total_paid_to_us: 0, total_paid_to_them: 0 };
 
         if (id > 0) {
@@ -2279,6 +2914,7 @@ window.openAdvancedCPCard = async function (id = 0) {
 
         const balanceColor = fin.balance > 0 ? 'var(--success)' : (fin.balance < 0 ? 'var(--danger)' : 'var(--text-main)');
         const balanceText = fin.balance > 0 ? 'Нам должны' : (fin.balance < 0 ? 'Мы должны' : 'Расчеты закрыты');
+        const isLegal = (cp.entity_type || 'legal') === 'legal';
 
         const html = `
             <style>
@@ -2289,7 +2925,20 @@ window.openAdvancedCPCard = async function (id = 0) {
                 .cp-content { display: none; }
                 .cp-content.active { display: block; animation: fadeIn 0.3s; }
                 .cp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px; }
+                .cp-entity-toggle { display: flex; gap: 10px; margin-bottom: 15px; }
+                .cp-entity-btn { flex: 1; padding: 10px; border: 2px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; text-align: center; font-weight: bold; font-size: 13px; transition: 0.2s; }
+                .cp-entity-btn.active { border-color: var(--primary); background: var(--primary-bg); color: var(--primary); }
+                .cp-entity-btn:hover { border-color: var(--primary); }
+                .cp-role-flags { display: flex; gap: 15px; margin-bottom: 15px; align-items: center; }
+                .cp-role-flag { display: flex; align-items: center; gap: 5px; font-size: 13px; cursor: pointer; }
+                .cp-role-flag input { width: 16px; height: 16px; cursor: pointer; }
             </style>
+
+            ${cp.is_employee ? `
+            <div style="background: var(--warning-bg, #fff3cd); color: var(--warning, #856404); padding: 12px 15px; border-radius: 8px; border: 1px solid #ffeeba; margin-bottom: 15px; font-size: 13px; display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 18px;">ℹ️</span> 
+                <div><b>Это сотрудник компании.</b> Основные данные синхронизируются с модулем Кадров.</div>
+            </div>` : ''}
 
             ${id > 0 ? `
             <div style="background: var(--surface-alt); padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
@@ -2302,6 +2951,19 @@ window.openAdvancedCPCard = async function (id = 0) {
                     <div style="font-size: 12px; color: var(--text-muted);">Оплат ему: <b style="color: var(--text-main);">${parseFloat(fin.total_paid_to_them).toLocaleString('ru-RU')} ₽</b></div>
                 </div>
             </div>` : ''}
+
+            <!-- Переключатель типа лица -->
+            <div class="cp-entity-toggle">
+                <div class="cp-entity-btn ${isLegal ? 'active' : ''}" onclick="toggleEntityType('legal')" id="cp-entity-legal">🏢 Юридическое лицо</div>
+                <div class="cp-entity-btn ${!isLegal ? 'active' : ''}" onclick="toggleEntityType('physical')" id="cp-entity-physical">👤 Физическое лицо</div>
+            </div>
+            <input type="hidden" id="cp-entity-type" value="${cp.entity_type || 'legal'}">
+
+            <!-- Флаги ролей -->
+            <div class="cp-role-flags">
+                <label class="cp-role-flag"><input type="checkbox" id="cp-is-buyer" ${cp.is_buyer ? 'checked' : ''}> 🛒 Покупатель</label>
+                <label class="cp-role-flag"><input type="checkbox" id="cp-is-supplier" ${cp.is_supplier ? 'checked' : ''}> 🏭 Поставщик</label>
+            </div>
 
             <div class="cp-tabs">
                 <div class="cp-tab active" onclick="switchCPTab('main')">Основное</div>
@@ -2317,25 +2979,29 @@ window.openAdvancedCPCard = async function (id = 0) {
                         <input type="text" id="cp-name" class="input-modern" value="${cp.name || ''}" placeholder="ООО Ромашка">
                     </div>
                     <div class="form-group">
-                        <label>Роль</label>
-                        <select id="cp-role" class="input-modern">
-                            <option value="Покупатель" ${cp.role === 'Покупатель' ? 'selected' : ''}>Покупатель</option>
-                            <option value="Поставщик" ${cp.role === 'Поставщик' ? 'selected' : ''}>Поставщик</option>
-                        </select>
+                        <label>Телефон</label>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <input type="text" id="cp-phone" class="input-modern" value="${cp.phone || ''}" placeholder="+7 (999) 123-45-67" style="flex: 1;">
+                            <label style="font-size: 12px; white-space: nowrap; display: flex; align-items: center; gap: 4px; cursor: pointer; color: var(--text-muted);">
+                                <input type="checkbox" id="cp-no-phone" onchange="toggleNoPhone(this)"> Нет
+                            </label>
+                        </div>
                     </div>
                 </div>
                 
-                <div class="cp-grid">
-                    <div class="form-group">
-                        <label>ИНН</label>
-                        <div style="display: flex; gap: 5px;">
-                            <input type="text" id="cp-inn" class="input-modern" value="${cp.inn || ''}" style="flex: 1;">
-                            <button class="btn btn-outline" style="padding: 0 10px; color: var(--primary); border-color: var(--primary);" onclick="autofillByINN()" title="Заполнить по ИНН">🔍</button>
+                <div id="legal-entity-fields" style="${isLegal ? '' : 'display: none;'}">
+                    <div class="cp-grid">
+                        <div class="form-group">
+                            <label>ИНН</label>
+                            <div style="display: flex; gap: 5px;">
+                                <input type="text" id="cp-inn" class="input-modern" value="${cp.inn || ''}" style="flex: 1;">
+                                <button class="btn btn-outline" style="padding: 0 10px; color: var(--primary); border-color: var(--primary);" onclick="autofillByINN()" title="Заполнить по ИНН">🔍</button>
+                            </div>
                         </div>
-                    </div>
-                    <div class="form-group">
-                        <label>КПП</label>
-                        <input type="text" id="cp-kpp" class="input-modern" value="${cp.kpp || ''}">
+                        <div class="form-group">
+                            <label>КПП</label>
+                            <input type="text" id="cp-kpp" class="input-modern" value="${cp.kpp || ''}">
+                        </div>
                     </div>
                 </div>
 
@@ -2383,10 +3049,6 @@ window.openAdvancedCPCard = async function (id = 0) {
                 </div>
                 <div class="cp-grid">
                     <div class="form-group">
-                        <label>Телефон</label>
-                        <input type="text" id="cp-phone" class="input-modern" value="${cp.phone || ''}">
-                    </div>
-                    <div class="form-group">
                         <label>Email</label>
                         <input type="text" id="cp-email" class="input-modern" value="${cp.email || ''}">
                     </div>
@@ -2413,7 +3075,34 @@ window.openAdvancedCPCard = async function (id = 0) {
             <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
             <button class="btn btn-blue" onclick="saveAdvancedCP(${id})">💾 Сохранить карточку</button>
         `);
+        setTimeout(() => {
+            ['cp-category'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el && !el.tomselect) new TomSelect(el, { plugins: ['clear_button'], dropdownParent: 'body' });
+            });
+        }, 50);
     } catch (e) { console.error(e); UI.toast('Ошибка загрузки', 'error'); }
+};
+
+// Переключение типа лица (Юр / Физ)
+window.toggleEntityType = function (type) {
+    document.getElementById('cp-entity-type').value = type;
+    document.getElementById('cp-entity-legal').classList.toggle('active', type === 'legal');
+    document.getElementById('cp-entity-physical').classList.toggle('active', type === 'physical');
+    document.getElementById('legal-entity-fields').style.display = type === 'legal' ? '' : 'none';
+};
+
+// Чекбокс «Без телефона»
+window.toggleNoPhone = function (cb) {
+    const phoneInput = document.getElementById('cp-phone');
+    if (cb.checked) {
+        phoneInput.value = '';
+        phoneInput.disabled = true;
+        phoneInput.placeholder = 'Телефон не указан';
+    } else {
+        phoneInput.disabled = false;
+        phoneInput.placeholder = '+7 (999) 123-45-67';
+    }
 };
 
 window.switchCPTab = function (tabName) {
@@ -2424,12 +3113,21 @@ window.switchCPTab = function (tabName) {
 };
 
 window.saveAdvancedCP = async function (id) {
+    const noPhone = document.getElementById('cp-no-phone')?.checked;
+    const entityType = document.getElementById('cp-entity-type')?.value || 'legal';
+    const isBuyer = document.getElementById('cp-is-buyer')?.checked || false;
+    const isSupplier = document.getElementById('cp-is-supplier')?.checked || false;
+
+    // Определяем роль для обратной совместимости
+    let role = 'Покупатель';
+    if (isSupplier && !isBuyer) role = 'Поставщик';
+
     const payload = {
         name: document.getElementById('cp-name').value.trim(),
-        role: document.getElementById('cp-role').value,
+        role: role,
         client_category: document.getElementById('cp-category').value,
-        inn: document.getElementById('cp-inn').value.trim(),
-        kpp: document.getElementById('cp-kpp').value.trim(),
+        inn: document.getElementById('cp-inn')?.value.trim() || '',
+        kpp: document.getElementById('cp-kpp')?.value.trim() || '',
         ogrn: document.getElementById('cp-ogrn').value.trim(),
         legal_address: document.getElementById('cp-address').value.trim(),
         fact_address: document.getElementById('cp-fact-address').value.trim(),
@@ -2438,15 +3136,18 @@ window.saveAdvancedCP = async function (id) {
         bank_account: document.getElementById('cp-account').value.trim(),
         bank_corr: document.getElementById('cp-corr').value.trim(),
         director_name: document.getElementById('cp-director').value.trim(),
-        phone: document.getElementById('cp-phone').value.trim(),
+        phone: noPhone ? '' : document.getElementById('cp-phone').value.trim(),
         email: document.getElementById('cp-email').value.trim(),
-        comment: document.getElementById('cp-comment').value.trim()
+        comment: document.getElementById('cp-comment').value.trim(),
+        entity_type: entityType,
+        is_buyer: isBuyer,
+        is_supplier: isSupplier
     };
 
     if (!payload.name) return UI.toast('Введите название!', 'warning');
-    if (!payload.role) return UI.toast('Укажите роль (Покупатель/Поставщик)!', 'warning');
-    if (!payload.phone) return UI.toast('Введите телефон!', 'warning');
-    
+    if (!isBuyer && !isSupplier) return UI.toast('Выберите хотя бы одну роль (Покупатель или Поставщик)!', 'warning');
+    if (!noPhone && !payload.phone) return UI.toast('Введите телефон или отметьте «Нет»!', 'warning');
+
     if (payload.inn && payload.inn.length !== 10 && payload.inn.length !== 12) {
         return UI.toast('Введите корректный ИНН (10 или 12 цифр)', 'warning');
     }
@@ -2541,6 +3242,12 @@ window.openCorrectionModal = function (cpId) {
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
         <button class="btn btn-blue" onclick="executeCorrection(${cpId})">💾 Применить корректировку</button>
     `);
+    setTimeout(() => {
+        ['corr-type'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el && !el.tomselect) new TomSelect(el, { plugins: ['clear_button'], dropdownParent: 'body' });
+        });
+    }, 50);
 };
 
 window.executeCorrection = async function (cpId) {

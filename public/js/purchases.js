@@ -1,135 +1,249 @@
+let allPurchaseMaterials = [];
 let allCounterparties = [];
+let allAccounts = [];
+window.activePurchaseDates = [];
+let purchaseDatePicker = null;
+window.currentEditingPurchaseId = null;
 
 async function loadPurchaseMaterials() {
-    // 1. Загружаем материалы
-    fetch('/api/items?limit=1000&item_type=material')
-        .then(res => res.json())
-        .then(res => {
-            const sel = document.getElementById('purchase-material-select');
-            if (sel && res.data) {
-                sel.innerHTML = '<option value="" disabled selected>-- Выберите сырье --</option>';
-                res.data.forEach(m => {
-                    sel.innerHTML += `<option value="${m.id}" data-price="${m.current_price || 0}">${m.name} (${m.unit})</option>`;
-                });
+    try {
+        const resMat = await fetch('/api/items?limit=1000&item_type=material');
+        const dataMat = await resMat.json();
+        allPurchaseMaterials = dataMat.data || [];
+
+        const resSup = await fetch('/api/counterparties');
+        allCounterparties = await resSup.json();
+
+        const resAcc = await fetch('/api/accounts');
+        const fetchedAccounts = await resAcc.json();
+        allAccounts = fetchedAccounts.filter(acc => acc.type === 'company' || acc.type === 'bank' || acc.type === 'cash' || !acc.type);
+
+        initStaticPurchaseSelects();
+
+        const dateEl = document.getElementById('purchase-date');
+        if (dateEl && typeof flatpickr !== 'undefined') {
+            const resDates = await fetch('/api/inventory/purchase-dates');
+            window.activePurchaseDates = await resDates.json();
+
+            purchaseDatePicker = flatpickr(dateEl, {
+                dateFormat: "Y-m-d", altInput: true, altFormat: "d.m.Y", locale: "ru", defaultDate: new Date(),
+                onChange: function (selectedDates, dateStr) {
+                    // Умное обновление таблицы
+                    const searchInput = document.getElementById('purchase-search-input');
+                    if (searchInput && searchInput.value.trim().length > 0) {
+                        handlePurchaseSearch(); // Обновляем результаты поиска
+                    } else {
+                        const dateStr = document.getElementById('purchase-date').value;
+                        if (typeof loadDailyPurchases === 'function') loadDailyPurchases(dateStr);
+                    }
+                },
+                onDayCreate: function (dObj, dStr, fp, dayElem) {
+                    const year = dayElem.dateObj.getFullYear();
+                    const month = String(dayElem.dateObj.getMonth() + 1).padStart(2, '0');
+                    const day = String(dayElem.dateObj.getDate()).padStart(2, '0');
+                    const dateStr = `${year}-${month}-${day}`;
+
+                    if (window.activePurchaseDates.includes(dateStr)) {
+                        dayElem.style.fontWeight = 'bold';
+                        dayElem.style.color = 'var(--primary)';
+                        dayElem.innerHTML += '<span style="position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; background-color: var(--success); border-radius: 50%;"></span>';
+                    }
+                }
+            });
+
+            if (typeof loadDailyPurchases === 'function') loadDailyPurchases(dateEl.value);
+        }
+
+    } catch (e) {
+        console.error("Ошибка загрузки данных для закупок:", e);
+    }
+}
+
+function initStaticPurchaseSelects() {
+    const matSelect = document.getElementById('purchase-material-select');
+    if (matSelect && !matSelect.tomselect) {
+        new TomSelect(matSelect, {
+            plugins: ['clear_button'],
+            options: allPurchaseMaterials.map(m => ({ value: m.id, text: `${m.name} (${m.unit})` })),
+            placeholder: "-- Выберите сырье --",
+            onChange: async function(value) {
+                const mat = allPurchaseMaterials.find(m => m.id == value);
+                const price = mat ? parseFloat(mat.current_price || 0) : 0;
+                if (price > 0) document.getElementById('purchase-price').value = price;
+                calculatePurchaseTotal();
+
+                const informer = document.getElementById('material-informer');
+                if (!informer) return;
+
+                if (!value) {
+                    informer.style.display = 'none';
+                    return;
+                }
+
+                informer.style.display = 'block';
+                informer.innerHTML = '<i>⏳ Загрузка данных...</i>';
+
+                try {
+                    const res = await fetch(`/api/inventory/material-stats/${value}`);
+                    const stats = await res.json();
+                    let html = `<span style="color: var(--text-main);">📊 На складе: <b>${parseFloat(stats.balance).toFixed(2)} ${mat ? mat.unit : ''}</b></span>`;
+                    if (stats.lastPrice) {
+                        html += `<br><span style="color: var(--text-muted);">💸 Прошлая закупка (${stats.lastDate}): по <b>${parseFloat(stats.lastPrice).toFixed(2)} ₽</b></span>`;
+                    } else {
+                        html += `<br><span style="color: var(--text-muted);">💸 Ранее не закупалось</span>`;
+                    }
+                    informer.innerHTML = html;
+                } catch (e) {
+                    informer.innerHTML = '<span style="color: var(--danger);">❌ Ошибка загрузки данных</span>';
+                }
             }
         });
+    }
 
-    // 2. Загружаем ВСЕХ контрагентов
-    fetch('/api/counterparties')
-        .then(res => res.json())
-        .then(data => {
-            allCounterparties = Array.isArray(data) ? data : [];
-            renderSuppliers(allCounterparties);
+    const supSelect = document.getElementById('purchase-supplier-select');
+    if (supSelect && !supSelect.tomselect) {
+        new TomSelect(supSelect, {
+            plugins: ['clear_button'],
+            options: allCounterparties.map(s => ({
+                value: s.id,
+                text: s.inn ? `${s.name} (ИНН: ${s.inn})` : s.name
+            })),
+            placeholder: "-- Начните вводить имя или ИНН --"
         });
+    }
 
-    // 3. Загружаем счета
-    fetch('/api/accounts')
-        .then(res => res.json())
-        .then(accounts => {
-            const sel = document.getElementById('purchase-account-select');
-            if (sel) {
-                sel.innerHTML = '<option value="">-- НЕ ОПЛАЧИВАТЬ (В ДОЛГ) --</option>';
-                accounts.forEach(acc => {
-                    sel.innerHTML += `<option value="${acc.id}">${acc.name} (${parseFloat(acc.balance).toFixed(2)} ₽)</option>`;
-                });
-            }
+    const accSelect = document.getElementById('purchase-account-select');
+    if (accSelect && !accSelect.tomselect) {
+        new TomSelect(accSelect, {
+            plugins: ['clear_button'],
+            options: allAccounts.map(acc => ({ value: acc.id, text: `${acc.name} (${parseFloat(acc.balance).toFixed(2)} ₽)` })),
+            allowEmptyOption: true,
+            placeholder: "-- НЕ ОПЛАЧИВАТЬ (В ДОЛГ) --"
         });
+    }
+
+    const delAccSelect = document.getElementById('purchase-delivery-account');
+    if (delAccSelect && !delAccSelect.tomselect) {
+        new TomSelect(delAccSelect, {
+            plugins: ['clear_button'],
+            options: allAccounts.map(acc => ({ value: acc.id, text: `${acc.name} (${parseFloat(acc.balance).toFixed(2)} ₽)` })),
+            allowEmptyOption: true,
+            placeholder: "-- В ДОЛГ (ТОМУ ЖЕ ПОСТАВЩИКУ) --"
+        });
+    }
 }
 
-// 🚀 ИСПРАВЛЕНИЕ: Формируем умный список для автодополнения (datalist)
-function renderSuppliers(list) {
-    const datalist = document.getElementById('supplier-options');
-    if (!datalist) return;
-    
-    datalist.innerHTML = list.map(s => {
-        const innInfo = s.inn ? ` (ИНН: ${s.inn})` : '';
-        return `<option value="${s.name}${innInfo}">`;
-    }).join('');
-}
+// Управление полями доставки
+window.toggleDeliveryFields = function () {
+    const isChecked = document.getElementById('purchase-has-delivery').checked;
+    const fields = document.getElementById('delivery-fields');
+    fields.style.display = isChecked ? 'grid' : 'none';
 
-// Расчет суммы
-function calculatePurchaseTotal() {
-    const qty = parseFloat(document.getElementById('purchase-qty').value) || 0;
-    const price = parseFloat(document.getElementById('purchase-price').value) || 0;
-    document.getElementById('purchase-total-cost').innerText = (qty * price).toLocaleString('ru-RU', { minimumFractionDigits: 2 });
-}
+    if (!isChecked) {
+        document.getElementById('purchase-delivery-cost').value = '';
+        const ts = document.getElementById('purchase-delivery-account').tomselect;
+        if (ts) ts.clear();
+    }
+};
 
-function onPurchaseMaterialSelect() {
-    const sel = document.getElementById('purchase-material-select');
-    const opt = sel.options[sel.selectedIndex];
-    const price = parseFloat(opt.getAttribute('data-price')) || 0;
-    if (price > 0) document.getElementById('purchase-price').value = price;
-    calculatePurchaseTotal();
-}
+window.calculatePurchaseTotal = function () {
+    const qtyStr = document.getElementById('purchase-qty').value || '';
+    const priceStr = document.getElementById('purchase-price').value || '';
+    const totalInput = document.getElementById('purchase-total-cost');
 
-// ==========================================
-// ОФОРМЛЕНИЕ ЗАКУПКИ СЫРЬЯ
-// ==========================================
+    const qty = parseFloat(qtyStr.replace(',', '.')) || 0;
+    const price = parseFloat(priceStr.replace(',', '.')) || 0;
+
+    if (totalInput && qty > 0 && price > 0) {
+        totalInput.value = (qty * price).toFixed(2);
+    } else if (totalInput) {
+        totalInput.value = '';
+    }
+};
+
+window.calculatePriceFromTotal = function () {
+    const qtyStr = document.getElementById('purchase-qty').value || '';
+    const totalStr = document.getElementById('purchase-total-cost').value || '';
+    const priceInput = document.getElementById('purchase-price');
+
+    const qty = parseFloat(qtyStr.replace(',', '.')) || 0;
+    const total = parseFloat(totalStr.replace(',', '.')) || 0;
+
+    if (priceInput && qty > 0 && total > 0) {
+        priceInput.value = (total / qty).toFixed(2);
+    } else if (priceInput) {
+        priceInput.value = '';
+    }
+};
 
 window.submitPurchase = function () {
-    const materialSelect = document.getElementById('purchase-material-select');
-    const accountSelect = document.getElementById('purchase-account-select');
-    const supplierInput = document.getElementById('purchase-supplier-input');
+    const materialId = document.getElementById('purchase-material-select').value;
+    const counterparty_id = document.getElementById('purchase-supplier-select').value;
+    const account_id = document.getElementById('purchase-account-select').value || null;
+    const purchaseDate = document.getElementById('purchase-date').value;
 
-    const materialId = materialSelect.value;
-    const accountId = accountSelect.value || null;
     const quantity = parseFloat(document.getElementById('purchase-qty').value) || 0;
     const pricePerUnit = parseFloat(document.getElementById('purchase-price').value) || 0;
-    const supplierInputValue = supplierInput.value.trim();
 
-    if (!materialId || quantity <= 0) {
-        return UI.toast('Укажите материал и количество больше нуля!', 'warning');
-    }
+    const totalStr = document.getElementById('purchase-total-cost').value || '';
+    const parsedTotal = parseFloat(totalStr.replace(/,/g, '.').replace(/\s/g, ''));
+    const totalCost = (!isNaN(parsedTotal) && parsedTotal > 0) ? parsedTotal : (quantity * pricePerUnit);
 
-    // 🚀 ИСПРАВЛЕНИЕ: Ищем ID поставщика по строке, которую выбрал пользователь
-    const foundSupplier = allCounterparties.find(s => {
-        const innInfo = s.inn ? ` (ИНН: ${s.inn})` : '';
-        return `${s.name}${innInfo}` === supplierInputValue;
-    });
+    // Читаем данные доставки
+    const hasDelivery = document.getElementById('purchase-has-delivery').checked;
+    const deliveryCost = hasDelivery ? (parseFloat(document.getElementById('purchase-delivery-cost').value) || 0) : 0;
+    const deliveryAccountId = hasDelivery ? (document.getElementById('purchase-delivery-account').value || null) : null;
+    const grandTotal = totalCost + deliveryCost;
 
-    if (!foundSupplier) {
-        return UI.toast('Поставщик не найден. Выберите из списка!', 'warning');
-    }
+    const mat = allPurchaseMaterials.find(m => m.id == materialId);
+    const sup = allCounterparties.find(s => s.id == counterparty_id);
 
-    const supplierId = foundSupplier.id;
-    const supplierName = foundSupplier.name;
-    const materialName = materialSelect.options[materialSelect.selectedIndex]?.text || 'Сырье';
-    const totalCost = quantity * pricePerUnit;
+    if (!mat || quantity <= 0) return UI.toast('Укажите материал и количество больше нуля!', 'warning');
+    if (!sup) return UI.toast('Выберите поставщика!', 'warning');
+
+    const isEditing = !!window.currentEditingPurchaseId;
 
     const html = `
         <div style="padding: 10px; font-size: 15px;">
-            <div style="text-align: center; font-size: 40px; margin-bottom: 10px;">🛒</div>
+            <div style="text-align: center; font-size: 40px; margin-bottom: 10px;">${isEditing ? '✏️' : '🛒'}</div>
             <div style="text-align: center; margin-bottom: 15px;">
-                Подтверждаете закупку сырья?
+                ${isEditing ? 'Подтверждаете <b>изменение</b> данных закупки?' : 'Подтверждаете закупку сырья?'}
             </div>
             <div style="background: var(--surface-alt); padding: 15px; border-radius: 6px; border: 1px dashed var(--border);">
-                <div style="margin-bottom: 5px;">📦 Материал: <b style="color: var(--primary);">${materialName}</b></div>
-                <div style="margin-bottom: 5px;">🏭 Поставщик: <b>${supplierName}</b></div>
+                <div style="margin-bottom: 5px;">📦 Материал: <b style="color: var(--primary);">${mat.name}</b></div>
+                <div style="margin-bottom: 5px;">🏭 Поставщик: <b>${sup.name}</b></div>
                 <div style="margin-bottom: 5px;">⚖️ Объем: <b>${quantity}</b> (по ${pricePerUnit} ₽)</div>
+                <div style="margin-bottom: 5px; padding-bottom: 10px; border-bottom: 1px solid var(--border);">📅 Дата: <b>${purchaseDate}</b></div>
                 
-                <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 16px;">
-                    Итого к оплате: <b style="color: ${accountId ? 'var(--danger)' : 'var(--warning-text)'};">${totalCost.toLocaleString()} ₽</b>
-                    ${!accountId ? `<br><span style="font-size: 12px; color: var(--warning-text);">(В долг, без списания со счета)</span>` : ''}
+                <div style="display: flex; justify-content: space-between; margin-top: 10px;">
+                    <span>За сырье:</span> <b>${totalCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</b>
+                </div>
+                ${deliveryCost > 0 ? `
+                <div style="display: flex; justify-content: space-between; margin-top: 5px;">
+                    <span>Доставка:</span> <b>${deliveryCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</b>
+                </div>
+                ` : ''}
+                
+                <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 16px; display: flex; justify-content: space-between; font-weight: bold;">
+                    <span>Общая себестоимость:</span> <span style="color: var(--primary);">${grandTotal.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</span>
                 </div>
             </div>
         </div>
     `;
 
+    const submitFn = isEditing
+        ? `executeUpdatePurchase('${window.currentEditingPurchaseId}', '${materialId}', '${counterparty_id}', ${account_id ? `'${account_id}'` : null}, ${quantity}, ${pricePerUnit}, '${purchaseDate}', ${totalCost}, ${deliveryCost}, ${deliveryAccountId ? `'${deliveryAccountId}'` : null})`
+        : `executePurchase('${materialId}', '${counterparty_id}', ${account_id ? `'${account_id}'` : null}, ${quantity}, ${pricePerUnit}, '${purchaseDate}', ${totalCost}, ${deliveryCost}, ${deliveryAccountId ? `'${deliveryAccountId}'` : null})`;
+
     const buttons = `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-        <button class="btn btn-blue" onclick="executePurchase('${materialId}', '${supplierId}', ${accountId ? `'${accountId}'` : null}, ${quantity}, ${pricePerUnit})">✅ Оформить закупку</button>
+        <button class="btn ${isEditing ? 'btn-purple' : 'btn-blue'}" onclick="${submitFn}">✅ ${isEditing ? 'Сохранить' : 'Оформить приход'}</button>
     `;
 
-    UI.showModal('Подтверждение закупки', html, buttons);
+    UI.showModal(isEditing ? 'Редактирование' : 'Подтверждение закупки', html, buttons);
 };
 
-window.executePurchase = async function (materialId, supplierId, accountId, quantity, pricePerUnit) {
-    const q = parseFloat(quantity);
-    const p = parseFloat(pricePerUnit);
-    if (isNaN(q) || q <= 0 || isNaN(p) || p <= 0) {
-        return UI.toast('Количество и цена должны быть больше нуля!', 'warning');
-    }
-
+window.executePurchase = async function (materialId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost, deliveryCost, deliveryAccountId) {
     UI.closeModal();
     UI.toast('⏳ Оформление закупки...', 'info');
 
@@ -137,18 +251,500 @@ window.executePurchase = async function (materialId, supplierId, accountId, quan
         const res = await fetch('/api/inventory/purchase', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ itemId: materialId, supplierId, accountId, quantity, pricePerUnit })
+            body: JSON.stringify({ itemId: materialId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost, deliveryCost, deliveryAccountId })
         });
 
         if (res.ok) {
             UI.toast('✅ Закупка успешно оформлена!', 'success');
             setTimeout(() => location.reload(), 1200);
         } else {
-            const errText = await res.text();
-            UI.toast('❌ Ошибка сервера: ' + errText, 'error');
+            let errText = 'Ошибка сервера';
+            try { errText = (await res.json()).error || errText; } catch (e) { }
+            UI.toast('❌ Ошибка: ' + errText, 'error');
         }
     } catch (e) {
         console.error(e);
-        UI.toast('Критическая ошибка связи с сервером', 'error');
+        UI.toast('Критическая ошибка', 'error');
     }
+};
+
+window.executeUpdatePurchase = async function (purchaseId, materialId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost, deliveryCost, deliveryAccountId) {
+    UI.closeModal();
+    UI.toast('⏳ Сохранение изменений...', 'info');
+
+    try {
+        const res = await fetch(`/api/inventory/purchase/${purchaseId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ itemId: materialId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost, deliveryCost, deliveryAccountId })
+        });
+
+        if (res.ok) {
+            UI.toast('✅ Изменения успешно сохранены!', 'success');
+            cancelEditMode();
+            if (typeof loadDailyPurchases === 'function') loadDailyPurchases(purchaseDate);
+        } else {
+            let errText = 'Ошибка при сохранении';
+            try { errText = (await res.json()).error || errText; } catch (e) { }
+            UI.toast('❌ Ошибка: ' + errText, 'error');
+        }
+    } catch (e) {
+        console.error(e);
+        UI.toast('Критическая ошибка сети', 'error');
+    }
+};
+
+window.editPurchase = async function (id) {
+    UI.toast('⏳ Загрузка данных...', 'info');
+
+    try {
+        const res = await fetch(`/api/inventory/purchase/${id}`);
+        if (!res.ok) throw new Error('Не удалось загрузить данные');
+
+        const data = await res.json();
+        window.currentEditingPurchaseId = id;
+
+        const matSel = document.getElementById('purchase-material-select').tomselect;
+        const supSel = document.getElementById('purchase-supplier-select').tomselect;
+        const accSel = document.getElementById('purchase-account-select').tomselect;
+        const delAccSel = document.getElementById('purchase-delivery-account').tomselect;
+
+        if (matSel) matSel.setValue(data.item_id);
+        if (supSel) supSel.setValue(data.supplier_id);
+        if (accSel) { data.account_id ? accSel.setValue(data.account_id) : accSel.clear(); }
+
+        document.getElementById('purchase-qty').value = data.quantity;
+        document.getElementById('purchase-price').value = data.price;
+
+        // Восстанавливаем доставку
+        const hasDeliveryCheckbox = document.getElementById('purchase-has-delivery');
+        const deliveryCostInput = document.getElementById('purchase-delivery-cost');
+        if (data.delivery_cost && parseFloat(data.delivery_cost) > 0) {
+            hasDeliveryCheckbox.checked = true;
+            toggleDeliveryFields();
+            deliveryCostInput.value = data.delivery_cost;
+            if (delAccSel && data.delivery_account_id) delAccSel.setValue(data.delivery_account_id);
+        } else {
+            hasDeliveryCheckbox.checked = false;
+            toggleDeliveryFields();
+        }
+
+        if (purchaseDatePicker) purchaseDatePicker.setDate(data.purchase_date);
+        calculatePurchaseTotal();
+
+        const btnSubmit = document.getElementById('btn-submit-purchase');
+        btnSubmit.innerHTML = '💾 Сохранить изменения';
+        btnSubmit.className = 'btn btn-purple w-100';
+        document.getElementById('btn-cancel-edit').style.display = 'block';
+
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        UI.toast('✏️ Режим редактирования', 'success');
+    } catch (e) {
+        console.error(e);
+        UI.toast('Ошибка загрузки', 'error');
+    }
+};
+
+window.cancelEditMode = function () {
+    window.currentEditingPurchaseId = null;
+
+    const btnSubmit = document.getElementById('btn-submit-purchase');
+    btnSubmit.innerHTML = '📥 Оформить приход';
+    btnSubmit.className = 'btn btn-blue w-100';
+    document.getElementById('btn-cancel-edit').style.display = 'none';
+
+    document.getElementById('purchase-material-select').tomselect.clear();
+    document.getElementById('purchase-supplier-select').tomselect.clear();
+    document.getElementById('purchase-account-select').tomselect.clear();
+    document.getElementById('purchase-qty').value = '';
+    document.getElementById('purchase-price').value = '';
+    document.getElementById('purchase-total-cost').value = '';
+
+    document.getElementById('purchase-has-delivery').checked = false;
+    toggleDeliveryFields();
+
+    if (purchaseDatePicker) purchaseDatePicker.setDate(new Date());
+    UI.toast('Редактирование отменено', 'info');
+};
+
+async function loadDailyPurchases(dateStr) {
+    const tbody = document.getElementById('daily-purchases-table');
+    const tfoot = document.getElementById('daily-purchases-summary');
+    if (!tbody || !dateStr) return;
+
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Загрузка...</td></tr>';
+    if (tfoot) tfoot.style.display = 'none';
+
+    try {
+        const res = await fetch(`/api/inventory/daily-purchases?date=${dateStr}`);
+        const data = await res.json();
+
+        if (data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">В этот день приходов сырья не было.</td></tr>';
+            return;
+        }
+
+        let totalDailyQty = 0;
+        let totalDailyAmount = 0;
+
+        tbody.innerHTML = data.map(p => {
+            const safeItem = p.item_name ? p.item_name.replace(/['"]/g, '&quot;') : 'Сырье';
+            const safeSupplier = p.supplier_name ? p.supplier_name.replace(/['"]/g, '&quot;') : 'Не указан';
+
+            // p.amount теперь включает доставку, это полная себестоимость партии
+
+            totalDailyQty += parseFloat(p.quantity) || 0;
+            totalDailyAmount += parseFloat(p.amount) || 0;
+
+            return `
+            <tr id="purchase-row-${p.id}">
+                <td><strong>${p.item_name}</strong></td>
+                <td>${p.supplier_name || '<i style="color:var(--text-muted)">Не указан</i>'}</td>
+                <td style="text-align: right;">${parseFloat(p.quantity).toFixed(2)} <small>${p.unit}</small></td>
+                <td style="text-align: right;">${parseFloat(p.price).toFixed(2)} ₽</td>
+                <td style="text-align: right;"><strong style="color: var(--danger);">${parseFloat(p.amount).toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</strong></td>
+                <td style="text-align: right; white-space: nowrap;">
+                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 14px; border-color: var(--border); margin-right: 5px;" 
+                            onclick="printReceipt('${p.id}', '${safeItem}', '${safeSupplier}', ${p.quantity}, '${p.unit}', ${p.price}, ${p.amount})" 
+                            title="Распечатать приходный ордер">🖨️</button>
+                    <button class="btn btn-outline" style="color: var(--warning-text); padding: 4px 8px; font-size: 14px; border-color: var(--warning-text); margin-right: 5px;" 
+                            onclick="editPurchase('${p.id}')" 
+                            title="Редактировать закупку">✏️</button>
+                    <button class="btn btn-outline" style="color: var(--danger); padding: 4px 8px; font-size: 14px; border-color: var(--danger);" 
+                            onclick="deletePurchase('${p.id}', '${safeItem}')" 
+                            title="Отменить закупку">❌</button>
+                </td>
+            </tr>
+            `;
+        }).join('');
+
+        if (tfoot) {
+            tfoot.style.display = 'table-footer-group';
+            document.getElementById('daily-total-qty').innerHTML = `${totalDailyQty.toFixed(2)} <small>ед.</small>`;
+            document.getElementById('daily-total-amount').innerText = `${totalDailyAmount.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽`;
+        }
+
+    } catch (e) {
+        console.error(e);
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--danger);">Ошибка загрузки истории</td></tr>';
+    }
+}
+
+window.deletePurchase = function (id, itemName) {
+    const html = `
+        <div style="padding: 15px; text-align: center; font-size: 15px;">
+            Точно отменить приход сырья <b>${itemName}</b>?<br><br>
+            <span style="color: var(--danger); font-size: 13px;">Сырье будет списано со склада, а деньги (включая доставку) вернутся на счет.</span>
+        </div>
+    `;
+
+    UI.showModal('⚠️ Отмена закупки', html, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>
+        <button class="btn btn-red" onclick="executeDeletePurchase('${id}')">🗑️ Да, отменить</button>
+    `);
+};
+
+window.executeDeletePurchase = async function (id) {
+    UI.closeModal();
+    UI.toast('⏳ Отмена закупки...', 'info');
+
+    try {
+        const res = await fetch(`/api/inventory/purchase/${id}`, { method: 'DELETE' });
+
+        if (res.ok) {
+            UI.toast('🗑️ Закупка отменена', 'success');
+            const dateStr = document.getElementById('purchase-date').value;
+            // Умное обновление таблицы
+            const searchInput = document.getElementById('purchase-search-input');
+            if (searchInput && searchInput.value.trim().length > 0) {
+                handlePurchaseSearch(); // Обновляем результаты поиска
+            } else {
+                const dateStr = document.getElementById('purchase-date').value;
+                if (typeof loadDailyPurchases === 'function') loadDailyPurchases(dateStr);
+            }
+
+            const matSelect = document.getElementById('purchase-material-select');
+            if (matSelect && matSelect.tomselect && matSelect.value) {
+                matSelect.tomselect.trigger('change', matSelect.value);
+            }
+        } else {
+            let errText = 'Ошибка при удалении';
+            try { errText = (await res.json()).error || errText; } catch (e) { }
+            UI.toast('❌ Ошибка: ' + errText, 'error');
+        }
+    } catch (e) {
+        console.error(e);
+        UI.toast('Ошибка сети при удалении', 'error');
+    }
+};
+
+window.openAddSupplierModal = function () {
+    const html = `
+        <div style="padding: 10px;">
+            <div class="form-group">
+                <label>Название (ИП, ООО или ФИО): <span style="color: var(--danger);">*</span></label>
+                <input type="text" id="new-sup-name" class="input-modern" placeholder="Например: ООО Стройтех">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label>ИНН (необязательно):</label>
+                <input type="text" id="new-sup-inn" class="input-modern" placeholder="1234567890">
+            </div>
+        </div>
+    `;
+
+    const buttons = `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-green" onclick="submitNewSupplier()">💾 Сохранить и выбрать</button>
+    `;
+
+    UI.showModal('➕ Новый поставщик', html, buttons);
+    setTimeout(() => document.getElementById('new-sup-name').focus(), 100);
+};
+
+window.submitNewSupplier = async function () {
+    const name = document.getElementById('new-sup-name').value.trim();
+    const inn = document.getElementById('new-sup-inn').value.trim();
+
+    if (!name) return UI.toast('Введите название поставщика!', 'warning');
+    UI.toast('⏳ Сохранение...', 'info');
+
+    try {
+        const res = await fetch('/api/inventory/quick-supplier', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, inn })
+        });
+
+        if (res.ok) {
+            const newSup = await res.json();
+            allCounterparties.push(newSup);
+
+            const selectEl = document.getElementById('purchase-supplier-select');
+            if (selectEl && selectEl.tomselect) {
+                const ts = selectEl.tomselect;
+                const textLabel = `${newSup.name}${newSup.inn ? ` (ИНН: ${newSup.inn})` : ''}`;
+                ts.addOption({ value: newSup.id, text: textLabel });
+                ts.setValue(newSup.id);
+            }
+
+            UI.closeModal();
+            UI.toast('✅ Поставщик добавлен!', 'success');
+        } else {
+            const err = await res.json();
+            UI.toast('❌ Ошибка: ' + (err.error || 'Не удалось сохранить'), 'error');
+        }
+    } catch (e) {
+        console.error(e);
+        UI.toast('Критическая ошибка', 'error');
+    }
+};
+
+window.printReceipt = function (id, itemName, supplierName, qty, unit, price, amount) {
+    const dateStr = document.getElementById('purchase-date').value;
+
+    let printFrame = document.getElementById('receipt-print-frame');
+    if (!printFrame) {
+        printFrame = document.createElement('iframe');
+        printFrame.id = 'receipt-print-frame';
+        printFrame.style.position = 'absolute';
+        printFrame.style.width = '0';
+        printFrame.style.height = '0';
+        printFrame.style.border = 'none';
+        document.body.appendChild(printFrame);
+    }
+
+    const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Приходный ордер №${id}</title>
+            <style>
+                body { font-family: "Times New Roman", Times, serif; padding: 20px; color: #000; font-size: 14px; }
+                h2 { text-align: center; font-size: 20px; margin-bottom: 5px; text-transform: uppercase; }
+                .subtitle { text-align: center; margin-bottom: 30px; font-size: 16px; }
+                .info-block { margin-bottom: 20px; line-height: 1.5; }
+                table { width: 100%; border-collapse: collapse; margin-top: 20px; margin-bottom: 40px; }
+                th, td { border: 1px solid #000; padding: 8px 12px; text-align: left; }
+                th { background: #f2f2f2; font-weight: bold; text-align: center; }
+                .text-right { text-align: right; }
+                .text-center { text-align: center; }
+                .footer { display: flex; justify-content: space-between; margin-top: 50px; page-break-inside: avoid; }
+                .sign-box { width: 45%; }
+                .sign-line { border-bottom: 1px solid #000; height: 30px; margin-bottom: 5px; }
+                .sign-sub { font-size: 11px; text-align: center; color: #555; }
+                
+                @media print {
+                    @page { margin: 15mm; }
+                    body { -webkit-print-color-adjust: exact; padding: 0; }
+                }
+            </style>
+        </head>
+        <body>
+            <h2>ПРИХОДНЫЙ ОРДЕР № ${id}</h2>
+            <div class="subtitle">от ${dateStr.split('-').reverse().join('.')} г.</div>
+            
+            <div class="info-block">
+                <div><strong>Организация:</strong> ООО "Плиттекс"</div>
+                <div><strong>Склад назначения:</strong> Склад сырья (№1)</div>
+                <div><strong>Поставщик:</strong> ${supplierName}</div>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 5%;">№</th>
+                        <th style="width: 45%;">Наименование ТМЦ</th>
+                        <th style="width: 10%;">Ед. изм.</th>
+                        <th style="width: 15%;">Количество</th>
+                        <th style="width: 10%;">Цена, ₽</th>
+                        <th style="width: 15%;">Сумма, ₽</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="text-center">1</td>
+                        <td>${itemName}</td>
+                        <td class="text-center">${unit}</td>
+                        <td class="text-right">${parseFloat(qty).toFixed(2)}</td>
+                        <td class="text-right">${parseFloat(price).toFixed(2)}</td>
+                        <td class="text-right"><strong>${parseFloat(amount).toLocaleString('ru-RU', { minimumFractionDigits: 2 })}</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="footer">
+                <div class="sign-box">
+                    <strong>Сдал (Представитель поставщика):</strong>
+                    <div class="sign-line"></div>
+                    <div class="sign-sub">(Подпись) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (Расшифровка)</div>
+                </div>
+                <div class="sign-box">
+                    <strong>Принял (Материально-ответственное лицо):</strong>
+                    <div class="sign-line"></div>
+                    <div class="sign-sub">(Подпись) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (Расшифровка)</div>
+                </div>
+            </div>
+        </body>
+        </html>
+    `;
+
+    const frameDoc = printFrame.contentWindow.document;
+    frameDoc.open();
+    frameDoc.write(html);
+    frameDoc.close();
+
+    setTimeout(() => {
+        printFrame.contentWindow.focus();
+        printFrame.contentWindow.print();
+    }, 500);
+};
+
+// ==========================================
+// 6. ГЛОБАЛЬНЫЙ ПОИСК И СОРТИРОВКА (OMNIBOX)
+// ==========================================
+let purchaseSearchTimer = null;
+let currentSearchResults = [];
+let currentSort = { field: 'purchase_date', asc: false };
+
+window.handlePurchaseSearch = function () {
+    const query = document.getElementById('purchase-search-input').value.trim();
+    const dateEl = document.getElementById('purchase-date');
+
+    clearTimeout(purchaseSearchTimer); // Сбрасываем таймер при каждом нажатии
+
+    // Если поиск очистили — возвращаем режим "День"
+    if (query.length === 0) {
+        document.getElementById('th-date').style.display = 'none'; // Прячем колонку Дата
+        if (dateEl && dateEl.value) loadDailyPurchases(dateEl.value);
+        return;
+    }
+
+    if (query.length < 2) return; // Ждем минимум 2 символа
+
+    // Ждем 400мс после того, как пользователь перестал печатать (Debounce)
+    purchaseSearchTimer = setTimeout(async () => {
+        const tbody = document.getElementById('daily-purchases-table');
+        const tfoot = document.getElementById('daily-purchases-summary');
+
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">🔍 Ищем в базе...</td></tr>';
+        if (tfoot) tfoot.style.display = 'none'; // Скрываем итоги за день
+
+        try {
+            const res = await fetch(`/api/inventory/purchase-search?q=${encodeURIComponent(query)}`);
+            currentSearchResults = await res.json();
+
+            document.getElementById('th-date').style.display = 'table-cell'; // Показываем колонку Дата
+            renderSearchResults();
+        } catch (e) {
+            console.error(e);
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--danger);">Ошибка поиска</td></tr>';
+        }
+    }, 400);
+};
+
+window.renderSearchResults = function () {
+    const tbody = document.getElementById('daily-purchases-table');
+
+    if (currentSearchResults.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Ничего не найдено.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = currentSearchResults.map(p => {
+        const safeItem = p.item_name ? p.item_name.replace(/['"]/g, '&quot;') : 'Сырье';
+        const safeSupplier = p.supplier_name ? p.supplier_name.replace(/['"]/g, '&quot;') : 'Не указан';
+        const safeDate = p.purchase_date.split('-').reverse().join('.');
+
+        return `
+        <tr id="purchase-row-${p.id}">
+            <td><strong>${p.item_name}</strong></td>
+            <td>${p.supplier_name || '<i style="color:var(--text-muted)">Не указан</i>'}</td>
+            <td style="color: var(--primary); font-weight: bold; white-space: nowrap;">${safeDate}</td>
+            <td style="text-align: right;">${parseFloat(p.quantity).toFixed(2)} <small>${p.unit}</small></td>
+            <td style="text-align: right;">${parseFloat(p.price).toFixed(2)} ₽</td>
+            <td style="text-align: right;"><strong style="color: var(--danger);">${parseFloat(p.amount).toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</strong></td>
+            <td style="text-align: right; white-space: nowrap;">
+                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 14px; border-color: var(--border); margin-right: 5px;" 
+                        onclick="printReceipt('${p.id}', '${safeItem}', '${safeSupplier}', ${p.quantity}, '${p.unit}', ${p.price}, ${p.amount})" title="Распечатать">🖨️</button>
+                <button class="btn btn-outline" style="color: var(--warning-text); padding: 4px 8px; font-size: 14px; border-color: var(--warning-text); margin-right: 5px;" 
+                        onclick="editPurchase('${p.id}')" title="Редактировать">✏️</button>
+                <button class="btn btn-outline" style="color: var(--danger); padding: 4px 8px; font-size: 14px; border-color: var(--danger);" 
+                        onclick="deletePurchase('${p.id}', '${safeItem}')" title="Отменить">❌</button>
+            </td>
+        </tr>
+        `;
+    }).join('');
+};
+
+window.sortSearchResults = function (field) {
+    const query = document.getElementById('purchase-search-input').value.trim();
+    // Сортируем только если мы в режиме поиска
+    if (!query || currentSearchResults.length === 0) return;
+
+    // Меняем направление сортировки
+    if (currentSort.field === field) {
+        currentSort.asc = !currentSort.asc;
+    } else {
+        currentSort.field = field;
+        currentSort.asc = true;
+    }
+
+    currentSearchResults.sort((a, b) => {
+        let valA = a[field];
+        let valB = b[field];
+
+        if (['quantity', 'price', 'amount'].includes(field)) {
+            valA = parseFloat(valA) || 0;
+            valB = parseFloat(valB) || 0;
+        } else {
+            valA = (valA || '').toString().toLowerCase();
+            valB = (valB || '').toString().toLowerCase();
+        }
+
+        if (valA < valB) return currentSort.asc ? -1 : 1;
+        if (valA > valB) return currentSort.asc ? 1 : -1;
+        return 0;
+    });
+
+    renderSearchResults();
 };

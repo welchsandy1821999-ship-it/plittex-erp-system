@@ -9,7 +9,142 @@ const { sendNotify } = require('../utils/telegram');
 module.exports = function (pool, getWhId, withTransaction) {
 
     // ------------------------------------------------------------------
-    // 1. МАРШРУТ: ПОЛУЧЕНИЕ ОСТАТКОВ СКЛАДА (GET /api/inventory)
+    // ПОЛУЧЕНИЕ ДАТ, В КОТОРЫЕ БЫЛИ ЗАКУПКИ (ДЛЯ КАЛЕНДАРЯ)
+    // ------------------------------------------------------------------
+    router.get('/api/inventory/purchase-dates', async (req, res) => {
+        try {
+            const result = await pool.query(`
+                SELECT DISTINCT to_char(created_at, 'YYYY-MM-DD') as date
+                FROM inventory_movements
+                WHERE movement_type = 'purchase'
+                ORDER BY date DESC
+            `);
+            const dates = result.rows.map(r => r.date);
+            res.json(dates);
+        } catch (err) {
+            console.error("Ошибка при получении дат закупок:", err);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // ИСТОРИЯ ПРИХОДОВ ЗА КОНКРЕТНУЮ ДАТУ
+    // ------------------------------------------------------------------
+    router.get('/api/inventory/daily-purchases', async (req, res) => {
+        try {
+            const { date } = req.query;
+            const result = await pool.query(`
+                SELECT 
+                    m.id, 
+                    i.name as item_name, i.unit,
+                    m.quantity, 
+                    m.amount, 
+                    c.name as supplier_name, 
+                    (m.amount / NULLIF(m.quantity, 0)) as price
+                FROM inventory_movements m
+                JOIN items i ON m.item_id = i.id
+                LEFT JOIN counterparties c ON m.supplier_id = c.id
+                WHERE m.movement_type = 'purchase' 
+                  AND to_char(m.created_at, 'YYYY-MM-DD') = $1
+                ORDER BY m.created_at DESC
+            `, [date]);
+            res.json(result.rows);
+        } catch (err) {
+            console.error("Ошибка при получении истории закупок:", err);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // ИНФОРМЕР: ОСТАТОК И ПОСЛЕДНЯЯ ЦЕНА ЗАКУПКИ
+    // ------------------------------------------------------------------
+    router.get('/api/inventory/material-stats/:id', async (req, res) => {
+        try {
+            const itemId = req.params.id;
+            const materialsWh = await getWhId(pool, 'materials');
+
+            // 1. Считаем текущий остаток на складе сырья
+            const stockRes = await pool.query(`
+                SELECT COALESCE(SUM(quantity), 0) as balance 
+                FROM inventory_movements 
+                WHERE item_id = $1 AND warehouse_id = $2
+            `, [itemId, materialsWh]);
+
+            // 2. Ищем последнюю цену закупки
+            const lastPurchaseRes = await pool.query(`
+                SELECT (amount / NULLIF(quantity, 0)) as last_price, to_char(created_at, 'DD.MM.YYYY') as last_date
+                FROM inventory_movements
+                WHERE item_id = $1 AND movement_type = 'purchase'
+                ORDER BY created_at DESC
+                LIMIT 1
+            `, [itemId]);
+
+            res.json({
+                balance: stockRes.rows[0]?.balance || 0,
+                lastPrice: lastPurchaseRes.rows[0]?.last_price || null,
+                lastDate: lastPurchaseRes.rows[0]?.last_date || null
+            });
+        } catch (err) {
+            console.error("Ошибка при получении статистики материала:", err);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // 1.5. ОТЧЕТ ПО ОБЩЕЙ СТОИМОСТИ СКЛАДОВ (VALUATION)
+    // ------------------------------------------------------------------
+    router.get('/api/inventory/valuation', async (req, res) => {
+        try {
+            // Учитываем только нужные склады (1, 3, 4, 5)
+            // Исключаем отрицательное количество из подсчета стоимости через GREATEST(balance, 0)
+            const result = await pool.query(`
+                WITH item_balances AS (
+                    SELECT 
+                        m.warehouse_id,
+                        w.name as warehouse_name,
+                        m.item_id,
+                        i.name as item_name,
+                        i.current_price,
+                        SUM(m.quantity) as balance
+                    FROM inventory_movements m
+                    JOIN items i ON m.item_id = i.id
+                    JOIN warehouses w ON m.warehouse_id = w.id
+                    WHERE m.warehouse_id IN (1, 3, 4, 5)
+                    GROUP BY m.warehouse_id, w.name, m.item_id, i.name, i.current_price
+                    HAVING SUM(m.quantity) <> 0
+                )
+                SELECT 
+                    warehouse_id as id,
+                    warehouse_name as name,
+                    ROUND(SUM(GREATEST(balance, 0) * COALESCE(current_price, 0) * (CASE WHEN item_name ILIKE '%2 сорт%' OR item_name ILIKE '%уценка%' THEN 0.5 ELSE 1 END)), 2) as value,
+                    COUNT(item_id) as items_count
+                FROM item_balances
+                GROUP BY warehouse_id, warehouse_name
+                ORDER BY warehouse_id ASC;
+            `);
+
+            let grand_total = new Big(0);
+            const warehouses = result.rows.map(row => {
+                const val = parseFloat(row.value) || 0;
+                grand_total = grand_total.plus(val);
+                return {
+                    id: parseInt(row.id),
+                    name: row.name,
+                    value: val,
+                    items_count: parseInt(row.items_count)
+                };
+            });
+
+            res.json({
+                grand_total: parseFloat(grand_total.toFixed(2)),
+                warehouses: warehouses
+            });
+        } catch (err) {
+            console.error('Ошибка при получении стоимости складов:', err);
+            res.status(500).json({ error: 'Ошибка сервера при расчете стоимости складов' });
+        }
+    });
+
     // ------------------------------------------------------------------
     router.get('/api/inventory', async (req, res) => {
         try {
@@ -188,6 +323,15 @@ module.exports = function (pool, getWhId, withTransaction) {
                     `, [tileId, scrapQty, defectWh, batchId, userId]);
                 }
 
+                // 🚀 НОВОЕ: Накапливаем 1-й сорт для сдельной зарплаты при каждой распалубке партии
+                if (batchId && goodQty > 0) {
+                    await client.query(`
+                        UPDATE production_batches 
+                        SET actual_good_qty = COALESCE(actual_good_qty, 0) + $1 
+                        WHERE id = $2
+                    `, [goodQty, batchId]);
+                }
+
                 if (isComplete && batchId) {
                     await client.query(`UPDATE production_batches SET status = 'completed' WHERE id = $1`, [batchId]);
                 }
@@ -249,64 +393,527 @@ module.exports = function (pool, getWhId, withTransaction) {
         }
     });
 
-    router.post('/api/inventory/purchase', async (req, res) => {
-        const { itemId, quantity, pricePerUnit, supplierId, accountId } = req.body;
+    // ------------------------------------------------------------------
+    // БЫСТРОЕ СОЗДАНИЕ ПОСТАВЩИКА ИЗ МОДУЛЯ ЗАКУПОК
+    // ------------------------------------------------------------------
+    router.post('/api/inventory/quick-supplier', async (req, res) => {
+        try {
+            const { name, inn } = req.body;
+            if (!name) return res.status(400).json({ error: 'Название обязательно' });
 
-        // 🚀 ЗАДАЧА №11: Серверная валидация данных
-        if (!itemId || !supplierId) {
-            return res.status(400).json({ error: 'Не указан товар или поставщик!' });
+            // Вставляем контрагента и сразу возвращаем его ID и данные
+            const result = await pool.query(`
+                INSERT INTO counterparties (name, inn) 
+                VALUES ($1, $2) RETURNING id, name, inn
+            `, [name, inn || null]);
+
+            res.json(result.rows[0]);
+        } catch (err) {
+            console.error("Ошибка при быстром создании поставщика:", err);
+            res.status(500).json({ error: err.message });
         }
+    });
+
+    // ------------------------------------------------------------------
+    // УДАЛЕНИЕ ЗАКУПКИ (ОТМЕНА ПРИХОДА И ВОЗВРАТ СРЕДСТВ + ОТКАТ ЦЕНЫ)
+    // ------------------------------------------------------------------
+    router.delete('/api/inventory/purchase/:id', async (req, res) => {
+        const purchaseId = req.params.id;
+
+        try {
+            await withTransaction(pool, async (client) => {
+                const moveCheck = await client.query(`
+                    SELECT item_id, quantity, amount FROM inventory_movements 
+                    WHERE id = $1 AND movement_type = 'purchase'
+                `, [purchaseId]);
+
+                if (moveCheck.rows.length === 0) throw new Error('Закупка не найдена или уже удалена');
+
+                // --- МАГИЯ СРЕДНЕВЗВЕШЕННОЙ СТОИМОСТИ (ОТКАТ) ---
+                const itemId = moveCheck.rows[0].item_id;
+                const oldQty = new Big(moveCheck.rows[0].quantity);
+                const oldAmount = new Big(moveCheck.rows[0].amount);
+
+                const materialsWh = await getWhId(client, 'materials');
+                const stockRes = await client.query(`SELECT COALESCE(SUM(quantity), 0) as balance FROM inventory_movements WHERE item_id = $1 AND warehouse_id = $2`, [itemId, materialsWh]);
+                const currentBalance = new Big(stockRes.rows[0].balance || 0);
+
+                const itemRes = await client.query(`SELECT current_price FROM items WHERE id = $1 FOR UPDATE`, [itemId]);
+                const currentPrice = new Big(itemRes.rows[0].current_price || 0);
+
+                const newBalance = currentBalance.minus(oldQty);
+                if (newBalance.gt(0)) {
+                    // (Текущая Стоимость - Стоимость Удаляемой Партии) / Оставшийся Объем
+                    let newAvgPrice = currentBalance.times(currentPrice).minus(oldAmount).div(newBalance);
+                    if (newAvgPrice.lt(0)) newAvgPrice = new Big(0); // Защита от минуса
+                    await client.query(`UPDATE items SET current_price = $1 WHERE id = $2`, [newAvgPrice.toFixed(2), itemId]);
+                }
+                // ----------------------------------------------
+
+                await client.query(`DELETE FROM transactions WHERE source_module = 'purchase' AND description LIKE $1`, [`%движение склада #${purchaseId})%`]);
+                await client.query(`DELETE FROM inventory_movements WHERE id = $1`, [purchaseId]);
+            });
+
+            const io = req.app.get('io');
+            if (io) io.emit('inventory_updated');
+            res.json({ success: true, message: 'Закупка успешно отменена' });
+        } catch (err) {
+            console.error('Ошибка при удалении закупки:', err);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // СОХРАНЕНИЕ ИЗМЕНЕНИЙ ЗАКУПКИ (UPDATE + ПЕРЕСЧЕТ СРЕДНЕЙ ЦЕНЫ)
+    // ------------------------------------------------------------------
+    router.put('/api/inventory/purchase/:id', async (req, res) => {
+        const purchaseId = req.params.id;
+        const { itemId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost: frontendTotal, deliveryCost, deliveryAccountId } = req.body;
 
         const qtyNum = parseFloat(quantity);
         const priceNum = parseFloat(pricePerUnit);
+        const delCostNum = parseFloat(deliveryCost) || 0;
 
-        if (isNaN(qtyNum) || qtyNum <= 0) {
-            return res.status(400).json({ error: 'Количество должно быть положительным числом!' });
-        }
-        if (isNaN(priceNum) || priceNum <= 0) {
-            return res.status(400).json({ error: 'Цена за единицу должна быть больше нуля!' });
+        if (!itemId || !counterparty_id || isNaN(qtyNum) || qtyNum <= 0 || isNaN(priceNum) || priceNum <= 0) {
+            return res.status(400).json({ error: 'Некорректные данные' });
         }
 
         try {
-            const materialsWh = await getWhId(pool, 'materials');
-
             await withTransaction(pool, async (client) => {
-                const totalCostBig = new Big(quantity).times(pricePerUnit);
-                const totalCost = totalCostBig.toFixed(2);
+                const materialCost = frontendTotal ? new Big(frontendTotal).toFixed(2) : new Big(qtyNum).times(priceNum).toFixed(2);
+                const totalAmount = new Big(materialCost).plus(delCostNum).toFixed(2);
+                const descMatch = `%движение склада #${purchaseId})%`;
 
-                if (accountId) {
-                    const accRes = await client.query('SELECT balance FROM accounts WHERE id = $1 FOR UPDATE', [accountId]);
-                    if (!accRes.rows[0]) throw new Error('Счет не найден');
-                    if (new Big(accRes.rows[0].balance).lt(totalCostBig)) {
-                        throw new Error(`Недостаточно средств. Нужно: ${totalCost} ₽`);
+                // --- МАГИЯ СРЕДНЕВЗВЕШЕННОЙ СТОИМОСТИ (ПЕРЕСЧЕТ) ---
+                const materialsWh = await getWhId(client, 'materials');
+                const oldMoveRes = await client.query(`SELECT quantity, amount FROM inventory_movements WHERE id = $1 AND movement_type = 'purchase'`, [purchaseId]);
+
+                if (oldMoveRes.rows.length > 0) {
+                    const oldQty = new Big(oldMoveRes.rows[0].quantity);
+                    const oldAmount = new Big(oldMoveRes.rows[0].amount);
+
+                    const stockRes = await client.query(`SELECT COALESCE(SUM(quantity), 0) as balance FROM inventory_movements WHERE item_id = $1 AND warehouse_id = $2`, [itemId, materialsWh]);
+                    const currentBalance = new Big(stockRes.rows[0].balance || 0);
+
+                    const itemRes = await client.query(`SELECT current_price FROM items WHERE id = $1 FOR UPDATE`, [itemId]);
+                    const currentPrice = new Big(itemRes.rows[0].current_price || 0);
+
+                    // Сначала виртуально "изымаем" старую закупку со склада
+                    const revertedBalance = currentBalance.minus(oldQty);
+                    const revertedValue = currentBalance.times(currentPrice).minus(oldAmount);
+
+                    const newQtyBig = new Big(qtyNum);
+                    let newAvgPrice = new Big(0);
+
+                    // Затем прибавляем новые, отредактированные данные
+                    if (revertedBalance.lte(0)) {
+                        newAvgPrice = new Big(totalAmount).div(newQtyBig);
+                    } else {
+                        newAvgPrice = revertedValue.plus(totalAmount).div(revertedBalance.plus(newQtyBig));
                     }
+                    if (newAvgPrice.lt(0)) newAvgPrice = new Big(totalAmount).div(newQtyBig);
+
+                    await client.query(`UPDATE items SET current_price = $1 WHERE id = $2`, [newAvgPrice.toFixed(2), itemId]);
+                }
+                // ----------------------------------------------
+
+                await client.query(`
+                    UPDATE inventory_movements 
+                    SET item_id = $1, supplier_id = $2, quantity = $3, amount = $4, delivery_cost = $5,
+                        created_at = COALESCE($6::timestamp, CURRENT_TIMESTAMP), 
+                        description = $7
+                    WHERE id = $8 AND movement_type = 'purchase'
+                `, [itemId, counterparty_id, qtyNum, totalAmount, delCostNum, purchaseDate || null, `Закупка сырья (Мат: ${materialCost}, Дост: ${delCostNum})`, purchaseId]);
+
+                const oldMatTx = await client.query(`SELECT id FROM transactions WHERE source_module = 'purchase' AND description LIKE $1 AND category = 'Закупка сырья'`, [descMatch]);
+                if (account_id) {
+                    if (oldMatTx.rows.length > 0) {
+                        await client.query(`UPDATE transactions SET account_id = $1, amount = $2, created_at = COALESCE($3::timestamp, CURRENT_TIMESTAMP) WHERE id = $4`, [account_id, materialCost, purchaseDate || null, oldMatTx.rows[0].id]);
+                    } else {
+                        await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, created_at, linked_purchase_id) VALUES ($1, $2, 'expense', 'Закупка сырья', $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [account_id, materialCost, `Оплата закупки (движение склада #${purchaseId})`, counterparty_id, purchaseDate || null, purchaseId]);
+                    }
+                } else if (oldMatTx.rows.length > 0) {
+                    await client.query(`DELETE FROM transactions WHERE id = $1`, [oldMatTx.rows[0].id]);
                 }
 
-                // 1. Оприходование на склад (Используем itemId вместо materialId)
-                const moveRes = await client.query(`
-                    INSERT INTO inventory_movements 
-                    (item_id, quantity, movement_type, warehouse_id, supplier_id, amount, description)
-                    VALUES ($1, $2, 'purchase', $3, $4, $5, $6) RETURNING id
-                `, [itemId, quantity, materialsWh, supplierId, totalCost, `Закупка сырья (Цена: ${pricePerUnit})`]);
-
-                // 2. Списание денег (Добавлен payment_method и source_module)
-                if (accountId) {
-                    await client.query(`
-                        INSERT INTO transactions 
-                        (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module)
-                        VALUES ($1, $2, 'expense', 'Закупка сырья', $3, $4, $5, $6)
-                    `, [accountId, totalCost, `Оплата закупки (движение склада #${moveRes.rows[0].id})`, supplierId, 'Безналичный расчет', 'purchase']);
+                const oldDelTx = await client.query(`SELECT id FROM transactions WHERE source_module = 'purchase' AND description LIKE $1 AND category = 'Транспортные расходы'`, [descMatch]);
+                if (delCostNum > 0 && deliveryAccountId) {
+                    if (oldDelTx.rows.length > 0) {
+                        await client.query(`UPDATE transactions SET account_id = $1, amount = $2, created_at = COALESCE($3::timestamp, CURRENT_TIMESTAMP) WHERE id = $4`, [deliveryAccountId, delCostNum, purchaseDate || null, oldDelTx.rows[0].id]);
+                    } else {
+                        await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, created_at, linked_purchase_id) VALUES ($1, $2, 'expense', 'Транспортные расходы', $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [deliveryAccountId, delCostNum, `Оплата доставки (движение склада #${purchaseId})`, counterparty_id, purchaseDate || null, purchaseId]);
+                    }
+                } else if (oldDelTx.rows.length > 0) {
+                    await client.query(`DELETE FROM transactions WHERE id = $1`, [oldDelTx.rows[0].id]);
                 }
             });
 
             const io = req.app.get('io');
             if (io) io.emit('inventory_updated');
+            res.json({ success: true, message: 'Закупка обновлена' });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
 
+    // ------------------------------------------------------------------
+    // СОЗДАНИЕ НОВОЙ ЗАКУПКИ (POST + РАСЧЕТ СРЕДНЕЙ ЦЕНЫ)
+    // ------------------------------------------------------------------
+    router.post('/api/inventory/purchase', async (req, res) => {
+        const { itemId, quantity, pricePerUnit, counterparty_id, account_id, purchaseDate, totalCost: frontendTotal, deliveryCost, deliveryAccountId } = req.body;
+
+        if (!itemId || !counterparty_id) return res.status(400).json({ error: 'Не указан товар или поставщик!' });
+        const qtyNum = parseFloat(quantity);
+        const priceNum = parseFloat(pricePerUnit);
+        const delCostNum = parseFloat(deliveryCost) || 0;
+
+        if (isNaN(qtyNum) || qtyNum <= 0) return res.status(400).json({ error: 'Количество должно быть положительным!' });
+
+        try {
+            await withTransaction(pool, async (client) => {
+                const materialsWh = await getWhId(client, 'materials');
+                const materialCost = frontendTotal ? new Big(frontendTotal).toFixed(2) : new Big(qtyNum).times(priceNum).toFixed(2);
+                const totalAmount = new Big(materialCost).plus(delCostNum).toFixed(2);
+
+                // --- МАГИЯ СРЕДНЕВЗВЕШЕННОЙ СТОИМОСТИ (POST) ---
+                const stockRes = await client.query(`SELECT COALESCE(SUM(quantity), 0) as balance FROM inventory_movements WHERE item_id = $1 AND warehouse_id = $2`, [itemId, materialsWh]);
+                const currentBalance = new Big(stockRes.rows[0].balance || 0);
+
+                const itemRes = await client.query(`SELECT current_price FROM items WHERE id = $1 FOR UPDATE`, [itemId]);
+                const currentPrice = new Big(itemRes.rows[0].current_price || 0);
+
+                const newQtyBig = new Big(qtyNum);
+
+                let newAvgPrice = new Big(0);
+                if (currentBalance.lte(0)) {
+                    // Если склад пуст, средняя цена = цене новой партии
+                    newAvgPrice = new Big(totalAmount).div(newQtyBig);
+                } else {
+                    // (Стоимость всего старого запаса + Стоимость новой партии) / (Новый общий объем)
+                    const currentTotalValue = currentBalance.times(currentPrice);
+                    newAvgPrice = currentTotalValue.plus(totalAmount).div(currentBalance.plus(newQtyBig));
+                }
+
+                // Перезаписываем справочную цену
+                await client.query(`UPDATE items SET current_price = $1 WHERE id = $2`, [newAvgPrice.toFixed(2), itemId]);
+                // ----------------------------------------------
+
+                const moveRes = await client.query(`
+                    INSERT INTO inventory_movements 
+                    (item_id, quantity, movement_type, warehouse_id, supplier_id, amount, delivery_cost, description, created_at)
+                    VALUES ($1, $2, 'purchase', $3, $4, $5, $6, $7, COALESCE($8::timestamp, CURRENT_TIMESTAMP)) RETURNING id
+                `, [itemId, qtyNum, materialsWh, counterparty_id, totalAmount, delCostNum, `Закупка сырья (Мат: ${materialCost}, Дост: ${delCostNum})`, purchaseDate || null]);
+
+                if (account_id) {
+                    await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, created_at, linked_purchase_id) VALUES ($1, $2, 'expense', 'Закупка сырья', $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [account_id, materialCost, `Оплата закупки (движение склада #${moveRes.rows[0].id})`, counterparty_id, purchaseDate || null, moveRes.rows[0].id]);
+                }
+                if (delCostNum > 0 && deliveryAccountId) {
+                    await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, created_at, linked_purchase_id) VALUES ($1, $2, 'expense', 'Транспортные расходы', $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [deliveryAccountId, delCostNum, `Оплата доставки (движение склада #${moveRes.rows[0].id})`, counterparty_id, purchaseDate || null, moveRes.rows[0].id]);
+                }
+            });
+
+            const io = req.app.get('io');
+            if (io) io.emit('inventory_updated');
             res.json({ success: true });
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
     });
 
+
+
+
+    // ------------------------------------------------------------------
+    // ПОЛУЧЕНИЕ ДЕТАЛЕЙ ЗАКУПКИ (ДЛЯ РЕДАКТИРОВАНИЯ)
+    // ------------------------------------------------------------------
+    router.get('/api/inventory/purchase/:id', async (req, res) => {
+        try {
+            const purchaseId = req.params.id;
+
+            const moveRes = await pool.query(`
+                SELECT item_id, supplier_id, quantity, amount, COALESCE(delivery_cost, 0) as delivery_cost, to_char(created_at, 'YYYY-MM-DD') as purchase_date
+                FROM inventory_movements 
+                WHERE id = $1 AND movement_type = 'purchase'
+            `, [purchaseId]);
+
+            if (moveRes.rows.length === 0) return res.status(404).json({ error: 'Закупка не найдена' });
+
+            // Ищем транзакцию за сам материал
+            const txMatRes = await pool.query(`
+                SELECT account_id FROM transactions 
+                WHERE source_module = 'purchase' AND description LIKE $1 AND category = 'Закупка сырья'
+            `, [`%движение склада #${purchaseId})%`]);
+
+            // Ищем транзакцию за доставку
+            const txDelRes = await pool.query(`
+                SELECT account_id FROM transactions 
+                WHERE source_module = 'purchase' AND description LIKE $1 AND category = 'Транспортные расходы'
+            `, [`%движение склада #${purchaseId})%`]);
+
+            const data = moveRes.rows[0];
+            const matAmount = parseFloat(data.amount) - parseFloat(data.delivery_cost);
+            const price = (matAmount / parseFloat(data.quantity)).toFixed(2);
+
+            res.json({
+                item_id: data.item_id,
+                supplier_id: data.supplier_id,
+                account_id: txMatRes.rows.length > 0 ? txMatRes.rows[0].account_id : '',
+                quantity: data.quantity,
+                price: price,
+                purchase_date: data.purchase_date,
+                delivery_cost: data.delivery_cost,
+                delivery_account_id: txDelRes.rows.length > 0 ? txDelRes.rows[0].account_id : ''
+            });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+
+    // ------------------------------------------------------------------
+    // ГЛОБАЛЬНЫЙ ПОИСК ЗАКУПОК (OMNIBOX)
+    // ------------------------------------------------------------------
+    router.get('/api/inventory/purchase-search', async (req, res) => {
+        const { q } = req.query;
+        if (!q || q.length < 2) return res.json([]);
+
+        try {
+            const searchPattern = `%${q}%`;
+            // Ищем по материалам, поставщикам и ИНН. Считаем чистую цену без доставки.
+            const query = `
+                SELECT 
+                    im.id, 
+                    i.name as item_name, 
+                    i.unit, 
+                    c.name as supplier_name, 
+                    im.quantity, 
+                    (im.amount - COALESCE(im.delivery_cost, 0)) / im.quantity as price, 
+                    im.amount, 
+                    to_char(im.created_at, 'YYYY-MM-DD') as purchase_date
+                FROM inventory_movements im
+                JOIN items i ON im.item_id = i.id
+                LEFT JOIN counterparties c ON im.supplier_id = c.id
+                WHERE im.movement_type = 'purchase'
+                  AND (i.name ILIKE $1 OR c.name ILIKE $1 OR c.inn ILIKE $1)
+                ORDER BY im.created_at DESC
+                LIMIT 50
+            `;
+            const result = await pool.query(query, [searchPattern]);
+            res.json(result.rows);
+        } catch (err) {
+            console.error('Ошибка глобального поиска:', err);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // АНАЛИЗ СЕБЕСТОИМОСТИ ДЛЯ ПРОДАЖ (ТЕОРИЯ VS ОПЫТ)
+    // ------------------------------------------------------------------
+    router.get('/api/sales/cost-analysis/:productId', async (req, res) => {
+        const { productId } = req.params;
+        try {
+            // 1. ТЕОРЕТИЧЕСКАЯ СЕБЕСТОИМОСТЬ СЫРЬЯ (ПО РЕЦЕПТУ)
+            const recipeRes = await pool.query(`
+                SELECT r.material_id, r.quantity_per_unit as qty, i.current_price, i.name, i.unit
+                FROM recipes r
+                JOIN items i ON r.material_id = i.id
+                WHERE r.product_id = $1
+            `, [productId]);
+
+            let theoreticalCost = new Big(0);
+            let materialsMap = {}; // Карта для слияния Теории и Факта
+
+            recipeRes.rows.forEach(r => {
+                theoreticalCost = theoreticalCost.plus(new Big(r.qty).times(r.current_price || 0));
+                materialsMap[r.material_id] = {
+                    id: r.material_id,
+                    name: r.name,
+                    unit: r.unit,
+                    theory_qty: parseFloat(r.qty) || 0,
+                    theory_cost: new Big(r.qty).times(r.current_price || 0).toNumber(),
+                    current_price: parseFloat(r.current_price) || 0,
+                    fact_qty: 0,
+                    fact_cost: 0
+                };
+            });
+
+            // 2. БАЗОВЫЕ ДАННЫЕ ПРОДУКЦИИ (Нужны для поддонов и теории)
+            const itemRes = await pool.query(`SELECT mold_id, COALESCE(qty_per_cycle, 1) as qty_per_cycle FROM items WHERE id = $1`, [productId]);
+            let qtyPerCycle = 1;
+            let moldId = null;
+            if (itemRes.rows.length > 0) {
+                qtyPerCycle = parseFloat(itemRes.rows[0].qty_per_cycle) || 1;
+                moldId = itemRes.rows[0].mold_id;
+            }
+
+            // 🚀 НОВОЕ: ДОСТАЕМ ОВЕРХЕД И ДЕЛИМ НА КОЭФФИЦИЕНТ ПОДДОНА
+            const overheadRes = await pool.query(`SELECT value FROM settings WHERE key = 'overhead_per_cycle'`);
+            const overheadPerCycle = overheadRes.rows.length > 0 ? parseFloat(overheadRes.rows[0].value) || 0 : 0;
+            const overheadPerUnit = qtyPerCycle > 0 ? (overheadPerCycle / qtyPerCycle) : 0;
+
+            // 3. АМОРТИЗАЦИЯ ПОДДОНОВ
+            let palletAmort = 0;
+            const palletsRes = await pool.query(`SELECT purchase_cost, planned_cycles FROM equipment WHERE equipment_type = 'pallets' AND status = 'active' ORDER BY id ASC LIMIT 1`);
+            if (palletsRes.rows.length > 0) {
+                const cost = parseFloat(palletsRes.rows[0].purchase_cost) || 0;
+                const cycles = parseFloat(palletsRes.rows[0].planned_cycles) || 1;
+                if (cycles > 0) palletAmort = cost / (cycles * qtyPerCycle);
+            }
+
+            // 4. ОПЫТНАЯ СЕБЕСТОИМОСТЬ И ДЕТАЛИЗАЦИЯ (ПО 10 ПОСЛЕДНИМ ПАРТИЯМ)
+            const historyRes = await pool.query(`
+                SELECT id, planned_quantity,
+                       ((machine_amort_cost + mold_amort_cost) / NULLIF(planned_quantity, 0)) as unit_amort
+                FROM production_batches
+                WHERE product_id = $1 AND status = 'completed'
+                ORDER BY created_at DESC LIMIT 10
+            `, [productId]);
+
+            let empiricalMatCost = new Big(0);
+            let avgAmort = new Big(palletAmort);
+
+            if (historyRes.rows.length > 0) {
+                let sumAmort = new Big(0);
+                let totalProduced = new Big(0);
+                const batchIds = [];
+
+                historyRes.rows.forEach(row => {
+                    sumAmort = sumAmort.plus(row.unit_amort || 0);
+                    totalProduced = totalProduced.plus(row.planned_quantity || 0);
+                    batchIds.push(row.id);
+                });
+
+                avgAmort = avgAmort.plus(sumAmort.div(historyRes.rows.length));
+
+                // ДОСТАЕМ ДЕТАЛЬНЫЙ ФАКТ РАСХОДА МАТЕРИАЛОВ
+                if (batchIds.length > 0 && totalProduced.gt(0)) {
+                    const factMatRes = await pool.query(`
+                        SELECT 
+                            m.item_id, 
+                            i.name, 
+                            i.unit, 
+                            SUM(ABS(m.quantity)) as total_fact_qty, 
+                            SUM(ABS(m.quantity) * COALESCE(NULLIF(m.unit_price, 0), i.current_price)) as total_fact_cost
+                        FROM inventory_movements m 
+                        JOIN items i ON m.item_id = i.id 
+                        WHERE m.batch_id = ANY($1::int[]) AND m.movement_type = 'production_expense'
+                        GROUP BY m.item_id, i.name, i.unit
+                    `, [batchIds]);
+
+                    factMatRes.rows.forEach(f => {
+                        const factQtyPerUnit = new Big(f.total_fact_qty).div(totalProduced).toNumber();
+                        const factCostPerUnit = new Big(f.total_fact_cost).div(totalProduced).toNumber();
+
+                        if (materialsMap[f.item_id]) {
+                            materialsMap[f.item_id].fact_qty = factQtyPerUnit;
+                            materialsMap[f.item_id].fact_cost = factCostPerUnit;
+                        } else {
+                            materialsMap[f.item_id] = {
+                                id: f.item_id, name: f.name, unit: f.unit,
+                                theory_qty: 0, theory_cost: 0,
+                                current_price: (parseFloat(f.total_fact_qty) > 0) ? new Big(f.total_fact_cost).div(f.total_fact_qty).toNumber() : 0,
+                                fact_qty: factQtyPerUnit, fact_cost: factCostPerUnit
+                            };
+                        }
+                    });
+                }
+
+                // 🚀 ГИБРИДНЫЙ РАСЧЕТ: ПОДСТРАХОВКА ДЛЯ УПАКОВКИ И ПРОЧЕГО
+                let recalcEmpirical = new Big(0);
+                Object.values(materialsMap).forEach(m => {
+                    if (m.fact_qty === 0 && m.theory_qty > 0) {
+                        m.fact_qty = m.theory_qty;
+                        m.fact_cost = m.theory_cost;
+                        m.is_hybrid = true; // Метка для фронтенда
+                    }
+                    recalcEmpirical = recalcEmpirical.plus(m.fact_cost);
+                });
+                // Заменяем котловую сумму на точную, собранную по крупицам
+                empiricalMatCost = recalcEmpirical;
+
+            } else {
+                // Если нет опыта — считаем теорию амортизации
+                let theoryAmort = 0;
+                if (moldId) {
+                    const moldRes = await pool.query(`SELECT purchase_cost, planned_cycles FROM equipment WHERE id = $1`, [moldId]);
+                    if (moldRes.rows.length > 0) {
+                        const m = moldRes.rows[0];
+                        const cost = parseFloat(m.purchase_cost) || 0;
+                        const cycles = parseFloat(m.planned_cycles) || 1;
+                        if (cycles > 0) theoryAmort += cost / (cycles * qtyPerCycle);
+                    }
+                }
+                const machineRes = await pool.query(`SELECT purchase_cost, planned_cycles FROM equipment WHERE equipment_type = 'machine' AND status = 'active' ORDER BY id ASC LIMIT 1`);
+                if (machineRes.rows.length > 0) {
+                    const m = machineRes.rows[0];
+                    const cost = parseFloat(m.purchase_cost) || 0;
+                    const cycles = parseFloat(m.planned_cycles) || 1;
+                    if (cycles > 0) theoryAmort += cost / (cycles * qtyPerCycle);
+                }
+                avgAmort = avgAmort.plus(theoryAmort);
+            }
+
+            res.json({
+                theoretical: theoreticalCost.toFixed(2),
+                empirical: empiricalMatCost.toFixed(2),
+                amortization: avgAmort.toFixed(2),
+                overhead: overheadPerUnit.toFixed(2),
+                materials: Object.values(materialsMap)
+            });
+        } catch (err) {
+            console.error('Ошибка анализа себестоимости:', err);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // ПОЛУЧЕНИЕ ФИНАНСОВЫХ НАСТРОЕК (НАЛОГ И ОВЕРХЕД) ДЛЯ ДАШБОРДА
+    // ------------------------------------------------------------------
+    router.get('/api/settings/finance', async (req, res) => {
+        try {
+            const result = await pool.query(`
+                SELECT key, value FROM settings 
+                WHERE key IN ('sales_tax', 'monthly_expenses', 'working_days', 'cycles_per_shift', 'overhead_per_cycle')
+            `);
+
+            const settings = {};
+            result.rows.forEach(row => { settings[row.key] = row.value; });
+
+            res.json({
+                sales_tax: settings.sales_tax || 6,
+                monthly_expenses: settings.monthly_expenses || 1500000,
+                working_days: settings.working_days || 22,
+                cycles_per_shift: settings.cycles_per_shift || 500,
+                overhead_per_cycle: settings.overhead_per_cycle || 136.36
+            });
+        } catch (err) {
+            console.error('Ошибка GET settings:', err);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // СОХРАНЕНИЕ ФИНАНСОВЫХ НАСТРОЕК С ДАШБОРДА
+    // ------------------------------------------------------------------
+    router.post('/api/settings/finance', async (req, res) => {
+        const keys = ['sales_tax', 'monthly_expenses', 'working_days', 'cycles_per_shift', 'overhead_per_cycle'];
+
+        try {
+            await withTransaction(pool, async (client) => {
+                for (let key of keys) {
+                    if (req.body[key] !== undefined) {
+                        await client.query(`
+                            INSERT INTO settings (key, value) VALUES ($1, $2)
+                            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+                        `, [key, req.body[key]]);
+                    }
+                }
+            });
+            res.json({ success: true });
+        } catch (err) {
+            console.error('Ошибка POST settings:', err);
+            res.status(500).json({ error: err.message });
+        }
+    });
     return router;
 };

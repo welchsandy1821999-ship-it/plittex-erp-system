@@ -16,6 +16,7 @@ let historyDateRange = { start: '', end: '' };
 let historyDatePicker = null;
 
 function initSales() {
+
     const whSelect = document.getElementById('sale-warehouse');
     if (whSelect) currentSalesWarehouse = whSelect.value;
 
@@ -45,6 +46,19 @@ function initSales() {
     loadSalesData(true);
     loadSalesHistory();
     if (typeof loadActiveOrders === 'function') loadActiveOrders();
+    initStaticSalesSelects();
+}
+
+function initStaticSalesSelects() {
+    ['sale-warehouse', 'sale-poa', 'sale-payment-method', 'sale-account', 'bo-client-filter', 'bo-status-filter', 'hist-client-filter'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && !el.tomselect) {
+            new TomSelect(el, {
+                plugins: ['clear_button'],
+                allowEmptyOption: true
+            });
+        }
+    });
 }
 
 window.setHistoryDateRange = function (type) {
@@ -108,6 +122,11 @@ window.loadClientContracts = async function (cpId) {
                 opt.setAttribute('data-cid', row.contract_id);
                 contractSelect.add(opt);
             });
+            if (!contractSelect.tomselect) {
+                new TomSelect(contractSelect, { plugins: ['clear_button'] });
+            } else {
+                contractSelect.tomselect.sync();
+            }
         }
         if (contractGroup) contractGroup.style.display = 'block';
     } catch (e) { console.error('Ошибка загрузки договоров:', e); }
@@ -289,6 +308,13 @@ window.openClientEditor = async function (id) {
             <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
             <button class="btn btn-blue" onclick="saveClientProfile(${id})">💾 Сохранить изменения</button>
         `);
+
+        setTimeout(() => {
+            ['edit-cp-level', 'edit-cp-type'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el && !el.tomselect) new TomSelect(el, { plugins: ['clear_button'], dropdownParent: 'body' });
+            });
+        }, 50);
     } catch (e) {
         console.error(e);
         UI.toast('Ошибка загрузки карточки', 'error');
@@ -338,7 +364,7 @@ window.saveClientProfile = async function (id) {
 window.printClientAct = function () {
     const cpId = document.getElementById('sale-client').value;
     if (!cpId) return UI.toast('Выберите клиента', 'warning');
-    
+
     // По умолчанию берем текущий месяц
     const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
     const today = new Date().toISOString().split('T')[0];
@@ -359,11 +385,11 @@ window.printClientAct = function () {
 };
 
 // Эта функция сработает после выбора дат в окне
-window.executePrintAct = function(cpId) {
+window.executePrintAct = function (cpId) {
     const start = document.getElementById('act-start').value;
     const end = document.getElementById('act-end').value;
     if (!start || !end) return UI.toast('Укажите даты', 'error');
-    
+
     // Отправляем правильный запрос с датами и правильным параметром (cpId)
     window.open(`/print/act?cpId=${cpId}&start=${start}&end=${end}`, '_blank');
     UI.closeModal();
@@ -510,15 +536,19 @@ async function loadSalesData(fullLoad = true) {
         Object.values(salesProductsInfo).forEach(p => {
             const price = parseFloat(p.price || p.current_price || 0);
             const dealerPrice = parseFloat(p.dealer_price || 0);
+
+            // 🚀 НОВОЕ: Ловим сдельную ставку из справочника
+            const pieceRate = parseFloat(p.piece_rate || 0);
+
             const stock4 = inventoryMap[p.name] ? inventoryMap[p.name]['4'] : 0;
             const stock5 = inventoryMap[p.name] ? inventoryMap[p.name]['5'] : 0;
 
             if (currentSalesWarehouse === 'all') {
-                stockMap[p.name] = { id: p.id, warehouseId: 4, name: p.name, unit: p.unit, qty: stock4, price, dealer_price: dealerPrice, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Авто', allowProduction: true };
+                stockMap[p.name] = { id: p.id, warehouseId: 4, name: p.name, unit: p.unit, qty: stock4, price, dealer_price: dealerPrice, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Авто', allowProduction: true };
             } else if (currentSalesWarehouse === '4' && stock4 > 0) {
-                stockMap[p.name] = { id: p.id, warehouseId: 4, name: p.name, unit: p.unit, qty: stock4, price, dealer_price: dealerPrice, weight: parseFloat(p.weight_kg || 0), sortLabel: '1 сорт', allowProduction: false };
+                stockMap[p.name] = { id: p.id, warehouseId: 4, name: p.name, unit: p.unit, qty: stock4, price, dealer_price: dealerPrice, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: '1 сорт', allowProduction: false };
             } else if (currentSalesWarehouse === '5' && stock5 > 0) {
-                stockMap[p.name] = { id: p.id, warehouseId: 5, name: p.name, unit: p.unit, qty: stock5, price: Math.floor(price * 0.7), dealer_price: Math.floor(dealerPrice * 0.7), weight: parseFloat(p.weight_kg || 0), sortLabel: 'Уценка', allowProduction: false };
+                stockMap[p.name] = { id: p.id, warehouseId: 5, name: p.name, unit: p.unit, qty: stock5, price: Math.floor(price * 0.7), dealer_price: Math.floor(dealerPrice * 0.7), piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Уценка', allowProduction: false };
             }
         });
 
@@ -554,6 +584,11 @@ window.updateSaleMaxQty = function () {
     const inputVal = document.getElementById('sale-product-input').value.trim();
     currentSelectedItem = stockMap[inputVal];
 
+    const btnCalc = document.getElementById('btn-calc-sales-cost');
+    if (btnCalc) {
+        btnCalc.style.display = currentSelectedItem ? 'block' : 'none';
+    }
+
     if (!currentSelectedItem) {
         document.getElementById('sale-unit-label').innerText = '';
         document.getElementById('sale-max-qty').innerText = `Остаток: 0`;
@@ -583,7 +618,10 @@ window.updateSaleMaxQty = function () {
     document.getElementById('sale-price').value = finalPrice;
 };
 
-window.addToCart = function () {
+// ==========================================
+// ⚙️ ГЛОБАЛЬНЫЕ ФИНАНСОВЫЕ КОНСТАНТЫ
+// ==========================================
+window.addToCart = async function () {
     if (!currentSelectedItem) return UI.toast('Выберите товар из списка умного поиска!', 'warning');
 
     const qty = parseFloat(document.getElementById('sale-qty').value);
@@ -591,12 +629,34 @@ window.addToCart = function () {
 
     if (!qty || qty <= 0) return UI.toast('Укажите количество!', 'warning');
 
-    // 🛡️ ЗАЩИТА: Если выбран конкретный склад (без права на производство) — блокируем продажу в минус!
+    // ЗАЩИТА: Блокировка продажи в минус (если отключено производство)
     if (!currentSelectedItem.allowProduction) {
         const existingQty = cart.filter(c => c.id === currentSelectedItem.id && c.warehouseId === currentSelectedItem.warehouseId).reduce((sum, c) => sum + c.qty, 0);
         if (qty + existingQty > currentSelectedItem.qty) {
             return UI.toast(`На этом складе в наличии только ${currentSelectedItem.qty} ${currentSelectedItem.unit}! Производство отключено.`, 'error');
         }
+    }
+
+    // 🚀 МАГИЯ: ЗАПРАШИВАЕМ ФАКТИЧЕСКУЮ СЕБЕСТОИМОСТЬ ПЕРЕД ДОБАВЛЕНИЕМ
+    UI.toast('⏳ Фиксация себестоимости...', 'info');
+    const btn = document.querySelector('button[onclick="addToCart()"]');
+    if (btn) btn.disabled = true;
+
+    let unitCost = 0;
+    try {
+        const res = await fetch(`/api/sales/cost-analysis/${currentSelectedItem.id}`);
+        const data = await res.json();
+
+        // 🚀 МАГИЯ: Берем Факт сырья + Аморт. + Оверхед + СДЕЛЬНУЮ З/П ИЗ КАРТОЧКИ
+        const baseMatCost = parseFloat(data.empirical) > 0 ? parseFloat(data.empirical) : parseFloat(data.theoretical);
+        const pieceRate = parseFloat(currentSelectedItem.piece_rate) || 0; // Наша новая константа
+
+        unitCost = baseMatCost + parseFloat(data.amortization) + parseFloat(data.overhead || 0) + pieceRate;
+    } catch (e) {
+        console.error("Ошибка получения себестоимости", e);
+        UI.toast('⚠️ Себестоимость не загружена, расчет маржи будет неточным', 'warning');
+    } finally {
+        if (btn) btn.disabled = false;
     }
 
     cart.push({
@@ -607,19 +667,134 @@ window.addToCart = function () {
         unit: currentSelectedItem.unit,
         qty: qty,
         price: price,
-        weight: currentSelectedItem.weight * qty,
+        weight: currentSelectedItem.weight || 0,
         allowProduction: currentSelectedItem.allowProduction,
-        stockAvailable: currentSelectedItem.qty // Запоминаем для красивой отрисовки дефицита
+        stockAvailable: currentSelectedItem.qty,
+        unitCost: unitCost // 🚀 СОХРАНЯЕМ СЕБЕСТОИМОСТЬ В КОРЗИНУ НАВСЕГДА
     });
 
     document.getElementById('sale-product-input').value = '';
     currentSelectedItem = null;
     document.getElementById('sale-unit-label').innerText = '';
     document.getElementById('sale-max-qty').innerText = `Остаток: 0`;
-    document.getElementById('sale-price').value = ''; // ИСПРАВЛЕНО (было 0)
-    document.getElementById('sale-qty').value = '';   // ИСПРАВЛЕНО (Очищаем поле количества)
+    document.getElementById('sale-price').value = '';
+    document.getElementById('sale-qty').value = '';
     renderCart();
 };
+
+window.renderCart = function () {
+    const tbody = document.getElementById('cart-table');
+
+    // БЛОК 1: ЕСЛИ КОРЗИНА ПУСТАЯ
+    if (cart.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">Корзина пуста</td></tr>';
+        document.getElementById('cart-total-sum').innerText = '0';
+
+        const weightEl = document.getElementById('cart-total-weight');
+        if (weightEl) weightEl.innerText = '0';
+
+        // Прячем финансовый контроллер
+        const profitInfo = document.getElementById('cart-profit-info');
+        if (profitInfo) profitInfo.style.display = 'none';
+
+        return;
+    }
+
+    let subtotal = 0;
+    let totalWeight = 0;
+    let totalProductionCost = 0; // 🚀 Сумма себестоимостей всего чека
+
+    // БЛОК 2: ОТРИСОВКА СТРОК ТАБЛИЦЫ
+    tbody.innerHTML = cart.map((item, index) => {
+        const qty = parseFloat(item.qty) || 0;
+        const basePrice = parseFloat(item.price) || 0;
+        const discount = parseFloat(item.discount) || 0;
+        const unitCost = parseFloat(item.unitCost) || 0; // Достаем зафиксированную себестоимость
+
+        const finalPrice = basePrice * (1 - discount / 100);
+        const sum = qty * finalPrice;
+        const costSum = qty * unitCost;
+
+        subtotal += sum;
+        totalWeight += qty * (item.weight || 0);
+        totalProductionCost += costSum;
+
+        return `
+            <tr style="border-bottom: 1px solid var(--surface-alt);">
+                <td>${item.sortLabel || '1 Сорт'}</td>
+                <td><b>${item.name}</b></td>
+                <td style="text-align: center;">${qty} ${item.unit}</td>
+                <td style="text-align: center;">
+                    <input type="number" class="input-modern" style="width: 70px; padding: 4px; text-align: center;" value="${basePrice}" onchange="updateCartItem(${index}, 'price', this.value)">
+                </td>
+                <td style="text-align: center;">
+                    <input type="number" class="input-modern" style="width: 60px; padding: 4px; text-align: center; color: var(--danger);" value="${discount}" min="0" max="100" onchange="updateCartItem(${index}, 'discount', this.value)">
+                </td>
+                <td style="text-align: right; font-weight: bold; color: var(--primary);">${sum.toFixed(2)} ₽</td>
+                <td style="text-align: center;"><button style="background: none; border: none; color: var(--danger); cursor: pointer; font-size: 16px;" onclick="removeFromCart(${index})">✖</button></td>
+            </tr>
+        `;
+    }).join('');
+
+    // БЛОК 3: БАЗОВАЯ МАТЕМАТИКА ЧЕКА
+    const globalDiscount = parseFloat(document.getElementById('sale-discount').value) || 0;
+    const logistics = parseFloat(document.getElementById('sale-logistics-cost').value) || 0;
+
+    const finalProductRevenue = subtotal * (1 - globalDiscount / 100);
+    const finalTotal = finalProductRevenue + logistics;
+
+    document.getElementById('cart-total-weight').innerText = totalWeight.toFixed(1);
+    document.getElementById('cart-total-sum').innerText = finalTotal.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    // ==================================================
+    // 🚀 БЛОК 4: ФИНАНСОВЫЙ КОНТРОЛЛЕР СДЕЛКИ
+    // ==================================================
+    // БЕЗОПАСНОЕ ЧТЕНИЕ: Если настройки еще грузятся, берем 0, чтобы не сломать математику
+    const safeTaxPct = parseFloat(window.FINANCE_TAX_PERCENT) || 0;
+
+    // Налог платится с общей суммы поступлений
+    const taxCost = finalTotal * (safeTaxPct / 100);
+
+    // 🚀 Чистая прибыль: Выручка - Себестоимость (Сырье+Аморт+Оверхед) - Налог
+    const netProfit = finalProductRevenue - totalProductionCost - taxCost;
+    const marginPct = finalTotal > 0 ? ((netProfit / finalTotal) * 100).toFixed(1) : 0;
+
+    // Динамически создаем или находим контейнер для вывода прибыли
+    let profitContainer = document.getElementById('cart-profit-info');
+    if (!profitContainer) {
+        const totalSumContainer = document.getElementById('cart-total-sum').closest('div').parentNode;
+        profitContainer = document.createElement('div');
+        profitContainer.id = 'cart-profit-info';
+        profitContainer.style.marginTop = '15px';
+        profitContainer.style.padding = '15px';
+        profitContainer.style.borderRadius = '8px';
+        profitContainer.style.display = 'flex';
+        profitContainer.style.justifyContent = 'space-between';
+        profitContainer.style.alignItems = 'center';
+        totalSumContainer.parentNode.appendChild(profitContainer);
+    }
+
+    const isProfitable = netProfit > 0;
+    profitContainer.style.background = isProfitable ? 'var(--success-bg)' : 'var(--danger-bg)';
+    profitContainer.style.border = `1px solid ${isProfitable ? 'var(--success-border)' : 'var(--danger-border)'}`;
+
+    profitContainer.innerHTML = `
+        <div>
+            <div style="color: ${isProfitable ? 'var(--success-text)' : 'var(--danger-text)'}; font-weight: bold; font-size: 14px;">Очищенная прибыль сделки:</div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Удержан налог (${safeTaxPct}%). Оверхед уже учтен в себестоимости.</div>
+        </div>
+        <div style="text-align: right;">
+            <div style="font-size: 24px; font-weight: 900; color: ${isProfitable ? 'var(--success)' : 'var(--danger)'}; line-height: 1;">
+                ${netProfit.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽
+            </div>
+            <div style="margin-top: 5px; font-size: 12px; padding: 3px 10px; border-radius: 12px; background: ${isProfitable ? 'var(--success)' : 'var(--danger)'}; color: white; font-weight: bold; display: inline-block;">
+                Рентабельность: ${marginPct}%
+            </div>
+        </div>
+    `;
+    profitContainer.style.display = 'flex';
+};
+
 
 window.removeFromCart = function (index) {
     cart.splice(index, 1);
@@ -629,7 +804,7 @@ window.removeFromCart = function (index) {
 // Функция пересчета при изменении значения прямо в таблице
 window.updateCartItem = function (index, field, value) {
     let val = parseFloat(value) || 0;
-    
+
     if (field === 'price' && val < 0) {
         UI.toast('Цена не может быть отрицательной!', 'warning');
         val = 0;
@@ -648,59 +823,6 @@ window.updateCartItem = function (index, field, value) {
     renderCart();
 };
 
-window.renderCart = function () {
-    const tbody = document.getElementById('cart-table');
-    if (cart.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">Корзина пуста</td></tr>';
-        document.getElementById('cart-total-sum').innerText = '0';
-
-        // 🚀 ИСПРАВЛЕНИЕ: Жестко обнуляем вес, если корзина пустая
-        const weightEl = document.getElementById('cart-total-weight');
-        if (weightEl) weightEl.innerText = '0';
-
-        return;
-    }
-
-    let subtotal = 0; let totalWeight = 0;
-
-    tbody.innerHTML = cart.map((item, index) => {
-        const qty = parseFloat(item.qty) || 0;
-        const basePrice = parseFloat(item.price) || 0;
-        const discount = parseFloat(item.discount) || 0;
-
-        // Считаем индивидуальную скидку
-        const finalPrice = basePrice * (1 - discount / 100);
-        const sum = qty * finalPrice;
-
-        subtotal += sum;
-        totalWeight += qty * (item.weight || 0);
-
-        return `
-            <tr style="border-bottom: 1px solid var(--surface-alt);">
-                <td>1 Сорт</td>
-                <td><b>${item.name}</b></td>
-                <td style="text-align: center;">${qty} ${item.unit}</td>
-                <td style="text-align: center;">
-                    <input type="number" class="input-modern" style="width: 70px; padding: 4px; text-align: center;" value="${basePrice}" onchange="updateCartItem(${index}, 'price', this.value)">
-                </td>
-                <td style="text-align: center;">
-                    <input type="number" class="input-modern" style="width: 60px; padding: 4px; text-align: center; color: var(--danger);" value="${discount}" min="0" max="100" onchange="updateCartItem(${index}, 'discount', this.value)">
-                </td>
-                <td style="text-align: right; font-weight: bold; color: var(--primary);">${sum.toFixed(2)} ₽</td>
-                <td style="text-align: center;"><button style="background: none; border: none; color: var(--danger); cursor: pointer; font-size: 16px;" onclick="removeFromCart(${index})">✖</button></td>
-            </tr>
-        `;
-    }).join('');
-
-    const globalDiscount = parseFloat(document.getElementById('sale-discount').value) || 0;
-    const logistics = parseFloat(document.getElementById('sale-logistics-cost').value) || 0;
-    const finalTotal = (subtotal * (1 - globalDiscount / 100)) + logistics;
-
-    document.getElementById('cart-total-weight').innerText = totalWeight.toFixed(1);
-    document.getElementById('cart-total-sum').innerText = finalTotal.toLocaleString('ru-RU');
-};
-
-// === УМНАЯ ОЧИСТКА ВСЕГО БЛОКА ОФОРМЛЕНИЯ ===
 window.clearOrderForm = function () {
     // 1. Очищаем корзину
     cart = [];
@@ -772,7 +894,7 @@ window.processCheckout = async function () {
     if (!plannedDateStr) {
         return UI.toast('Укажите плановую дату отгрузки!', 'error');
     }
-    
+
     const plannedDate = new Date(plannedDateStr);
     const today = new Date();
     today.setHours(0, 0, 0, 0); // Обнуляем время для проверки только даты
@@ -1304,7 +1426,7 @@ window.openContractManager = async function () {
                 listHtml += `
                     <div style="border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 10px; background: var(--surface); padding: 10px; box-shadow: 0 1px 3px var(--shadow-sm);">
                         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #e2e8f0; padding-bottom: 8px; margin-bottom: 8px;">
-                            <strong style="color: #0f172a; font-size: 14px;">📄 Договор №${c.number} от ${c.date}</strong>
+                            <strong style="color: #0f172a; font-size: 14px;">📄 Договор №${c.id ? `<span class="entity-link" onclick="window.app.openEntity('document_contract', ${c.id})">${c.number}</span>` : c.number} от ${c.date}</strong>
                             <div style="display: flex; gap: 5px;">
                                 <button class="btn btn-outline" style="padding: 2px 8px; font-size: 11px; border-color: var(--info); color: var(--info);" onclick="window.open('/print/contract?id=${c.id}', '_blank')" title="Распечатать">🖨️</button>
                                 <button class="btn btn-outline" style="padding: 2px 8px; font-size: 11px; border-color: #ef4444; color: #ef4444;" onclick="deleteContract(${c.id})" title="Удалить">❌</button>
@@ -1361,6 +1483,11 @@ window.openContractManager = async function () {
         `;
 
         UI.showModal(`Управление договорами: ${cpName}`, html, `<button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>`);
+        
+        setTimeout(() => {
+            const el = document.getElementById('new-spec-contract-id');
+            if (el && !el.tomselect) new TomSelect(el, { plugins: ['clear_button'], dropdownParent: 'body' });
+        }, 50);
 
         // 🚀 ЛОГИКА АВТОНУМЕРАЦИИ
         setTimeout(() => {
@@ -1509,6 +1636,241 @@ window.saveNewSpecification = async function () {
         loadClientContracts();
         UI.closeModal();
     }
+};
+
+// --- ЛОГИКА ДЛЯ sales.js ---
+
+// Показываем кнопку расчета только когда выбран товар
+// (нужно добавить этот вызов в onChange твоего TomSelect продукции в продажах)
+window.onSalesProductChange = function (productId) {
+    const btn = document.getElementById('btn-calc-sales-cost');
+    if (productId) btn.style.display = 'block';
+    else btn.style.display = 'none';
+};
+
+// ==========================================
+// АНАЛИЗ СЕБЕСТОИМОСТИ И РЕНТАБЕЛЬНОСТИ
+// ==========================================
+window.openCostAnalysisModal = async function () {
+    if (!currentSelectedItem) return UI.toast('Выберите товар из списка!', 'warning');
+
+    const qty = parseFloat(document.getElementById('sale-qty').value) || 1;
+    const salePrice = parseFloat(document.getElementById('sale-price').value) || 0;
+
+    UI.toast('⏳ Загрузка аналитики...', 'info');
+
+    try {
+        const res = await fetch(`/api/sales/cost-analysis/${currentSelectedItem.id}`);
+        const data = await res.json();
+
+        // Динамический подсчет итогов для футера
+        const totalTheoryQty = data.materials.reduce((sum, m) => sum + m.theory_qty, 0);
+        const totalFactQty = data.materials.reduce((sum, m) => sum + m.fact_qty, 0);
+        const totalFactCost = data.materials.reduce((sum, m) => sum + m.fact_cost, 0);
+
+        window.currentCalcData = { ...data, qty, salePrice };
+
+        const html = `
+            <style>
+                #app-modal .modal-content { max-width: 1050px !important; width: 95% !important; }
+            </style>
+            <div style="padding: 10px; font-family: 'Inter', system-ui, sans-serif; color: var(--text-main);">
+                
+                <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 25px; border-bottom: 2px solid var(--border); padding-bottom: 15px;">
+                    <div>
+                        <h3 style="margin: 0; font-size: 20px; color: var(--text-main);">📊 Экономика сделки: ${currentSelectedItem.name}</h3>
+                        <p style="margin: 5px 0 0; color: var(--text-muted); font-size: 14px;">Объем партии: <b style="color: var(--text-main);">${qty} ${currentSelectedItem.unit || 'шт.'}</b></p>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Чистая прибыль (Партия)</div>
+                        <div id="res-batch-profit" style="font-size: 32px; font-weight: 900; color: var(--success); line-height: 1;">0.00 ₽</div>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 320px 1fr; gap: 30px;">
+                    
+                    <div style="display: flex; flex-direction: column; gap: 18px;">
+                        <div style="background: var(--card-bg); padding: 18px; border-radius: 12px; border: 1px solid var(--border); border-left: 5px solid var(--primary);">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                                <span style="font-weight: bold; color: var(--text-muted);">📐 Идеал (Рецепт)</span>
+                                <b style="font-size: 16px; color: var(--text-main);">${data.theoretical} ₽</b>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 14px; background: var(--surface-alt); padding: 8px; border-radius: 6px;">
+                                <span style="color: var(--text-muted);">🧪 Опыт (Факт):</span>
+                                <b style="color: var(--warning-text);">${parseFloat(data.empirical) > 0 ? data.empirical : data.theoretical} ₽</b>
+                            </div>
+                        </div>
+
+                        <div style="background: var(--card-bg); padding: 18px; border-radius: 12px; border: 1px solid var(--border); border-left: 5px solid var(--warning);">
+                            <h4 style="margin: 0 0 12px 0; font-size: 13px; color: var(--text-main); text-transform: uppercase;">🔨 Доп. расходы (на 1 ед)</h4>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px; align-items: center;">
+                                <span style="font-size: 12px; color: var(--text-muted);">Амортизация:</span>
+                                <span style="font-weight: bold; color: var(--text-main);">${data.amortization} ₽</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px; align-items: center; padding-bottom: 8px; border-bottom: 1px dashed var(--border);">
+                                <span style="font-size: 12px; color: var(--text-muted);">Оверхед (Завод):</span>
+                                <span style="font-weight: bold; color: var(--warning-text);" title="Распределенные косвенные затраты">${data.overhead} ₽</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px; align-items: center;">
+                                <span style="font-size: 12px; color: var(--text-muted);">Сдельная З/П:</span>
+                                <input type="number" id="calc-wage" class="input-modern" value="${currentSelectedItem.piece_rate || 0}" disabled title="Эта сумма автоматически подтягивается из Справочника продукции" style="width: 90px; padding: 4px 8px; text-align: right; height: 32px; background: var(--surface-hover); color: var(--success); font-weight: bold; border: 1px dashed var(--success);">
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 12px; color: var(--text-muted);">Упаковка и лог.:</span>
+                                <input type="number" id="calc-pack" class="input-modern" value="0" step="1" onfocus="this.select()" oninput="recalcSalesMargin()" style="width: 90px; padding: 4px 8px; text-align: right; height: 32px;">
+                            </div>
+                        </div>
+
+                        <div style="background: var(--card-bg); padding: 18px; border-radius: 12px; border: 1px solid var(--border); border-left: 5px solid var(--danger);">
+                            <h4 style="margin: 0 0 12px 0; font-size: 13px; color: var(--text-main); text-transform: uppercase;">💼 Коммерция и Налоги</h4>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px; align-items: center;">
+                                <span style="font-size: 12px; color: var(--text-muted);">Цена (1 ед):</span>
+                                <span style="font-weight: bold; color: var(--text-main);">${salePrice} ₽</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px; align-items: center;">
+                                <span style="font-size: 12px; color: var(--danger-text);">Налог (%):</span>
+                               <input type="number" id="calc-tax-pct" class="input-modern" value="${window.FINANCE_TAX_PERCENT || 6}" step="1" max="100" onfocus="this.select()" oninput="recalcSalesMargin()" style="width: 90px; padding: 4px 8px; text-align: right; border-color: var(--danger-border); height: 32px;">
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 12px; color: var(--info);">Менеджер (%):</span>
+                                <input type="number" id="calc-bonus-pct" class="input-modern" value="0" step="0.5" max="100" onfocus="this.select()" oninput="recalcSalesMargin()" style="width: 90px; padding: 4px 8px; text-align: right; border-color: var(--info); height: 32px;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 20px;">
+                        
+                        <div style="background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border); box-shadow: var(--shadow-sm); overflow: hidden;">
+                            <div style="padding: 15px 20px; background: var(--surface-alt); border-bottom: 1px solid var(--border);">
+                                <h4 style="margin: 0; font-size: 14px; text-transform: uppercase; color: var(--text-muted);">📦 Сравнительный расход сырья</h4>
+                            </div>
+                            <div style="overflow-x: auto;">
+                                <table style="width: 100%; border-collapse: collapse; min-width: 600px;">
+                                    <thead style="background: var(--surface-alt);">
+                                        <tr style="text-align: left; border-bottom: 1px solid var(--border);">
+                                            <th rowspan="2" style="padding: 10px; border-right: 1px solid var(--border); font-size: 11px; color: var(--text-muted);">МАТЕРИАЛ</th>
+                                            <th colspan="2" style="padding: 10px; border-right: 1px solid var(--border); font-size: 11px; color: var(--text-muted); text-align: center;">РАСХОД (НА 1 ЕД)</th>
+                                            <th colspan="2" style="padding: 10px; border-right: 1px solid var(--border); font-size: 11px; color: var(--text-muted); text-align: center;">СУММА (1 ЕД)</th>
+                                            <th rowspan="2" style="padding: 10px; font-size: 11px; color: var(--text-muted); text-align: right;">ФАКТ (ПАРТИЯ)</th>
+                                        </tr>
+                                        <tr style="text-align: center; border-bottom: 2px solid var(--border);">
+                                            <th style="padding: 5px 10px; font-size: 10px; color: var(--primary); border-right: 1px dashed var(--border);">📐 Идеал</th>
+                                            <th style="padding: 5px 10px; font-size: 10px; color: var(--warning-text); border-right: 1px solid var(--border);">🧪 Опыт</th>
+                                            <th style="padding: 5px 10px; font-size: 10px; color: var(--primary); border-right: 1px dashed var(--border);">📐 Идеал</th>
+                                            <th style="padding: 5px 10px; font-size: 10px; color: var(--warning-text); border-right: 1px solid var(--border);">🧪 Опыт</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${data.materials.map(m => `
+                                            <tr style="border-bottom: 1px solid var(--surface-hover);">
+                                                <td style="padding: 10px; font-weight: 600; border-right: 1px solid var(--border); font-size: 12px; color: var(--text-main);">${m.name}</td>
+                                                
+                                                <td style="padding: 10px; text-align: center; color: var(--primary); border-right: 1px dashed var(--border); font-size: 12px;">${m.theory_qty > 0 ? m.theory_qty.toFixed(3) : '-'} <small>${m.unit}</small></td>
+                                                <td style="padding: 10px; text-align: center; color: var(--warning-text); font-weight: bold; border-right: 1px solid var(--border); font-size: 12px;">
+                                                    ${m.fact_qty > 0 ? m.fact_qty.toFixed(3) : '-'} <small>${m.unit}</small>
+                                                    ${m.is_hybrid ? '<span title="Нет факта. Автоматически взято из рецепта" style="cursor:help;">🪄</span>' : ''}
+                                                </td>
+                                                
+                                                <td style="padding: 10px; text-align: right; color: var(--primary); border-right: 1px dashed var(--border); font-size: 12px;">${m.theory_cost > 0 ? m.theory_cost.toFixed(2) + ' ₽' : '-'}</td>
+                                                <td style="padding: 10px; text-align: right; color: var(--warning-text); font-weight: bold; border-right: 1px solid var(--border); font-size: 12px;">${m.fact_cost > 0 ? m.fact_cost.toFixed(2) + ' ₽' : '-'}</td>
+                                                
+                                                <td style="padding: 10px; text-align: right; font-weight: bold; color: var(--danger); font-size: 12px;">${m.fact_cost > 0 ? (m.fact_cost * qty).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽' : '-'}</td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                    <tfoot style="background: var(--surface-alt); border-top: 2px solid var(--border);">
+                                        <tr style="font-weight: 900; color: var(--text-main);">
+                                            <td style="padding: 12px 10px; border-right: 1px solid var(--border);">ИТОГО (СЫРЬЕ):</td>
+                                            <td style="padding: 12px 10px; text-align: center; border-right: 1px dashed var(--border);"></td>
+                                            <td style="padding: 12px 10px; text-align: center; border-right: 1px solid var(--border);"></td>
+                                            <td style="padding: 12px 10px; text-align: right; color: var(--primary); border-right: 1px dashed var(--border);">${parseFloat(data.theoretical).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽</td>
+                                            <td style="padding: 12px 10px; text-align: right; color: var(--warning-text); border-right: 1px solid var(--border);">${totalFactCost > 0 ? totalFactCost.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽' : '-'}</td>
+                                            <td style="padding: 12px 10px; text-align: right; color: var(--danger); font-size: 14px;">${totalFactCost > 0 ? (totalFactCost * qty).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽' : '-'}</td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div style="background: var(--surface-alt); padding: 20px; border-radius: 12px; border: 1px solid var(--border);">
+                            <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 10px; color: var(--text-main); border-bottom: 1px dashed var(--border); padding-bottom: 10px;">
+                                <span>Производственная себестоимость (1 ед):</span>
+                                <strong id="res-prod-cost" style="color: var(--text-main);">0.00 ₽</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 15px; color: var(--text-main); border-bottom: 1px solid var(--border); padding-bottom: 15px;">
+                                <span>Налоги и комиссии (1 ед):</span>
+                                <strong id="res-taxes" style="color: var(--danger-text);">-0.00 ₽</strong>
+                            </div>
+                            
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div style="font-size: 12px; text-transform: uppercase; color: var(--text-muted); font-weight: bold;">Очищенная прибыль (1 ед)</div>
+                                <div style="text-align: right;">
+                                    <div id="res-net-profit" style="font-size: 24px; font-weight: 900; color: var(--success); line-height: 1;">0.00 ₽</div>
+                                    <div id="res-margin-pct" style="font-size: 13px; font-weight: bold; color: var(--success-text); margin-top: 5px;">Рентабельность: 0%</div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        `;
+
+        UI.showModal(`📊 Калькулятор: ${currentSelectedItem.name}`, html, `<button class="btn btn-blue w-100" style="padding: 12px; font-size: 15px;" onclick="UI.closeModal()">Закрыть анализ</button>`);
+
+        recalcSalesMargin();
+    } catch (e) { UI.toast('Ошибка загрузки данных', 'error'); }
+};
+
+window.recalcSalesMargin = function () {
+    // 🚀 Добавили overhead в деструктуризацию
+    const { theoretical, empirical, amortization, overhead, qty, salePrice } = window.currentCalcData;
+
+    // Значения из полей
+    const wage = parseFloat(document.getElementById('calc-wage').value) || 0;
+    const pack = parseFloat(document.getElementById('calc-pack').value) || 0;
+    const taxPct = parseFloat(document.getElementById('calc-tax-pct').value) || 0;
+    const bonusPct = parseFloat(document.getElementById('calc-bonus-pct').value) || 0;
+
+    // Математика: База сырья (Опыт в приоритете)
+    const baseMatCost = parseFloat(empirical) > 0 ? parseFloat(empirical) : parseFloat(theoretical);
+
+    // 🚀 Производственная себестоимость (Сырье + Аморт + ОВЕРХЕД + ЗП + Упаковка)
+    const prodCost = baseMatCost + parseFloat(amortization) + parseFloat(overhead || 0) + wage + pack;
+
+    // Коммерческие расходы (Налог + Премия от цены продажи)
+    const taxCost = salePrice * (taxPct / 100);
+    const bonusCost = salePrice * (bonusPct / 100);
+    const totalCommercialCost = taxCost + bonusCost;
+
+    // Итоговая прибыль
+    const netProfit = salePrice - prodCost - totalCommercialCost;
+    const netMargin = salePrice > 0 ? ((netProfit / salePrice) * 100).toFixed(1) : 0;
+    const batchProfit = netProfit * qty;
+
+    // Отрисовка
+    document.getElementById('res-prod-cost').innerText = prodCost.toFixed(2) + ' ₽';
+    document.getElementById('res-taxes').innerText = '-' + totalCommercialCost.toFixed(2) + ' ₽';
+
+    const profitEl = document.getElementById('res-net-profit');
+    const marginEl = document.getElementById('res-margin-pct');
+    const batchProfitEl = document.getElementById('res-batch-profit');
+
+    if (netProfit > 0) {
+        profitEl.innerText = netProfit.toFixed(2) + ' ₽';
+        profitEl.style.color = 'var(--success)';
+        marginEl.innerText = `Рентабельность сделки: ${netMargin}%`;
+        marginEl.style.color = 'var(--success-text)';
+        batchProfitEl.style.color = 'var(--success)';
+    } else {
+        profitEl.innerText = netProfit.toFixed(2) + ' ₽';
+        profitEl.style.color = 'var(--danger)';
+        marginEl.innerText = `Убыток: ${netMargin}%`;
+        marginEl.style.color = 'var(--danger-text)';
+        batchProfitEl.style.color = 'var(--danger)';
+    }
+
+    batchProfitEl.innerText = batchProfit.toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽';
 };
 
 // ==========================================
@@ -1733,6 +2095,13 @@ window.openReturnModal = async function () {
             <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
             <button class="btn btn-red" onclick="executeReturn()">💾 Провести возврат</button>
         `);
+
+        setTimeout(() => {
+            ['ret-client', 'ret-item', 'ret-wh', 'ret-method', 'ret-account'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el && !el.tomselect) new TomSelect(el, { plugins: ['clear_button'], dropdownParent: 'body' });
+            });
+        }, 50);
     } catch (e) { console.error(e); }
 };
 
@@ -1897,7 +2266,7 @@ window.generateKP = function () {
     form.target = '_blank';
 
     const data = { client_id: clientId, items: cart, discount: discount, logistics: logisticsCost };
-    
+
     const input = document.createElement('input');
     input.type = 'hidden';
     input.name = 'data';
@@ -1917,7 +2286,7 @@ window.generateBlankOrder = function () {
 
     const discount = document.getElementById('sale-discount').value || 0;
     const logisticsCost = document.getElementById('sale-logistics-cost').value || 0;
-    
+
     // Считываем новые данные: Оплата и Поддоны
     const paymentMethod = document.getElementById('sale-payment-method').value;
     const advanceAmount = document.getElementById('sale-advance-amount')?.value || 0;
@@ -1927,12 +2296,12 @@ window.generateBlankOrder = function () {
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = '/print/blank_order_draft';
-    form.target = '_blank'; 
+    form.target = '_blank';
 
-    const data = { 
-        client_id: clientId, 
-        items: cart, 
-        discount: discount, 
+    const data = {
+        client_id: clientId,
+        items: cart,
+        discount: discount,
         logistics: logisticsCost,
         pallets: pallets,
         paymentMethod: paymentMethod,
@@ -1974,6 +2343,11 @@ window.openInvoiceModal = function (docNum, debtAmt) {
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
         <button class="btn btn-blue" onclick="executePrintInvoice('${docNum}')">🖨️ Печать Счета</button>
     `);
+
+    setTimeout(() => {
+        const el = document.getElementById('invoice-bank');
+        if (el && !el.tomselect) new TomSelect(el, { plugins: ['clear_button'], dropdownParent: 'body' });
+    }, 50);
 };
 
 window.executePrintInvoice = function (docNum) {
@@ -2018,6 +2392,11 @@ window.offsetOrderAdvance = async function (docNum, amount) {
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
         <button class="btn btn-blue" id="btn-do-offset" style="background: #059669; border-color: #059669;" onclick="executeOffset('${docNum}', ${amount}, this)">✅ Провести зачет</button>
     `);
+
+    setTimeout(() => {
+        const el = document.getElementById('offset-account-select');
+        if (el && !el.tomselect) new TomSelect(el, { plugins: ['clear_button'], dropdownParent: 'body' });
+    }, 50);
 };
 
 window.executeOffset = async function (docNum, amount, btnElement) {
@@ -2234,6 +2613,11 @@ window.openExport1CModal = function () {
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
         <button class="btn btn-blue" style="background: #10b981; border-color: #10b981;" onclick="executeExport1C()">Скачать Excel</button>
     `);
+
+    setTimeout(() => {
+        const el = document.getElementById('export-month');
+        if (el && !el.tomselect) new TomSelect(el, { plugins: ['clear_button'], dropdownParent: 'body' });
+    }, 50);
 };
 
 window.executeExport1C = function () {
@@ -2460,10 +2844,12 @@ window.renderKanbanBoard = function () {
 
         card.innerHTML = `
             <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px; display: flex; justify-content: space-between;">
-                <span>${order.doc_number}</span>
+                <span>${order.id ? `<span class="entity-link" onclick="window.app.openEntity('document_order', ${order.id})">${order.doc_number}</span>` : order.doc_number}</span>
                 <span title="Дедлайн">⏳ ${order.deadline || order.date_formatted}</span>
             </div>
-            <div style="font-weight: bold; margin-bottom: 8px; color: #1e293b; font-size: 14px;">${escapeHTML(order.client_name)}</div>
+            <div style="font-weight: bold; margin-bottom: 8px; color: #1e293b; font-size: 14px;">
+                ${order.client_id ? `<span class="entity-link" onclick="window.app.openEntity('client', ${order.client_id})">${escapeHTML(order.client_name)}</span>` : escapeHTML(order.client_name)}
+            </div>
             <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
                 ${escapeHTML(order.items_list)}
             </div>
@@ -2564,7 +2950,9 @@ window.openOrderDetails = async function (orderId) {
 
             itemsHtml += `
                 <tr>
-                    <td style="padding: 8px; border-bottom: 1px solid var(--surface-alt);">${escapeHTML(item.name)}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid var(--surface-alt);">
+                        ${item.product_id || item.id ? `<span class="entity-link" onclick="window.app.openEntity('nomenclature', ${item.product_id || item.id})">${escapeHTML(item.name)}</span>` : escapeHTML(item.name)}
+                    </td>
                     <td style="padding: 8px; border-bottom: 1px solid var(--surface-alt); text-align: center; font-weight: bold;">${ordered} ${item.unit}</td>
                     <td style="padding: 8px; border-bottom: 1px solid var(--surface-alt); text-align: center; font-weight: bold; ${color}">${shipped}</td>
                 </tr>
@@ -2575,7 +2963,9 @@ window.openOrderDetails = async function (orderId) {
         // Формируем тело модального окна
         const htmlBody = `
             <div style="margin-bottom: 15px; background: var(--surface-hover); padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 14px;">
-                <div style="margin-bottom: 8px;"><strong>👤 Клиент:</strong> ${escapeHTML(order.client_name)}</div>
+                <div style="margin-bottom: 8px;"><strong>💼 Клиент:</strong> 
+                    ${order.client_id ? `<span class="entity-link" onclick="window.app.openEntity('client', ${order.client_id})">${escapeHTML(order.client_name)}</span>` : escapeHTML(order.client_name)}
+                </div>
                 <div style="margin-bottom: 8px;"><strong>📍 Адрес доставки:</strong> ${escapeHTML(order.delivery_address || 'Самовывоз')}</div>
                 <div style="margin-bottom: 8px;"><strong>💰 Сумма заказа:</strong> <span style="color: #0f172a; font-weight: bold;">${parseFloat(order.total_amount).toLocaleString()} ₽</span></div>
                 <div style="margin-bottom: 0;"><strong>📅 Плановая отгрузка:</strong> ${order.planned_shipment_date ? new Date(order.planned_shipment_date).toLocaleDateString() : 'Не указана'}</div>
@@ -2729,52 +3119,52 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-  // ==========================================================================
+// ==========================================================================
 // ГЛОБАЛЬНЫЙ ЦЕНТР ПЕЧАТИ ДОКУМЕНТОВ (Связь с docs.js)
 // ==========================================================================
 window.AppPrint = {
     // 1. Счет на оплату
-    invoice: function(id) {
+    invoice: function (id) {
         if (!id) return UI.toast('ID счета не указан', 'error');
         window.open(`/print/invoice?id=${id}`, '_blank');
     },
     // 2. Расходная накладная
-    waybill: function(docNum) {
+    waybill: function (docNum) {
         if (!docNum) return UI.toast('Номер документа не указан', 'error');
         window.open(`/print/waybill?docNum=${docNum}`, '_blank');
     },
     // 3. УПД
-    upd: function(docNum) {
+    upd: function (docNum) {
         if (!docNum) return UI.toast('Номер документа не указан', 'error');
         window.open(`/print/upd?docNum=${docNum}`, '_blank');
     },
     // 4. Договор
-    contract: function(id) {
+    contract: function (id) {
         if (!id) return UI.toast('ID договора не указан', 'error');
         window.open(`/print/contract?id=${id}`, '_blank');
     },
     // 5. Спецификация (по номеру заказа)
-    specification: function(docNum) {
+    specification: function (docNum) {
         if (!docNum) return UI.toast('Номер заказа не указан', 'error');
         window.open(`/print/specification?docNum=${docNum}`, '_blank');
     },
     // 6. Спецификация (отдельный документ)
-    specificationDoc: function(id) {
+    specificationDoc: function (id) {
         if (!id) return UI.toast('ID спецификации не указан', 'error');
         window.open(`/print/specification_doc?id=${id}`, '_blank');
     },
     // 7. Акт сверки
-    act: function(cpId, startDate, endDate) {
+    act: function (cpId, startDate, endDate) {
         if (!cpId || !startDate || !endDate) return UI.toast('Укажите контрагента и период', 'error');
-        window.open(`/print/act?cpId=${cpId}&start=${startDate}&end=${endDate}`, '_blank');
+        window.open(`/print/act?cp_id=${cpId}&start=${startDate}&end=${endDate}`, '_blank');
     },
     // 8. Бланк заказа
-    blankOrder: function(docNum) {
+    blankOrder: function (docNum) {
         if (!docNum) return UI.toast('Номер заказа не указан', 'error');
         window.open(`/print/blank_order?docNum=${docNum}`, '_blank');
     },
     // 9. Паспорт партии (Производство)
-    passport: function(batchId) {
+    passport: function (batchId) {
         if (!batchId) return UI.toast('ID партии не указан', 'error');
         window.open(`/print/passport?batchId=${batchId}`, '_blank');
     }

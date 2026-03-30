@@ -5,15 +5,24 @@
             <p class="text-muted mt-0" style="font-size: 13px;">Моделирование реальной себестоимости 1 цикла формовки
             </p>
         </div>
+        <div>
+            <button id="btn-mrp-status" class="btn"
+                style="background: var(--surface-alt); border: 1px solid var(--border); color: var(--text-muted); transition: 0.3s;"
+                onclick="openMrpPanel()">
+                ⏳ Проверка дефицита...
+            </button>
+        </div>
     </div>
 
-    <div class="filter-panel">
-        <div class="form-group mb-0">
-            <label>Период для расчета:</label>
-            <input type="text" id="cc-date-range" class="input-modern" style="width: 250px; cursor: pointer;"
-                placeholder="Выберите период...">
+    <div class="filter-panel" style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <label style="font-weight: bold; font-size: 13px; color: var(--text-muted);">Период:</label>
+            <div class="dash-period-selector" style="display: flex; gap: 8px;"></div>
         </div>
-        <button class="btn btn-blue" onclick="loadCostConstructor()">🔄 Загрузить данные</button>
+        <button class="btn btn-outline" style="margin-right: 10px; display: none;" onclick="openCategoryMatrix()">
+            🎛️ Матрица статей
+        </button>
+        <button class="btn btn-blue" onclick="loadCostConstructor()">🔄 Обновить</button>
     </div>
 
     <div class="summary-grid mb-20">
@@ -31,32 +40,225 @@
         </div>
     </div>
 
-    <div class="form-grid"
-        style="grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; align-items: stretch;">
+    <!-- Капитализация склада (Активы) -->
+    <!-- Капитализация склада (Активы) - Аккордеон -->
+    <div class="card mb-20 stock-valuation-card" style="border-top: 4px solid var(--info); transition: 0.3s; padding: 0;">
+        <div style="padding: 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="const body = document.getElementById('stock-val-body'); body.style.display = body.style.display === 'none' ? 'block' : 'none';">
+            <div>
+                <h3 style="margin: 0; font-size: 16px; color: var(--info-text);">📦 Капитализация склада (Активы)</h3>
+                <p class="text-muted" style="font-size: 12px; margin: 0; margin-top: 4px;">Общая стоимость остатков сырья и готовой продукции: <span id="stock-val-total" style="font-weight: bold; color: var(--text-main);">0 ₽</span></p>
+            </div>
+            <div style="color: var(--text-muted); font-size: 10px;">▼ РАСКРЫТЬ</div>
+        </div>
+        <div id="stock-val-body" style="display: none; padding: 0 15px 15px 15px; border-top: 1px dashed var(--border);">
+            <div id="stock-val-list" style="display: flex; flex-direction: column; gap: 4px; margin-top: 10px;">
+                <div class="text-muted" style="font-size: 13px;">Загрузка данных...</div>
+            </div>
+        </div>
+    </div>
 
-        <div class="card mb-0 flex-column" style="padding: 0; overflow: hidden;">
-            <div class="card-header-flex" style="padding: 20px 20px 0 20px;">
-                <div>
-                    <h3 class="mt-0 mb-5">База распределения</h3>
-                    <p class="text-muted mt-0" style="font-size: 12px; line-height: 1.2;">Исключите расходы, не
-                        относящиеся к производству.</p>
+    <!-- Умный поиск -->
+    <div class="mb-20">
+        <input type="text" id="cc-search-input" class="input-modern w-100" 
+            placeholder="🔍 Умный поиск транзакций (по платежу, категории, контрагенту или сумме)..." 
+            oninput="handleCostSearch(this.value)"
+            style="font-size: 15px; padding: 12px 15px; border-radius: 8px; border: 1px solid var(--border);">
+        <!-- Контейнер для результатов глобального поиска -->
+        <div id="cc-global-search-container" class="card mt-15" style="display: none; border-left: 4px solid var(--primary);">
+            <div class="flex-between mb-15" style="border-bottom: 1px solid var(--border); padding-bottom: 15px;">
+                <h3 style="margin: 0; font-size: 16px;">🔍 Результаты глобального поиска</h3>
+                <button class="btn btn-outline btn-sm" onclick="document.getElementById('cc-search-input').value=''; handleCostSearch('');">❌ Очистить</button>
+            </div>
+            <div id="cc-global-search-content"></div>
+        </div>
+    </div>
+
+    <!-- Три кита затрат (COGS, OPEX, CAPEX) - ТЕПЕРЬ ВКЛАДКИ -->
+    <div class="dashboard-tabs-nav cost-triad-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+        <!-- COGS -->
+        <div id="tab-direct" class="card cost-card" style="border-top: 4px solid var(--success); cursor: pointer; transition: 0.3s; margin-bottom: 0;" onclick="switchCostTab('direct', 0)">
+            <h3 style="margin-top: 0; margin-bottom: 5px; font-size: 16px; color: var(--success-text);">🟢 COGS (Прямые)</h3>
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 15px;">Переменные затраты на ед. продукции</div>
+            <div id="cc-total-cogs" style="font-size: 24px; font-weight: bold; margin-bottom: 5px;">0 ₽</div>
+            <div class="text-muted" style="font-size: 12px;"><span id="cc-pct-cogs">0</span>% от всех затрат</div>
+        </div>
+
+        <!-- OPEX -->
+        <div id="tab-opex" class="card cost-card" style="border-top: 4px solid var(--warning); cursor: pointer; transition: 0.3s; margin-bottom: 0;" onclick="switchCostTab('opex', 1)">
+            <h3 style="margin-top: 0; margin-bottom: 5px; font-size: 16px; color: var(--warning-text);">🟠 OPEX (Косвенные)</h3>
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 15px;">Постоянные затраты на содержание</div>
+            <div id="cc-total-opex" style="font-size: 24px; font-weight: bold; margin-bottom: 5px;">0 ₽</div>
+            <div class="text-muted" style="font-size: 12px;"><span id="cc-pct-opex">0</span>% от всех затрат</div>
+        </div>
+
+        <!-- CAPEX -->
+        <div id="tab-capex" class="card cost-card" style="border-top: 4px solid var(--primary); cursor: pointer; transition: 0.3s; margin-bottom: 0;" onclick="switchCostTab('capex', 2)">
+            <h3 style="margin-top: 0; margin-bottom: 5px; font-size: 16px; color: var(--primary);">🔵 CAPEX (Капитал)</h3>
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 15px;">Инвестиции в основные средства</div>
+            <div id="cc-total-capex" style="font-size: 24px; font-weight: bold; margin-bottom: 5px;">0 ₽</div>
+            <div class="text-muted" style="font-size: 12px;"><span id="cc-pct-capex">0</span>% от всех затрат</div>
+        </div>
+    </div>
+
+    <!-- Контейнер панелей (Sliding Tabs) -->
+    <style>
+        .dashboard-tabs-content { max-height: 1500px; opacity: 1; }
+        .collapsed-panel { max-height: 0 !important; opacity: 0 !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; }
+        /* === Вкладки: Простая Открытая Папка === */
+        .cost-triad-grid { 
+            margin-bottom: 20px !important;
+            --active-border-color: transparent;
+        }
+
+        .dashboard-tabs-nav .cost-card {
+            background-color: #e8f0f2;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
+            
+            /* Резервируем место под 1px рамки активной вкладки */
+            border-left: 1px solid transparent !important;
+            border-right: 1px solid transparent !important;
+            border-bottom: 1px solid transparent !important;
+            
+            transition: all 0.3s ease;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .dashboard-tabs-nav .cost-card.tab-active {
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+            z-index: 10;
+            
+            /* Классическая карточка: полная обводка */
+            border: 1.5px solid var(--active-border-color) !important;
+        }
+
+        /* Очищаем Drilldown панель от лишних рамок во внутренних картах */
+        .tab-panel .card {
+            border: none !important;
+            border-radius: 12px;
+            box-shadow: none !important;
+            margin: 0;
+            padding: 0;
+            background-color: transparent;
+        }
+    </style>
+    <div id="drilldown-container" style="overflow: hidden; width: 100%; margin-bottom: 20px; border-radius: 12px; background-color: #ffffff; transition: all 0.3s ease;">
+        <div id="dashboard-tabs-content" class="dashboard-tabs-content collapsed-panel" style="display: flex; width: 300%; transition: transform 0.4s ease-in-out, max-height 0.4s ease-in-out, opacity 0.4s ease-in-out; align-items: flex-start; transform: translateX(0%); overflow: hidden;">
+            
+            <div class="tab-panel" style="width: 33.333%; padding-right: 20px; box-sizing: border-box;">
+                <div class="card mb-0" style="border-left: 4px solid var(--success);">
+                    <div class="flex-between mb-15" style="border-bottom: 1px solid var(--border); padding-bottom: 15px;">
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <button class="btn btn-outline" onclick="closeCostCategory()" style="padding: 6px 12px;">⬅ Назад</button>
+                            <h3 id="drill-title-direct" style="margin: 0; font-size: 16px;">🟢 COGS</h3>
+                        </div>
+                        <button class="btn btn-outline" onclick="switchCostTab('direct', 0)" style="padding: 6px 12px;">❌ Закрыть панель</button>
+                    </div>
+                    <div id="cc-panel-direct"></div>
                 </div>
-                <button class="btn btn-outline" onclick="addVirtualExpense()"
-                    style="font-size: 12px; padding: 6px 10px;">➕ Добавить</button>
             </div>
-            <div id="cc-expenses-list" class="expense-list" style="padding: 0 20px 20px 20px;">
-                <div class="text-center text-muted" style="padding: 20px;">Загрузка...</div>
+
+            <div class="tab-panel" style="width: 33.333%; padding-right: 10px; padding-left: 10px; box-sizing: border-box;">
+                <div class="card mb-0" style="border-left: 4px solid var(--warning);">
+                    <div class="flex-between mb-15" style="border-bottom: 1px solid var(--border); padding-bottom: 15px;">
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <button class="btn btn-outline" onclick="closeCostCategory()" style="padding: 6px 12px;">⬅ Назад</button>
+                            <h3 id="drill-title-opex" style="margin: 0; font-size: 16px;">🟠 OPEX</h3>
+                        </div>
+                        <button class="btn btn-outline" onclick="switchCostTab('opex', 1)" style="padding: 6px 12px;">❌ Закрыть панель</button>
+                    </div>
+                    <div id="cc-panel-opex"></div>
+                </div>
+            </div>
+
+            <div class="tab-panel" style="width: 33.333%; padding-left: 20px; box-sizing: border-box;">
+                <div class="card mb-0" style="border-left: 4px solid var(--primary);">
+                    <div class="flex-between mb-15" style="border-bottom: 1px solid var(--border); padding-bottom: 15px;">
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <button class="btn btn-outline" onclick="closeCostCategory()" style="padding: 6px 12px;">⬅ Назад</button>
+                            <h3 id="drill-title-capex" style="margin: 0; font-size: 16px;">🔵 CAPEX</h3>
+                        </div>
+                        <button class="btn btn-outline" onclick="switchCostTab('capex', 2)" style="padding: 6px 12px;">❌ Закрыть панель</button>
+                    </div>
+                    <div id="cc-panel-capex"></div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <div class="card mb-20" style="border-left: 5px solid var(--warning); max-width: 700px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
+            <div>
+                <h3 style="margin-top: 0; margin-bottom: 5px; font-size: 16px;">⚙️ Финансовая модель (Оверхед и Налоги)
+                </h3>
+                <p class="text-muted" style="font-size: 12px; margin: 0;">Распределение косвенных затрат (аренда, офис,
+                    ЗП ИТР) на 1 цикл работы пресса.</p>
+            </div>
+            <div
+                style="text-align: right; background: var(--surface-alt); padding: 8px 12px; border-radius: 6px; border: 1px dashed var(--primary);">
+                <div style="font-size: 11px; color: var(--text-muted); font-weight: bold; text-transform: uppercase;">
+                    Налог со сделки</div>
+                <div style="display: flex; align-items: center; justify-content: flex-end; gap: 5px; margin-top: 3px;">
+                    <input type="number" id="set-sales-tax" class="input-modern"
+                        style="width: 60px; height: 28px; padding: 2px 5px; text-align: center;" step="1" min="0"
+                        value="6">
+                    <span style="font-weight: bold; color: var(--primary);">%</span>
+                </div>
             </div>
         </div>
 
-        <div class="card mb-0 flex-column">
-            <div class="card-header-flex">
-                <h3 class="mt-0">Структура накладных расходов</h3>
+        <div
+            style="background: var(--surface-alt); padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 15px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <strong style="font-size: 13px; color: var(--primary);">1. Исходные данные месяца (План):</strong>
+                <span
+                    style="font-size: 11px; color: var(--info); background: var(--info-bg); padding: 2px 6px; border-radius: 4px;">В
+                    будущем автоматизируем из модуля Финансы 🔄</span>
             </div>
-            <div class="chart-container">
-                <canvas id="cc-structure-chart"></canvas>
+
+            <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 10px; align-items: start;">
+                <div class="form-group" style="margin: 0;">
+                    <label style="font-size: 11px;">Косвенные траты (₽/мес):</label>
+                    <input type="number" id="set-monthly-exp" class="input-modern" step="1000" min="0" value="1500000"
+                        oninput="recalcOverheadUI()">
+                </div>
+                <div class="form-group" style="margin: 0;">
+                    <label style="font-size: 11px;">Рабочих дней в мес:</label>
+                    <input type="number" id="set-month-days" class="input-modern" step="1" min="1" max="31" value="22"
+                        oninput="recalcOverheadUI()">
+                </div>
+                <div class="form-group" style="margin: 0;">
+                    <label style="font-size: 11px;">Норма циклов/смену:</label>
+                    <input type="number" id="set-shift-cycles" class="input-modern" step="10" min="1" value="500"
+                        oninput="recalcOverheadUI()">
+                </div>
             </div>
         </div>
 
+        <div
+            style="display: flex; justify-content: space-between; align-items: center; background: var(--surface-hover); padding: 15px; border-radius: 8px; border: 1px dashed var(--border); margin-bottom: 15px;">
+            <div>
+                <strong style="font-size: 13px; color: var(--warning-text);">2. Стоимость 1 цикла (удара
+                    пресса):</strong>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;" id="res-overhead-formula">
+                    1 500 000 ₽ / (22 дн × 500 ц) = 11 000 циклов
+                </div>
+            </div>
+            <div style="text-align: right;">
+                <div id="res-overhead-cycle"
+                    style="font-size: 24px; font-weight: 900; color: var(--warning-text); line-height: 1;">136.36 ₽
+                </div>
+                <div style="font-size: 11px; font-weight: bold; color: var(--text-muted); margin-top: 4px;">ложится на 1
+                    поддон продукции</div>
+            </div>
+        </div>
+
+        <button class="btn btn-blue w-100" onclick="saveFinanceSettings()" style="padding: 10px; font-size: 14px;">
+            💾 Утвердить финансовую модель
+        </button>
     </div>
 </div>

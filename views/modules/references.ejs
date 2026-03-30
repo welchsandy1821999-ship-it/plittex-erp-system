@@ -2,7 +2,8 @@
     <div class="flex-between mb-20" style="align-items: flex-end;">
         <div>
             <h2 class="mt-0">📁 Справочник номенклатуры</h2>
-            <p class="text-muted" style="font-size: 13px; margin: 0;">Управление сырьем, продукцией и рецептурными нормами</p>
+            <p class="text-muted" style="font-size: 13px; margin: 0;">Управление сырьем, продукцией и рецептурными
+                нормами</p>
         </div>
         <button class="btn btn-blue shadow-md" onclick="openRefForm()">➕ Создать позицию</button>
     </div>
@@ -11,7 +12,8 @@
         <div class="form-grid" style="grid-template-columns: 2fr 1fr 1fr; align-items: end;">
             <div class="form-group">
                 <label>🔍 Умный поиск (по названию):</label>
-                <input type="text" id="ref-search" class="input-modern" placeholder="Начните вводить текст..." oninput="debounceRefLoad()">
+                <input type="text" id="ref-search" class="input-modern" placeholder="Начните вводить текст..."
+                    oninput="debounceRefLoad()">
             </div>
             <div class="form-group">
                 <label>📂 Тип:</label>
@@ -30,8 +32,10 @@
         </div>
     </div>
 
-    <div id="ref-form-container" class="card" style="display: none; border-left: 4px solid var(--primary); position: relative;">
-        <button class="btn btn-outline btn-close-abs text-danger" style="border-color: var(--danger);" onclick="closeRefForm()">✖ Закрыть</button>
+    <div id="ref-form-container" class="card"
+        style="display: none; border-left: 4px solid var(--primary); position: relative;">
+        <button class="btn btn-outline btn-close-abs text-danger" style="border-color: var(--danger);"
+            onclick="closeRefForm()">✖ Закрыть</button>
 
         <h3 id="ref-form-title" class="mt-0 text-primary">✨ Добавление позиции</h3>
         <p class="text-muted mb-15" style="font-size: 12px;">Заполните данные. Названия сырья должны быть точными.</p>
@@ -50,15 +54,31 @@
             </div>
             <div class="form-group col-span-2">
                 <label class="text-primary" style="font-weight: bold;">Артикул (Код для Excel):</label>
-                <input type="text" id="ref-article" class="input-modern" style="border-color: var(--primary); background-color: var(--bg-main);" placeholder="Например: 2P4-GRY">
+                <input type="text" id="ref-article" class="input-modern"
+                    style="border-color: var(--primary); background-color: var(--bg-main);"
+                    placeholder="Например: 2P4-GRY">
             </div>
             <div class="form-group">
                 <label>Категория:</label>
-                <input type="text" id="ref-category" list="dl-categories" class="input-modern" placeholder="Сырье, Плитка...">
+                <div style="position: relative; display: inline-block; width: 100%;">
+                    <input type="text" id="ref-category" list="dl-categories" class="input-modern"
+                        style="width: 100%; box-sizing: border-box;" placeholder="Сырье, Плитка..."
+                        onfocus="this.select(); if(typeof this.showPicker === 'function') this.showPicker();">
+                    <span
+                        style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #64748b; font-size: 12px; padding: 5px;"
+                        onclick="this.previousElementSibling.focus();">▼</span>
+                </div>
             </div>
             <div class="form-group">
                 <label>Ед. изм:</label>
-                <input type="text" id="ref-unit" list="dl-units" class="input-modern" placeholder="кг, кв.м, шт" value="кг">
+                <div style="position: relative; display: inline-block; width: 100%;">
+                    <input type="text" id="ref-unit" list="dl-units" class="input-modern"
+                        style="width: 100%; box-sizing: border-box;" placeholder="кг, кв.м, шт" value="кг"
+                        onfocus="this.select(); if(typeof this.showPicker === 'function') this.showPicker();">
+                    <span
+                        style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #64748b; font-size: 12px; padding: 5px;"
+                        onclick="this.previousElementSibling.focus();">▼</span>
+                </div>
             </div>
             <div class="form-group">
                 <label>Цена за ед (₽):</label>
@@ -78,20 +98,34 @@
                 <select id="ref-mold-id" class="input-modern bg-mold-select">
                     <option value="">-- Без матрицы --</option>
                 </select>
-                <small class="text-muted" style="font-size: 11px; display: block; margin-top: 4px;">Амортизация подтянется автоматически</small>
+                <small class="text-muted" style="font-size: 11px; display: block; margin-top: 4px;">Амортизация
+                    подтянется автоматически</small>
             </div>
             <div class="form-group col-span-2" id="group-gost">
                 <label style="color: var(--text-muted);">📑 Нормативный документ (ТУ / ГОСТ):</label>
-                <input type="text" id="ref-gost" class="input-modern" placeholder="Например: ТУ 23.61.11-001-50829991-2023">
-                <small class="text-muted" style="font-size: 11px; display: block; margin-top: 4px;">Выводится в Маршрутном листе на производстве</small>
+                <input type="text" id="ref-gost" class="input-modern"
+                    placeholder="Например: ТУ 23.61.11-001-50829991-2023">
+                <small class="text-muted" style="font-size: 11px; display: block; margin-top: 4px;">Выводится в
+                    Маршрутном листе на производстве</small>
+            </div>
+            <div class="form-group" id="group-piece-rate"
+                style="background: var(--surface-bg); padding: 10px; border-radius: 6px; border: 1px dashed var(--success);">
+                <label style="color: var(--success-text); font-weight: bold;">💰 Сдельная З/П (Ставка за 1 шт.):</label>
+                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 5px; line-height: 1.2;">
+                    Сумма, которая будет автоматически начисляться рабочим за формовку 1 единицы этой продукции.
+                </div>
+                <input type="number" id="ref-piece-rate" class="input-modern" value="0" step="0.5" min="0">
             </div>
 
             <div class="form-group col-span-2" style="display: flex; align-items: flex-end;">
                 <input type="hidden" id="ref-edit-id" value="">
-                <button class="btn btn-blue w-100" style="height: 42px;" onclick="saveReference()">💾 Сохранить позицию</button>
+                <button class="btn btn-blue w-100" style="height: 42px;" onclick="saveReference()">💾 Сохранить
+                    позицию</button>
             </div>
         </div>
     </div>
+
+
 
     <div class="table-container">
         <table>

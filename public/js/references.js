@@ -36,6 +36,7 @@ async function updateCategoryFilters() {
         catSelect.innerHTML = '<option value="">🌐 Все категории</option>';
         categories.forEach(c => catSelect.add(new Option(c, c)));
         catSelect.value = currentVal;
+        if (catSelect.tomselect) catSelect.tomselect.sync();
 
         const dataList = document.getElementById('dl-categories');
         dataList.innerHTML = '';
@@ -105,11 +106,23 @@ function clearRefForm() {
     document.getElementById('ref-category').value = '';
     document.getElementById('ref-price').value = '0';
     document.getElementById('ref-weight').value = '0';
-    document.getElementById('ref-type').value = 'product';
+
+    // 🚀 НОВОЕ: Очищаем поле сдельной ставки при создании новой карточки
+    const prEl = document.getElementById('ref-piece-rate');
+    if (prEl) prEl.value = '0';
+
+    const typeEl = document.getElementById('ref-type');
+    typeEl.value = 'product';
+    if (typeEl.tomselect) typeEl.tomselect.sync();
+
     document.getElementById('ref-unit').value = 'кг';
     document.getElementById('ref-qty-cycle').value = '1';
+
     const moldSel = document.getElementById('ref-mold-id');
-    if (moldSel) moldSel.value = '';
+    if (moldSel) {
+        moldSel.value = '';
+        if (moldSel.tomselect) moldSel.tomselect.sync();
+    }
     const gostEl = document.getElementById('ref-gost');
     if (gostEl) gostEl.value = '';
 }
@@ -130,18 +143,28 @@ function editReference(id) {
                 document.getElementById('ref-unit').value = item.unit;
                 document.getElementById('ref-price').value = parseFloat(item.current_price);
                 document.getElementById('ref-weight').value = parseFloat(item.weight_kg);
+
+                const prEl = document.getElementById('ref-piece-rate');
+                if (prEl) prEl.value = parseFloat(item.piece_rate) || 0;
+
                 document.getElementById('ref-type').value = item.item_type;
                 document.getElementById('ref-qty-cycle').value = item.qty_per_cycle || 1;
+
                 const gostEl = document.getElementById('ref-gost');
                 if (gostEl) gostEl.value = item.gost_mark || '';
 
                 // Ставим таймаут, чтобы дать матрицам долю секунды на загрузку с сервера
                 setTimeout(() => {
                     const moldSel = document.getElementById('ref-mold-id');
-                    if (moldSel) moldSel.value = item.mold_id || '';
+                    if (moldSel) {
+                        moldSel.value = item.mold_id || '';
+                        if (moldSel.tomselect) moldSel.tomselect.sync();
+                    }
                 }, 100);
 
-                document.getElementById('ref-type').dispatchEvent(new Event('change'));
+                const typeEl = document.getElementById('ref-type');
+                typeEl.dispatchEvent(new Event('change'));
+                if (typeEl.tomselect) typeEl.tomselect.sync();
                 document.querySelector('.content-area').scrollTo({ top: 0, behavior: 'smooth' });
             }
         });
@@ -157,6 +180,7 @@ async function saveReference() {
         unit: document.getElementById('ref-unit').value.trim(),
         price: parseFloat(document.getElementById('ref-price').value) || 0,
         weight: parseFloat(document.getElementById('ref-weight').value) || 0,
+        piece_rate: document.getElementById('ref-piece-rate') ? (parseFloat(document.getElementById('ref-piece-rate').value) || 0) : 0,
         qty_per_cycle: parseFloat(document.getElementById('ref-qty-cycle').value) || 1,
         mold_id: document.getElementById('ref-mold-id').value || null,
         gost_mark: document.getElementById('ref-gost') ? document.getElementById('ref-gost').value.trim() : ''
@@ -231,11 +255,24 @@ async function loadMoldsForRefs() {
             const amort = (parseFloat(m.purchase_cost) / parseInt(m.planned_cycles)).toFixed(2);
             sel.add(new Option(`${m.name} (${amort} ₽/удар)`, m.id));
         });
+        if (sel.tomselect) sel.tomselect.sync();
     } catch (e) { console.error("Ошибка загрузки матриц", e); }
+}
+
+// Функция инициализации всех селектов TomSelect в модуле
+function initStaticRefSelects() {
+    ['ref-filter-type', 'ref-filter-category', 'ref-type', 'ref-mold-id'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && !el.tomselect) {
+            new TomSelect(el, { plugins: ['clear_button'] });
+        }
+    });
 }
 
 // Слушатель переключения видимости полей (Сырье или Продукция)
 document.addEventListener('DOMContentLoaded', () => {
+    initStaticRefSelects();
+
     const typeSelect = document.getElementById('ref-type');
     if (typeSelect) {
         typeSelect.addEventListener('change', function () {

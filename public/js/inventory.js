@@ -338,6 +338,16 @@ window.openScrapModal = function (itemId, itemName, batchId, batchNum, warehouse
         <button class="btn btn-blue" onclick="executeScrap()">➡️ Переместить</button>
     `;
     UI.showModal('Перемещение продукции', html, buttons);
+
+    setTimeout(() => {
+        const scrapTargetTarget = document.getElementById('scrap-target-wh');
+        if (scrapTargetTarget && !scrapTargetTarget.tomselect) {
+            new TomSelect(scrapTargetTarget, {
+                plugins: ['clear_button'],
+                dropdownParent: 'body'
+            });
+        }
+    }, 50);
 };
 
 window.executeScrap = async function () {

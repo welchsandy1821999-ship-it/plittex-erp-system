@@ -5,18 +5,10 @@
             <p class="text-muted mt-0" style="font-size: 13px;">Учет доходов, расходов и общая аналитика</p>
         </div>
 
-        <div class="finance-toolbar">
-            <label style="font-weight: bold; font-size: 13px; color: var(--text-muted);">Период:</label>
-            <div style="display: flex; gap: 5px;">
-                <button class="btn btn-outline btn-sm" onclick="setFinanceDateRange('today')">Сегодня</button>
-                <button class="btn btn-outline btn-sm" onclick="setFinanceDateRange('week')">Неделя</button>
-                <button class="btn btn-outline btn-sm" onclick="setFinanceDateRange('month')">Месяц</button>
-                <button class="btn btn-outline btn-sm" onclick="setFinanceDateRange('year')">Год</button>
-            </div>
-            <input type="text" id="finance-date-filter" class="input-modern"
-                style="width: 190px; cursor: pointer; font-size: 13px; background: var(--surface-alt);"
-                placeholder="Произвольный...">
-            <button class="btn btn-outline text-danger" onclick="resetFinanceFilter()">✖ Сброс</button>
+        <div class="finance-toolbar" style="display: flex; align-items: center;">
+            <label style="font-weight: bold; font-size: 13px; color: var(--text-muted); margin-right: 8px;">Период:</label>
+            <div id="global-finance-calendar" class="finance-period-selector" style="display: flex; gap: 8px;"></div>
+            <button class="btn btn-outline text-danger" onclick="resetFinanceFilter()" style="margin-left: 8px;">✖ Сброс</button>
         </div>
     </div>
 
@@ -62,7 +54,7 @@
         </div>
     </div>
 
-    <div id="invoices-container" class="mb-25" style="display: none;">
+    <div id="invoices-container" class="mb-25" style="display: none; margin-bottom: 20px;">
         <h3 class="mt-0 mb-10 text-main" style="font-size: 16px;">🟡 Ожидаемые платежи (Счета)</h3>
         <div class="table-container invoice-alert-row">
             <table id="invoices-table">
@@ -91,6 +83,17 @@
         <h3 class="mt-0 mb-0 text-main" style="font-size: 16px;">📋 История операций</h3>
         <input type="text" id="finance-search" class="input-modern" style="width: 350px;" placeholder="🔍 Поиск..."
             oninput="triggerFinanceSearch()">
+    </div>
+
+    <!-- Инфо-панель при активном поиске / фильтрации -->
+    <div id="finance-summary-bar" class="mb-15" style="display: none; background: var(--surface-hover); border: 1px solid var(--primary); border-left: 4px solid var(--primary); padding: 12px 15px; border-radius: 8px; align-items: center; justify-content: space-between;">
+        <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+            <span style="font-size: 14px; color: var(--text-main);">🔍 Фильтр: <b id="summary-filter-name" style="color: var(--primary);"></b></span>
+            <div id="summary-date-picker-placeholder" class="finance-period-selector" style="display: flex; gap: 8px;"></div>
+            <span style="font-size: 13px; color: var(--text-muted); background: var(--surface); padding: 4px 8px; border-radius: 4px;">Найдено операций: <b id="summary-filter-count" style="color: var(--text-main);">0</b></span>
+            <span style="font-size: 14px; color: var(--text-main);">Сумма (на стр.): <b id="summary-filter-sum" style="color: var(--text-main);">0 ₽</b></span>
+        </div>
+        <button class="btn btn-outline btn-sm text-danger" onclick="window.resetFinanceSummary()" style="padding: 4px 10px; font-size: 12px; border: none; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">✖ Сбросить фильтр</button>
     </div>
 
     <div class="toolbar-group mb-15 card-alt" style="padding: 10px;">

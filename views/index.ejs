@@ -178,6 +178,169 @@
             } catch (err) { console.error(err); }
         };
 
+        // ==========================================================================
+        // ГЛОБАЛЬНЫЙ ДИСПЕТЧЕР СУЩНОСТЕЙ (Сквозная навигация)
+        // ==========================================================================
+        window.app = window.app || {};
+
+        window.app.openEntity = function(type, id) {
+            if (!id) {
+                console.warn(`[App Router] Попытка открыть сущность '${type}' без ID.`);
+                return;
+            }
+
+            console.log(`[App Router] Открываю сущность: ${type}, ID: ${id}`);
+            
+            switch (type) {
+                case 'client':
+                    // Вызов из: finance.js, sales.js
+                    if (typeof openCounterpartyProfile === 'function') {
+                        // Идеальный вариант (полная карточка из finance.js)
+                        openCounterpartyProfile(id);
+                    } else if (typeof editClient === 'function') {
+                        // Запасной вариант
+                        editClient(id);
+                    } else {
+                        console.error('[App Router] Функция открытия профиля клиента (openCounterpartyProfile или editClient) не найдена на этой странице.');
+                        UI.toast('Модуль карточки клиента не загружен', 'error');
+                    }
+                    break;
+                case 'employee':
+                    if (typeof editWorker === 'function') editWorker(id);
+                    break;
+                case 'nomenclature':
+                    if (typeof editNomenclature === 'function') editNomenclature(id);
+                    break;
+                case 'document_order':
+                    console.log('Открытие модалки заказа: ', id);
+                    break;
+                case 'document_invoice':
+                    console.log('Открытие счета: ', id);
+                    break;
+                case 'tara':
+                    console.log('Открытие аналитики по таре для поддона/клиента: ', id);
+                    break;
+                case 'equipment':
+                    if (typeof editEquipment === 'function') editEquipment(id);
+                    break;
+                case 'recipe':
+                    if (typeof editRecipe === 'function') editRecipe(id);
+                    break;
+                default:
+                    console.error(`[App Router] Неизвестный тип сущности: ${type}`);
+                    break;
+            }
+        };
+
+        window.app.navigateCategory = function(categoryName) {
+            console.log(`[App Router] Навигация по категории: ${categoryName}`);
+            
+            // Если модалки открыты, мягко их закрываем
+            if (UI && typeof UI.closeModal === 'function') {
+                document.querySelectorAll('.modal-overlay.active').forEach(m => UI.closeModal(m.id));
+            }
+
+            // Утилита для безопасного вызова после рендера DOM
+            const openWithDelay = (fn, delay = 150) => setTimeout(fn, delay);
+
+            switch (categoryName) {
+                // --- ЗАРПЛАТА (Открываем аккордеон 'Выплаты') ---
+                case 'Зарплата и Авансы':
+                case 'Оплата труда':
+                case 'Зарплата':
+                case 'Премии':
+                case 'Сдельная оплата':
+                case 'Штрафы':
+                    window.switchModule('salary-mod');
+                    openWithDelay(() => {
+                        const body = document.getElementById('acc-payouts');
+                        const header = document.querySelector('[onclick*="acc-payouts"]');
+                        if (typeof toggleAccordion === 'function' && body && !body.classList.contains('active')) {
+                            toggleAccordion('acc-payouts', header);
+                        }
+                    });
+                    break;
+
+                // --- ПРОДАЖИ (Открываем таб 'Управление заказами') ---
+                case 'Продажа продукции':
+                case 'Реализация (Продажа)':
+                case 'Продажи':
+                case 'Реализация':
+                case 'Доставка клиенту':
+                case 'Транспортные услуги (клиентам)':
+                    window.switchModule('sales-mod');
+                    openWithDelay(() => {
+                        const btn = document.querySelector('[onclick*="tab-active-orders"]');
+                        if (typeof switchSalesTab === 'function' && btn) {
+                            switchSalesTab('tab-active-orders', btn);
+                        }
+                    });
+                    break;
+
+                // --- ВОЗВРАТНАЯ ТАРА (Открываем фильтр 'Поддоны' в Оборудовании) ---
+                case 'Покупка поддонов':
+                case 'Возвратная тара':
+                case 'Тара':
+                case 'Поддоны':
+                    window.switchModule('equipment-mod');
+                    openWithDelay(() => {
+                        const btn = document.getElementById('filter-eq-pallets');
+                        if (typeof filterEquipment === 'function' && btn) {
+                            filterEquipment('pallets', btn);
+                        }
+                    });
+                    break;
+
+                // --- ОБОРУДОВАНИЕ (Открываем фильтр 'Станки') ---
+                case 'Оборудование':
+                case 'Покупка оборудования':
+                case 'Станки':
+                case 'Запчасти':
+                case 'Ремонт оборудования':
+                case 'Инструмент':
+                case 'Матрицы':
+                    window.switchModule('equipment-mod');
+                    openWithDelay(() => {
+                        const buttons = document.querySelectorAll('button');
+                        const btn = Array.from(buttons).find(b => b.getAttribute('onclick') && b.getAttribute('onclick').includes("filterEquipment('machine'"));
+                        if (typeof filterEquipment === 'function' && btn) {
+                            filterEquipment('machine', btn);
+                        }
+                    });
+                    break;
+
+                // --- ЗАКУПКИ / СЫРЬЕ ---
+                case 'Закупка сырья':
+                case 'Материалы':
+                case 'Сырье':
+                case 'Цемент':
+                case 'Песок':
+                case 'Щебень':
+                case 'Пигмент':
+                case 'Транспортные услуги (сырье)':
+                case 'Доставка сырья':
+                case 'Химия / Пластификатор':
+                    window.switchModule('purchase-mod');
+                    break;
+
+                // --- ПРОЧИЕ КАТЕГОРИИ (Динамический Drill-down в Финансы) ---
+                default:
+                    window.switchModule('fin-mod');
+                    openWithDelay(() => {
+                        const searchInput = document.getElementById('finance-search');
+                        if (searchInput) {
+                            searchInput.value = categoryName;
+                            if (typeof triggerFinanceSearch === 'function') {
+                                triggerFinanceSearch();
+                            } else if (typeof loadFinanceData === 'function') {
+                                loadFinanceData();
+                            }
+                        }
+                    });
+                    break;
+            }
+        };
+
         const UI = {
             toast: (msg, type = 'success') => {
                 const container = document.getElementById('toast-container');

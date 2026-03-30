@@ -797,6 +797,92 @@ tr:hover {
 }
 
 /* ==========================================================================
+   7.5. КАРТОЧКИ ФОРМОВКИ (PRODUCTION STEP CARDS)
+   ========================================================================== */
+
+/* Базовая карточка-шаг */
+.card-step {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.25s ease, border-color 0.25s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.card-step:hover {
+    box-shadow: var(--shadow-md);
+}
+
+/* Акцентная полоска сверху */
+.card-step::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    border-radius: 14px 14px 0 0;
+    background: var(--border);
+}
+
+/* Цветовые модификаторы — акцентная полоска + лёгкий оттенок */
+.card-step.card-success::before { background: var(--success); }
+.card-step.card-success {
+    border-color: var(--success-border);
+    background: linear-gradient(180deg, var(--success-bg) 0%, var(--card-bg) 40%);
+}
+
+.card-step.card-alt::before { background: var(--primary); }
+.card-step.card-alt {
+    border-color: rgba(59, 130, 246, 0.2);
+    background: linear-gradient(180deg, rgba(59, 130, 246, 0.04) 0%, var(--card-bg) 40%);
+}
+
+.card-step.card-warning::before { background: var(--warning); }
+.card-step.card-warning {
+    border-color: var(--warning-border);
+    background: linear-gradient(180deg, var(--warning-bg) 0%, var(--card-bg) 40%);
+}
+
+/* Заголовок карточки */
+.step-title {
+    font-size: 15px;
+    font-weight: 700;
+    margin: 0 0 16px 0;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+    letter-spacing: -0.01em;
+}
+
+/* Тело карточки — растягивается */
+.step-body {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Подвал карточки — прижат к низу */
+.step-footer {
+    margin-top: auto;
+    padding-top: 12px;
+}
+
+/* Нормы замесов — блок внутри step-body */
+.mix-norms-block {
+    flex: 1 1 auto;
+    font-size: 12px;
+    padding: 10px;
+    border-radius: 8px;
+    min-height: 60px;
+}
+
+/* ==========================================================================
    8. СПЕЦИФИЧНЫЕ СТИЛИ МОДУЛЕЙ
    ========================================================================== */
 
@@ -964,6 +1050,13 @@ tr:hover {
 
 .eq-card {
     border-top: 4px solid var(--primary);
+}
+
+.entity-link:hover {
+    background-color: transparent; /* Removed background color */
+    color: var(--primary-dark);
+    text-decoration: underline;
+    text-decoration-style: dashed;
 }
 
 .progress-container {
@@ -1655,4 +1748,25 @@ body.dev-mode-active {
 .accordion-button {
     display: flex !important;
 }
-
+
+/* ==========================================================================
+   СКВОЗНАЯ НАВИГАЦИЯ (ENTITY LINKS)
+   ========================================================================== */
+.entity-link {
+    cursor: pointer;
+    transition: all 0.1s ease-in-out; /* Ультра-быстрая анимация */
+    display: inline-block;
+    color: var(--text-main); /* В покое цвет текста */
+    text-decoration: none !important; /* Гарантируем отсутствие подчеркивания */
+}
+.entity-link:hover {
+    color: var(--primary) !important; /* Цвет твоей темы при наведении */
+    transform: scale(1.03); /* Очень легкое, элегантное масштабирование вверх */
+    text-decoration: none !important; /* Убираем любые подчеркивания навсегда */
+}
+
+/* Скрытие системной стрелки для кастомных Combobox (datalist) */
+input[list]::-webkit-calendar-picker-indicator {
+    display: none !important;
+    opacity: 0;
+}

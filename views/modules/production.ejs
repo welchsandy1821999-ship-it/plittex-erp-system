@@ -27,91 +27,99 @@
             <div class="card-step card-success">
                 <h4 class="step-title text-success">🧱 1. Формовка (Циклы)</h4>
 
-                <div class="form-group">
-                    <label style="font-weight: bold;">Выбор продукции:</label>
-                    <select id="prod-product-select" class="input-modern" style="font-size: 14px; font-weight: bold;"
-                        onchange="handleProductSelection()"></select>
-                </div>
-
-                <div class="form-grid gap-10 mt-0" style="grid-template-columns: 1fr 1fr; margin-top: 5px;">
+                <div class="step-body">
                     <div class="form-group">
-                        <label>Удары (Циклы):</label>
-                        <input type="number" id="prod-cycles-input" class="input-modern text-center" placeholder="0"
-                            style="font-size: 16px; font-weight: bold;" oninput="calculateMixesPreview()">
+                        <label style="font-weight: bold;">Выбор продукции:</label>
+                        <select id="prod-product-select" class="input-modern"
+                            style="font-size: 14px; font-weight: bold;"></select>
                     </div>
-                    <div class="form-group">
-                        <label>Итого (м²/шт):</label>
-                        <div id="prod-volume-preview" class="text-center text-success"
-                            style="font-weight: 900; font-size: 16px; padding: 10px; background: var(--surface); border-radius: 6px; border: 1px solid var(--success-border);">
-                            0.00
+
+                    <div class="form-grid gap-10 mt-0" style="grid-template-columns: 1fr 1fr; margin-top: 5px;">
+                        <div class="form-group">
+                            <label>Удары (Циклы):</label>
+                            <input type="number" id="prod-cycles-input" class="input-modern text-center" placeholder="0"
+                                style="font-size: 16px; font-weight: bold;" oninput="calculateMixesPreview()">
+                        </div>
+                        <div class="form-group">
+                            <label>Итого (м²/шт):</label>
+                            <div id="prod-volume-preview" class="text-center text-success"
+                                style="font-weight: 900; font-size: 16px; padding: 10px; background: var(--surface); border-radius: 6px; border: 1px solid var(--success-border);">
+                                0.00
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="flex-grow-1"></div>
-                <button class="btn btn-blue w-100" style="margin-top: 15px; height: 40px; font-size: 14px;"
-                    onclick="addProdToSession()">➕ Добавить в партию</button>
+                <div class="step-footer">
+                    <button class="btn btn-blue w-100" style="height: 42px; font-size: 14px; font-weight: 700;"
+                        onclick="addProdToSession()">➕ Добавить в партию</button>
+                </div>
             </div>
 
             <div class="card-step card-alt">
-                <h4 class="step-title text-main">🐘 2. Основной замес</h4>
+                <h4 class="step-title" style="color: var(--primary);">🐘 2. Основной замес</h4>
 
-                <div class="form-group">
-                    <label>Шаблон:</label>
-                    <select id="main-template-select" class="input-modern" onchange="renderSelectedTemplates()">
-                        <option value="main_40">Плитка 40мм</option>
-                        <option value="main_60">Плитка 60мм</option>
-                        <option value="main_80">Плитка 80мм</option>
-                        <option value="main_por">Поребрик</option>
-                        <option value="main_bor">Бордюр Дор./Магистр.</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label style="color: var(--primary); font-weight: bold;">Кол-во замесов (Факт):</label>
-                    <div style="display: flex; gap: 10px; align-items: center;">
-                        <input type="number" id="main-mix-count" class="input-modern text-center"
-                            style="font-size: 18px; font-weight: bold;" placeholder="0" onfocus="this.select()">
-                        <button class="btn btn-outline" style="padding: 6px 10px;"
-                            onclick="editMixTemplate(document.getElementById('main-template-select').value)"
-                            title="Настроить шаблон">⚙️</button>
+                <div class="step-body">
+                    <div class="form-group">
+                        <label>Шаблон:</label>
+                        <select id="main-template-select" class="input-modern" onchange="renderSelectedTemplates()">
+                            <option value="main_40">Плитка 40мм</option>
+                            <option value="main_60">Плитка 60мм</option>
+                            <option value="main_80">Плитка 80мм</option>
+                            <option value="main_por">Поребрик</option>
+                            <option value="main_bor">Бордюр Дор./Магистр.</option>
+                        </select>
                     </div>
-                </div>
 
-                <div id="main-mix-norms" class="text-muted flex-grow-1"
-                    style="font-size: 12px; background: var(--surface-alt); padding: 10px; border-radius: 6px;">
+                    <div class="form-group">
+                        <label style="color: var(--primary); font-weight: bold;">Кол-во замесов (Факт):</label>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <input type="number" id="main-mix-count" class="input-modern text-center"
+                                style="font-size: 18px; font-weight: bold;" placeholder="0" onfocus="this.select()"
+                                oninput="this.dataset.userEdited = 'true'">
+                            <button class="btn btn-outline" style="padding: 6px 10px;"
+                                onclick="editMixTemplate(document.getElementById('main-template-select').value)"
+                                title="Настроить шаблон">⚙️</button>
+                        </div>
+                    </div>
+
+                    <div id="main-mix-norms" class="mix-norms-block text-muted" style="background: var(--surface-alt);">
+                    </div>
                 </div>
             </div>
 
             <div class="card-step card-warning">
                 <h4 class="step-title text-warning">🐥 3. Лицевой замес</h4>
 
-                <div class="form-group">
-                    <label>Шаблон:</label>
-                    <select id="face-template-select" class="input-modern" onchange="renderSelectedTemplates()">
-                        <option value="face_gs">Гладкий серый</option>
-                        <option value="face_gc">Гладкий цветной</option>
-                        <option value="face_grs">Гранитный серый</option>
-                        <option value="face_grc">Гранитный цветной</option>
-                        <option value="face_mel_g">Меланж гладкий</option>
-                        <option value="face_mel_gr">Меланж гранит</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label class="text-warning" style="font-weight: bold;">Кол-во замесов (Факт):</label>
-                    <div style="display: flex; gap: 10px; align-items: center;">
-                        <input type="number" id="face-mix-count" class="input-modern text-center"
-                            style="font-size: 18px; font-weight: bold;" placeholder="0" onfocus="this.select()">
-                        <button class="btn btn-outline"
-                            style="padding: 6px 10px; border-color: var(--warning-text); color: var(--warning-text);"
-                            onclick="editMixTemplate(document.getElementById('face-template-select').value)"
-                            title="Настроить шаблон">⚙️</button>
+                <div class="step-body">
+                    <div class="form-group">
+                        <label>Шаблон:</label>
+                        <select id="face-template-select" class="input-modern" onchange="renderSelectedTemplates()">
+                            <option value="face_gs">Гладкий серый</option>
+                            <option value="face_gc">Гладкий цветной</option>
+                            <option value="face_grs">Гранитный серый</option>
+                            <option value="face_grc">Гранитный цветной</option>
+                            <option value="face_mel_g">Меланж гладкий</option>
+                            <option value="face_mel_gr">Меланж гранит</option>
+                        </select>
                     </div>
-                </div>
 
-                <div id="face-mix-norms" class="text-warning flex-grow-1"
-                    style="font-size: 12px; background: var(--warning-bg); padding: 10px; border-radius: 6px;">
+                    <div class="form-group">
+                        <label class="text-warning" style="font-weight: bold;">Кол-во замесов (Факт):</label>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <input type="number" id="face-mix-count" class="input-modern text-center"
+                                style="font-size: 18px; font-weight: bold;" placeholder="0" onfocus="this.select()"
+                                oninput="this.dataset.userEdited = 'true'">
+                            <button class="btn btn-outline"
+                                style="padding: 6px 10px; border-color: var(--warning-text); color: var(--warning-text);"
+                                onclick="editMixTemplate(document.getElementById('face-template-select').value)"
+                                title="Настроить шаблон">⚙️</button>
+                        </div>
+                    </div>
+
+                    <div id="face-mix-norms" class="mix-norms-block text-warning"
+                        style="background: var(--warning-bg);">
+                    </div>
                 </div>
             </div>
         </div>
@@ -122,24 +130,56 @@
             💾 ЗАФИКСИРОВАТЬ СМЕНУ И СПИСАТЬ СЫРЬЕ ИЗ ЗАМЕСОВ
         </button>
     </div>
-    <div class="card border-left-muted">
-        <h3 class="mt-0">🕒 История формовок за выбранную дату</h3>
+    <div class="card border-left-muted" style="margin-top: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h3 style="margin: 0;">История формовок</h3>
+
+            <div style="position: relative; width: 350px;">
+                <span style="position: absolute; left: 12px; top: 10px; opacity: 0.5;">🔍</span>
+                <input type="text" id="prod-search-input" class="input-modern"
+                    style="padding-left: 35px; margin: 0; border-radius: 20px;"
+                    placeholder="Поиск по № партии, плитке, бригадиру..." oninput="handleProductionSearch()">
+            </div>
+        </div>
+
         <div class="table-container">
-            <table>
+            <table class="table-modern">
                 <thead>
                     <tr>
-                        <th>№ Партии</th>
-                        <th>Продукция</th>
-                        <th>Объем</th>
-                        <th>Затраты на сырье</th>
-                        <th style="text-align: right;">Действия</th>
+                        <th style="cursor: pointer; width: 15%;" onclick="sortProductionResults('batch_number')">№
+                            Партии ↕️</th>
+                        <th style="cursor: pointer; width: 30%;" onclick="sortProductionResults('product_name')">
+                            Продукция ↕️</th>
+                        <th id="th-prod-date" style="display: none; cursor: pointer; width: 12%; color: var(--primary);"
+                            onclick="sortProductionResults('production_date')">Дата ↕️</th>
+
+                        <th style="cursor: pointer; width: 13%; text-align: right;"
+                            onclick="sortProductionResults('planned_quantity')">Кол-во ↕️</th>
+                        <th style="cursor: pointer; width: 15%; text-align: right;"
+                            onclick="sortProductionResults('mat_cost_total')">Себест. (мат) ↕️</th>
+                        <th style="text-align: right; width: 15%;">Действия</th>
                     </tr>
                 </thead>
                 <tbody id="daily-history-table">
                     <tr>
-                        <td colspan="5" class="text-center text-muted">Загрузка истории...</td>
+                        <td colspan="5" style="text-align: center; color: var(--text-muted);">Выберите дату в
+                            календаре...</td>
                     </tr>
                 </tbody>
+                <tfoot id="prod-history-summary"
+                    style="display: none; background: var(--surface-alt); font-weight: bold; border-top: 2px solid var(--border);">
+                    <tr>
+                        <td colspan="2" style="text-align: right; padding: 12px;">ИТОГО ЗА СМЕНУ:</td>
+                        <td id="prod-total-volume" style="padding: 12px; color: var(--primary);">0.00</td>
+                        <td id="prod-total-cost" style="padding: 12px; color: var(--danger);">0.00 ₽</td>
+                        <td style="text-align: right; padding: 12px;">
+                            <button class="btn btn-outline" style="font-size: 12px; padding: 5px 10px;"
+                                onclick="printDailyReport()">
+                                📄 Отчет за смену
+                            </button>
+                        </td>
+                    </tr>
+                </tfoot>
             </table>
         </div>
     </div>

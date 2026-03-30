@@ -54,12 +54,13 @@ module.exports = function (pool, withTransaction) {
     });
 
     router.post('/api/items', async (req, res) => {
-        const { name, item_type, category, unit, price, weight, qty_per_cycle, mold_id, gost_mark, article } = req.body;
+        // 🚀 ДОБАВИЛИ piece_rate
+        const { name, item_type, category, unit, price, weight, qty_per_cycle, mold_id, gost_mark, article, piece_rate } = req.body;
         try {
             await pool.query(`
-                INSERT INTO items (name, item_type, category, unit, current_price, weight_kg, qty_per_cycle, mold_id, gost_mark, article) 
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            `, [name, item_type, category, unit, price, weight, qty_per_cycle || 1, mold_id || null, gost_mark || '', article || null]);
+                INSERT INTO items (name, item_type, category, unit, current_price, weight_kg, qty_per_cycle, mold_id, gost_mark, article, piece_rate) 
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            `, [name, item_type, category, unit, price, weight, qty_per_cycle || 1, mold_id || null, gost_mark || '', article || null, piece_rate || 0]);
             res.json({ success: true, message: 'Позиция добавлена' });
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
@@ -73,7 +74,8 @@ module.exports = function (pool, withTransaction) {
             'item_type', 'is_deleted', 'article',
             'mold_id', 'min_stock',
             'weight_kg',      // Соответствует колонке в БД
-            'qty_per_cycle'   // Тот самый "Выход с 1 удара"
+            'qty_per_cycle',  // Тот самый "Выход с 1 удара"
+            'piece_rate'      // 🚀 НАША НОВАЯ СДЕЛЬНАЯ СТАВКА
         ];
 
         // 2. Фильтрация входящих данных: оставляем только те, что в белом списке
@@ -152,7 +154,13 @@ module.exports = function (pool, withTransaction) {
     // ==========================================
     router.get('/api/employees', async (req, res) => {
         try {
-            const result = await pool.query(`SELECT * FROM employees WHERE status != 'deleted' ORDER BY department, full_name`);
+            const result = await pool.query(`
+                SELECT e.*, COALESCE(a.balance, 0) AS imprest_debt 
+                FROM employees e 
+                LEFT JOIN accounts a ON a.name = 'Подотчет: ' || e.full_name AND a.type = 'imprest'
+                WHERE e.status != 'deleted' 
+                ORDER BY e.department, e.full_name
+            `);
             res.json(result.rows);
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
@@ -160,10 +168,27 @@ module.exports = function (pool, withTransaction) {
     router.post('/api/employees', async (req, res) => {
         const { full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, status } = req.body;
         try {
-            await pool.query(`
-                INSERT INTO employees (full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, status)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            `, [full_name, position, department, schedule_type, salary_cash || 0, salary_official || 20000, tax_rate || 13, tax_withheld || 2600, prev_balance || 0, status || 'active']);
+            await withTransaction(pool, async (client) => {
+                // 1. Создаём сотрудника
+                const empResult = await client.query(`
+                    INSERT INTO employees (full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, status)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    RETURNING id
+                `, [full_name, position, department, schedule_type, salary_cash || 0, salary_official || 20000, tax_rate || 13, tax_withheld || 2600, prev_balance || 0, status || 'active']);
+                const employeeId = empResult.rows[0].id;
+
+                // 2. Автоматически создаём связанного контрагента (Физлицо-Сотрудник)
+                await client.query(`
+                    INSERT INTO counterparties (name, is_employee, is_buyer, is_supplier, entity_type, employee_id, role)
+                    VALUES ($1, true, false, false, 'physical', $2, 'Сотрудник')
+                `, [full_name, employeeId]);
+
+                // 3. Создаём виртуальный счёт подотчёта
+                await client.query(`
+                    INSERT INTO accounts (name, type, balance)
+                    VALUES ($1, 'imprest', 0)
+                `, ['Подотчет: ' + full_name]);
+            });
             res.json({ success: true, message: 'Сотрудник добавлен' });
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
@@ -183,6 +208,20 @@ module.exports = function (pool, withTransaction) {
                     UPDATE monthly_salary_stats SET salary_cash=$1, salary_official=$2, tax_rate=$3, tax_withheld=$4
                     WHERE employee_id=$5 AND month_str >= $6
                 `, [salary_cash, salary_official, tax_rate, tax_withheld, req.params.id, currentMonthStr]);
+
+                // Синхронизация: обновляем ФИО в связанном контрагенте
+                await client.query(`
+                    UPDATE counterparties SET name = $1
+                    WHERE employee_id = $2
+                `, [full_name, req.params.id]);
+
+                // Синхронизация: обновляем имя виртуального счёта подотчёта
+                const oldEmp = await client.query('SELECT full_name FROM employees WHERE id = $1', [req.params.id]);
+                if (oldEmp.rows.length > 0) {
+                    await client.query(`
+                        UPDATE accounts SET name = $1 WHERE name = $2 AND type = 'imprest'
+                    `, ['Подотчет: ' + full_name, 'Подотчет: ' + oldEmp.rows[0].full_name]);
+                }
             });
             res.json({ success: true, message: 'Данные обновлены' });
         } catch (err) {
@@ -193,7 +232,25 @@ module.exports = function (pool, withTransaction) {
     // === БЕЗОПАСНОЕ УДАЛЕНИЕ СОТРУДНИКА (УВОЛЬНЕНИЕ) ===
     router.delete('/api/employees/:id', async (req, res) => {
         try {
-            await pool.query(`UPDATE employees SET status = 'deleted' WHERE id = $1`, [req.params.id]);
+            await withTransaction(pool, async (client) => {
+                // 1. Мягкое удаление сотрудника
+                await client.query(`UPDATE employees SET status = 'deleted' WHERE id = $1`, [req.params.id]);
+
+                // 2. Помечаем связанного контрагента как уволенного
+                // Не удаляем физически, т.к. могут быть привязанные транзакции
+                const empRes = await client.query(`SELECT full_name FROM employees WHERE id = $1`, [req.params.id]);
+                const empName = empRes.rows.length > 0 ? empRes.rows[0].full_name : 'Сотрудник';
+                await client.query(`
+                    UPDATE counterparties SET comment = COALESCE(comment, '') || ' [УВОЛЕН]', is_employee = false
+                    WHERE employee_id = $1
+                `, [req.params.id]);
+
+                // Помечаем счёт подотчёта
+                await client.query(`
+                    UPDATE accounts SET name = 'Подотчет: ' || $1 || ' [УВОЛЕН]'
+                    WHERE name = 'Подотчет: ' || $1 AND type = 'imprest'
+                `, [empName]);
+            });
             res.json({ success: true, message: 'Сотрудник перенесен в архив (уволен)' });
         } catch (err) {
             res.status(500).json({ error: err.message });

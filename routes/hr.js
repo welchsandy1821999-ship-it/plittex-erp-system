@@ -22,35 +22,6 @@ async function isMonthClosed(pool, monthStr) {
 
 module.exports = function (pool, withTransaction) {
 
-    // 1. СОХРАНЕНИЕ ЯЧЕЙКИ ТАБЕЛЯ (С проверкой безопасности)
-    router.post('/api/timesheet/cell', async (req, res) => {
-        const { employee_id, date, status, bonus, penalty, bonus_comment, penalty_comment } = req.body;
-        const monthStr = date.substring(0, 7); // Извлекаем YYYY-MM
-
-        try {
-            // 🛡️ ЗАЩИТА №1: Проверка закрытого периода
-            if (await isMonthClosed(pool, monthStr)) {
-                return res.status(403).json({ error: "Этот месяц уже закрыт. Редактирование запрещено." });
-            }
-
-            // 🧮 ТОЧНОСТЬ №1: Используем Big.js для финансовых полей
-            const safeBonus = new Big(bonus || 0).toFixed(2);
-            const safePenalty = new Big(penalty || 0).toFixed(2);
-
-            await pool.query(`
-                INSERT INTO timesheet_records (employee_id, record_date, status, bonus, penalty, bonus_comment, penalty_comment)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-                ON CONFLICT (employee_id, record_date) 
-                DO UPDATE SET status = EXCLUDED.status, 
-                              bonus = EXCLUDED.bonus, 
-                              penalty = EXCLUDED.penalty, 
-                              bonus_comment = EXCLUDED.bonus_comment, 
-                              penalty_comment = EXCLUDED.penalty_comment
-            `, [employee_id, date, status, safeBonus, safePenalty, bonus_comment || '', penalty_comment || '']);
-
-            res.json({ success: true });
-        } catch (err) { res.status(500).json({ error: err.message }); }
-    });
 
     // 2. КОРРЕКТИРОВКИ (ГСМ, Займы)
     router.post('/api/salary/adjustments', async (req, res) => {
@@ -180,7 +151,8 @@ module.exports = function (pool, withTransaction) {
     });
 
     router.post('/api/timesheet/mass-bonus', requireAdmin, async (req, res) => {
-        const { date, pieceRate, workersData } = req.body;
+        // 🚀 1. Принимаем только дату и список рабочих
+        const { date, workersData } = req.body;
         const monthStr = date.substring(0, 7);
 
         try {
@@ -188,20 +160,16 @@ module.exports = function (pool, withTransaction) {
                 return res.status(403).json({ error: "Этот месяц уже закрыт. Начисление премий задним числом запрещено." });
             }
 
-            const safePieceRate = parseFloat(pieceRate) || 0;
-            if (safePieceRate < 0 || safePieceRate > 10000) {
-                 return res.status(400).json({ error: "Недопустимая расценка: должна быть от 0 до 10000 ₽" });
-            }
-
             await withTransaction(pool, async (client) => {
+                // 🚀 2. УМНЫЙ ЗАПРОС: Считаем фонд по фактической дате производства (production_date)
                 const prodRes = await client.query(`
-                    SELECT SUM(actual_good_qty) as total_good 
-                    FROM production_batches 
-                    WHERE created_at::date = $1 AND status = 'completed'
-                `, [date]);
-                
-                const actualTotalGood = parseFloat(prodRes.rows[0].total_good) || 0;
-                let totalFund = Math.round(actualTotalGood * safePieceRate);
+                SELECT COALESCE(SUM(pb.actual_good_qty * COALESCE(i.piece_rate, 0)), 0) as total_fund
+                FROM production_batches pb
+                LEFT JOIN items i ON pb.product_id = i.id
+                WHERE pb.production_date = $1 AND pb.status = 'completed'
+            `, [date]);
+
+                let totalFund = Math.round(parseFloat(prodRes.rows[0].total_fund) || 0);
                 let totalKtu = 0;
                 let validWorkers = [];
 
@@ -220,6 +188,7 @@ module.exports = function (pool, withTransaction) {
                         distributedAmount += bonus;
                     }
 
+                    // Раскидываем копейки (твой алгоритм)
                     const diff = totalFund - distributedAmount;
                     if (diff !== 0 && validWorkers.length > 0) {
                         validWorkers[0].bonus += diff;
@@ -230,21 +199,26 @@ module.exports = function (pool, withTransaction) {
                     const b = new Big(emp.bonus).toFixed(2);
                     const k = new Big(emp.ktu).toFixed(2);
                     const r = emp.custom_rate ? new Big(emp.custom_rate).toFixed(2) : null;
-                    
+
                     await client.query(`
-                        INSERT INTO timesheet_records (employee_id, record_date, status, bonus, custom_rate, ktu) 
-                        VALUES ($1, $2, 'present', $3, $4, $5) 
-                        ON CONFLICT (employee_id, record_date) 
-                        DO UPDATE SET bonus = EXCLUDED.bonus, custom_rate = EXCLUDED.custom_rate, ktu = EXCLUDED.ktu
-                    `, [emp.id, date, b, r, k]);
+                    INSERT INTO timesheet_records (employee_id, record_date, status, bonus, custom_rate, ktu) 
+                    VALUES ($1, $2, 'present', $3, $4, $5) 
+                    ON CONFLICT (employee_id, record_date) 
+                    DO UPDATE SET bonus = EXCLUDED.bonus, custom_rate = EXCLUDED.custom_rate, ktu = EXCLUDED.ktu
+                `, [emp.id, date, b, r, k]);
                 }
-                
-                await client.query(`UPDATE production_batches SET is_salary_calculated = true WHERE created_at::date = $1`, [date]);
+
+                // 🚀 3. Помечаем партии как «рассчитанные» также по производственной дате
+                await client.query(`
+                UPDATE production_batches 
+                SET is_salary_calculated = true 
+                WHERE production_date = $1
+            `, [date]);
             });
             res.json({ success: true });
-        } catch (err) { 
+        } catch (err) {
             console.error('Ошибка массовой премии:', err.message);
-            res.status(500).json({ error: err.message }); 
+            res.status(500).json({ error: err.message });
         }
     });
 
@@ -268,7 +242,7 @@ module.exports = function (pool, withTransaction) {
     });
 
     router.post('/api/salary/pay', requireAdmin, async (req, res) => {
-        const { employee_id, amount, date, description, account_id } = req.body;
+        const { employee_id, amount, date, description, account_id, imprest_deduction } = req.body;
         const monthStr = date.substring(0, 7); // Извлекаем YYYY-MM из даты выплаты
 
         try {
@@ -278,31 +252,54 @@ module.exports = function (pool, withTransaction) {
             }
 
             const payAmount = new Big(amount || 0);
-            if (payAmount.lte(0)) throw new Error('Сумма должна быть больше нуля');
+            if (payAmount.lt(0)) throw new Error('Сумма не может быть отрицательной');
             const amountStr = payAmount.toFixed(2);
+            const deductionAmount = new Big(imprest_deduction || 0);
 
             await withTransaction(pool, async (client) => {
                 // 1. Получаем данные счета, включая его ТИП (тип нужен для payment_method)
                 const accRes = await client.query('SELECT balance, name, type FROM accounts WHERE id = $1 FOR UPDATE', [account_id]);
                 if (accRes.rows.length === 0) throw new Error('Счет не найден');
 
-                if (new Big(accRes.rows[0].balance).lt(payAmount)) {
+                if (payAmount.gt(0) && new Big(accRes.rows[0].balance).lt(payAmount)) {
                     throw new Error(`Недостаточно средств на счете "${accRes.rows[0].name}"`);
                 }
 
                 // ОПРЕДЕЛЯЕМ СПОСОБ ОПЛАТЫ ДЛЯ ТРАНЗАКЦИИ
                 const paymentMethod = accRes.rows[0].type === 'cash' ? 'Наличные (Касса)' : 'Безналичный расчет';
 
-                // 2. Списываем из кассы
-                const transRes = await client.query(`
-                    INSERT INTO transactions (account_id, amount, transaction_type, category, description, payment_method, source_module, transaction_date) 
-                    VALUES ($1, $2, 'expense', 'Зарплата и Авансы', $3, $4, 'salary', $5) RETURNING id
-                `, [account_id, amountStr, `Выплата сотруднику: ${description}`, paymentMethod, date + ' 12:00:00']);
-                // 3. Записываем факт выплаты в зарплатную таблицу
+                let linkedTransactionId = null;
+
+                // Находим контрагента для акта сверки
+                const cpRes = await client.query('SELECT id FROM counterparties WHERE employee_id = $1 LIMIT 1', [employee_id]);
+                const counterparty_id = cpRes.rows.length > 0 ? cpRes.rows[0].id : null;
+
+                // 2. Списываем из кассы (только если сумма > 0)
+                if (payAmount.gt(0)) {
+                    const transRes = await client.query(`
+                        INSERT INTO transactions (account_id, counterparty_id, amount, transaction_type, category, description, payment_method, source_module, transaction_date) 
+                        VALUES ($1, $2, $3, 'expense', 'Зарплата', $4, $5, 'salary', $6) RETURNING id
+                    `, [account_id, counterparty_id, amountStr, `Выплата сотруднику: ${description}`, paymentMethod, date + ' 12:00:00']);
+                    linkedTransactionId = transRes.rows[0].id;
+                }
+
+                // 3. Если есть удержание подотчета - гасим виртуальный счет
+                if (deductionAmount.gt(0)) {
+                    const empRes = await client.query('SELECT full_name FROM employees WHERE id = $1', [employee_id]);
+                    const empName = empRes.rows[0]?.full_name || 'Сотрудник';
+
+                    await client.query(`
+                        INSERT INTO transactions (account_id, amount, transaction_type, category, description, payment_method, source_module, transaction_date)
+                        VALUES ((SELECT id FROM accounts WHERE employee_id = $1 AND type = 'imprest'), $2, 'expense', 'Удержание из ЗП', 'Автоматическое погашение подотчета', 'Взаимозачет', 'salary', $3)
+                    `, [employee_id, deductionAmount.toFixed(2), date + ' 12:01:00']);
+                }
+
+                // 4. Записываем факт выплаты в зарплатную таблицу (полная сумма: руки + удержание)
+                const totalCleared = payAmount.plus(deductionAmount).toFixed(2);
                 await client.query(`
                     INSERT INTO salary_payments (employee_id, amount, payment_date, description, account_id, linked_transaction_id) 
                     VALUES ($1, $2, $3, $4, $5, $6)
-                `, [employee_id, amountStr, date, description, account_id, transRes.rows[0].id]);
+                `, [employee_id, totalCleared, date, description, account_id, linkedTransactionId]);
             });
 
             res.json({ success: true });
@@ -344,12 +341,14 @@ module.exports = function (pool, withTransaction) {
         try {
             // Запрос, который учитывает и активных, и уволенных, у которых есть долги/остатки
             const result = await pool.query(`
-            SELECT e.id, e.full_name, e.prev_balance, e.status, e.department
+            SELECT e.id, e.full_name, e.prev_balance, e.status, e.department,
+                   COALESCE(a.balance, 0) AS imprest_debt 
             FROM employees e
+            LEFT JOIN accounts a ON a.employee_id = e.id AND a.type = 'imprest'
             WHERE e.status = 'active' 
                OR e.prev_balance != 0 
-               OR EXISTS (SELECT 1 FROM timesheet_records WHERE employee_id = e.id AND TO_CHAR(record_date, 'YYYY-MM') = $1)
-        `, [monthStr]);
+               OR EXISTS (SELECT 1 FROM timesheet_records WHERE employee_id = e.id AND record_date >= $1::date AND record_date < ($1::date + interval '1 month'))
+        `, [monthStr + '-01']);
             res.json(result.rows);
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
@@ -387,7 +386,20 @@ module.exports = function (pool, withTransaction) {
 
                 // Обновляем долг/переплату для КАЖДОГО сотрудника по точным данным с фронтенда
                 for (let b of balances) {
-                    await client.query(`UPDATE employees SET prev_balance = $1 WHERE id = $2`, [b.balance, b.empId]);
+                    await client.query(`UPDATE employees SET prev_balance = $1 WHERE id = $2`, [b.balance, b.employee_id]);
+
+                    // Интеграция с Финансами: Формируем "Начисление ЗП" (Обязательство)
+                    if (b.accrued && parseFloat(b.accrued) > 0) {
+                        const cpRes = await client.query('SELECT id FROM counterparties WHERE employee_id = $1 LIMIT 1', [b.employee_id]);
+                        if (cpRes.rows.length > 0) {
+                            const cpId = cpRes.rows[0].id;
+                            await client.query(`
+                                INSERT INTO transactions 
+                                (amount, transaction_type, category, description, counterparty_id, account_id, payment_method, transaction_date)
+                                VALUES ($1, 'income', 'Начисление ЗП', $2, $3, NULL, 'Взаимозачет', NOW())
+                            `, [b.accrued, 'Начислено за период: ' + monthStr, cpId]);
+                        }
+                    }
                 }
 
                 // Записываем месяц в архив и фиксируем сумму налогов
@@ -408,18 +420,51 @@ module.exports = function (pool, withTransaction) {
         const { date } = req.query;
         try {
             const result = await pool.query(`
-                SELECT SUM(actual_good_qty) as total_good 
-                FROM production_batches 
-                WHERE created_at::date = $1 AND status = 'completed'
-            `, [date]);
+                SELECT 
+                    COALESCE(SUM(pb.actual_good_qty), 0) as total_good,
+                    COALESCE(SUM(pb.actual_good_qty * COALESCE(i.piece_rate, 0)), 0) as total_fund
+                FROM production_batches pb
+                LEFT JOIN items i ON pb.product_id = i.id
+                WHERE pb.production_date = $1 AND pb.status = 'completed'
+            `, [date]); // 🚀 Заменили created_at::date на production_date
 
-            res.json({ total: result.rows[0].total_good || 0 });
+            res.json({
+                total: result.rows[0].total_good,
+                fund: result.rows[0].total_fund
+            });
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
     });
 
-
+    router.get('/api/salary/run-migration-temp', async (req, res) => {
+        try {
+            const result = await pool.query(`
+                INSERT INTO transactions (
+                    transaction_date, counterparty_id, amount, transaction_type, 
+                    category, description, payment_method, account_id
+                )
+                SELECT 
+                    '2026-03-01 00:00:00',
+                    c.id,
+                    ABS(e.prev_balance),
+                    CASE WHEN e.prev_balance > 0 THEN 'income' ELSE 'expense' END,
+                    'Ввод начальных остатков',
+                    'Сальдо на 01.03.2026',
+                    'Взаимозачет',
+                    NULL
+                FROM employees e
+                JOIN counterparties c ON c.employee_id = e.id
+                WHERE e.prev_balance IS NOT NULL 
+                  AND e.prev_balance != 0 
+                  AND e.status != 'fired'
+                RETURNING id
+            `);
+            res.json({ success: true, count: result.rowCount || 0 });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
 
     return router;
 };
