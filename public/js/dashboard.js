@@ -80,89 +80,50 @@ window.loadCostConstructor = async function () {
 
         ccGroupedExpenses = data.groupedExpenses || { direct: [], opex: [], capex: [] };
 
-        // 1. Считаем общие суммы по группам
-        let totalDirect = ccGroupedExpenses.direct.reduce((sum, cat) => sum + cat.total, 0);
-        let totalOpex = ccGroupedExpenses.opex.reduce((sum, cat) => sum + cat.total, 0);
-        let totalCapex = ccGroupedExpenses.capex.reduce((sum, cat) => sum + cat.total, 0);
+        // 1. Суммы по группам (все значения положительные, т.к. запросы содержат только expense)
+        const totalDirect = ccGroupedExpenses.direct.reduce((sum, cat) => sum + cat.total, 0);
+        const totalOpex   = ccGroupedExpenses.opex.reduce((sum, cat) => sum + cat.total, 0);
+        const totalCapex  = ccGroupedExpenses.capex.reduce((sum, cat) => sum + cat.total, 0);
+        const totalAll    = totalDirect + totalOpex + totalCapex;
 
-        // В Прямые затраты прибавляем "Сдельную ЗП" (она идет из табеля, а не кассы)
-        if (pieceRateSalary > 0) {
-            totalDirect += pieceRateSalary;
-            ccGroupedExpenses.direct.unshift({
-                name: 'Сдельная ЗП (из табеля)',
-                total: pieceRateSalary,
-                transactions: [{
-                    id: 'virt_salary',
-                    description: 'Начисления по Табелям отдела Цех',
-                    amount: pieceRateSalary,
-                    date: 'Авто-расчет',
-                    counterparty: 'Сотрудники'
-                }]
-            });
-
-            // 🛑 ЗАЩИТА ОТ ДВОЙНОГО УЧЕТА ЗП
-            // Вычитаем сделку из кассовых выплат OPEX, так как мы только что перенесли её в COGS
-            let remainingToSubtract = pieceRateSalary;
-            const salaryCategories = ['Зарплата', 'Зарплата и Авансы'];
-            
-            for (let cat of ccGroupedExpenses.opex) {
-                if (salaryCategories.includes(cat.name)) {
-                    if (remainingToSubtract <= 0) break;
-                    
-                    if (cat.total >= remainingToSubtract) {
-                        cat.total -= remainingToSubtract;
-                        totalOpex -= remainingToSubtract;
-                        remainingToSubtract = 0;
-                    } else {
-                        remainingToSubtract -= cat.total;
-                        totalOpex -= cat.total;
-                        cat.total = 0;
-                    }
-                }
-            }
-        }
-
-        const totalAll = totalDirect + totalOpex + totalCapex;
-
-        // Обновляем плашки
+        // 2. Обновляем плашки с фиксированными цветами, числа без минуса
         const elCogs = document.getElementById('cc-total-cogs');
-        if (elCogs) elCogs.innerText = fmtRub(totalDirect) + ' ₽';
-        
-        const elOpex = document.getElementById('cc-total-opex');
-        if (elOpex) elOpex.innerText = fmtRub(totalOpex) + ' ₽';
-        
-        const elCapex = document.getElementById('cc-total-capex');
-        if (elCapex) elCapex.innerText = fmtRub(totalCapex) + ' ₽';
+        if (elCogs) elCogs.innerText = fmtRub(Math.abs(totalDirect)) + ' ₽';
 
-        // Проценты
-        if (totalAll > 0) {
+        const elOpex = document.getElementById('cc-total-opex');
+        if (elOpex) elOpex.innerText = fmtRub(Math.abs(totalOpex)) + ' ₽';
+
+        const elCapex = document.getElementById('cc-total-capex');
+        if (elCapex) elCapex.innerText = fmtRub(Math.abs(totalCapex)) + ' ₽';
+
+        // 3. Проценты
+        const totalAbs = Math.abs(totalDirect) + Math.abs(totalOpex) + Math.abs(totalCapex);
+        if (totalAbs > 0) {
             const pctCogs = document.getElementById('cc-pct-cogs');
-            if (pctCogs) pctCogs.innerText = ((totalDirect / totalAll) * 100).toFixed(1);
-            
+            if (pctCogs) pctCogs.innerText = ((Math.abs(totalDirect) / totalAbs) * 100).toFixed(1);
+
             const pctOpex = document.getElementById('cc-pct-opex');
-            if (pctOpex) pctOpex.innerText = ((totalOpex / totalAll) * 100).toFixed(1);
-            
+            if (pctOpex) pctOpex.innerText = ((Math.abs(totalOpex) / totalAbs) * 100).toFixed(1);
+
             const pctCapex = document.getElementById('cc-pct-capex');
-            if (pctCapex) pctCapex.innerText = ((totalCapex / totalAll) * 100).toFixed(1);
+            if (pctCapex) pctCapex.innerText = ((Math.abs(totalCapex) / totalAbs) * 100).toFixed(1);
         }
 
         const totalCy = document.getElementById('cc-total-cycles');
         if (totalCy) totalCy.innerText = currentCycles.toLocaleString();
 
         const totalExpensesEl = document.getElementById('cc-total-expenses');
-        if (totalExpensesEl) totalExpensesEl.innerText = fmtRub(totalOpex) + ' ₽';
+        if (totalExpensesEl) totalExpensesEl.innerText = fmtRub(Math.abs(totalOpex)) + ' ₽';
 
         const costPerCycleEl = document.getElementById('cc-cost-per-cycle');
         if (costPerCycleEl) {
-            const costPerCycle = currentCycles > 0 ? (totalOpex / currentCycles) : 0;
+            const costPerCycle = currentCycles > 0 ? (Math.abs(totalOpex) / currentCycles) : 0;
             costPerCycleEl.innerText = costPerCycle.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽';
-            window.CURRENT_OVERHEAD_PER_CYCLE = costPerCycle;
+            window.ACTUAL_OVERHEAD_PER_CYCLE = costPerCycle;
         }
 
-        // 🚀 КОНТРОЛЬНАЯ СВЕРКА (BALANCE CHECK)
-        const totalRaw = data.totalRawExpenses || 0; // Чистая касса (X)
-        const prSalary = pieceRateSalary || 0;     // Чистая сделка из HR (Y)
-        const totalZ = totalAll;                   // Дашборд Итого (Z)
+        // 4. КОНТРОЛЬНАЯ СВЕРКА: сумма по трем карточкам = тотальный расход из БД
+        const totalRaw = data.totalRawExpenses || 0;
 
         let warnEl = document.getElementById('cc-balance-warning');
         if (!warnEl) {
@@ -172,15 +133,15 @@ window.loadCostConstructor = async function () {
             if (grid) grid.parentNode.insertBefore(warnEl, grid);
         }
 
-        const diff = Math.abs(totalZ - (totalRaw + prSalary));
+        const diff = Math.abs(totalAll - totalRaw);
         if (diff > 0.01) {
             warnEl.innerHTML = `<div class="card mb-20 fade-in-drilldown" style="background:#fef2f2; color:#b91c1c; border:1px solid #fca5a5; padding: 15px;">
-                🔴 <b>ВНИМАНИЕ! Расхождение: ${fmtRub(diff)} ₽.</b> Проверьте неразнесенные платежи.<br>
-                Касса (${fmtRub(totalRaw)} ₽) + Сделка HR (${fmtRub(prSalary)} ₽) ≠ Дашборд (${fmtRub(totalZ)} ₽)
+                🔴 <b>ВНИМАНИЕ! Расхождение: ${fmtRub(diff)} ₽.</b> Дашборд не совпадает с реестром транзакций.<br>
+                <small>БД: ${fmtRub(totalRaw)} ₽ / Дашборд: ${fmtRub(totalAll)} ₽</small>
             </div>`;
         } else {
             warnEl.innerHTML = `<div class="card mb-20 fade-in-drilldown" style="background:#f0fdf4; color:#166534; border:1px solid #bbf7d0; padding: 15px;">
-                🟢 <b>Все расходы учтены.</b> Фактический расход (Касса): ${fmtRub(totalRaw)} ₽ + Начислена Сделка (HR): ${fmtRub(prSalary)} ₽ = Итого в себестоимости: ${fmtRub(totalZ)} ₽
+                🟢 <b>Капитализация (Остаток): ${fmtRub(Math.abs(totalAll))} ₽. Баланс с кассой сошёлся.</b>
             </div>`;
         }
 
@@ -534,9 +495,9 @@ window.renderDrilldown = function() {
                         <span class="text-muted" style="font-size: 11px; margin-left: 5px;">— ${pct}% от группы (${cat.transactions.length} тр.)</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 10px;">
-                        <div style="font-weight: bold; color: ${groupColor};">${fmtRub(cat.total)} ₽</div>
-                        <button class="btn btn-outline" style="padding: 4px 8px; font-size: 11px;" data-ids="${cat.transactions.filter(t => t.id !== 'virt_salary').map(t => t.id).join(',')}" data-group="${ccCurrentGroup}" onclick="event.stopPropagation(); renameFolder(this)" title="Переименовать папку">✏️</button>
-                        <button class="btn btn-outline" style="padding: 4px 8px; font-size: 11px;" data-ids="${cat.transactions.filter(t => t.id !== 'virt_salary').map(t => t.id).join(',')}" onclick="event.stopPropagation(); moveFolderCategory(this)" title="Перенести всю папку в другую группу">🔄</button>
+                        <div style="font-weight: bold; color: ${groupColor};">${fmtRub(Math.abs(cat.total))} ₽</div>
+                        <button class="btn btn-outline" style="padding: 4px 8px; font-size: 11px;" data-ids="${cat.transactions.map(t => t.id).join(',')}" data-group="${ccCurrentGroup}" onclick="event.stopPropagation(); renameFolder(this)" title="Переименовать папку">✏️</button>
+                        <button class="btn btn-outline" style="padding: 4px 8px; font-size: 11px;" data-ids="${cat.transactions.map(t => t.id).join(',')}" onclick="event.stopPropagation(); moveFolderCategory(this)" title="Перенести всю папку в другую группу">🔄</button>
                         <span style="color: var(--text-muted);">➔</span>
                     </div>
                 </div>
@@ -556,20 +517,19 @@ window.renderDrilldown = function() {
                 }
 
                 const animDelay = index * 0.02;
-                const isReal = t.id !== 'virt_salary';
 
                 html += `
                     <div class="fade-in-drilldown" style="animation-delay: ${animDelay}s; display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; border-bottom: 1px dashed var(--border);">
                         <div style="display: flex; align-items: center; gap: 10px;">
-                            ${isReal ? `<input type="checkbox" class="tx-select-checkbox" value="${t.id}" onclick="event.stopPropagation(); updateBulkSelectBtn(this)" style="width: 16px; height: 16px; cursor: pointer; accent-color: ${groupColor};">` : '<div style="width: 16px;"></div>'}
+                            <input type="checkbox" class="tx-select-checkbox" value="${t.id}" onclick="event.stopPropagation(); updateBulkSelectBtn(this)" style="width: 16px; height: 16px; cursor: pointer; accent-color: ${groupColor};">
                             <div>
                                 <div style="font-size: 13px; font-weight: 500; color: ${groupColor};">${highlightText(t.counterparty || 'Без контрагента', ccSearchQuery)}</div>
                                 <div style="font-size: 11px; color: var(--text-muted);">${t.date} | ${highlightText(t.description || 'Нет описания', ccSearchQuery)}</div>
                             </div>
                         </div>
                         <div style="display: flex; align-items: center; gap: 15px;">
-                            <div style="font-weight: bold;">${highlightText(fmtRub(t.amount), ccSearchQuery)} ₽</div>
-                            ${isReal ? `<button class="btn btn-outline" style="padding: 4px 8px; font-size: 11px;" onclick="moveTransaction(${t.id})" title="Сменить категорию">🔄</button>` : ''}
+                            <div style="font-weight: bold; color: ${groupColor};">${highlightText(fmtRub(Math.abs(t.amount)), ccSearchQuery)} ₽</div>
+                            <button class="btn btn-outline" style="padding: 4px 8px; font-size: 11px;" onclick="moveTransaction(${t.id})" title="Сменить категорию">🔄</button>
                         </div>
                     </div>
                 `;
@@ -946,7 +906,7 @@ window.recalcOverheadUI = function () {
         costPerCycle.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽';
 
     // Сохраняем в глобальную переменную для использования при сохранении
-    window.CURRENT_OVERHEAD_PER_CYCLE = costPerCycle;
+    window.PLANNED_OVERHEAD_PER_CYCLE = costPerCycle;
 };
 
 // Загрузка настроек из БД
@@ -980,7 +940,7 @@ window.saveFinanceSettings = async function () {
         monthly_expenses: document.getElementById('set-monthly-exp').value,
         working_days: document.getElementById('set-month-days').value,
         cycles_per_shift: document.getElementById('set-shift-cycles').value,
-        overhead_per_cycle: window.CURRENT_OVERHEAD_PER_CYCLE
+        overhead_per_cycle: window.PLANNED_OVERHEAD_PER_CYCLE
     };
 
     try {
@@ -1091,6 +1051,7 @@ window.checkMrpStatus = async function (isSilent = false) {
 
     try {
         const res = await fetch('/api/production/mrp-summary');
+        if (!res.ok) throw new Error('HTTP Error ' + res.status);
         const data = await res.json();
 
         if (data.success) {
@@ -1197,10 +1158,9 @@ window.updateCategoryGroup = async function (id, newGroup) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ cost_group: newGroup })
         });
-        if (res.ok) {
-            // Перерисовываем окно, чтобы карточка визуально перепрыгнула в нужную колонку
-            openCategoryMatrix();
-        }
+        if (!res.ok) throw new Error('Ошибка сети');
+        // Перерисовываем окно, чтобы карточка визуально перепрыгнула в нужную колонку
+        openCategoryMatrix();
     } catch (e) { UI.toast('Ошибка сохранения', 'error'); }
 };
 

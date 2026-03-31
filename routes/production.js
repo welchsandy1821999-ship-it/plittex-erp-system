@@ -4,6 +4,8 @@ const router = express.Router();
 const Big = require('big.js');
 const { sendNotify } = require('../utils/telegram');
 
+const { requireAdmin } = require('../middleware/auth');
+
 // 👈 Добавили withTransaction
 module.exports = function (pool, getWhId, withTransaction) {
 
@@ -13,7 +15,10 @@ module.exports = function (pool, getWhId, withTransaction) {
             const result = await pool.query(`SELECT value FROM settings WHERE key = 'mix_templates'`);
             if (result.rows.length > 0) res.json(result.rows[0].value);
             else res.json({ big: [], small: [] });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     router.post('/api/mix-templates', async (req, res) => {
@@ -23,7 +28,10 @@ module.exports = function (pool, getWhId, withTransaction) {
                 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
             `, [JSON.stringify(req.body)]);
             res.json({ success: true });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
 
@@ -49,7 +57,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             res.json(result.rows); // Должен возвращать МАССИВ
         } catch (err) {
             console.error(err);
-            res.status(500).json({ error: err.message }); // Возвращает ОБЪЕКТ (причина ошибки .map)
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' }); // Возвращает ОБЪЕКТ (причина ошибки .map)
         }
     });
 
@@ -66,7 +74,10 @@ module.exports = function (pool, getWhId, withTransaction) {
                 ORDER BY cost DESC
             `, [req.params.id]);
             res.json(result.rows);
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     // Данные партии для экономики (объём, амортизация)
@@ -79,14 +90,20 @@ module.exports = function (pool, getWhId, withTransaction) {
             `, [req.params.id]);
             if (result.rows.length === 0) return res.status(404).json({ error: 'Партия не найдена' });
             res.json(result.rows[0]);
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     router.get('/api/production/in-drying', async (req, res) => {
         try {
             const result = await pool.query(`SELECT pb.id, pb.batch_number, pb.product_id, i.name as product_name, pb.planned_quantity, pb.created_at FROM production_batches pb JOIN items i ON pb.product_id = i.id WHERE pb.status = 'in_drying' ORDER BY pb.created_at ASC`);
             res.json(result.rows);
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     router.get('/api/analytics/cost-deviation', async (req, res) => {
@@ -99,14 +116,20 @@ module.exports = function (pool, getWhId, withTransaction) {
                 WHERE pb.status = 'completed' ORDER BY pb.created_at ASC LIMIT 30
             `);
             res.json(result.rows);
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     router.get('/api/recipes/:productId', async (req, res) => {
         try {
             const result = await pool.query(`SELECT r.id, r.material_id, r.quantity_per_unit, i.name as material_name, i.unit, i.current_price FROM recipes r JOIN items i ON r.material_id = i.id WHERE r.product_id = $1`, [req.params.productId]);
             res.json(result.rows);
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     router.get('/print/passport', async (req, res) => {
@@ -122,7 +145,10 @@ module.exports = function (pool, getWhId, withTransaction) {
             `, [batchId]);
             if (result.rows.length === 0) return res.status(404).send('Партия не найдена');
             res.render('docs/passport', { batch: result.rows[0] });
-        } catch (err) { res.status(500).send('Ошибка генерации паспорта: ' + err.message); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).send('Внутренняя ошибка сервера. Обратитесь к администратору.');
+        }
     });
 
 
@@ -162,15 +188,15 @@ module.exports = function (pool, getWhId, withTransaction) {
                     SELECT id, (purchase_cost / NULLIF(planned_cycles, 0)) as machine_amort 
                     FROM equipment WHERE equipment_type = 'machine' AND status = 'active' ORDER BY id ASC LIMIT 1
                 `);
-                const machineAmort = machineRes.rows.length > 0 ? parseFloat(machineRes.rows[0].machine_amort) || 0 : 0;
+                const machineAmort = machineRes.rows.length > 0 ? Number(new Big(machineRes.rows[0].machine_amort || 0).round(4)) : 0;
                 const machineId = machineRes.rows.length > 0 ? machineRes.rows[0].id : null;
 
                 // ===== РЕЖИМ ЧЕРНОВИКА =====
                 if (isDraft) {
                     for (let p of products) {
                         const batchNum = `П-${date.replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
-                        const pQty = parseFloat(p.quantity) || 0;
-                        const pCycles = parseFloat(p.cycles) || 0;
+                        const pQty = Number(new Big(p.quantity || 0));
+                        const pCycles = Number(new Big(p.cycles || 0));
 
                         const bRes = await client.query(`
                             INSERT INTO production_batches 
@@ -211,13 +237,14 @@ module.exports = function (pool, getWhId, withTransaction) {
             if (io) io.emit('inventory_updated');
             res.json({ success: true, message: isDraft ? 'Черновик сохранён' : 'Смена успешно зафиксирована' });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
     router.post('/api/produce', async (req, res) => {
         const { tileId, quantity, moisture = 0, defect = 0 } = req.body;
-        if (parseFloat(quantity) <= 0 || isNaN(parseFloat(quantity))) return res.status(400).json({ error: 'Количество должно быть больше нуля!' });
+        if (new Big(quantity || 0).lte(0)) return res.status(400).json({ error: 'Количество должно быть больше нуля!' });
         const userId = req.user ? req.user.id : null;
 
         try {
@@ -385,16 +412,17 @@ module.exports = function (pool, getWhId, withTransaction) {
                     FROM equipment WHERE equipment_type = 'machine' AND status = 'active' ORDER BY id ASC LIMIT 1
                 `);
                 const machineId = machineInfoRes.rows.length > 0 ? machineInfoRes.rows[0].id : null;
-                const machineAmortRate = machineInfoRes.rows.length > 0 ? parseFloat(machineInfoRes.rows[0].machine_amort) || 0 : 0;
+                const machineAmortRate = machineInfoRes.rows.length > 0 ? Number(new Big(machineInfoRes.rows[0].machine_amort || 0).round(4)) : 0;
 
                 // 7. Обработка каждого черновика
-                const totalVolume = drafts.reduce((sum, d) => sum + (parseFloat(d.planned_quantity) || 0), 0);
+                const totalVolumeBig = drafts.reduce((sum, d) => sum.plus(new Big(d.planned_quantity || 0)), new Big(0));
                 let totalShiftCycles = 0;
 
                 for (let batch of drafts) {
-                    const bQty = parseFloat(batch.planned_quantity) || 0;
-                    const bCycles = parseFloat(batch.cycles_count) || 0;
-                    const fraction = totalVolume > 0 ? (bQty / totalVolume) : 0;
+                    const bQtyBig = new Big(batch.planned_quantity || 0);
+                    const bQty = Number(bQtyBig);
+                    const bCycles = Number(new Big(batch.cycles_count || 0));
+                    const fraction = totalVolumeBig.gt(0) ? bQtyBig.div(totalVolumeBig) : new Big(0);
 
                     // 7a. Списание сырья
                     let matCost = new Big(0);
@@ -474,7 +502,7 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     // ЗАДАЧА №8 (ПОЛНАЯ ВЕРСИЯ): УДАЛЕНИЕ С ОТКАТОМ ИЗНОСА И ВАЛИДАЦИЕЙ ID
     // ------------------------------------------------------------------
-    router.delete('/api/production/batch/:id', async (req, res) => {
+    router.delete('/api/production/batch/:id', requireAdmin, async (req, res) => {
         const batchId = parseInt(req.params.id);
 
         if (isNaN(batchId)) {
@@ -510,7 +538,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     await client.query('DELETE FROM production_batches WHERE id = $1', [batchId]);
                     return;
                 }
-                const cycles = parseFloat(batch.cycles_count) || 0;
+                const cycles = Number(new Big(batch.cycles_count || 0));
 
                 // --- 2. СТАНДАРТНЫЙ ОТКАТ СКЛАДА И ОБОРУДОВАНИЯ ---
                 await client.query('DELETE FROM inventory_movements WHERE batch_id = $1', [batchId]);
@@ -537,19 +565,23 @@ module.exports = function (pool, getWhId, withTransaction) {
                         LEFT JOIN items i ON pb.product_id = i.id
                         WHERE pb.production_date = $1 AND pb.status = 'completed'
                     `, [batch.prod_date]);
-                    let newTotalFund = Math.round(parseFloat(prodRes.rows[0].total_fund) || 0);
+                    let newTotalFundBig = new Big(prodRes.rows[0].total_fund || 0).round(0);
+                    let newTotalFund = Number(newTotalFundBig);
 
                     const workersRes = await client.query(`SELECT employee_id, ktu FROM timesheet_records WHERE record_date = $1 AND status = 'present'`, [batch.prod_date]);
                     const workers = workersRes.rows;
-                    let totalKtu = workers.reduce((sum, w) => sum + (parseFloat(w.ktu) || 0), 0);
+                    let totalKtuBig = workers.reduce((sum, w) => sum.plus(new Big(w.ktu || 0)), new Big(0));
+                    let totalKtu = Number(totalKtuBig);
 
                     if (newTotalFund === 0 || totalKtu === 0) {
                         // Если нет фонда ИЛИ нет рабочих с КТУ, принудительно обнуляем сделку всем за этот день
                         await client.query(`UPDATE timesheet_records SET bonus = 0 WHERE record_date = $1`, [batch.prod_date]);
-                    } else if (totalKtu > 0) {
+                    } else if (totalKtuBig.gt(0)) {
                         let distributed = 0;
                         for (let i = 0; i < workers.length; i++) {
-                            workers[i].new_bonus = Math.round(newTotalFund * (parseFloat(workers[i].ktu) / totalKtu));
+                            const ktuBig = new Big(workers[i].ktu || 0);
+                            const workerBonusBig = newTotalFundBig.times(ktuBig).div(totalKtuBig).round(0);
+                            workers[i].new_bonus = Number(workerBonusBig);
                             distributed += workers[i].new_bonus;
                         }
                         const diff = newTotalFund - distributed;
@@ -601,7 +633,8 @@ module.exports = function (pool, getWhId, withTransaction) {
             if (err.message.includes('ВНИМАНИЕ!')) {
                 res.status(400).json({ warning: err.message });
             } else {
-                res.status(500).json({ error: err.message });
+                console.error(err);
+                res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
             }
         }
     });
@@ -622,7 +655,8 @@ module.exports = function (pool, getWhId, withTransaction) {
             });
             res.json({ success: true, message: `Шаблон применен к ${targetProductIds.length} позициям.` });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -645,7 +679,8 @@ module.exports = function (pool, getWhId, withTransaction) {
             });
             res.json({ success: true, message: `Успешно применено к ${targetProductIds.length} позициям.` });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -684,9 +719,12 @@ module.exports = function (pool, getWhId, withTransaction) {
                 );
 
                 for (let mat of recipeRes.rows) {
-                    const totalForThisProd = parseFloat(mat.quantity_per_unit) * parseFloat(prod.total_needed_qty);
+                    const matQtyBig = new Big(mat.quantity_per_unit || 0);
+                    const prodQtyBig = new Big(prod.total_needed_qty || 0);
+                    const totalForThisProd = Number(matQtyBig.times(prodQtyBig).toFixed(4));
+                    
                     if (!materialsNeeded[mat.material_id]) materialsNeeded[mat.material_id] = 0;
-                    materialsNeeded[mat.material_id] += totalForThisProd;
+                    materialsNeeded[mat.material_id] = Number(new Big(materialsNeeded[mat.material_id]).plus(totalForThisProd).toFixed(4));
                 }
             }
 
@@ -704,22 +742,23 @@ module.exports = function (pool, getWhId, withTransaction) {
                 if (stockRes.rows.length > 0) {
                     const row = stockRes.rows[0];
                     const needed = materialsNeeded[matId];
-                    const balance = parseFloat(row.balance);
+                    const neededBig = new Big(materialsNeeded[matId] || 0);
+                    const balanceBig = new Big(row.balance || 0);
 
                     deficitReport.push({
                         name: row.name,
                         unit: row.unit,
-                        needed: needed.toFixed(2),
-                        stock: balance.toFixed(2),
-                        shortage: (needed > balance) ? (needed - balance).toFixed(2) : 0
+                        needed: neededBig.toFixed(2),
+                        stock: balanceBig.toFixed(2),
+                        shortage: neededBig.gt(balanceBig) ? neededBig.minus(balanceBig).toFixed(2) : 0
                     });
                 }
             }
 
             res.json({ success: true, productionPlan, deficitReport });
         } catch (err) {
-            console.error('Ошибка MRP:', err.message);
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -735,8 +774,8 @@ module.exports = function (pool, getWhId, withTransaction) {
             const dates = result.rows.map(r => r.date);
             res.json(dates);
         } catch (err) {
-            console.error("Ошибка при получении дат формовок:", err);
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -771,8 +810,8 @@ module.exports = function (pool, getWhId, withTransaction) {
             const result = await pool.query(query, [searchPattern]);
             res.json(result.rows);
         } catch (err) {
-            console.error('Ошибка поиска в производстве:', err);
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 

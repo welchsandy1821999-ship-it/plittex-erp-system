@@ -26,10 +26,10 @@ const JWT_SECRET = process.env.JWT_SECRET;
 
 // [Блок 2: Настройка базы данных]
 const pool = new Pool({
-    user: process.env.DB_USER, 
+    user: process.env.DB_USER,
     host: process.env.DB_HOST,
-    database: process.env.DB_NAME, 
-    password: process.env.DB_PASSWORD, 
+    database: process.env.DB_NAME,
+    password: process.env.DB_PASSWORD,
     port: process.env.DB_PORT
 });
 
@@ -85,9 +85,9 @@ const warehouseCache = {};
 async function getWhId(client, type) {
     if (warehouseCache[type]) return warehouseCache[type];
     const res = await client.query(`SELECT id FROM warehouses WHERE type = $1 LIMIT 1`, [type]);
-    if (res.rows.length > 0) { 
-        warehouseCache[type] = res.rows[0].id; 
-        return warehouseCache[type]; 
+    if (res.rows.length > 0) {
+        warehouseCache[type] = res.rows[0].id;
+        return warehouseCache[type];
     }
     else throw new Error(`Склад '${type}' не найден!`);
 }
@@ -116,14 +116,14 @@ app.get('/', (req, res) => res.render('index', { devMode: process.env.DEV_MODE =
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
     logger.info(`🔑 Попытка входа: ${username}`);
-    
+
     if (!username || !password) return res.status(400).json({ error: 'Введите данные' });
 
     let client;
     try {
         client = await pool.connect();
         const result = await client.query('SELECT * FROM users WHERE username = $1', [username]);
-        
+
         if (result.rows.length === 0) {
             logger.warn(`❌ Пользователь не найден: ${username}`);
             return res.status(401).json({ error: 'Неверный логин' });
@@ -212,14 +212,14 @@ if (bot) {
                 reply_markup: { keyboard: [['💰 Баланс кассы', '📦 Остаток цемента'], ['📊 Отчет по продажам за сегодня']], resize_keyboard: true }
             });
         }
-        
+
         if (text === '💰 Баланс кассы' || text === '/balance') {
             try {
                 const res = await pool.query('SELECT name, balance FROM accounts ORDER BY id ASC');
                 let reply = '<b>🏦 Баланс:</b>\n\n'; let total = 0;
-                res.rows.forEach(acc => { 
-                    reply += `🔹 ${acc.name}: ${parseFloat(acc.balance).toLocaleString()} ₽\n`; 
-                    total += parseFloat(acc.balance); 
+                res.rows.forEach(acc => {
+                    reply += `🔹 ${acc.name}: ${parseFloat(acc.balance).toLocaleString()} ₽\n`;
+                    total += parseFloat(acc.balance);
                 });
                 reply += `\n<b>💵 ИТОГО: ${total.toLocaleString()} ₽</b>`;
                 bot.sendMessage(currentChatId, reply, { parse_mode: 'HTML' });
@@ -252,3 +252,19 @@ server.listen(port, () => {
     logger.info(`🚀 ERP Server запущен на порту ${port}`);
     sendNotify(`✅ <b>Система запущена</b>\nСервер готов к работе.`);
 });
+
+// [Блок 10: Graceful Shutdown - корректное завершение]
+const gracefulShutdown = () => {
+    logger.info('🛑 Получен сигнал завершения. Освобождаем ресурсы...');
+    server.close(() => {
+        logger.info('📡 HTTP сервер остановлен.');
+        pool.end(() => {
+            logger.info('🐘 Пул соединений БД закрыт.');
+            process.exit(0);
+        });
+    });
+};
+
+// Перехват сигналов остановки процесса
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);

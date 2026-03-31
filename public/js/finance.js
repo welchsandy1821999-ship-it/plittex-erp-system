@@ -2505,32 +2505,32 @@ window.openPnlReportModal = async function (customStart = '', customEnd = '') {
                     <span style="font-size: 15px;">Выручка (Оборот от продаж):</span>
                     <span style="font-size: 16px; font-weight: bold; color: var(--success);">${fmt(data.revenue)} ₽</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; padding: 10px 15px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px;">
-                    <span style="font-size: 15px;">Прочие доходы (Кэшбэк, Услуги, Продажа ОС):</span>
-                    <span style="font-size: 16px; font-weight: bold; color: var(--success);">${fmt(data.otherIncome)} ₽</span>
-                </div>
                 <div style="display: flex; justify-content: space-between; padding: 12px 15px; background: var(--surface-alt); border-right: 3px solid var(--success); margin-bottom: 20px; align-items: center;">
-                    <span style="font-size: 15px; font-weight: bold;">ИТОГО ДОХОДЫ:</span>
-                    <span style="font-size: 18px; font-weight: 900; color: var(--success);">${fmt(data.totalIncome)} ₽</span>
+                    <span style="font-size: 15px; font-weight: bold;">ИТОГО ДОХОДЫ (От основной деятельности):</span>
+                    <span style="font-size: 18px; font-weight: 900; color: ${data.totalIncome < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.totalIncome)} ₽</span>
                 </div>
 
                 <!-- БЛОК РАСХОДОВ -->
                 <h4 style="margin: 15px 0 10px; color: var(--text-main); font-size: 16px; border-bottom: 1px solid var(--border); padding-bottom: 5px;">РАСХОДЫ</h4>
                 <div style="display: flex; justify-content: space-between; padding: 10px 15px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 5px;">
-                    <span style="font-size: 15px;">🟢 Прямые затраты (COGS — сырьё, доставка сырья):</span>
-                    <span style="font-size: 16px; font-weight: bold; color: var(--danger);">-${fmt(data.cogs)} ₽</span>
+                    <span style="font-size: 15px;">🟢 Прямые затраты (COGS):</span>
+                    <span style="font-size: 16px; font-weight: bold; color: ${data.cogs < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.cogs)} ₽</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; padding: 10px 15px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 5px;">
-                    <span style="font-size: 15px;">🟠 Косвенные расходы (OPEX — аренда, ЗП, логистика, офис):</span>
-                    <span style="font-size: 16px; font-weight: bold; color: var(--danger);">-${fmt(data.opex)} ₽</span>
+                    <span style="font-size: 15px;">🟠 Косвенные расходы (OPEX):</span>
+                    <span style="font-size: 16px; font-weight: bold; color: ${data.opex < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.opex)} ₽</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; padding: 10px 15px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 5px;">
+                    <span style="font-size: 15px;">🔵 Капитальные затраты (CAPEX):</span>
+                    <span style="font-size: 16px; font-weight: bold; color: ${data.capex < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.capex)} ₽</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; padding: 8px 15px; background: var(--surface); border: 1px dashed var(--border); border-radius: 6px; margin-bottom: 10px; opacity: 0.7;">
                     <span style="font-size: 13px; color: var(--text-muted);">📋 Справочно: ФОТ по начислению (Табель: оклады + сделка − штрафы):</span>
                     <span style="font-size: 13px; font-weight: bold; color: var(--text-muted);">${fmt(data.laborCosts)} ₽</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; padding: 12px 15px; background: var(--surface-alt); border-right: 3px solid var(--danger); margin-bottom: 20px; align-items: center;">
-                    <span style="font-size: 15px; font-weight: bold;">ИТОГО РАСХОДЫ (COGS + OPEX):</span>
-                    <span style="font-size: 18px; font-weight: 900; color: var(--danger);">-${fmt(data.totalExpenses)} ₽</span>
+                    <span style="font-size: 15px; font-weight: bold;">ИТОГО РАСХОДЫ (COGS + OPEX + CAPEX):</span>
+                    <span style="font-size: 18px; font-weight: 900; color: ${data.totalExpenses < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.totalExpenses)} ₽</span>
                 </div>
 
                 <!-- ФИНАЛЬНЫЙ РЕЗУЛЬТАТ -->

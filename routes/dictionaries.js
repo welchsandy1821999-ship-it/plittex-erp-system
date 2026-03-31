@@ -304,6 +304,16 @@ module.exports = function (pool, withTransaction) {
                 if (reset_cycles) {
                     await client.query('UPDATE equipment SET current_cycles = 0 WHERE id = $1', [equipId]);
                 }
+                
+                await client.query(`
+                    UPDATE accounts a 
+                    SET balance = ROUND(COALESCE((
+                        SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) - 
+                               SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END) 
+                        FROM transactions t 
+                        WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
+                    ), 0), 2)
+                `);
             });
             res.json({ success: true, message: 'Ремонт зафиксирован' });
         } catch (err) {

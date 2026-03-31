@@ -3,6 +3,8 @@ const router = express.Router();
 const Big = require('big.js');
 const { sendNotify } = require('../utils/telegram');
 
+const { requireAdmin } = require('../middleware/auth');
+
 module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP_CONFIG) {
 
     // ------------------------------------------------------------------
@@ -21,9 +23,10 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
             await withTransaction(pool, async (client) => {
                 // 1. Проверяем наличие заказа
-                const orderRes = await client.query('SELECT counterparty_id FROM client_orders WHERE doc_number = $1', [docNum]);
+                const orderRes = await client.query('SELECT id, counterparty_id FROM client_orders WHERE doc_number = $1', [docNum]);
                 if (orderRes.rows.length === 0) throw new Error('Заказ не найден');
                 const cpId = orderRes.rows[0].counterparty_id;
+                const orderId = orderRes.rows[0].id;
 
                 // 2. Выбор счета
                 let targetAccountId = account_id;
@@ -53,47 +56,40 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
                 // 3. Создаем записи в транзакциях
                 await client.query(`
-                    INSERT INTO transactions (account_id, counterparty_id, amount, transaction_type, category, description, payment_method, source_module) 
-                    VALUES ($1, $2, $3, 'expense', 'Взаимозачет', $4, 'Взаимозачет', 'sales')
-                `, [targetAccountId, cpId, amountStr, `Взаимозачет: списание переплаты за заказ ${docNum}`]);
+                    INSERT INTO transactions (account_id, counterparty_id, amount, transaction_type, category, description, payment_method, source_module, linked_order_id) 
+                    VALUES ($1, $2, $3, 'expense', 'Взаимозачет', $4, 'Взаимозачет', 'sales', $5)
+                `, [targetAccountId, cpId, amountStr, `Взаимозачет: списание переплаты за заказ ${docNum}`, orderId]);
 
                 await client.query(`
-                    INSERT INTO transactions (account_id, counterparty_id, amount, transaction_type, category, description, payment_method, source_module) 
-                    VALUES ($1, $2, $3, 'income', 'Взаимозачет', $4, 'Взаимозачет', 'sales')
-                `, [targetAccountId, cpId, amountStr, `Оплата по заказу ${docNum} (взаимозачет аванса)`]);
+                    INSERT INTO transactions (account_id, counterparty_id, amount, transaction_type, category, description, payment_method, source_module, linked_order_id) 
+                    VALUES ($1, $2, $3, 'income', 'Взаимозачет', $4, 'Взаимозачет', 'sales', $5)
+                `, [targetAccountId, cpId, amountStr, `Оплата по заказу ${docNum} (взаимозачет аванса)`, orderId]);
 
-                // 5. Распределение суммы по ожидающим инвойсам
-                const invRes = await client.query(`
-                    SELECT id, amount FROM invoices 
-                    WHERE invoice_number = $1 AND status = 'pending' 
-                    ORDER BY created_at ASC
-                `, [docNum]);
+                // 5. Отражение взаимозачета в заказе
+                await client.query(`
+                    UPDATE client_orders 
+                    SET paid_amount = GREATEST(paid_amount + $1, 0), 
+                        pending_debt = GREATEST(pending_debt - $1, 0)
+                    WHERE doc_number = $2
+                `, [amountStr, docNum]);
 
-                let remaining = new Big(offsetAmount);
-
-                for (let inv of invRes.rows) {
-                    // Если осталось меньше копейки, прекращаем распределение
-                    if (remaining.lt(0.01)) break;
-
-                    const invAmount = new Big(inv.amount);
-
-                    // Если остатка взаимозачета хватает на покрытие инвойса
-                    // (используем допуск 0.001 для компенсации возможных микро-различий в БД)
-                    if (remaining.gte(invAmount.minus(0.001))) {
-                        await client.query(`UPDATE invoices SET status = 'paid', amount = 0 WHERE id = $1`, [inv.id]);
-                        remaining = remaining.minus(invAmount);
-                    } else {
-                        // Если покрываем только часть суммы инвойса
-                        await client.query(`UPDATE invoices SET amount = amount - $1 WHERE id = $2`, [remaining.toFixed(2), inv.id]);
-                        remaining = new Big(0);
-                    }
-                }
+                // Пересчет баланса кассы после взаимозачета
+                await client.query(`
+                    UPDATE accounts a 
+                    SET balance = ROUND(COALESCE((
+                        SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) - 
+                               SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END) 
+                        FROM transactions t 
+                        WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
+                    ), 0), 2)
+                    WHERE a.id = $1
+                `, [targetAccountId]);
             });
 
             res.json({ success: true, message: 'Взаимозачет проведен с использованием Big.js' });
         } catch (err) {
-            console.error('Ошибка взаимозачета:', err.message);
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -101,7 +97,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
     // 2. Возврат от клиента с правильным НДС
     // ------------------------------------------------------------------
     router.post('/api/sales/returns', async (req, res) => {
-        const { counterparty_id, items, pallets_returned, refund_method, refund_amount, account_id, reason, user_id } = req.body;
+        const { order_id, counterparty_id, items, pallets_returned, refund_method, refund_amount, account_id, reason, user_id } = req.body;
 
         try {
             let docNum;
@@ -125,7 +121,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 const defaultFinishedWhId = await getWhId(client, 'finished');
                 if (items && items.length > 0) {
                     for (let item of items) {
-                        if (parseFloat(item.qty) <= 0) throw new Error(`Количество возвращаемого товара должно быть больше нуля!`);
+                        if (new Big(item.qty || 0).lte(0)) throw new Error(`Количество возвращаемого товара должно быть больше нуля!`);
                         const whId = item.warehouse_id || defaultFinishedWhId;
                         await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id) VALUES ($1, $2, 'customer_return', $3, $4, $5)`, [item.id, item.qty, desc, whId, user_id || null]);
                         await client.query(`INSERT INTO customer_return_items (return_id, item_id, quantity, price, warehouse_id) VALUES ($1, $2, $3, $4, $5)`, [returnId, item.id, item.qty, item.price, whId]);
@@ -137,9 +133,25 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         // 🚀 ИСПРАВЛЕНИЕ 2: НДС по глобальным настройкам
                         // Переходим на динамический делитель (100 + ставка)
                         const vatAmount = Number(refundAmountBig.times(ERP_CONFIG.vatRate).div(100 + ERP_CONFIG.vatRate).round(2));
-                        await client.query(`INSERT INTO transactions (amount, transaction_type, category, description, vat_amount, payment_method, account_id, counterparty_id, user_id) VALUES ($1, 'expense', 'Возврат средств покупателю', $2, $3, 'Сразу', $4, $5, $6)`, [refundAmountNum, desc, vatAmount, account_id, counterparty_id, user_id || null]);
+                        await client.query(`INSERT INTO transactions (amount, transaction_type, category, description, vat_amount, payment_method, account_id, counterparty_id, user_id, linked_order_id) VALUES ($1, 'expense', 'Возврат средств покупателю', $2, $3, 'Сразу', $4, $5, $6, $7)`, [refundAmountNum, desc, vatAmount, account_id, counterparty_id, user_id || null, order_id || null]);
+                        
+                        await client.query(`
+                            UPDATE accounts a 
+                            SET balance = ROUND(COALESCE((
+                                SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) - 
+                                       SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END) 
+                                FROM transactions t 
+                                WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
+                            ), 0), 2)
+                        `);
                     } else if (refund_method === 'debt') {
-                        await client.query(`INSERT INTO invoices (counterparty_id, invoice_number, amount, description, status, user_id) VALUES ($1, $2, $3, $4, 'paid', $5)`, [counterparty_id, docNum, -Math.abs(refundAmountNum), desc, user_id || null]);
+                        if (order_id) {
+                            await client.query(`
+                                UPDATE client_orders 
+                                SET pending_debt = pending_debt + $1 
+                                WHERE id = $2
+                            `, [refundAmountNum, order_id]);
+                        }
                     }
                 }
             });
@@ -149,7 +161,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
             res.json({ success: true, docNum, message: 'Возврат оформлен' });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -182,7 +195,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
                 const discountMultiplier = new Big(100).minus(new Big(discount || 0)).div(100);
                 let finalAmountBig = subtotalAmount.times(discountMultiplier);
-                if (logistics_cost && parseFloat(logistics_cost) > 0) {
+                if (logistics_cost && new Big(logistics_cost).gt(0)) {
                     finalAmountBig = finalAmountBig.plus(new Big(logistics_cost));
                 }
                 finalAmount = Number(finalAmountBig.round(2));
@@ -218,13 +231,13 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         ORDER BY MIN(movement_date) ASC
                     `, [item.id, whId]);
 
-                    let remainingNeeded = parseFloat(item.qty);
+                    let remainingNeeded = Number(new Big(item.qty || 0));
                     let qtyReserved = 0;
                     let desc = `Заказ (Резерв): ${docNum}`;
 
                     for (let row of stockRes.rows) {
                         if (remainingNeeded <= 0) break;
-                        const deduct = Math.min(remainingNeeded, parseFloat(row.available));
+                        const deduct = Math.min(remainingNeeded, Number(new Big(row.available || 0)));
                         remainingNeeded -= deduct;
                         qtyReserved += deduct;
                         await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id) VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6)`, [item.id, -deduct, desc, whId, row.batch_id, user_id || null]);
@@ -243,19 +256,18 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         // 🚀 ПРОВЕРКА ДЕФИЦИТА (Внутри транзакции)
                         const recipeRes = await client.query(`SELECT material_id, quantity_per_unit FROM recipes WHERE product_id = $1`, [item.id]);
                         for (let mat of recipeRes.rows) {
-                            const totalNeeded = parseFloat(mat.quantity_per_unit) * qtyProduction;
+                            const totalNeededBig = new Big(mat.quantity_per_unit || 0).times(qtyProduction);
+                            const totalNeeded = Number(totalNeededBig.round(2));
 
-                            // МЕНЯЕМ ИМЯ НА materialStockRes, чтобы не было конфликта с переменной на строке 183
                             const materialStockRes = await client.query(`
                                 SELECT i.name, COALESCE(SUM(m.quantity), 0) as balance 
                                 FROM items i 
-                                LEFT JOIN inventory_movements m ON i.id = m.item_id AND m.warehouse_id = 1 
+                                LEFT JOIN inventory_movements m ON i.id = m.item_id
                                 WHERE i.id = $1 
                                 GROUP BY i.name
                             `, [mat.material_id]);
 
-                            // Используем новое имя переменной materialStockRes ниже
-                            const balance = materialStockRes.rows[0] ? parseFloat(materialStockRes.rows[0].balance) : 0;
+                            const balance = materialStockRes.rows[0] ? Number(new Big(materialStockRes.rows[0].balance || 0).round(2)) : 0;
                             if (balance < totalNeeded) {
                                 deficitReport.push({
                                     name: materialStockRes.rows[0]?.name || 'Материал',
@@ -270,7 +282,17 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 // Финансы
                 let finDesc = `Заказ ${docNum}`;
                 if (payment_method === 'paid' && account_id) {
-                    await client.query(`INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, user_id) VALUES ($1, 'income', 'Продажа продукции', $2, 'Сразу', $3, $4, $5)`, [finalAmount, finDesc, account_id, counterparty_id, user_id || null]);
+                    await client.query(`INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, user_id, linked_order_id) VALUES ($1, 'income', 'Продажа продукции', $2, 'Сразу', $3, $4, $5, $6)`, [finalAmount, finDesc, account_id, counterparty_id, user_id || null, orderId]);
+                    
+                    await client.query(`
+                        UPDATE accounts a 
+                        SET balance = ROUND(COALESCE((
+                            SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) - 
+                                   SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END) 
+                            FROM transactions t 
+                            WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
+                        ), 0), 2)
+                    `);
                 }
             });
 
@@ -286,7 +308,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
     // ------------------------------------------------------------------
     // 4. Удаление заказа
     // ------------------------------------------------------------------
-    router.delete('/api/sales/orders/:id', async (req, res) => {
+    router.delete('/api/sales/orders/:id', requireAdmin, async (req, res) => {
         const orderId = req.params.id;
         try {
             await withTransaction(pool, async (client) => {
@@ -294,12 +316,12 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 if (orderRes.rows.length === 0) throw new Error('Заказ не найден');
                 const order = orderRes.rows[0];
 
-                if (parseFloat(order.paid_amount) > 0) {
+                if (new Big(order.paid_amount || 0).gt(0)) {
                     throw new Error(`Нельзя удалить заказ ${order.doc_number}. По нему числится оплата (${order.paid_amount} ₽). Сначала сделайте возврат средств!`);
                 }
 
                 await client.query(`DELETE FROM inventory_movements WHERE description ILIKE $1`, [`%Заказ (Резерв): ${order.doc_number}%`]);
-                await client.query(`DELETE FROM invoices WHERE invoice_number = $1 AND status = 'pending'`, [order.doc_number]);
+                await client.query(`UPDATE transactions SET is_deleted = true WHERE linked_order_id = $1`, [orderId]);
                 await client.query(`DELETE FROM planned_production WHERE order_item_id IN (SELECT id FROM client_order_items WHERE order_id = $1)`, [orderId]);
                 await client.query('DELETE FROM client_order_items WHERE order_id = $1', [orderId]);
                 await client.query('DELETE FROM client_orders WHERE id = $1', [orderId]);
@@ -312,7 +334,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             });
             res.json({ success: true, message: 'Заказ успешно удален' });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -350,7 +373,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
                 const checkRes = await client.query(`SELECT qty_ordered, COALESCE(qty_shipped, 0) as qty_shipped FROM client_order_items WHERE order_id = $1`, [orderId]);
                 for (let row of checkRes.rows) {
-                    if (parseFloat(row.qty_shipped) < parseFloat(row.qty_ordered)) { allCompleted = false; break; }
+                    if (new Big(row.qty_shipped || 0).lt(row.qty_ordered || 0)) { allCompleted = false; break; }
                 }
 
                 if (allCompleted) {
@@ -365,7 +388,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
             res.json({ success: true, docNum, isCompleted: allCompleted });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -375,7 +399,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
     // Вставьте эти блоки в routes/sales.js
 
     // --- УДАЛЕНИЕ ОТГРУЗКИ ---
-    router.delete('/api/sales/shipments/:docNum', async (req, res) => {
+    router.delete('/api/sales/shipments/:docNum', requireAdmin, async (req, res) => {
         const { docNum } = req.params;
 
         try {
@@ -396,11 +420,14 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 }
             });
             res.json({ success: true, message: 'Отгрузка отменена, товары вернулись в заказ' });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     // --- УДАЛЕНИЕ ЗАКАЗА ---
-    router.delete('/api/sales/orders/:id', async (req, res) => {
+    router.delete('/api/sales/orders/:id', requireAdmin, async (req, res) => {
         try {
             await withTransaction(pool, async (client) => {
                 const orderRes = await client.query('SELECT doc_number, paid_amount FROM client_orders WHERE id = $1', [req.params.id]);
@@ -409,7 +436,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 const order = orderRes.rows[0];
 
                 // Проверка на оплаты
-                if (parseFloat(order.paid_amount) > 0) {
+                if (new Big(order.paid_amount || 0).gt(0)) {
                     throw new Error(`Нельзя удалить. По заказу числится оплата ${order.paid_amount} ₽. Сначала удалите платежи в Финансах.`);
                 }
 
@@ -420,15 +447,19 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 }
 
                 await client.query('DELETE FROM client_order_items WHERE order_id = $1', [req.params.id]);
+                await client.query(`UPDATE transactions SET is_deleted = true WHERE linked_order_id = $1`, [req.params.id]);
                 await client.query('DELETE FROM client_orders WHERE id = $1', [req.params.id]);
             });
             res.json({ success: true });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
     // ------------------------------------------------------------------
     // Остальные маршруты (Analytics, Export, Status Update, etc.)
     // ------------------------------------------------------------------
-    router.put('/api/sales/orders/:id/status', async (req, res) => {
+    router.put('/api/sales/orders/:id/status', requireAdmin, async (req, res) => {
         const orderId = req.params.id;
         const { status } = req.body;
         try {
@@ -442,7 +473,10 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             const io = req.app.get('io');
             if (io) io.emit('inventory_updated');
             res.json({ success: true });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     // ------------------------------------------------------------------
@@ -507,8 +541,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             const result = await pool.query(query, params);
             res.json(result.rows);
         } catch (err) {
-            console.error('Ошибка поиска заказов:', err.message);
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -538,9 +572,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
             res.json({ order: orderRes.rows[0], items: itemsRes.rows });
         } catch (err) {
-            // ТЕПЕРЬ МЫ УВИДИМ ОШИБКУ В ТЕРМИНАЛЕ
-            console.error(`❌ ОШИБКА ДЕТАЛЕЙ ЗАКАЗА (ID: ${orderId}):`, err.message);
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -548,24 +581,39 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
         try {
             const result = await pool.query(`SELECT id, number, date_formatted, name FROM contracts WHERE counterparty_id = $1 AND status = 'active' ORDER BY created_at DESC`, [req.params.clientId]);
             res.json(result.rows);
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
-    router.delete('/api/contracts/:id', async (req, res) => {
+    router.delete('/api/contracts/:id', requireAdmin, async (req, res) => {
         const contractId = req.params.id;
         try {
-            const specsRes = await pool.query('SELECT id, number FROM specifications WHERE contract_id = $1 LIMIT 1', [contractId]);
-            if (specsRes.rows.length > 0) return res.status(400).json({ error: `ОШИБКА: Внутри есть спецификация №${specsRes.rows[0].number}. Сначала удалите её!` });
-            const ordersRes = await pool.query('SELECT id, doc_number FROM client_orders WHERE contract_id = $1 LIMIT 1', [contractId]);
-            if (ordersRes.rows.length > 0) return res.status(400).json({ error: `ОШИБКА: К договору привязан заказ (${ordersRes.rows[0].doc_number}).` });
-            await pool.query('DELETE FROM contracts WHERE id = $1', [contractId]);
+            await withTransaction(pool, async (client) => {
+                const specsRes = await client.query('SELECT id, number FROM specifications WHERE contract_id = $1 LIMIT 1', [contractId]);
+                if (specsRes.rows.length > 0) throw new Error(`ОШИБКА: Внутри есть спецификация №${specsRes.rows[0].number}. Сначала удалите её!`);
+                const ordersRes = await client.query('SELECT id, doc_number FROM client_orders WHERE contract_id = $1 LIMIT 1', [contractId]);
+                if (ordersRes.rows.length > 0) throw new Error(`ОШИБКА: К договору привязан заказ (${ordersRes.rows[0].doc_number}).`);
+                await client.query('DELETE FROM contracts WHERE id = $1', [contractId]);
+            });
             res.json({ success: true });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(400).json({ error: err.message });
+        }
     });
 
-    router.delete('/api/specifications/:id', async (req, res) => {
-        try { await pool.query('DELETE FROM specifications WHERE id = $1', [req.params.id]); res.json({ success: true }); }
-        catch (err) { res.status(500).json({ error: err.message }); }
+    router.delete('/api/specifications/:id', requireAdmin, async (req, res) => {
+        try { 
+            await withTransaction(pool, async (client) => {
+                await client.query('DELETE FROM specifications WHERE id = $1', [req.params.id]); 
+            });
+            res.json({ success: true }); 
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     router.get('/api/sales/history', async (req, res) => {
@@ -582,7 +630,10 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 }
             }
             res.json(result.rows.filter(r => r.doc_num));
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     router.get('/api/sales/analytics', async (req, res) => {
@@ -591,14 +642,20 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             const topClients = await pool.query(`SELECT c.name, SUM(co.total_amount) as total_sum FROM client_orders co JOIN counterparties c ON co.counterparty_id = c.id WHERE co.status != 'cancelled' GROUP BY c.name ORDER BY total_sum DESC LIMIT 5`);
             const monthRevenue = await pool.query(`SELECT SUM(total_amount) as total FROM client_orders WHERE EXTRACT(MONTH FROM created_at) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE) AND status != 'cancelled'`);
             res.json({ topItems: topItems.rows, topClients: topClients.rows, monthRevenue: monthRevenue.rows[0].total || 0 });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     router.get('/api/sales/pallets-report', async (req, res) => {
         try {
             const result = await pool.query(`SELECT id, name, phone, pallets_balance FROM counterparties WHERE pallets_balance > 0 ORDER BY pallets_balance DESC`);
             res.json(result.rows);
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     router.post('/api/blank-orders', async (req, res) => {
@@ -607,26 +664,38 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             const docNum = `БЗ-${new Date().getTime().toString().slice(-6)}`;
             const result = await pool.query(`INSERT INTO blank_orders (doc_number, counterparty_id, item_id, item_name, warehouse_id, quantity, price) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, doc_number`, [docNum, counterparty_id, item_id, item_name, warehouse_id, quantity, price]);
             res.json({ success: true, docNum: result.rows[0].doc_number, id: result.rows[0].id });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     router.get('/api/blank-orders', async (req, res) => {
         try {
             const result = await pool.query(`SELECT b.*, c.name as client_name, TO_CHAR(b.created_at, 'DD.MM.YYYY HH24:MI') as date_formatted FROM blank_orders b LEFT JOIN counterparties c ON b.counterparty_id = c.id WHERE b.status = 'pending' ORDER BY b.created_at DESC`);
             res.json(result.rows);
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
-    router.delete('/api/blank-orders/:id', async (req, res) => {
+    router.delete('/api/blank-orders/:id', requireAdmin, async (req, res) => {
         try { await pool.query('DELETE FROM blank_orders WHERE id = $1', [req.params.id]); res.json({ success: true }); }
-        catch (err) { res.status(500).json({ error: err.message }); }
+        catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     router.get('/api/counterparties/:id/poas', async (req, res) => {
         try {
             const result = await pool.query(`SELECT id, driver_name, number, TO_CHAR(issue_date, 'DD.MM.YYYY') as issue_date, TO_CHAR(expiry_date, 'DD.MM.YYYY') as expiry_date FROM powers_of_attorney WHERE counterparty_id = $1 AND expiry_date >= CURRENT_DATE ORDER BY expiry_date ASC`, [req.params.id]);
             res.json(result.rows);
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     router.post('/api/poas', async (req, res) => {
@@ -634,26 +703,46 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
         try {
             await pool.query(`INSERT INTO powers_of_attorney (counterparty_id, driver_name, number, issue_date, expiry_date) VALUES ($1, $2, $3, $4, $5)`, [counterparty_id, driver_name, number, issue_date, expiry_date]);
             res.json({ success: true });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     router.get('/api/counterparties/:id/contracts', async (req, res) => {
         try {
             const result = await pool.query(`SELECT c.id as contract_id, c.number as contract_number, TO_CHAR(c.date, 'DD.MM.YYYY') as contract_date, s.id as spec_id, s.number as spec_number, TO_CHAR(s.date, 'DD.MM.YYYY') as spec_date FROM contracts c LEFT JOIN specifications s ON c.id = s.contract_id WHERE c.counterparty_id = $1 ORDER BY c.date DESC, s.date DESC`, [req.params.id]);
             res.json(result.rows);
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     router.post('/api/contracts', async (req, res) => {
         try {
-            const result = await pool.query(`INSERT INTO contracts (counterparty_id, number, date) VALUES ($1, $2, $3) RETURNING id`, [req.body.counterparty_id, req.body.number, req.body.date]);
-            res.json({ success: true, contract_id: result.rows[0].id });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+            let contractId;
+            await withTransaction(pool, async (client) => {
+                const result = await client.query(`INSERT INTO contracts (counterparty_id, number, date) VALUES ($1, $2, $3) RETURNING id`, [req.body.counterparty_id, req.body.number, req.body.date]);
+                contractId = result.rows[0].id;
+            });
+            res.json({ success: true, contract_id: contractId });
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     router.post('/api/specifications', async (req, res) => {
-        try { await pool.query(`INSERT INTO specifications (contract_id, number, date) VALUES ($1, $2, $3)`, [req.body.contract_id, req.body.number, req.body.date]); res.json({ success: true }); }
-        catch (err) { res.status(500).json({ error: err.message }); }
+        try { 
+            await withTransaction(pool, async (client) => {
+                await client.query(`INSERT INTO specifications (contract_id, number, date) VALUES ($1, $2, $3)`, [req.body.contract_id, req.body.number, req.body.date]); 
+            });
+            res.json({ success: true }); 
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     // 🚀 ИСПРАВЛЕНИЕ: Выгрузка в 1С (НДС берется из глобальных настроек)
@@ -665,19 +754,26 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             const result = await pool.query(`SELECT COALESCE(SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) as doc_num, TO_CHAR(m.movement_date, 'DD.MM.YYYY') as doc_date, c.inn, c.kpp, c.name as client_name, COALESCE(i.article, 'PL-' || i.id) as article, i.name as item_name, i.unit, ABS(m.quantity) as qty, coi.price FROM inventory_movements m JOIN client_order_items coi ON m.linked_order_item_id = coi.id JOIN client_orders o ON coi.order_id = o.id JOIN counterparties c ON o.counterparty_id = c.id JOIN items i ON m.item_id = i.id WHERE m.movement_type = 'sales_shipment' AND m.movement_date >= $1 AND m.movement_date <= $2 ORDER BY m.movement_date ASC`, [startDate, endDate]);
             let csv = '\uFEFFНомер Документа;Дата;ИНН;КПП;Покупатель;Артикул;Номенклатура;Ед. изм.;Количество;Цена с НДС;Сумма с НДС;Ставка НДС;Сумма НДС\n';
             result.rows.forEach(r => {
-                const qty = parseFloat(r.qty) || 0;
-                const priceWithVat = parseFloat(r.price) || 0;
-                const sumWithVat = qty * priceWithVat;
+                const qtyStr = r.qty || 0;
+                const priceStr = r.price || 0;
+                
+                const qtyBig = new Big(qtyStr);
+                const priceBig = new Big(priceStr);
+                const sumWithVatBig = qtyBig.times(priceBig);
+                const sumWithVat = Number(sumWithVatBig.toFixed(2));
 
-                // Вычисление НДС по единой формуле
-                const vatAmount = sumWithVat - (sumWithVat / (1 + ERP_CONFIG.vatRate / 100));
+                const vatAmountBig = sumWithVatBig.minus(sumWithVatBig.div(1 + ERP_CONFIG.vatRate / 100));
+                const vatAmount = Number(vatAmountBig.toFixed(2));
 
-                csv += `${r.doc_num};${r.doc_date};${r.inn || ''};${r.kpp || ''};"${(r.client_name || '').replace(/"/g, '""')}";${r.article};"${(r.item_name || '').replace(/"/g, '""')}";${r.unit};${qty};${priceWithVat.toFixed(2).replace('.', ',')};${sumWithVat.toFixed(2).replace('.', ',')};${ERP_CONFIG.vatRate}%;${vatAmount.toFixed(2).replace('.', ',')}\n`;
+                csv += `${r.doc_num};${r.doc_date};${r.inn || ''};${r.kpp || ''};"${(r.client_name || '').replace(/"/g, '""')}";${r.article};"${(r.item_name || '').replace(/"/g, '""')}";${r.unit};${Number(qtyBig)};${Number(priceBig).toFixed(2).replace('.', ',')};${sumWithVat.toFixed(2).replace('.', ',')};${ERP_CONFIG.vatRate}%;${vatAmount.toFixed(2).replace('.', ',')}\n`;
             });
             res.setHeader('Content-Type', 'text/csv; charset=utf-8');
             res.setHeader('Content-Disposition', `attachment; filename="Export_1C_${month}_${year}.csv"`);
             res.send(csv);
-        } catch (err) { res.status(500).send('Ошибка экспорта: ' + err.message); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).send('Внутренняя ошибка сервера. Обратитесь к администратору.');
+        }
     });
 
     return router;

@@ -3,6 +3,7 @@ const router = express.Router();
 const fs = require('fs');
 const path = require('path');
 const Big = require('big.js');
+const { requireAdmin } = require('../middleware/auth');
 const crypto = require('crypto');
 
 // 🚀 Единая функция поиска документов в тексте (Защита от опечаток)
@@ -32,10 +33,9 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             end = new Date().toISOString().split('T')[0];
         }
 
-
         try {
-            const [revenueRes, otherIncomeRes, cogsRes, opexRes, laborRes] = await Promise.all([
-                // 💰 1. ВЫРУЧКА = транзакции income с категорией 'Продажа продукции'
+            const [revenueRes, otherIncomeRes, cogsRes, opexRes, laborRes, capexRes] = await Promise.all([
+                // 💰 1. ВЫРУЧКА = income с категорией 'Продажа продукции'
                 pool.query(`
                     SELECT COALESCE(SUM(amount), 0) as total
                     FROM transactions
@@ -45,79 +45,79 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                       AND transaction_date >= $1::timestamp AND transaction_date < ($2::timestamp + interval '1 day')
                 `, [start, end]),
 
-                // 📈 2. ОБЩИЙ ДОХОД (все income без мусора) — otherIncome = totalAll - revenue
-                // Кириллица в NOT IN файла может расходиться с БД по кодировке,
-                // поэтому вычисляем прочие доходы МАТЕМАТИЧЕСКИ: totalAll - revenue
+                // 📈 2. ДРУГИЕ ДОХОДЫ (все income КРОМЕ Продажи) — справочно
                 pool.query(`
                     SELECT COALESCE(SUM(amount), 0) as total
                     FROM transactions
                     WHERE transaction_type = 'income'
                       AND (is_deleted IS NULL OR is_deleted = false)
-                      AND category NOT IN (
-                          'Корректировка долга', 'Перевод', 'Ввод остатков',
-                          'Техническая проводка', 'Взнос учредителя', 'Возврат займов',
-                          'Получение займов'
-                      )
+                      AND category != 'Продажа продукции'
                       AND transaction_date >= $1::timestamp AND transaction_date < ($2::timestamp + interval '1 day')
                 `, [start, end]),
 
-                // 🧱 3. COGS (Прямые затраты) = expense с cost_group = 'direct'
+                // 🧱 3. COGS = expense-транзакции в группе 'direct'
                 pool.query(`
                     SELECT COALESCE(SUM(t.amount), 0) as total
                     FROM transactions t
                     LEFT JOIN transaction_categories tc ON t.category = tc.name
                     WHERE t.transaction_type = 'expense'
+                      AND t.category != 'Перевод'
                       AND (t.is_deleted IS NULL OR t.is_deleted = false)
                       AND COALESCE(t.cost_group_override, tc.cost_group, 'capex') = 'direct'
-                      AND t.category NOT IN (
-                          'Корректировка долга', 'Перевод', 'Ввод остатков',
-                          'Техническая проводка', 'Взнос учредителя', 'Возврат займов',
-                          'Получение займов'
-                      )
                       AND t.transaction_date >= $1::timestamp AND t.transaction_date < ($2::timestamp + interval '1 day')
                 `, [start, end]),
 
-                // 📉 4. OPEX (Косвенные расходы) = expense с cost_group = 'opex'
+                // 📉 4. OPEX = expense-транзакции в группе 'opex'
                 pool.query(`
                     SELECT COALESCE(SUM(t.amount), 0) as total
                     FROM transactions t
                     LEFT JOIN transaction_categories tc ON t.category = tc.name
                     WHERE t.transaction_type = 'expense'
+                      AND t.category != 'Перевод'
                       AND (t.is_deleted IS NULL OR t.is_deleted = false)
                       AND COALESCE(t.cost_group_override, tc.cost_group, 'capex') = 'opex'
-                      AND t.category NOT IN (
-                          'Корректировка долга', 'Перевод', 'Ввод остатков',
-                          'Техническая проводка', 'Взнос учредителя', 'Возврат займов',
-                          'Получение займов'
-                      )
                       AND t.transaction_date >= $1::timestamp AND t.transaction_date < ($2::timestamp + interval '1 day')
                 `, [start, end]),
 
-                // 👷 5. ФОТ (Справочно, метод начисления из Табеля)
-                // bonus = сделка, custom_rate = доплата/оклад, penalty = штрафы
+                // 🛝 5. ФОТ (Справочно, метод начисления из Табеля)
                 pool.query(`
                     SELECT COALESCE(SUM(
                         COALESCE(bonus, 0) + COALESCE(custom_rate, 0) - COALESCE(penalty, 0)
                     ), 0) as total
                     FROM timesheet_records
                     WHERE record_date >= $1::timestamp AND record_date < ($2::timestamp + interval '1 day')
+                `, [start, end]),
+
+                // 🏗️ 6. CAPEX = expense-транзакции, не direct и не opex
+                pool.query(`
+                    SELECT COALESCE(SUM(t.amount), 0) as total
+                    FROM transactions t
+                    LEFT JOIN transaction_categories tc ON t.category = tc.name
+                    WHERE t.transaction_type = 'expense'
+                      AND t.category != 'Перевод'
+                      AND (t.is_deleted IS NULL OR t.is_deleted = false)
+                      AND COALESCE(t.cost_group_override, tc.cost_group, 'capex') NOT IN ('direct', 'opex')
+                      AND t.transaction_date >= $1::timestamp AND t.transaction_date < ($2::timestamp + interval '1 day')
                 `, [start, end])
             ]);
 
             // 🧮 МАТЕМАТИКА P&L (Big.js для точности до копеек)
             const revenue = new Big(Number(revenueRes.rows[0].total));
-            // otherIncome = 0: все мусорные категории (займы, взносы, переводы) исключены
-            const otherIncome = new Big(0);
+            const otherIncome = new Big(Number(otherIncomeRes.rows[0].total));
 
             const cogs = new Big(Number(cogsRes.rows[0].total));
             const opex = new Big(Number(opexRes.rows[0].total));
-            const labor = new Big(Number(laborRes.rows[0].total));
+            const capex = new Big(Number(capexRes.rows[0].total));
+            const labor = new Big(Number(laborRes.rows[0].total)).abs();
 
-            const totalIncome = revenue; // Только выручка от продаж
-            // ⚠️ ИТОГО РАСХОДЫ = COGS + OPEX (ФОТ уже сидит внутри них, НЕ плюсуем отдельно!)
-            const totalExpenses = cogs.plus(opex);
-            const netProfit = totalIncome.minus(totalExpenses);
-            const margin = totalIncome.gt(0) ? netProfit.div(totalIncome).times(100).toFixed(1) : "0.0";
+            const totalExpenses = cogs.plus(opex).plus(capex);
+            const netProfit = revenue.minus(totalExpenses);
+            const totalIncome = revenue;
+            const margin = revenue.gt(0) && netProfit.gt(0)
+                ? netProfit.div(revenue).times(100).toFixed(1)
+                : "0.0";
+
+            console.log("P&L API -> revenue:", revenue.toString(), "cogs:", cogs.toString(), "opex:", opex.toString(), "capex:", capex.toString(), "netProfit:", netProfit.toString());
 
             res.json({
                 revenue: revenue.toFixed(2),
@@ -126,6 +126,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
                 cogs: cogs.toFixed(2),
                 opex: opex.toFixed(2),
+                capex: capex.toFixed(2),
                 laborCosts: labor.toFixed(2),  // 📋 Справочно для руководителя
                 totalExpenses: totalExpenses.toFixed(2),
 
@@ -135,7 +136,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
         } catch (err) {
             console.error('КРИТИЧЕСКАЯ ОШИБКА P&L:', err.message, err.stack);
-            res.status(500).json({ error: "Ошибка расчета P&L: " + err.message });
+            res.status(500).json({ error: "Внутренняя ошибка сервера. Обратитесь к администратору." });
         }
     });
 
@@ -269,27 +270,48 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
-    router.post('/api/transactions/bulk-delete', async (req, res) => {
+    router.delete('/api/transactions/bulk-delete', requireAdmin, async (req, res) => {
         const { ids } = req.body;
         if (!ids || ids.length === 0) return res.json({ success: true });
 
         try {
             await withTransaction(pool, async (client) => {
                 for (let id of ids) {
-                    const txRes = await client.query('SELECT amount, transaction_type, account_id, description FROM transactions WHERE id = $1', [id]);
+                    const txRes = await client.query('SELECT amount, transaction_type, linked_order_id, linked_planned_id FROM transactions WHERE id = $1', [id]);
                     if (txRes.rows.length > 0) {
-                        const { description } = txRes.rows[0];
-                        const docNum = extractDocNumber(description);
-                        if (docNum) {
-                            await client.query(`UPDATE invoices SET status = 'pending' WHERE invoice_number = $1`, [docNum]);
+                        const { amount, transaction_type, linked_order_id, linked_planned_id } = txRes.rows[0];
+                        
+                        if (linked_order_id && transaction_type === 'income') {
+                            await client.query(`
+                                UPDATE client_orders 
+                                SET paid_amount = GREATEST(paid_amount - $1, 0), 
+                                    pending_debt = pending_debt + $1 
+                                WHERE id = $2
+                            `, [amount, linked_order_id]);
                         }
+                        
+                        if (linked_planned_id) {
+                            await client.query("UPDATE planned_expenses SET status = 'pending' WHERE id = $1", [linked_planned_id]);
+                        }
+                        
                         await client.query('UPDATE transactions SET is_deleted = true WHERE id = $1', [id]);
                     }
                 }
+                
+                // Пересчет балансов всех касс после массового удаления
+                await client.query(`
+                    UPDATE accounts a 
+                    SET balance = ROUND(COALESCE((
+                        SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) - 
+                               SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END) 
+                        FROM transactions t 
+                        WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
+                    ), 0), 2)
+                `);
             });
             res.json({ success: true });
         } catch (e) {
-            res.status(500).json({ error: e.message });
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -300,31 +322,40 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         try {
             const result = await pool.query('SELECT * FROM transaction_categories ORDER BY type, name');
             res.json(result.rows);
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
-    router.post('/api/finance/categories', async (req, res) => {
+    router.post('/api/finance/categories', requireAdmin, async (req, res) => {
         try {
             await pool.query('INSERT INTO transaction_categories (name, type) VALUES ($1, $2)', [req.body.name, req.body.type]);
             res.json({ success: true });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
-    router.delete('/api/finance/categories/:id', async (req, res) => {
+    router.delete('/api/finance/categories/:id', requireAdmin, async (req, res) => {
         try {
             await pool.query('DELETE FROM transaction_categories WHERE id = $1', [req.params.id]);
             res.json({ success: true });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     // Обновление группы затрат (Матрица статей)
-    router.put('/api/finance/categories/:id/group', async (req, res) => {
+    router.put('/api/finance/categories/:id/group', requireAdmin, async (req, res) => {
         try {
             const { cost_group } = req.body;
             await pool.query('UPDATE transaction_categories SET cost_group = $1 WHERE id = $2', [cost_group, req.params.id]);
             res.json({ success: true });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -385,7 +416,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             res.json(result.rows);
         } catch (err) {
             console.error('Ошибка в списке контрагентов:', err);
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -407,7 +438,10 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             const balance = parseFloat(finances.total_paid_to_us) - parseFloat(finances.total_paid_to_them);
 
             res.json({ cp: cpRes.rows[0], finances: { ...finances, balance } });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     router.get('/api/counterparties/:id/profile', async (req, res) => {
@@ -465,7 +499,10 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 finances: { balance, totalPaid: theirPayments.toFixed(2), totalInvoiced: ourShipments.toFixed(2) },
                 invoices: [], contracts: []
             });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     router.get('/api/counterparties/:id/contracts', async (req, res) => {
@@ -485,11 +522,11 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             res.json(result.rows);
         } catch (err) {
             console.error('Ошибка загрузки договоров:', err.message);
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
-    router.post('/api/counterparties', async (req, res) => {
+    router.post('/api/counterparties', requireAdmin, async (req, res) => {
         const { name, role, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type, is_buyer, is_supplier } = req.body;
         try {
             // Определяем флаги из старого поля role (обратная совместимость)
@@ -501,10 +538,13 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
             `, [name, role || 'Покупатель', client_category || 'Обычный', inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type || 'legal', buyer, supplier]);
             res.json({ success: true });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
-    router.put('/api/counterparties/:id', async (req, res) => {
+    router.put('/api/counterparties/:id', requireAdmin, async (req, res) => {
         const { name, role, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type, is_buyer, is_supplier } = req.body;
         try {
             await pool.query(`
@@ -512,10 +552,13 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 WHERE id=$20
             `, [name, role, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type || 'legal', is_buyer || false, is_supplier || false, req.params.id]);
             res.json({ success: true });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
-    router.post('/api/counterparties/:id/correction', async (req, res) => {
+    router.post('/api/counterparties/:id/correction', requireAdmin, async (req, res) => {
         const cpId = req.params.id;
         const { amount, type, date, description } = req.body;
         try {
@@ -524,10 +567,13 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 VALUES ($1, $2, 'Корректировка долга', $3, 'Системная правка', NULL, $4, $5)
             `, [amount, type, description, cpId, date]);
             res.json({ success: true });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
-    router.delete('/api/counterparties/:id', async (req, res) => {
+    router.delete('/api/counterparties/:id', requireAdmin, async (req, res) => {
         try {
             await withTransaction(pool, async (client) => {
                 await client.query('UPDATE transactions SET counterparty_id = NULL WHERE counterparty_id = $1', [req.params.id]);
@@ -535,7 +581,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             });
             res.json({ success: true });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -563,7 +609,10 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             if (cpRes.rows.length === 0) return res.status(404).send('Контрагент не найден');
             const transRes = await pool.query(`SELECT amount, transaction_type, category, description, TO_CHAR(created_at, 'DD.MM.YYYY') as date FROM transactions WHERE counterparty_id = $1 ORDER BY created_at ASC`, [cp_id]);
             res.render('docs/act', { cp: cpRes.rows[0], transactions: transRes.rows });
-        } catch (err) { res.status(500).send('Ошибка генерации акта сверки: ' + err.message); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     // ==========================================
@@ -581,14 +630,17 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 ORDER BY co.id DESC
             `);
             res.json(result.rows);
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
-    router.post('/api/invoices', async (req, res) => {
+    router.post('/api/invoices', requireAdmin, async (req, res) => {
         res.status(400).json({ error: 'Ручное выставление счетов отключено. Оформляйте заказы со статусом "Долг" через модуль Продаж!' });
     });
 
-    router.post('/api/invoices/:id/pay', async (req, res) => {
+    router.post('/api/invoices/:id/pay', requireAdmin, async (req, res) => {
         const { account_id } = req.body;
         try {
             await withTransaction(pool, async (client) => {
@@ -606,7 +658,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
                 await client.query(`
                     INSERT INTO transactions (amount, transaction_type, category, description, vat_amount, payment_method, account_id, counterparty_id, linked_order_id, transaction_date)
-                    VALUES ($1, 'income', 'Погашение долга', $2, $3, 'Безналичный расчет', $4, $5, $6, NOW())
+                    VALUES ($1, 'income', 'Погашение долга', $2, $3, $4, $5, $6, $7, NOW())
                 `, [debt, desc, vatAmount, account_id, inv.counterparty_id, req.params.id]);
             });
             res.json({ success: true, message: 'Долг по заказу успешно погашен!' });
@@ -615,7 +667,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
-    router.delete('/api/invoices/:id', async (req, res) => {
+    router.delete('/api/invoices/:id', requireAdmin, async (req, res) => {
         res.status(400).json({ error: 'Удаление платежей недоступно. Если заказ отменен, перейдите в модуль Продаж и отмените его там.' });
     });
 
@@ -654,7 +706,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             const result = await pool.query(query, params);
             res.json(result.rows);
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -695,29 +747,35 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             }
 
             res.json(accounts);
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
-    router.post('/api/accounts', async (req, res) => {
+    router.post('/api/accounts', requireAdmin, async (req, res) => {
         const { name, type, balance } = req.body;
         try {
             await pool.query('INSERT INTO accounts (name, type, balance) VALUES ($1, $2, $3)', [name, type, balance || 0]);
             res.json({ success: true });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
     });
 
     // 🚀 ПЕРЕНЕСЕННЫЙ МАРШРУТ ИЗ WEB.JS: Переименование счета
-    router.put('/api/accounts/:id', async (req, res) => {
+    router.put('/api/accounts/:id', requireAdmin, async (req, res) => {
         const { name } = req.body;
         try {
             await pool.query('UPDATE accounts SET name = $1 WHERE id = $2', [name, req.params.id]);
             res.json({ success: true });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
-    router.post('/api/transactions', async (req, res) => {
+    router.post('/api/transactions', requireAdmin, async (req, res) => {
         // 🚀 1. ДОБАВИЛИ ПРИЕМ НОВЫХ ПОЛЕЙ: cost_group_override и remember_rule
         let { amount, type, category, description, method, account_id, counterparty_id, employee_mode, cost_group_override, remember_rule, date } = req.body;
 
@@ -834,11 +892,11 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             });
             res.json({ success: true, message: 'Операция сохранена' });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
-    router.post('/api/transactions/transfer', async (req, res) => {
+    router.post('/api/transactions/transfer', requireAdmin, async (req, res) => {
         const { from_account_id, to_account_id, amount, description, date } = req.body;
         if (parseFloat(amount) <= 0 || isNaN(parseFloat(amount))) return res.status(400).json({ error: 'Сумма перевода должна быть больше нуля!' });
         if (String(from_account_id) === String(to_account_id)) return res.status(400).json({ error: 'Нельзя перевести деньги на тот же счет!' });
@@ -854,11 +912,11 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             });
             res.json({ success: true, message: 'Перевод выполнен' });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
-    router.post('/api/finance/imprest-report', async (req, res) => {
+    router.post('/api/finance/imprest-report', requireAdmin, async (req, res) => {
         const { account_id, amount, category, description, date, employeeName, currentBalance, isClosed } = req.body;
 
         if (!amount || parseFloat(amount) <= 0) return res.status(400).json({ error: 'Сумма должна быть больше нуля' });
@@ -897,14 +955,14 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             res.json({ success: true, message: 'Отчет сохранен' });
         } catch (err) {
             console.error('[API] Error in imprest-report:', err);
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
     // ==========================================
     // 8. РЕДАКТИРОВАНИЕ, УДАЛЕНИЕ И ИМПОРТ 1С
     // ==========================================
-    router.delete('/api/transactions/:id', async (req, res) => {
+    router.delete('/api/transactions/:id', requireAdmin, async (req, res) => {
         const { id } = req.params;
 
         try {
@@ -971,13 +1029,27 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
-    router.put('/api/transactions/:id', async (req, res) => {
+    router.put('/api/transactions/:id', requireAdmin, async (req, res) => {
         const { id } = req.params;
         // 🚀 Добавили прием cost_group_override и remember_rule
         const { description, amount, category, account_id, counterparty_id, transaction_date, cost_group_override, remember_rule } = req.body;
 
         try {
             await withTransaction(pool, async (client) => {
+                const txRes = await client.query('SELECT amount, linked_order_id, transaction_type FROM transactions WHERE id = $1', [id]);
+                if (txRes.rows.length === 0) throw new Error("Транзакция не найдена");
+                const oldTx = txRes.rows[0];
+                const delta = Number(new Big(req.body.amount).minus(oldTx.amount).toFixed(2));
+
+                if (oldTx.linked_order_id && delta !== 0 && oldTx.transaction_type === 'income') {
+                    await client.query(`
+                        UPDATE client_orders 
+                        SET paid_amount = GREATEST(paid_amount + $1, 0), 
+                            pending_debt = pending_debt - $1 
+                        WHERE id = $2
+                    `, [delta, oldTx.linked_order_id]);
+                }
+
                 await client.query(`
                     UPDATE transactions 
                     SET description = $1, amount = $2, category = $3, account_id = $4, counterparty_id = $5, transaction_date = $6, cost_group_override = $7
@@ -1001,26 +1073,36 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                         VALUES ($1, $2, $3)
                     `, [counterparty_id, category, cost_group_override || null]);
                 }
+
+                await client.query(`
+                    UPDATE accounts a
+                    SET balance = ROUND(COALESCE((
+                        SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) -
+                               SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END)
+                        FROM transactions t
+                        WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
+                    ), 0), 2);
+                `);
             });
             res.json({ success: true });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
     // 🚀 БЫСТРЫЙ ПЕРЕНОС ГРУППЫ (Для Конструктора себестоимости на дашборде)
-    router.patch('/api/transactions/:id/override', async (req, res) => {
+    router.patch('/api/transactions/:id/override', requireAdmin, async (req, res) => {
         try {
             await pool.query('UPDATE transactions SET cost_group_override = $1 WHERE id = $2', [req.body.cost_group_override || null, req.params.id]);
             res.json({ success: true });
         } catch (err) {
-            console.error('Ошибка установки override:', err);
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
     // 🚀 МАССОВЫЙ ПЕРЕНОС ПАПКИ (По массиву ID транзакций)
-    router.patch('/api/transactions/bulk-override', async (req, res) => {
+    router.patch('/api/transactions/bulk-override', requireAdmin, async (req, res) => {
         const { transactionIds, cost_group_override } = req.body;
         if (!transactionIds || !Array.isArray(transactionIds) || transactionIds.length === 0) {
             return res.status(400).json({ error: 'Не передан массив ID транзакций' });
@@ -1032,15 +1114,15 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             );
             res.json({ success: true, updated: result.rowCount });
         } catch (err) {
-            console.error('Ошибка массового переноса:', err);
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
     // 🚀🛡️ ПЕРЕИМЕНОВАНИЕ ПАПКИ (Безопасная надстройка + Память)
     // Оригинальная колонка `category` НИКОГДА не перезаписывается.
     // Все изменения пишутся в `category_override` и запоминаются в `dashboard_rules`.
-    router.patch('/api/transactions/bulk-rename', async (req, res) => {
+    router.patch('/api/transactions/bulk-rename', requireAdmin, async (req, res) => {
         const { transactionIds, newCategoryName, costGroup } = req.body;
         if (!transactionIds || !Array.isArray(transactionIds) || transactionIds.length === 0) {
             return res.status(400).json({ error: 'Не передан массив ID транзакций' });
@@ -1069,44 +1151,16 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 );
             }
 
-            // Б) Получаем УНИКАЛЬНЫЕ оригинальные категории среди выбранных транзакций
-            const origCatsRes = await pool.query(
-                'SELECT DISTINCT category FROM transactions WHERE id = ANY($1::int[]) AND category IS NOT NULL',
-                [transactionIds]
-            );
-
-            // В) Для каждой оригинальной категории — записываем правило в "Память"
-            for (const origCat of origCatsRes.rows) {
-                // Запоминаем правило маппинга (UPSERT)
-                await pool.query(`
-                    INSERT INTO dashboard_rules (original_category, mapped_category, mapped_cost_group)
-                    VALUES ($1, $2, $3)
-                    ON CONFLICT (original_category)
-                    DO UPDATE SET
-                        mapped_category   = EXCLUDED.mapped_category,
-                        mapped_cost_group = EXCLUDED.mapped_cost_group
-                `, [origCat.category, safeCatName, safeGroup]);
-
-                // Применяем правило ко ВСЕМ транзакциям с такой же оригинальной категорией
-                // (и к явно выбранным ID — на случай если у них уже был другой override)
-                await pool.query(`
-                    UPDATE transactions
-                    SET category_override = $1, cost_group_override = $2
-                    WHERE category = $3 OR id = ANY($4::int[])
-                `, [safeCatName, safeGroup, origCat.category, transactionIds]);
-            }
-
-            // Г) Если среди выбранных есть транзакции БЕЗ category (edge case) — обновляем и их
             await pool.query(`
                 UPDATE transactions
                 SET category_override = $1, cost_group_override = $2
-                WHERE id = ANY($3::int[]) AND category IS NULL
+                WHERE id = ANY($3::int[])
             `, [safeCatName, safeGroup, transactionIds]);
 
-            res.json({ success: true, updated: origCatsRes.rowCount + transactionIds.length });
+            res.json({ success: true, updated: transactionIds.length });
         } catch (err) {
-            console.error('Ошибка переименования папки (safe mode):', err);
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -1116,7 +1170,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     // ==========================================
     // УМНЫЙ ИМПОРТ: Жесткая защита от дублей и супер-категоризация
     // ==========================================
-    router.post('/api/transactions/import', async (req, res) => {
+    router.post('/api/transactions/import', requireAdmin, async (req, res) => {
         const { account_id, transactions } = req.body;
 
         try {
@@ -1260,7 +1314,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             });
             res.json({ success: true, count: importedCount, autoPaid: autoPaidInvoicesCount });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -1268,17 +1322,17 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     // 9. ФАЙЛЫ, ЧЕКИ И АНАЛИТИКА СЕБЕСТОИМОСТИ
     // ==========================================
     if (upload) {
-        router.post('/api/transactions/:id/receipt', upload.single('receipt'), async (req, res) => {
+        router.post('/api/transactions/:id/receipt', requireAdmin, async (req, res) => {
             try {
                 if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
                 const fileUrl = '/uploads/' + req.file.filename;
                 await pool.query('UPDATE transactions SET receipt_url = $1 WHERE id = $2', [fileUrl, req.params.id]);
                 res.json({ success: true, url: fileUrl });
-            } catch (err) { res.status(500).json({ error: err.message }); }
+            } catch (err) { res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' }); }
         });
     }
 
-    router.delete('/api/transactions/:id/receipt', async (req, res) => {
+    router.delete('/api/transactions/:id/receipt', requireAdmin, async (req, res) => {
         try {
             const transRes = await pool.query('SELECT receipt_url FROM transactions WHERE id = $1', [req.params.id]);
             if (transRes.rows.length > 0 && transRes.rows[0].receipt_url) {
@@ -1289,7 +1343,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             }
             await pool.query('UPDATE transactions SET receipt_url = NULL WHERE id = $1', [req.params.id]);
             res.json({ success: true, message: 'Чек удален с сервера' });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) { res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' }); }
     });
 
     router.get('/api/analytics/profitability', async (req, res) => {
@@ -1318,7 +1372,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
             res.json(data);
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -1343,26 +1397,15 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             const totalCycles = parseFloat(cyclesRes.rows[0].total_cycles) || 0;
 
             // 🚀 2. НОВОЕ: Считаем сдельную зарплату цеха из Табеля (Прямые затраты)
-            // Берем только колонку bonus (премия/сделка) и только у отдела 'Цех'
-            const pieceRateRes = await pool.query(`
-                SELECT SUM(t.bonus) as total_piece_rate
-                FROM timesheet_records t
-                JOIN employees e ON t.employee_id = e.id
-                WHERE e.department = 'Цех'
-                  AND (($1::date IS NULL) OR (t.record_date >= $1::date))
-                  AND (($2::date IS NULL) OR (t.record_date <= $2::date))
-            `, [startDate || null, endDate || null]);
-
-            const pieceRateSalary = parseFloat(pieceRateRes.rows[0].total_piece_rate) || 0;
-
-            // 3. Берем все фактические платежи из кассы и склеиваем их с МАТРИЦЕЙ СТАТЕЙ
+            // 3. Берем вႁе ႈаႁходные платежи и ႁклеиваем с МАТРИЦЕИ ႐ТАТЕИ
             const expensesRes = await pool.query(`
                 SELECT 
                     t.id,
                     COALESCE(t.category_override, t.category) AS category,
                     t.category AS original_category,
                     t.description, 
-                    (CASE WHEN t.transaction_type = 'expense' THEN t.amount WHEN t.transaction_type = 'income' THEN -t.amount ELSE 0 END) as amount, 
+                    t.transaction_type,
+                    t.amount,
                     c.name as counterparty_name,
                     TO_CHAR(t.transaction_date, 'DD.MM.YYYY') as date,
                     t.cost_group_override,
@@ -1371,15 +1414,11 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 LEFT JOIN transaction_categories tc ON t.category = tc.name
                 LEFT JOIN transaction_categories tc_override ON t.category_override = tc_override.name
                 LEFT JOIN counterparties c ON t.counterparty_id = c.id
-                WHERE t.transaction_type IN ('expense', 'income') 
+                WHERE t.transaction_type = 'expense'
+                  AND t.category != 'Перевод'
+                  AND (t.is_deleted IS NULL OR t.is_deleted = false)
                   AND (($1::timestamp IS NULL) OR (t.transaction_date >= $1::timestamp))
                   AND (($2::timestamp IS NULL) OR (t.transaction_date < ($2::timestamp + interval '1 day')))
-                  AND (t.is_deleted IS NULL OR t.is_deleted = false)
-                  AND COALESCE(t.category_override, t.category) NOT IN (
-                      'Корректировка долга', 'Перевод', 'Ввод остатков',
-                      'Техническая проводка', 'Взнос учредителя', 'Возврат займов',
-                      'Получение займов'
-                  )
                 ORDER BY t.transaction_date DESC
             `, [startDate || null, endDate || null]);
 
@@ -1396,29 +1435,25 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 let grp = 'capex';
                 let catName = t.category || 'Без категории';
 
-                const techCategories = ['Корректировка долга', 'Ввод остатков', 'Ввод начальных остатков', 'Перевод', 'Техническая проводка', 'Взнос учредителя', 'Получение займов'];
+                // ПРАВИЛО МАРШРУТИЗАЦИИ:
+                // 1. Приоритет — ручная привязка (cost_group_override или матрица статей)
+                // 2. 'Продажа продукции' + income → direct (COGS, выручка)
+                // 3. Все остальные income (займы, взносы, возвраты) → capex (самопогасятся)
+                // 4. Expense без группы → capex (карантин)
 
-                if (techCategories.includes(t.category)) {
-                    // 1. ТЕХНИЧЕСКИЕ ОПЕРАЦИИ (Жесткий перехват)
-                    grp = 'capex';
-                    catName = 'Технические операции';
-                } else if (t.cost_group_override) {
-                    // 2. ПРИОРИТЕТ РУЧНОГО УПРАВЛЕНИЯ (С конвертацией словаря)
-                    let overrideVal = t.cost_group_override;
-                    if (overrideVal === 'overhead') overrideVal = 'opex';
-                    if (overrideVal === 'capital') overrideVal = 'capex';
-                    grp = overrideVal;
-                } else if (!t.matrix_cost_group) {
-                    // 3. КАРАНТИН ДЛЯ НЕИЗВЕСТНЫХ (Фолбек)
-                    grp = 'capex';
-                    catName = 'Нераспределенное';
+                const originalCategory = t.original_category || t.category;
+                let mappedGroup = t.cost_group_override || t.matrix_cost_group;
+                if (mappedGroup === 'overhead') mappedGroup = 'opex';
+                if (mappedGroup === 'capital') mappedGroup = 'capex';
+
+                if (mappedGroup && ['direct', 'opex', 'capex'].includes(mappedGroup)) {
+                    grp = mappedGroup;
                 } else {
-                    // Стандартное поведение (из справочника)
-                    grp = t.matrix_cost_group;
+                    grp = 'capex';
                 }
 
-                // Защита от кривых или непредвиденных групп (всё летит в capex)
-                if (grp !== 'direct' && grp !== 'opex') grp = 'capex';
+                // Финальная защита: только валидные группы
+                if (!['direct', 'opex', 'capex'].includes(grp)) grp = 'capex';
 
                 const amount = parseFloat(t.amount) || 0;
                 totalRawExpenses += amount;
@@ -1451,12 +1486,11 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             res.json({
                 totalCycles: totalCycles,
                 totalRawExpenses: totalRawExpenses, // 👈 Передаем сумму КАЖДОЙ копейки
-                pieceRateSalary: pieceRateSalary, // 👈 Передаем сдельную ЗП отдельной цифрой
                 groupedExpenses: groupedExpenses // 👈 Новый формат для Drill-down
             });
         } catch (err) {
-            console.error('Ошибка в Конструкторе себестоимости:', err);
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -1516,7 +1550,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             res.json({ currentBalance, forecast });
         } catch (err) {
             console.error('Ошибка прогноза кассовых разрывов:', err);
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
@@ -1630,13 +1664,13 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     vatDivider: ERP_CONFIG.vatDivider
                 }
             });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) { res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' }); }
     });
 
     // ==========================================
     // 12. СОХРАНЕНИЕ ГАЛОЧЕК В БАЗУ (МНОГОПОЛЬЗОВАТЕЛЬСКИЙ РЕЖИМ)
     // ==========================================
-    router.post('/api/finance/tax-status', async (req, res) => {
+    router.post('/api/finance/tax-status', requireAdmin, async (req, res) => {
         const { id, field, is_checked } = req.body;
         const allowedFields = ['tax_excluded', 'tax_force_vat'];
         if (!allowedFields.includes(field)) {
@@ -1647,11 +1681,11 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             await pool.query(`UPDATE transactions SET ${field} = $1 WHERE id = $2`, [is_checked, id]);
             res.json({ success: true });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
-    router.post('/api/finance/tax-settings', async (req, res) => {
+    router.post('/api/finance/tax-settings', requireAdmin, async (req, res) => {
         const { key, value } = req.body;
         try {
             await pool.query(`
@@ -1660,7 +1694,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value
             `, [key, value.toString()]);
             res.json({ success: true });
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) { res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' }); }
     });
 
     router.get('/api/finance/tax-settings', async (req, res) => {
@@ -1672,7 +1706,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 settings[r.setting_key] = r.setting_value;
             });
             res.json(settings);
-        } catch (err) { res.status(500).json({ error: err.message }); }
+        } catch (err) { res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' }); }
     });
 
     // --- АВТО-КАТЕГОРИЗАЦИЯ ---
@@ -1702,8 +1736,8 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 res.json({ category: null });
             }
         } catch (err) {
-            console.error('Ошибка авто-категоризации:', err);
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
