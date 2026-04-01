@@ -72,7 +72,7 @@
     <div id="acc-timesheet" class="accordion-body">
         <div class="flex-between mb-15 card-alt" style="padding: 10px; border-radius: 8px;">
             <div class="toolbar-group flex-grow-1">
-                <input type="month" id="ts-month-picker" class="input-modern" style="width: 160px; font-weight: bold;" onchange="loadMonthlyTimesheet()">
+                <input type="month" id="ts-month-picker" class="input-modern" style="width: 160px; font-weight: bold;" onchange="syncSalaryMonth(this.value)">
                 <input type="text" id="ts-search-input" class="input-modern flex-grow-1" style="max-width: 250px;" placeholder="🔍 Поиск в табеле..." oninput="reRenderTimesheet()">
                 <select id="ts-dep-filter" class="input-modern" style="width: 150px;" onchange="reRenderTimesheet()">
                     <option value="all">Все отделы</option>
@@ -108,31 +108,26 @@
         <div id="acc-payouts" class="accordion-body">
             <div id="salary-summary-boxes" class="summary-grid"></div>
 
-            <div class="flex-between mb-15">
-                <h3 class="mt-0" style="font-size: 16px;" id="payout-month-title">Расчетный лист за период</h3>
-                <p class="text-muted mb-0" style="font-size: 12px;">Формула: Начислено ± Остаток - Налоги - Авансы ± Доп. операции = К выдаче</p>
-            </div>
+            <p class="payroll-header-formula text-muted" id="payout-month-title">Расчетный лист</p>
 
-            <div class="flex-between mb-15 card-alt" style="padding: 10px; border-radius: 8px; flex-wrap: wrap; gap: 15px;">
-                <div class="toolbar-group flex-grow-1" style="min-width: 300px;">
-                    <input type="text" id="pay-search-input" class="input-modern flex-grow-1" placeholder="🔍 Поиск сотрудника..." oninput="reRenderTimesheet()">
-                    <select id="pay-dep-filter" class="input-modern" style="width: 150px;" onchange="reRenderTimesheet()">
-                        <option value="all">Все отделы</option>
-                        <option value="Офис">Офис</option>
-                        <option value="Цех">Цех</option>
-                        <option value="Охрана">Охрана</option>
-                    </select>
-                </div>
-
-                <div class="toolbar-group">
-                    <button class="btn btn-outline btn-outline-info" onclick="openPieceRateModal()">🏭 Сдельная ЗП</button>
-                    <div class="v-divider"></div>
-                    <button class="btn btn-outline" onclick="printAdvancesSheet()">🖨️ Авансы</button>
-                    <button class="btn btn-outline btn-outline-success" onclick="exportAdvancesToCSV()">📊 Excel (Авансы)</button>
-                    <div class="v-divider"></div>
-                    <button class="btn btn-outline" onclick="printSalarySheet()">🖨️ ЗП</button>
-                    <button class="btn btn-outline btn-outline-primary" onclick="exportSalaryToCSV()">📊 Excel (ЗП)</button>
-                </div>
+            <div class="payroll-mega-toolbar">
+                <input type="month" id="payroll-period-select" class="input-modern payroll-month-input" onchange="syncSalaryMonth(this.value)">
+                <button class="btn btn-outline admin-only payroll-reopen-btn" id="reopen-month-btn-payroll" onclick="reopenSalaryMonth()">🔓 Отменить закрытие</button>
+                <div class="payroll-divider"></div>
+                <input type="text" id="pay-search-input" class="input-modern payroll-search-input" placeholder="🔍 Поиск сотрудника..." oninput="reRenderTimesheet()">
+                <select id="pay-dep-filter" class="input-modern payroll-dep-select" onchange="reRenderTimesheet()">
+                    <option value="all">Все отделы</option>
+                    <option value="Офис">Офис</option>
+                    <option value="Цех">Цех</option>
+                    <option value="Охрана">Охрана</option>
+                </select>
+                <div class="payroll-divider"></div>
+                <button class="btn btn-outline btn-outline-info" onclick="openPieceRateModal()">🏭 Сдельная ЗП</button>
+                <button class="btn btn-outline" onclick="printAdvancesSheet()">🖨️ Авансы</button>
+                <button class="btn btn-outline btn-outline-success" onclick="exportAdvancesToCSV()">📊 Excel (Авансы)</button>
+                <div class="payroll-divider"></div>
+                <button class="btn btn-outline" onclick="printSalarySheet()">🖨️ ЗП</button>
+                <button class="btn btn-outline btn-outline-primary" onclick="exportSalaryToCSV()">📊 Excel (ЗП)</button>
             </div>
             
             <div class="table-container">

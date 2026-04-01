@@ -22,6 +22,12 @@ async function isMonthClosed(pool, monthStr) {
 
 module.exports = function (pool, withTransaction) {
 
+    // 🚀 АВТО-МИГРАЦИЯ: Добавляем недостающий столбец для налогов
+    pool.query("ALTER TABLE closed_periods ADD COLUMN IF NOT EXISTS total_taxes NUMERIC(15,2) DEFAULT 0")
+        .catch(e => console.log("Migrations: total_taxes check done."));
+
+    pool.query("ALTER TABLE timesheet_records ADD COLUMN IF NOT EXISTS multiplier NUMERIC(3,2) DEFAULT 1.0")
+        .catch(e => console.log("Migrations: multiplier check done."));
 
     // 2. КОРРЕКТИРОВКИ (ГСМ, Займы)
     router.post('/api/salary/adjustments', async (req, res) => {
@@ -53,6 +59,11 @@ module.exports = function (pool, withTransaction) {
 
     router.delete('/api/salary/adjustments/:id', requireAdmin, async (req, res) => {
         try {
+            // 🛡️ ЗАЩИТА: Проверяем, не закрыт ли месяц перед удалением
+            const adj = await pool.query('SELECT month_str FROM salary_adjustments WHERE id = $1', [req.params.id]);
+            if (adj.rows.length > 0 && await isMonthClosed(pool, adj.rows[0].month_str)) {
+                return res.status(403).json({ error: "Нельзя удалять операции из закрытого месяца." });
+            }
             await pool.query(`DELETE FROM salary_adjustments WHERE id = $1`, [req.params.id]);
             res.json({ success: true });
         } catch (err) { res.status(500).json({ error: err.message }); }
@@ -97,7 +108,7 @@ module.exports = function (pool, withTransaction) {
             const endDate = `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`;
             const result = await pool.query(`
                 SELECT employee_id, TO_CHAR(record_date, 'YYYY-MM-DD') as record_date, 
-                       status, bonus, penalty, bonus_comment, penalty_comment, custom_rate, ktu 
+                       status, bonus, penalty, bonus_comment, penalty_comment, custom_rate, ktu, multiplier 
                 FROM timesheet_records 
                 WHERE record_date >= $1 AND record_date <= $2
             `, [startDate, endDate]);
@@ -107,7 +118,7 @@ module.exports = function (pool, withTransaction) {
 
     // ОБНОВЛЕННЫЙ РОУТ: Сохранение ячейки табеля
     router.post('/api/timesheet/cell', async (req, res) => {
-        const { employee_id, date, status, bonus, penalty, bonus_comment, penalty_comment } = req.body;
+        const { employee_id, date, status, bonus, penalty, bonus_comment, penalty_comment, multiplier } = req.body;
         const monthStr = date.substring(0, 7); // Получаем YYYY-MM из даты
 
         try {
@@ -116,20 +127,35 @@ module.exports = function (pool, withTransaction) {
                 return res.status(403).json({ error: "Этот месяц уже закрыт для редактирования" });
             }
 
+            // 🛡️ ВАЛИДАЦИЯ СТАТУСА: Белый список допустимых значений
+            const VALID_STATUSES = ['present', 'partial', 'weekend', 'absent', 'sick', 'vacation'];
+            if (!VALID_STATUSES.includes(status)) {
+                return res.status(400).json({ error: `Недопустимый статус: ${status}` });
+            }
+
             // 🧮 ВАЛИДАЦИЯ: Гарантируем точность чисел через Big.js
-            const safeBonus = new Big(bonus || 0).toFixed(2);
-            const safePenalty = new Big(penalty || 0).toFixed(2);
+            const safeBonus = new Big(bonus || 0);
+            const safePenalty = new Big(penalty || 0);
+            if (safeBonus.lt(0)) return res.status(400).json({ error: 'Премия не может быть отрицательной' });
+            if (safePenalty.lt(0)) return res.status(400).json({ error: 'Штраф не может быть отрицательным' });
+
+            // 🛡️ ВАЛИДАЦИЯ МНОЖИТЕЛЯ: Жёсткие лимиты 0.0 - 1.0
+            let safeMultiplier = multiplier !== undefined ? parseFloat(multiplier) : 1.0;
+            if (isNaN(safeMultiplier) || safeMultiplier < 0 || safeMultiplier > 1.0) {
+                safeMultiplier = 1.0;
+            }
 
             await pool.query(`
-            INSERT INTO timesheet_records (employee_id, record_date, status, bonus, penalty, bonus_comment, penalty_comment)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO timesheet_records (employee_id, record_date, status, bonus, penalty, bonus_comment, penalty_comment, multiplier)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (employee_id, record_date) 
             DO UPDATE SET status = EXCLUDED.status, 
                           bonus = EXCLUDED.bonus, 
                           penalty = EXCLUDED.penalty, 
                           bonus_comment = EXCLUDED.bonus_comment, 
-                          penalty_comment = EXCLUDED.penalty_comment
-        `, [employee_id, date, status, safeBonus, safePenalty, bonus_comment || '', penalty_comment || '']);
+                          penalty_comment = EXCLUDED.penalty_comment,
+                          multiplier = EXCLUDED.multiplier
+        `, [employee_id, date, status, safeBonus.toFixed(2), safePenalty.toFixed(2), bonus_comment || '', penalty_comment || '', safeMultiplier]);
 
             res.json({ success: true });
         } catch (err) { res.status(500).json({ error: err.message }); }
@@ -317,6 +343,12 @@ module.exports = function (pool, withTransaction) {
 
                 const payment = payRes.rows[0];
 
+                // 🛡️ ЗАЩИТА: Нельзя удалять выплаты из закрытого месяца
+                const payMonthStr = payment.payment_date.toISOString().substring(0, 7);
+                if (await isMonthClosed(pool, payMonthStr)) {
+                    throw new Error('Нельзя удалять выплаты из закрытого месяца.');
+                }
+
                 // Если есть связь с транзакцией - удаляем её.
                 // 🚀 МАГИЯ ТРИГГЕРА: При удалении этой транзакции деньги сами вернутся на баланс счета!
                 if (payment.linked_transaction_id) {
@@ -412,6 +444,49 @@ module.exports = function (pool, withTransaction) {
             res.json({ success: true, message: `Месяц закрыт. Балансы перенесены.` });
         } catch (err) {
             console.error('Ошибка закрытия:', err.message);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // ==========================================
+    // НОВЫЙ РОУТ: Открытие закрытого месяца (Откат балансов)
+    // ==========================================
+    router.post('/api/salary/reopen-month', requireAdmin, async (req, res) => {
+        const { monthStr, balances } = req.body;
+
+        if (!/^\d{4}-\d{2}$/.test(monthStr)) {
+            return res.status(400).json({ error: 'Неверный формат месяца' });
+        }
+
+        try {
+            await withTransaction(pool, async (client) => {
+                // Проверяем, закрыт ли месяц на самом деле
+                const check = await client.query('SELECT 1 FROM closed_periods WHERE period_str = $1 AND module = $2', [monthStr, 'salary']);
+                if (check.rows.length === 0) throw new Error('Этот месяц не закрыт или уже был открыт.');
+
+                // А) Математический возврат баланса (Откатываем изменения, вычитая net_change этого месяца)
+                // Для каждого сотрудника из массива восстанавливаем старый баланс
+                for (let b of balances) {
+                    if (b.net_change !== undefined) {
+                        await client.query(`UPDATE employees SET prev_balance = prev_balance - $1 WHERE id = $2`, [b.net_change, b.employee_id]);
+                    }
+                }
+
+                // Б) Удаление сгенерированных автоматических транзакций
+                // Описание у нас жестко фиксировано: "Начислено за период: YYYY-MM"
+                await client.query(`
+                    DELETE FROM transactions 
+                    WHERE category = 'Начисление ЗП' 
+                      AND description LIKE $1
+                `, [`Начислено за период: ${monthStr}%`]);
+
+                // В) Удаление блокировок из архива закрытых периодов
+                await client.query(`DELETE FROM closed_periods WHERE period_str = $1 AND module = 'salary'`, [monthStr]);
+            });
+
+            res.json({ success: true, message: `Месяц ${monthStr} открыт. Балансы успешно откачены.` });
+        } catch (err) {
+            console.error('Ошибка отмены закрытия:', err.message);
             res.status(500).json({ error: err.message });
         }
     });

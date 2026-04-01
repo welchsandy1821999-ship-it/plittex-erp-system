@@ -63,11 +63,15 @@
                     <div class="form-group">
                         <label>Шаблон:</label>
                         <select id="main-template-select" class="input-modern" onchange="renderSelectedTemplates()">
-                            <option value="main_40">Плитка 40мм</option>
-                            <option value="main_60">Плитка 60мм</option>
-                            <option value="main_80">Плитка 80мм</option>
-                            <option value="main_por">Поребрик</option>
-                            <option value="main_bor">Бордюр Дор./Магистр.</option>
+                            <optgroup label="ОСНОВНОЙ СЛОЙ">
+                                <option value="main_block">Блок стеновой / Полублок</option>
+                                <option value="main_bor_dor">Бордюр дорожный</option>
+                                <option value="main_bor_mag">Бордюр магистральный</option>
+                                <option value="main_por">Поребрик газонный</option>
+                                <option value="main_tile_40">Плитка 40 мм</option>
+                                <option value="main_tile_60">Плитка 60 мм</option>
+                                <option value="main_tile_80">Плитка 80 мм</option>
+                            </optgroup>
                         </select>
                     </div>
 
@@ -95,12 +99,37 @@
                     <div class="form-group">
                         <label>Шаблон:</label>
                         <select id="face-template-select" class="input-modern" onchange="renderSelectedTemplates()">
-                            <option value="face_gs">Гладкий серый</option>
-                            <option value="face_gc">Гладкий цветной</option>
-                            <option value="face_grs">Гранитный серый</option>
-                            <option value="face_grc">Гранитный цветной</option>
-                            <option value="face_mel_g">Меланж гладкий</option>
-                            <option value="face_mel_gr">Меланж гранит</option>
+                            <optgroup label="ЛИЦЕВОЙ СЛОЙ (ГЛАДКАЯ)">
+                                <option value="face_smooth_grey">Гладкая Серая</option>
+                                <option value="face_smooth_white">Гладкая Белая</option>
+                                <option value="face_smooth_black">Гладкая Черная</option>
+                                <option value="face_smooth_red">Гладкая Красная</option>
+                                <option value="face_smooth_yellow">Гладкая Желтая</option>
+                                <option value="face_smooth_brown">Гладкая Коричневая</option>
+                                <option value="face_smooth_orange">Гладкая Оранжевая</option>
+                            </optgroup>
+                            <optgroup label="ЛИЦЕВОЙ СЛОЙ (ГРАНИТ)">
+                                <option value="face_granite_grey">Гранит Серая (Чистая)</option>
+                                <option value="face_granite_black">Гранит Черная</option>
+                                <option value="face_granite_red">Гранит Красная</option>
+                                <option value="face_granite_yellow">Гранит Желтая</option>
+                                <option value="face_granite_brown">Гранит Коричневая</option>
+                                <option value="face_granite_orange">Гранит Оранжевая</option>
+                            </optgroup>
+                            <optgroup label="ЛИЦЕВОЙ СЛОЙ (МЕЛАНЖ ГЛАДКИЙ)">
+                                <option value="face_mel_sm_onyx">Меланж Гладкий Оникс</option>
+                                <option value="face_mel_sm_autumn">Меланж Гладкий Осень</option>
+                                <option value="face_mel_sm_amber">Меланж Гладкий Янтарь</option>
+                                <option value="face_mel_sm_jasper">Меланж Гладкий Яшма</option>
+                                <option value="face_mel_sm_ruby">Меланж Гладкий Рубин</option>
+                            </optgroup>
+                            <optgroup label="ЛИЦЕВОЙ СЛОЙ (МЕЛАНЖ ГРАНИТ)">
+                                <option value="face_mel_gr_onyx">Меланж Гранит Оникс</option>
+                                <option value="face_mel_gr_autumn">Меланж Гранит Осень</option>
+                                <option value="face_mel_gr_amber">Меланж Гранит Янтарь</option>
+                                <option value="face_mel_gr_jasper">Меланж Гранит Яшма</option>
+                                <option value="face_mel_gr_ruby">Меланж Гранит Рубин</option>
+                            </optgroup>
                         </select>
                     </div>
 

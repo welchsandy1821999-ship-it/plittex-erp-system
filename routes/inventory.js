@@ -9,6 +9,11 @@ const { sendNotify } = require('../utils/telegram');
 module.exports = function (pool, getWhId, withTransaction) {
     const { requireAdmin } = require('../middleware/auth');
 
+    // 🚀 АВТО-МИГРАЦИЯ: Удаление мёртвой legacy-таблицы inventory
+    pool.query("DROP TABLE IF EXISTS inventory CASCADE")
+        .then(() => console.log('Migrations: legacy inventory table removed.'))
+        .catch(e => console.log('Migrations: inventory drop check done.'));
+
     // ------------------------------------------------------------------
     // ПОЛУЧЕНИЕ ДАТ, В КОТОРЫЕ БЫЛИ ЗАКУПКИ (ДЛЯ КАЛЕНДАРЯ)
     // ------------------------------------------------------------------
@@ -149,23 +154,30 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     router.get('/api/inventory', async (req, res) => {
         try {
-            // Для SELECT транзакция не нужна, pool.query сам берет и возвращает коннект
             const result = await pool.query(`
                 SELECT 
                     m.item_id, i.name as item_name, i.unit, 
-                    m.warehouse_id, w.name as warehouse_name, 
+                    m.warehouse_id, w.name as warehouse_name, w.type as warehouse_type,
                     CASE WHEN w.type = 'materials' THEN NULL ELSE m.batch_id END as batch_id, 
                     CASE WHEN w.type = 'materials' THEN NULL ELSE b.batch_number END as batch_number, 
+                    CASE WHEN w.type = 'reserve' THEN m.linked_order_item_id ELSE NULL END as linked_order_item_id,
+                    CASE WHEN w.type = 'reserve' THEN co.doc_number ELSE NULL END as order_doc_number,
+                    CASE WHEN w.type = 'reserve' THEN co.id ELSE NULL END as order_id,
                     SUM(m.quantity) as total 
                 FROM inventory_movements m
                 JOIN items i ON m.item_id = i.id
                 JOIN warehouses w ON m.warehouse_id = w.id
                 LEFT JOIN production_batches b ON m.batch_id = b.id
+                LEFT JOIN client_order_items coi ON w.type = 'reserve' AND m.linked_order_item_id = coi.id
+                LEFT JOIN client_orders co ON coi.order_id = co.id
                 GROUP BY 
                     m.item_id, i.name, i.unit, 
-                    m.warehouse_id, w.name, 
+                    m.warehouse_id, w.name, w.type,
                     CASE WHEN w.type = 'materials' THEN NULL ELSE m.batch_id END, 
-                    CASE WHEN w.type = 'materials' THEN NULL ELSE b.batch_number END
+                    CASE WHEN w.type = 'materials' THEN NULL ELSE b.batch_number END,
+                    CASE WHEN w.type = 'reserve' THEN m.linked_order_item_id ELSE NULL END,
+                    CASE WHEN w.type = 'reserve' THEN co.doc_number ELSE NULL END,
+                    CASE WHEN w.type = 'reserve' THEN co.id ELSE NULL END
                 HAVING SUM(m.quantity) <> 0 
                 ORDER BY w.name, i.name
             `);
@@ -186,6 +198,18 @@ module.exports = function (pool, getWhId, withTransaction) {
             // 👈 Используем безопасную транзакцию
             await withTransaction(pool, async (client) => {
                 const defectWh = await getWhId(client, 'defect');
+
+                // 🛡️ ЗАЩИТА: Проверяем, что на складе достаточно товара
+                let stockQuery = `SELECT COALESCE(SUM(quantity), 0) as balance FROM inventory_movements WHERE item_id = $1 AND warehouse_id = $2`;
+                const stockParams = [itemId, warehouseId];
+                if (batchId) { stockQuery += ` AND batch_id = $3`; stockParams.push(batchId); }
+                else { stockQuery += ` AND batch_id IS NULL`; }
+                const stockRes = await client.query(stockQuery, stockParams);
+                const available = Number(new Big(stockRes.rows[0].balance || 0));
+                const requested = Math.abs(scrapQty);
+                if (requested > available) {
+                    throw new Error(`Недостаточно товара на складе. Доступно: ${available}, запрошено: ${requested}`);
+                }
 
                 await client.query(`
                     INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id)
@@ -280,7 +304,7 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     // 4. МАРШРУТ: РАСПАЛУБКА И ПРИЕМКА (POST /api/move-wip)
     // ------------------------------------------------------------------
-    router.post('/api/move-wip', async (req, res) => {
+    router.post('/api/move-wip', requireAdmin, async (req, res) => {
         const { batchId, tileId, currentWipQty, goodQty, grade2Qty, scrapQty, isComplete } = req.body;
 
         try {
@@ -369,6 +393,18 @@ module.exports = function (pool, getWhId, withTransaction) {
                     } else {
                         console.warn(`Предупреждение: Пользователь ${req.user.id} не найден.`);
                     }
+                }
+
+                // 🛡️ ЗАЩИТА: Проверяем, что на складе достаточно товара
+                let stockQuery = `SELECT COALESCE(SUM(quantity), 0) as balance FROM inventory_movements WHERE item_id = $1 AND warehouse_id = $2`;
+                const stockParams = [itemId, warehouseId];
+                if (batchId) { stockQuery += ` AND batch_id = $3`; stockParams.push(batchId); }
+                else { stockQuery += ` AND batch_id IS NULL`; }
+                const stockRes = await client.query(stockQuery, stockParams);
+                const available = Number(new Big(stockRes.rows[0].balance || 0));
+                const requested = Math.abs(disposeQty);
+                if (requested > available) {
+                    throw new Error(`Недостаточно товара на складе. Доступно: ${available}, запрошено: ${requested}`);
                 }
 
                 // Само списание
@@ -918,5 +954,122 @@ module.exports = function (pool, getWhId, withTransaction) {
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
+
+    // ------------------------------------------------------------------
+    // 8. УПРАВЛЕНИЕ РЕЗЕРВАМИ: Снятие / Переброска
+    // ------------------------------------------------------------------
+    router.post('/api/inventory/reserve-action', requireAdmin, async (req, res) => {
+        const { action, itemId, batchId, linkedOrderItemId, qty, targetOrderItemId } = req.body;
+
+        if (!action || !itemId || !qty || qty <= 0) {
+            return res.status(400).json({ error: 'Некорректные параметры запроса.' });
+        }
+
+        try {
+            await withTransaction(pool, async (client) => {
+                const reserveWhId = await getWhId(client, 'reserve');
+                const finishedWhId = await getWhId(client, 'finished');
+                const qtyBig = new Big(qty);
+
+                // Проверяем остаток в резерве
+                let stockQuery = `SELECT COALESCE(SUM(quantity), 0) as balance FROM inventory_movements WHERE item_id = $1 AND warehouse_id = $2`;
+                const stockParams = [itemId, reserveWhId];
+                if (linkedOrderItemId) { stockQuery += ` AND linked_order_item_id = $3`; stockParams.push(linkedOrderItemId); }
+                if (batchId) { stockQuery += ` AND batch_id = $${stockParams.length + 1}`; stockParams.push(batchId); }
+                const stockRes = await client.query(stockQuery, stockParams);
+                const available = Number(new Big(stockRes.rows[0].balance || 0));
+
+                if (Number(qtyBig) > available) {
+                    throw new Error(`Недостаточно товара в резерве. Доступно: ${available}, запрошено: ${qty}`);
+                }
+
+                const qtyFixed = qtyBig.toFixed(4);
+
+                if (action === 'release') {
+                    // === СНЯТИЕ РЕЗЕРВА: WH7 -> WH4 ===
+                    await client.query(
+                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, linked_order_item_id)
+                         VALUES ($1, $2, 'reserve_release_expense', $3, $4, $5, $6)`,
+                        [itemId, -Number(qtyFixed), 'Снятие резерва', reserveWhId, batchId || null, linkedOrderItemId || null]
+                    );
+                    await client.query(
+                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id)
+                         VALUES ($1, $2, 'reserve_release_receipt', $3, $4, $5)`,
+                        [itemId, Number(qtyFixed), 'Снятие резерва: возврат в свободную продажу', finishedWhId, batchId || null]
+                    );
+
+                    // Синхронизация qty_reserved в старом заказе
+                    if (linkedOrderItemId) {
+                        await client.query(
+                            `UPDATE client_order_items SET qty_reserved = GREATEST(COALESCE(qty_reserved, 0) - $1, 0) WHERE id = $2`,
+                            [Number(qtyFixed), linkedOrderItemId]
+                        );
+                    }
+
+                } else if (action === 'transfer') {
+                    // === ПЕРЕБРОСКА НА ДРУГОЙ ЗАКАЗ: WH7(old) -> WH7(new) ===
+                    if (!targetOrderItemId) throw new Error('Не указана целевая позиция заказа.');
+
+                    // Списание со старого резерва
+                    await client.query(
+                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, linked_order_item_id)
+                         VALUES ($1, $2, 'reserve_transfer_out', $3, $4, $5, $6)`,
+                        [itemId, -Number(qtyFixed), 'Переброска резерва', reserveWhId, batchId || null, linkedOrderItemId || null]
+                    );
+                    // Приход на новый резерв
+                    await client.query(
+                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, linked_order_item_id)
+                         VALUES ($1, $2, 'reserve_transfer_in', $3, $4, $5, $6)`,
+                        [itemId, Number(qtyFixed), 'Переброска резерва', reserveWhId, batchId || null, targetOrderItemId]
+                    );
+
+                    // Синхронизация qty_reserved у ОБОИХ заказов
+                    if (linkedOrderItemId) {
+                        await client.query(
+                            `UPDATE client_order_items SET qty_reserved = GREATEST(COALESCE(qty_reserved, 0) - $1, 0) WHERE id = $2`,
+                            [Number(qtyFixed), linkedOrderItemId]
+                        );
+                    }
+                    await client.query(
+                        `UPDATE client_order_items SET qty_reserved = COALESCE(qty_reserved, 0) + $1 WHERE id = $2`,
+                        [Number(qtyFixed), targetOrderItemId]
+                    );
+
+                } else {
+                    throw new Error('Неизвестное действие: ' + action);
+                }
+            });
+
+            const io = req.app.get('io');
+            if (io) io.emit('inventory_updated');
+            res.json({ success: true, message: action === 'release' ? 'Резерв снят, товар возвращён на Склад №4' : 'Резерв переброшен на другой заказ' });
+        } catch (err) {
+            console.error(err);
+            res.status(400).json({ error: err.message });
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // 9. СПИСОК АКТИВНЫХ ПОЗИЦИЙ ЗАКАЗОВ (для селекта переброски)
+    // ------------------------------------------------------------------
+    router.get('/api/inventory/active-order-items', async (req, res) => {
+        const { itemId } = req.query;
+        try {
+            const result = await pool.query(`
+                SELECT coi.id, coi.order_id, co.doc_number, coi.qty_ordered, coi.qty_reserved, coi.qty_shipped,
+                       c.name as client_name
+                FROM client_order_items coi
+                JOIN client_orders co ON coi.order_id = co.id
+                LEFT JOIN counterparties c ON co.counterparty_id = c.id
+                WHERE coi.item_id = $1 AND co.status IN ('pending', 'processing')
+                ORDER BY co.created_at DESC
+            `, [itemId]);
+            res.json(result.rows);
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Ошибка получения заказов.' });
+        }
+    });
+
     return router;
 };

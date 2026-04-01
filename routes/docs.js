@@ -38,8 +38,11 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
             const docNum = params.docNum || params.doc_number || params.orderNum;
             const bank = params.bank || 'tochka';
 
-            if (!docNum || String(docNum).trim() === 'undefined') {
-                return res.status(400).send('<h2>Защита системы</h2><p>Выписка свободных счетов запрещена коммерческой политикой. Сначала создайте Заказ клиента.</p>');
+            const isFreeInvoice = !!params.num; // Свободный счет или счет по договору
+
+            // Защита срабатывает ТОЛЬКО если это не свободный счет и нет номера заказа
+            if (!isFreeInvoice && (!docNum || String(docNum).trim() === 'undefined')) {
+                return res.status(400).send('<h2>Защита системы</h2><p>Выписка счетов невозможна: укажите Заказ клиента или используйте интерфейс Финансов.</p>');
             }
 
             let invoiceItems = [];
@@ -48,109 +51,129 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
             let clientInfo = {};
             let generatedInvoiceNumber = '';
 
-            await withTransaction(pool, async (client) => {
-                const orderRes = await client.query(`
-                    SELECT o.id, o.doc_number, o.counterparty_id, o.total_amount, o.paid_amount, o.discount, o.logistics_cost, o.created_at,
-                           c.name as client_name, c.inn as client_inn, c.kpp as client_kpp, c.legal_address as client_address
-                    FROM client_orders o 
-                    JOIN counterparties c ON o.counterparty_id = c.id 
-                    WHERE o.doc_number = $1
-                `, [docNum]);
+            if (isFreeInvoice) {
+                // ЛОГИКА ДЛЯ СВОБОДНЫХ СЧЕТОВ И ДОГОВОРОВ (счет уже записан в базу)
+                const cpRes = await pool.query(`
+                    SELECT name as client_name, inn as client_inn, kpp as client_kpp, legal_address as client_address 
+                    FROM counterparties WHERE id = $1
+                `, [params.cp_id]);
+                
+                const clientObj = cpRes.rows[0] || {};
+                clientInfo = { 
+                    name: clientObj.client_name || 'Неизвестный клиент', 
+                    inn: clientObj.client_inn, 
+                    kpp: clientObj.client_kpp, 
+                    address: clientObj.client_address 
+                };
+                
+                finalAmount = parseFloat(params.amount || params.custom_amount || 0).toFixed(2);
+                purposeText = params.desc || (params.contractId ? 'Оплата по договору' : 'Оплата по счету');
+                generatedInvoiceNumber = params.num;
+                
+                invoiceItems = [{ name: purposeText, qty: 1, unit: 'шт', price: finalAmount }];
+            } else {
+                // ЛОГИКА ДЛЯ ЗАКАЗОВ КЛИЕНТОВ (Notary-запись в базу)
+                await withTransaction(pool, async (client) => {
+                    const orderRes = await client.query(`
+                        SELECT o.id, o.doc_number, o.counterparty_id, o.total_amount, o.paid_amount, o.discount, o.logistics_cost, o.created_at,
+                               c.name as client_name, c.inn as client_inn, c.kpp as client_kpp, c.legal_address as client_address
+                        FROM client_orders o 
+                        JOIN counterparties c ON o.counterparty_id = c.id 
+                        WHERE o.doc_number = $1
+                    `, [docNum]);
 
-                if (orderRes.rows.length === 0) throw new Error('Заказ не найден в базе данных');
-                const order = orderRes.rows[0];
+                    if (orderRes.rows.length === 0) throw new Error('Заказ не найден в базе данных');
+                    const order = orderRes.rows[0];
 
-                clientInfo = { name: order.client_name, inn: order.client_inn, kpp: order.client_kpp, address: order.client_address };
-                const orderDate = order.created_at ? new Date(order.created_at).toLocaleDateString('ru-RU') : new Date().toLocaleDateString('ru-RU');
+                    clientInfo = { name: order.client_name, inn: order.client_inn, kpp: order.client_kpp, address: order.client_address };
+                    const orderDate = order.created_at ? new Date(order.created_at).toLocaleDateString('ru-RU') : new Date().toLocaleDateString('ru-RU');
 
-                const totalAmount = new Big(order.total_amount || 0);
-                const paidAmount = new Big(order.paid_amount || 0);
-                const debt = totalAmount.minus(paidAmount);
-
-                if (debt.lte(0)) throw new Error(`Заказ №${docNum} уже полностью оплачен. Выписка счета заблокирована.`);
-
-                finalAmount = debt.toFixed(2);
-
-                if (paidAmount.gt(0)) {
-                    purposeText = `Окончательный расчет (остаток оплаты) по заказу № ${docNum} от ${orderDate} г.`;
-                    invoiceItems = [{ name: purposeText, qty: 1, unit: 'шт', price: finalAmount }];
-                } else {
-                    purposeText = `Оплата по заказу № ${docNum} от ${orderDate} г.`;
-                    const itemsRes = await client.query(`
-                        SELECT it.name, it.unit, coi.qty_ordered as qty, coi.price 
-                        FROM client_order_items coi JOIN items it ON coi.item_id = it.id 
-                        WHERE coi.order_id = $1
-                    `, [order.id]);
-
-                    let items = itemsRes.rows;
-                    let itemsSum = new Big(0);
-                    items.forEach(item => { itemsSum = itemsSum.plus(new Big(item.qty).times(item.price)); });
-
-                    if (parseFloat(order.discount) > 0) {
-                        let dSum = itemsSum.times(order.discount).div(100);
-                        items.push({ name: `Скидка на объем ${order.discount}%`, qty: 1, unit: 'шт', price: dSum.times(-1).toFixed(2) });
-                    }
-                    if (parseFloat(order.logistics_cost) > 0) {
-                        items.push({ name: 'Логистика (Доставка)', qty: 1, unit: 'усл', price: parseFloat(order.logistics_cost) });
-                    }
-                    invoiceItems = items;
-                }
-
-                // АТОМАРНЫЙ НУМЕРАТОР: ГАРАНТИРУЕТ УНИКАЛЬНОСТЬ, ОБХОДЯ ЗАНЯТЫЕ НОМЕРА
-                let isUnique = false;
-                for (let i = 0; i < 100; i++) {
-                    let counterRes = await client.query(`UPDATE document_counters SET last_number = last_number + 1 WHERE prefix = 'СЧ-26-' RETURNING last_number`);
-                    if (counterRes.rows.length === 0) {
-                        await client.query(`INSERT INTO document_counters (prefix, last_number) VALUES ('СЧ-26-', 0) ON CONFLICT DO NOTHING`);
-                        counterRes = await client.query(`UPDATE document_counters SET last_number = last_number + 1 WHERE prefix = 'СЧ-26-' RETURNING last_number`);
-                    }
-                    let seqNum = counterRes.rows[0].last_number;
-                    generatedInvoiceNumber = `СЧ-26-${String(seqNum).padStart(5, '0')}`;
+                    const totalAmount = new Big(order.total_amount || 0);
+                    const paidAmount = new Big(order.paid_amount || 0);
+                    let debt = totalAmount.minus(paidAmount);
                     
-                    // Бронебойная проверка: свободен ли этот номер в базе?
-                    const checkRes = await client.query(`SELECT id FROM invoices WHERE invoice_number = $1`, [generatedInvoiceNumber]);
-                    if (checkRes.rows.length === 0) {
-                        isUnique = true;
-                        break;
+                    if (params.custom_amount) {
+                         const requestedAmount = new Big(params.custom_amount);
+                         if (requestedAmount.gt(debt)) throw new Error('Запрошенная сумма больше остатка долга!');
+                         debt = requestedAmount; 
+                         purposeText = `Частичная оплата по заказу № ${docNum} от ${orderDate} г.`;
                     }
-                }
-                if (!isUnique) throw new Error("Системная ошибка: Не удалось найти свободный номер счета.");
 
-                // ЗАПИСЬ СЧЕТА В БАЗУ (ИММУТАБЕЛЬНЫЙ СЛЕД - РЕЖИМ «НОТАРИУС»)
-                const authorId = (req.user && req.user.id) ? req.user.id : null;
-                const snapshot = JSON.stringify(clientInfo);
-                const crypto = require('crypto');
-                
-                // Фиксируем точное время для хеша и базы
-                const createdAt = new Date().toISOString();
-                
-                // Строка для подписи: Номер | Дата | Сумма | ID Контрагента
-                const hashString = `${generatedInvoiceNumber}|${createdAt}|${finalAmount}|${order.counterparty_id}`;
-                const notaryHash = crypto.createHash('sha256').update(hashString).digest('hex');
+                    if (debt.lte(0)) throw new Error(`Заказ №${docNum} уже полностью оплачен. Выписка счета заблокирована.`);
 
-                await client.query(`
-                    INSERT INTO invoices (
-                        invoice_number, order_id, counterparty_id, total_amount, 
-                        purpose, author_id, client_snapshot,
-                        created_at, notary_hash, is_locked, locked_at
-                    )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, NOW())
-                `, [
-                    generatedInvoiceNumber, 
-                    order.id, 
-                    order.counterparty_id, 
-                    finalAmount, 
-                    purposeText, 
-                    authorId, 
-                    snapshot,
-                    createdAt,
-                    notaryHash
-                ]);
-            });
+                    finalAmount = debt.toFixed(2);
+
+                    if (!params.custom_amount) {
+                         if (paidAmount.gt(0)) {
+                             purposeText = `Окончательный расчет (остаток оплаты) по заказу № ${docNum} от ${orderDate} г.`;
+                         } else {
+                             purposeText = `Оплата по заказу № ${docNum} от ${orderDate} г.`;
+                         }
+                    }
+
+                    if (paidAmount.gt(0) || params.custom_amount) {
+                        invoiceItems = [{ name: purposeText, qty: 1, unit: 'шт', price: finalAmount }];
+                    } else {
+                        const itemsRes = await client.query(`
+                            SELECT it.name, it.unit, coi.qty_ordered as qty, coi.price 
+                            FROM client_order_items coi JOIN items it ON coi.item_id = it.id 
+                            WHERE coi.order_id = $1
+                        `, [order.id]);
+
+                        let items = itemsRes.rows;
+                        let itemsSum = new Big(0);
+                        items.forEach(item => { itemsSum = itemsSum.plus(new Big(item.qty).times(item.price)); });
+
+                        if (parseFloat(order.discount) > 0) {
+                            let dSum = itemsSum.times(order.discount).div(100);
+                            items.push({ name: `Скидка на объем ${order.discount}%`, qty: 1, unit: 'шт', price: dSum.times(-1).toFixed(2) });
+                        }
+                        if (parseFloat(order.logistics_cost) > 0) {
+                            items.push({ name: 'Логистика (Доставка)', qty: 1, unit: 'усл', price: parseFloat(order.logistics_cost) });
+                        }
+                        invoiceItems = items;
+                    }
+
+                    let isUnique = false;
+                    for (let i = 0; i < 100; i++) {
+                        let counterRes = await client.query(`UPDATE document_counters SET last_number = last_number + 1 WHERE prefix = 'СЧ-26-' RETURNING last_number`);
+                        if (counterRes.rows.length === 0) {
+                            await client.query(`INSERT INTO document_counters (prefix, last_number) VALUES ('СЧ-26-', 0) ON CONFLICT DO NOTHING`);
+                            counterRes = await client.query(`UPDATE document_counters SET last_number = last_number + 1 WHERE prefix = 'СЧ-26-' RETURNING last_number`);
+                        }
+                        let seqNum = counterRes.rows[0].last_number;
+                        generatedInvoiceNumber = `СЧ-26-${String(seqNum).padStart(5, '0')}`;
+                        
+                        const checkRes = await client.query(`SELECT id FROM invoices WHERE invoice_number = $1`, [generatedInvoiceNumber]);
+                        if (checkRes.rows.length === 0) {
+                            isUnique = true;
+                            break;
+                        }
+                    }
+                    if (!isUnique) throw new Error("Системная ошибка: Не удалось найти свободный номер счета.");
+
+                    const authorId = (req.user && req.user.id) ? req.user.id : null;
+                    const snapshot = JSON.stringify(clientInfo);
+                    const crypto = require('crypto');
+                    
+                    const createdAt = new Date().toISOString();
+                    const hashString = `${generatedInvoiceNumber}|${createdAt}|${finalAmount}|${order.counterparty_id}`;
+                    const notaryHash = crypto.createHash('sha256').update(hashString).digest('hex');
+
+                    await client.query(`
+                        INSERT INTO invoices (
+                            invoice_number, order_id, counterparty_id, total_amount, 
+                            purpose, author_id, client_snapshot,
+                            created_at, notary_hash, is_locked, locked_at
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, NOW())
+                    `, [generatedInvoiceNumber, order.id, order.counterparty_id, finalAmount, purposeText, authorId, snapshot, createdAt, notaryHash]);
+                });
+            }
 
             res.render('docs/invoice', {
                 invoiceNum: generatedInvoiceNumber,
-                dateLong: new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) + ' г.',
+                dateLong: new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }),
                 clientName: clientInfo.name,
                 clientInn: clientInfo.inn || '-',
                 clientKpp: clientInfo.kpp || '-',
@@ -502,7 +525,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
             // Базовая часть запроса
             let queryText = `
                 SELECT i.id, i.invoice_number as doc_number, i.total_amount, i.created_at, i.is_exported_1c, 
-                i.client_snapshot, i.counterparty_id, i.is_locked, u.username as author_name 
+                i.client_snapshot, i.counterparty_id, i.is_locked, i.status, u.username as author_name 
                 FROM invoices i
                 LEFT JOIN users u ON i.author_id = u.id
             `;

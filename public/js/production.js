@@ -159,29 +159,22 @@ window.handleProductSelection = async function () {
     const productId = sel.value;
     if (!productId) return;
 
-    // Берём название из allProductsList (TomSelect-совместимо)
+    // Берём данные из allProductsList
     const product = allProductsList.find(p => p.id == productId);
-    const productName = (product ? product.name : '').toLowerCase();
 
-    // 1. Угадываем Основной шаблон
-    let mainKey = 'main_60';
-    if (productName.includes('40')) mainKey = 'main_40';
-    else if (productName.includes('80')) mainKey = 'main_80';
-    else if (productName.includes('поребрик')) mainKey = 'main_por';
-    else if (productName.includes('бордюр')) mainKey = 'main_bor';
+    // Архитектурное SSoT: Берем готовые шаблоны из БД, без текстового "угадывания"
+    const mainKey = product?.mix_main_tpl || 'main_tile_60';
+    const faceKey = product?.mix_face_tpl || 'face_smooth_grey';
 
-    // 2. Угадываем Лицевой шаблон (ДОБАВЛЕНА ЛОГИКА ДЛЯ МЕЛАНЖА)
-    let faceKey = 'face_gs';
-    if (productName.includes('меланж')) {
-        faceKey = productName.includes('гранит') ? 'face_mel_gr' : 'face_mel_g';
-    } else if (productName.includes('гранит')) {
-        faceKey = productName.includes('сер') ? 'face_grs' : 'face_grc';
-    } else if (productName.includes('цвет') || productName.includes('красн') || productName.includes('желт') || productName.includes('корич')) {
-        faceKey = 'face_gc';
-    }
+    const mainSel = document.getElementById('main-template-select');
+    const faceSel = document.getElementById('face-template-select');
 
-    document.getElementById('main-template-select').value = mainKey;
-    document.getElementById('face-template-select').value = faceKey;
+    if (mainSel.tomselect) mainSel.tomselect.setValue(mainKey, true);
+    else mainSel.value = mainKey;
+
+    if (faceSel.tomselect) faceSel.tomselect.setValue(faceKey, true);
+    else faceSel.value = faceKey;
+
     renderSelectedTemplates();
 
     // 3. Загружаем Рецепт для расчета подсказки по замесам
@@ -240,21 +233,45 @@ window.calculateMixesPreview = function () {
         const mainKey = document.getElementById('main-template-select').value;
         const faceKey = document.getElementById('face-template-select').value;
 
+        const mainTpl = window.currentMixTemplates[mainKey] || [];
+        const faceTpl = window.currentMixTemplates[faceKey] || [];
+
         const mainTplWeight = (window.currentMixTemplates[mainKey] || []).reduce((sum, m) => sum + parseFloat(m.qty), 0) || 1;
-        const faceTplWeight = (window.currentMixTemplates[faceKey] || []).reduce((sum, m) => sum + parseFloat(m.qty), 0) || 1;
+        const faceTplWeight = (window.currentMixTemplates[faceKey] || []).reduce((sum, m) => sum + parseFloat(m.qty), 0) || 0;
 
-        // Эмпирическая пропорция веса слоев
-        let faceRatio = 0.20;
-        if (product.name.toLowerCase().includes('40')) faceRatio = 0.25;
-        if (product.name.toLowerCase().includes('80')) faceRatio = 0.15;
-        if (product.name.toLowerCase().includes('поребрик') || product.name.toLowerCase().includes('бордюр')) faceRatio = 0.10;
+        // --- АЛГОРИТМ ПО МАРКЕРНОМУ СЫРЬЮ ---
+        
+        // 1. Основной слой (Маркер: Мурасан 16)
+        const recipeMur16 = currentSelectedProductRecipe.find(r => (r.material_name || '').toLowerCase().includes('мурасан 16'));
+        const tplMur16 = mainTpl.find(m => (m.name || '').toLowerCase().includes('мурасан 16'));
+        let suggestedMain;
+        
+        if (recipeMur16 && tplMur16 && parseFloat(tplMur16.qty) > 0) {
+            const requiredMur16 = parseFloat(recipeMur16.quantity_per_unit) * volume;
+            suggestedMain = (requiredMur16 / parseFloat(tplMur16.qty)).toFixed(1);
+        } else {
+            // Fallback: пропорциональное деление общего веса
+            let mainRatio = faceTplWeight > 0 ? (mainTplWeight / (mainTplWeight + faceTplWeight)) : 1;
+            suggestedMain = ((totalRecipeWeight * mainRatio) / mainTplWeight).toFixed(1);
+        }
 
-        const mainRatio = 1 - faceRatio;
+        // 2. Лицевой слой (Маркер: Мурасан 17)
+        let suggestedFace = '0';
+        if (faceTplWeight > 0) {
+            const recipeMur17 = currentSelectedProductRecipe.find(r => (r.material_name || '').toLowerCase().includes('мурасан 17'));
+            const tplMur17 = faceTpl.find(m => (m.name || '').toLowerCase().includes('мурасан 17'));
 
-        const suggestedMain = ((totalRecipeWeight * mainRatio) / mainTplWeight).toFixed(1);
-        const suggestedFace = ((totalRecipeWeight * faceRatio) / faceTplWeight).toFixed(1);
+            if (recipeMur17 && tplMur17 && parseFloat(tplMur17.qty) > 0) {
+                const requiredMur17 = parseFloat(recipeMur17.quantity_per_unit) * volume;
+                suggestedFace = (requiredMur17 / parseFloat(tplMur17.qty)).toFixed(1);
+            } else {
+                // Fallback: пропорциональное деление общего веса
+                let faceRatio = faceTplWeight / (mainTplWeight + faceTplWeight);
+                suggestedFace = ((totalRecipeWeight * faceRatio) / faceTplWeight).toFixed(1);
+            }
+        }
 
-        // Подставляем подсказку ТОЛЬКО если поля пустые (бригадир ещё не вводил)
+        // 4. Подставляем подсказку ТОЛЬКО если поля пустые
         const mainInput = document.getElementById('main-mix-count');
         const faceInput = document.getElementById('face-mix-count');
         if (!mainInput.value || mainInput.value === '0' || !mainInput.dataset.userEdited) {
@@ -646,26 +663,41 @@ window.removeMaterialFromTemplate = function (templateKey, index) {
 };
 
 window.saveMixTemplate = async function (templateKey) {
-    const qtyInputs = document.querySelectorAll('.tpl-qty-input');
-    const matSelects = document.querySelectorAll('.tpl-mat-select');
+    // 🛡️ Фильтр активной модалки
+    const activeModal = document.querySelector('.modal-overlay:not([style*="display: none"])') || document;
+    
+    // Формируем ПОЛНОСТЬЮ НОВЫЙ МАССИВ, читая DOM сверху вниз
+    const rows = activeModal.querySelectorAll('tbody tr');
+    let newTemplateArray = [];
 
-    if (window.currentMixTemplates[templateKey]) {
-        // Проходим по всем строкам и считываем обновленные значения
-        for (let i = 0; i < qtyInputs.length; i++) {
-            const index = qtyInputs[i].getAttribute('data-index');
-            const newQty = parseFloat(qtyInputs[i].value) || 0;
-            const selectEl = matSelects[i];
+    rows.forEach(tr => {
+        const selectEl = tr.querySelector('.tpl-mat-select');
+        const qtyInput = tr.querySelector('.tpl-qty-input');
+        
+        // Пропускаем строки "В шаблоне пока нет сырья"
+        if (!selectEl || !qtyInput) return;
 
-            if (window.currentMixTemplates[templateKey][index]) {
-                window.currentMixTemplates[templateKey][index].qty = newQty;
-                // Читаем новое сырье, если пользователь его поменял через drop-down
-                if (selectEl && selectEl.value) {
-                    window.currentMixTemplates[templateKey][index].id = selectEl.value;
-                    window.currentMixTemplates[templateKey][index].name = selectEl.options[selectEl.selectedIndex].getAttribute('data-name');
-                }
+        const qty = parseFloat(qtyInput.value) || 0;
+        let selectedId = selectEl.tomselect ? selectEl.tomselect.getValue() : selectEl.value;
+
+        if (selectedId) {
+            const trueMaterial = allMaterialsForMix.find(m => String(m.id) === String(selectedId));
+            if (trueMaterial) {
+                newTemplateArray.push({
+                    id: selectedId,
+                    name: trueMaterial.name,
+                    qty: qty,
+                    unit: 'кг'
+                });
             }
         }
-    }
+    });
+
+    // Перезаписываем глобальный массив полностью очищенным и свежим
+    window.currentMixTemplates[templateKey] = newTemplateArray;
+
+    console.log(`[DEBUG] Отправляем сохранение JSON шаблона:`, templateKey);
+    console.log(`[DEBUG] PAYLOAD:`, newTemplateArray);
 
     try {
         await fetch('/api/mix-templates', {

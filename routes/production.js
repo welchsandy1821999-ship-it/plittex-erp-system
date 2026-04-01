@@ -34,6 +34,55 @@ module.exports = function (pool, getWhId, withTransaction) {
         }
     });
 
+    // Получение плановых выходов
+    router.get('/api/mix-template-yields', async (req, res) => {
+        try {
+            const result = await pool.query(`SELECT value FROM settings WHERE key = 'mix_template_yields'`);
+            if (result.rows.length > 0) res.json(result.rows[0].value);
+            else res.json({});
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера.' });
+        }
+    });
+
+    // Безопасное точечное сохранение 1 шаблона (для двойного модуля Рецептур)
+    router.post('/api/mix-templates/single', async (req, res) => {
+        const { templateKey, ingredients, yieldValue } = req.body;
+        if (!templateKey || !Array.isArray(ingredients)) return res.status(400).json({error: 'Bad Request'});
+
+        try {
+            await pool.query('BEGIN');
+            
+            // 1. Сохраняем массив сырья
+            const resMix = await pool.query(`SELECT value FROM settings WHERE key = 'mix_templates' FOR UPDATE`);
+            let mixTemplates = resMix.rows.length > 0 ? resMix.rows[0].value : {};
+            mixTemplates[templateKey] = ingredients;
+            
+            await pool.query(`
+                INSERT INTO settings (key, value) VALUES ('mix_templates', $1)
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+            `, [JSON.stringify(mixTemplates)]);
+
+            // 2. Сохраняем выход (yield)
+            const resYields = await pool.query(`SELECT value FROM settings WHERE key = 'mix_template_yields' FOR UPDATE`);
+            let mixYields = resYields.rows.length > 0 ? resYields.rows[0].value : {};
+            mixYields[templateKey] = parseFloat(yieldValue) || 1;
+
+            await pool.query(`
+                INSERT INTO settings (key, value) VALUES ('mix_template_yields', $1)
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+            `, [JSON.stringify(mixYields)]);
+
+            await pool.query('COMMIT');
+            res.json({ success: true });
+        } catch (err) {
+            await pool.query('ROLLBACK');
+            console.error(err);
+            res.status(500).json({ error: 'Ошибка сохранения шаблона.' });
+        }
+    });
+
 
 
 
@@ -242,7 +291,8 @@ module.exports = function (pool, getWhId, withTransaction) {
         }
     });
 
-    router.post('/api/produce', async (req, res) => {
+    // ⚠️ LEGACY: Старый API формовки (не используется фронтендом, закрыт requireAdmin)
+    router.post('/api/produce', requireAdmin, async (req, res) => {
         const { tileId, quantity, moisture = 0, defect = 0 } = req.body;
         if (new Big(quantity || 0).lte(0)) return res.status(400).json({ error: 'Количество должно быть больше нуля!' });
         const userId = req.user ? req.user.id : null;
@@ -639,26 +689,7 @@ module.exports = function (pool, getWhId, withTransaction) {
         }
     });
 
-    router.post('/api/recipes/mass-copy', async (req, res) => {
-        const { sourceProductId, targetProductIds } = req.body;
-        try {
-            await withTransaction(pool, async (client) => {
-                const sourceRecipeRes = await client.query(`SELECT material_id, quantity_per_unit FROM recipes WHERE product_id = $1`, [sourceProductId]);
-                if (sourceRecipeRes.rows.length === 0) throw new Error('Эталонный рецепт пуст!');
 
-                for (let targetId of targetProductIds) {
-                    await client.query('DELETE FROM recipes WHERE product_id = $1', [targetId]);
-                    for (let ing of sourceRecipeRes.rows) {
-                        await client.query(`INSERT INTO recipes (product_id, material_id, quantity_per_unit) VALUES ($1, $2, $3)`, [targetId, ing.material_id, ing.quantity_per_unit]);
-                    }
-                }
-            });
-            res.json({ success: true, message: `Шаблон применен к ${targetProductIds.length} позициям.` });
-        } catch (err) {
-            console.error(err);
-            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
-        }
-    });
 
     router.post('/api/recipes/sync-category', async (req, res) => {
         const { targetProductIds, materials } = req.body;

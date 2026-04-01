@@ -1585,6 +1585,7 @@ span.flatpickr-weekday {
     border-color: var(--border) !important;
     color: var(--text-main) !important;
     box-shadow: var(--shadow-md) !important;
+    z-index: 99999 !important;
 }
 
 .ts-dropdown .option {
@@ -1770,3 +1771,596 @@ input[list]::-webkit-calendar-picker-indicator {
     display: none !important;
     opacity: 0;
 }
+
+.dev-panel-hidden {
+    display: none !important;
+}
+
+body.dev-panel-hidden-active {
+    padding-bottom: 0 !important;
+}
+
+/* ==========================================================================
+   15. МОДУЛЬ ЗАРПЛАТЫ — ШАПКА РАСЧЕТОВ И НЕПОЛНЫЙ ДЕНЬ
+   ========================================================================== */
+
+/* Шапка внутри аккордеона "Расчет выплат": текст + инпут + кнопка в одну строку */
+.payroll-mega-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 10px;
+    margin-bottom: 15px;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.payroll-mega-toolbar .input-modern {
+    width: auto;
+    flex-shrink: 0;
+}
+
+.payroll-month-input {
+    min-width: 150px;
+    font-weight: bold;
+}
+
+.payroll-search-input {
+    min-width: 180px;
+    max-width: 220px;
+}
+
+.payroll-dep-select {
+    min-width: 120px;
+}
+
+.payroll-mega-toolbar .btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.payroll-divider {
+    width: 1px;
+    height: 28px;
+    background: var(--border);
+    flex-shrink: 0;
+}
+
+.payroll-header-formula {
+    font-size: 12px;
+    margin: 0 0 8px 0;
+}
+
+.payroll-reopen-btn {
+    display: none;
+    border-color: var(--danger);
+    color: var(--danger);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* Ячейка табеля: Неполный день (partial) */
+.ts-cell.status-partial {
+    background: repeating-linear-gradient(
+        45deg,
+        var(--success),
+        var(--success) 4px,
+        rgba(16, 185, 129, 0.55) 4px,
+        rgba(16, 185, 129, 0.55) 8px
+    );
+    color: white;
+    font-size: 10px;
+}
+
+/* Модальное окно: блок выбора множителя (доли смены) */
+.multiplier-block {
+    align-items: flex-start;
+    gap: 15px;
+    margin: 10px 0;
+    padding: 10px;
+    background: var(--warning-bg);
+    border-radius: 6px;
+    border: 1px solid var(--warning-border);
+    flex-wrap: wrap;
+}
+
+.multiplier-block-row {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    width: 100%;
+}
+
+.multiplier-block-label {
+    font-size: 13px;
+    font-weight: bold;
+    color: var(--warning-text);
+    margin: 0;
+}
+
+.multiplier-radio-label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    margin: 0;
+    font-size: 14px;
+}
+
+.multiplier-radio-label input[type="radio"] {
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+}
+
+/* Итого за день — результат пересчёта в модалке */
+.modal-day-result-row {
+    width: 100%;
+    text-align: left;
+    font-weight: bold;
+    font-size: 14px;
+    color: var(--text-main);
+    margin-top: 5px;
+    padding-top: 5px;
+    border-top: 1px dashed var(--warning-border);
+}
+
+.modal-day-result-value {
+    color: var(--primary);
+}
+
+/* Блок автоштрафа за прогул */
+.penalty-check-block {
+    align-items: center;
+    gap: 10px;
+    margin: 10px 0;
+    padding: 10px;
+    background: var(--danger-bg);
+    border-radius: 6px;
+    border: 1px solid var(--danger-border);
+}
+
+.penalty-check-block input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+}
+
+.penalty-check-block label {
+    font-size: 13px;
+    color: var(--danger-text);
+    font-weight: bold;
+    cursor: pointer;
+}
+
+/* ============================================================
+   16. МОДУЛЬ СКЛАДА И СУШИЛКИ
+   ============================================================ */
+
+/* Шапка модуля: заголовок + кнопки */
+.inventory-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-bottom: 20px;
+}
+
+.inventory-header h2 {
+    margin: 0 0 5px 0;
+}
+
+.inventory-header .inventory-subtitle {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin: 0;
+}
+
+.inventory-actions {
+    display: flex;
+    gap: 10px;
+}
+
+/* Панель фильтров по складам */
+.inventory-filter-bar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    background: var(--surface-alt);
+    padding: 15px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+}
+
+/* Обёртка таблицы остатков */
+.inventory-table-wrapper {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+}
+
+.inventory-table-wrapper .table-container {
+    margin: 0;
+}
+
+.inventory-table-wrapper table {
+    width: 100%;
+    margin: 0;
+}
+
+/* Ширина колонок таблицы */
+.inv-col-wh { width: 15%; }
+.inv-col-batch { width: 15%; }
+.inv-col-name { width: 35%; }
+.inv-col-qty { width: 10%; text-align: right; }
+.inv-col-unit { width: 10%; }
+.inv-col-actions { width: 15%; text-align: right; }
+
+/* Ячейка номера партии */
+.inv-batch-cell {
+    color: var(--primary);
+    font-weight: bold;
+}
+
+/* Ячейка остатка (обычный режим) */
+.inv-qty-cell {
+    font-weight: bold;
+    font-size: 15px;
+    text-align: right;
+}
+
+/* Ячейка единицы измерения */
+.inv-unit-cell {
+    color: var(--text-muted);
+}
+
+/* Ячейка действий */
+.inv-actions-cell {
+    text-align: right;
+}
+
+/* Пустыш-заглушка */
+.inv-empty-row {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 30px;
+}
+
+/* Badge склада */
+.inv-wh-badge {
+    background: var(--surface-hover);
+    color: var(--text-muted);
+}
+
+/* Компактные кнопки действий в строке таблицы */
+.inv-action-btn {
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+/* Кнопка распалубки (синяя) */
+.inv-btn-demold {
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+/* Кнопка утилизации (красная обводка) */
+.inv-btn-dispose {
+    padding: 4px 8px;
+    font-size: 12px;
+    color: var(--danger-text);
+    border-color: var(--danger-border);
+    background: var(--danger-bg);
+}
+
+/* Кнопка перемещения (красная обводка без фона) */
+.inv-btn-move {
+    padding: 4px 8px;
+    font-size: 12px;
+    color: var(--danger);
+    border-color: var(--danger);
+}
+
+/* Режим инвентаризации: инпут фактического остатка */
+.audit-qty-input {
+    width: 100px;
+    padding: 4px;
+    text-align: right;
+    font-weight: bold;
+    border: 2px solid var(--primary);
+    margin: 0;
+    background: var(--surface);
+    color: var(--text-main);
+}
+
+/* Инфо-блок в модалках склада */
+.inv-modal-info {
+    background: var(--surface-alt);
+    padding: 15px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    margin-bottom: 20px;
+}
+
+.inv-modal-info .inv-modal-product {
+    font-size: 15px;
+}
+
+.inv-modal-info .inv-modal-batch {
+    margin-top: 5px;
+    color: var(--primary);
+    font-weight: bold;
+}
+
+.inv-modal-info .inv-modal-stock {
+    margin-top: 5px;
+    color: var(--text-muted);
+}
+
+.inv-modal-info .inv-modal-stock-value {
+    font-size: 16px;
+    color: var(--text-main);
+}
+
+/* Лейбл красного цвета (для полей опасных действий) */
+.inv-label-danger {
+    color: var(--danger);
+    font-weight: bold;
+}
+
+.inv-label-success {
+    color: var(--success);
+    font-weight: bold;
+}
+
+.inv-label-warning {
+    color: var(--warning-text);
+    font-weight: bold;
+}
+
+/* Скрытый элемент (кнопка сохранения инвентаризации) */
+.inv-hidden {
+    display: none;
+}
+
+/* Кнопка фильтра Склад №7 (Резервы) */
+.inv-reserve-btn {
+    border-color: var(--warning-border);
+    color: var(--warning-text);
+    background: var(--warning-bg);
+}
+
+.inv-reserve-btn.active {
+    background: var(--warning-text);
+    color: #fff;
+    border-color: var(--warning-text);
+}
+
+/* Колонка заказа в таблице */
+.inv-col-order { width: 15%; }
+
+/* Badge номера заказа */
+.inv-order-badge {
+    background: var(--primary);
+    color: #fff;
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-weight: bold;
+    font-size: 12px;
+    letter-spacing: 0.5px;
+}
+
+/* Кнопка управления резервом */
+.inv-btn-reserve {
+    padding: 4px 8px;
+    font-size: 12px;
+    color: var(--primary);
+    border-color: var(--primary);
+}
+
+/* ============================================================ */
+/* --- 17. МОДУЛЬ ПРОДАЖ ---                                    */
+/* ============================================================ */
+
+/* --- 17.1 Шапка модуля --- */
+.sales-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px; }
+.sales-header h2 { margin: 0 0 5px 0; }
+.sales-subtitle { font-size: 13px; color: var(--text-muted); margin: 0; }
+.sales-header-actions { display: flex; gap: 10px; align-items: center; }
+.sales-btn-docs { padding: 8px 16px; border-color: var(--info); color: var(--info); }
+.sales-btn-return { padding: 8px 16px; border-color: var(--warning); color: var(--warning); }
+.sales-btn-tools { padding: 8px 15px; display: flex; align-items: center; gap: 8px; font-weight: bold; background: var(--surface-alt); }
+.sales-dropdown-arrow { font-size: 10px; }
+.sales-btn-1c { color: var(--success); font-weight: bold; background: var(--success-bg); }
+
+/* --- 17.2 Checkout Layout --- */
+.sales-checkout-grid { display: grid; grid-template-columns: 1fr 2fr; gap: 20px; align-items: start; }
+.sales-panel-left { margin: 0; border-top: 4px solid var(--primary); }
+.sales-panel-right { margin: 0; display: flex; flex-direction: column; min-height: 100%; }
+.sales-section-title { margin-top: 0; }
+.sales-section-sub-title { margin: 0 0 10px 0; color: var(--text-muted); }
+.sales-input-row { display: flex; gap: 5px; }
+.sales-btn-icon { padding: 0 10px; }
+.sales-btn-info-icon { padding: 0 12px; border-color: var(--info); color: var(--info); }
+.sales-flex-grow { flex-grow: 1; }
+.sales-two-cols { grid-template-columns: 1fr 1fr; gap: 15px; align-items: start; }
+.sales-separator-top { margin-top: 20px; padding-top: 15px; border-top: 1px dashed var(--border); }
+.sales-section-dashed { margin-bottom: 15px; border-bottom: 1px dashed var(--border); padding-bottom: 15px; }
+.m-0 { margin: 0; }
+.sales-mb-sm { margin-bottom: 10px; }
+.sales-payment-block { margin-bottom: 15px; }
+
+/* --- 17.3 Клиентская карточка --- */
+.sales-client-info { display: none; margin-top: 10px; padding: 10px; background: var(--danger-bg); border: 1px dashed var(--danger-border); border-radius: 6px; font-size: 13px; }
+.sales-client-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+.sales-label-danger { color: var(--danger-text); }
+.sales-debt-value { color: var(--danger); }
+.sales-pallets-value { color: var(--warning-text); }
+.sales-btn-act { width: 100%; margin-top: 5px; padding: 4px; font-size: 12px; border-color: var(--danger-border); color: #db2777; }
+
+/* --- 17.4 Договоры --- */
+.sales-contract-group { display: none; margin-top: 15px; padding: 10px; background: var(--surface-alt); border-radius: 6px; border: 1px solid #e2e8f0; }
+.sales-label-muted { color: var(--text-muted); font-size: 12px; }
+.sales-label-warning-bold { color: var(--warning-text); font-weight: bold; }
+
+/* --- 17.5 Поиск товара (TomSelect) --- */
+.sales-unit-hint { color: var(--primary); font-weight: bold; }
+.sales-stock-hint-wrapper { min-height: 16px; margin-top: 4px; }
+.sales-stock-hint { color: var(--text-muted); font-size: 11px; }
+.sales-stock-free { color: var(--success); font-weight: bold; }
+.sales-stock-reserved { color: var(--warning-text); font-weight: bold; }
+.sales-cost-btn-wrap { margin-bottom: 10px; }
+.sales-btn-cost { border-color: var(--warning-text); color: var(--warning-text); font-weight: bold; display: none; }
+.sales-btn-add-to-cart { width: 100%; border-color: var(--primary); color: var(--primary); margin-top: 10px; }
+
+/* --- 17.6 Корзина (Cart) --- */
+.sales-cart-wrapper { flex-grow: 1; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-bottom: 15px; }
+.sales-cart-table { margin: 0; width: 100%; }
+.sales-cart-table th { padding: 10px; }
+.sales-th-discount { color: var(--danger); }
+.sales-empty-cell { text-align: center; color: var(--text-muted); padding: 20px; }
+.sales-cart-row { border-bottom: 1px solid var(--surface-alt); }
+.sales-cart-price-input { width: 70px; padding: 4px; text-align: center; }
+.sales-cart-discount-input { width: 60px; padding: 4px; text-align: center; color: var(--danger); }
+.sales-cart-sum { text-align: right; font-weight: bold; color: var(--primary); }
+.sales-cart-remove { background: none; border: none; color: var(--danger); cursor: pointer; font-size: 16px; }
+
+/* --- 17.7 Итоги / Прибыль --- */
+.sales-totals-block { background: var(--surface-alt); padding: 15px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 15px; }
+.sales-totals-label { font-size: 13px; color: var(--text-muted); }
+.sales-input-sm { padding: 6px; }
+.sales-summary-row { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 5px; }
+.sales-grand-total { display: flex; justify-content: space-between; font-size: 18px; color: var(--primary); margin-top: 10px; border-top: 1px solid #e2e8f0; padding-top: 10px; }
+.sales-original-sum { color: #94a3b8; font-size: 14px; display: none; margin-right: 10px; }
+
+/* Блок прибыли */
+.sales-profit-block { margin-top: 15px; padding: 15px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+.profit-positive { background: var(--success-bg); border: 1px solid var(--success-border); }
+.profit-negative { background: var(--danger-bg); border: 1px solid var(--danger-border); }
+.profit-title-positive { color: var(--success-text); font-weight: bold; font-size: 14px; }
+.profit-title-negative { color: var(--danger-text); font-weight: bold; font-size: 14px; }
+.profit-sub { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.profit-value { font-size: 24px; font-weight: 900; line-height: 1; }
+.profit-value-positive { color: var(--success); }
+.profit-value-negative { color: var(--danger); }
+.profit-badge { margin-top: 5px; font-size: 12px; padding: 3px 10px; border-radius: 12px; color: white; font-weight: bold; display: inline-block; }
+.profit-badge-positive { background: var(--success); }
+.profit-badge-negative { background: var(--danger); }
+
+/* --- 17.8 Доверенность --- */
+.sales-poa-block { background: var(--danger-bg); padding: 10px; border-radius: 6px; border: 1px solid var(--danger-border); }
+.sales-poa-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+.sales-poa-title { font-weight: bold; color: var(--danger-text); font-size: 13px; }
+.sales-poa-checkbox-label { font-size: 12px; display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--danger); font-weight: bold; }
+.sales-poa-select { border-color: var(--danger-border); }
+.sales-btn-poa-add { padding: 0 12px; border-color: var(--danger-border); }
+.sales-poa-comment { display: none; margin-top: 10px; }
+.sales-poa-comment-input { border-color: var(--danger); background: var(--surface); }
+.sales-advance-input { border-color: var(--warning); background: var(--warning-bg); }
+
+/* --- 17.9 Кнопки действий --- */
+.sales-action-bar { display: flex; gap: 10px; margin-top: auto; }
+.sales-btn-checkout { flex: 2; padding: 12px; font-size: 16px; }
+
+/* --- 17.10 Карточка заказов / Фильтры --- */
+.sales-card-flush { margin: 0; min-height: 400px; }
+.sales-view-toggle { display: flex; gap: 10px; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 15px; }
+.sales-filter-bar { background: var(--surface-alt); padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 15px; }
+.sales-orders-filter-grid { grid-template-columns: 2fr 1.5fr 1.5fr 1.5fr auto; gap: 10px; align-items: end; }
+.sales-history-filter-grid { grid-template-columns: 2fr 1.5fr 2.5fr auto; gap: 10px; align-items: end; }
+.sales-btn-reset { padding: 8px 12px; height: 38px; }
+
+/* --- 17.11 Таблица заказов --- */
+.sales-table-full { width: 100%; }
+.sales-col-date { width: 15%; }
+.sales-col-doc { width: 15%; }
+.sales-col-client { width: 25%; }
+.sales-col-items { width: 20%; }
+.sales-col-status { width: 10%; text-align: center; }
+.sales-col-actions { width: 15%; text-align: right; }
+.sales-col-vol { width: 15%; text-align: center; }
+.sales-col-sum { width: 15%; text-align: right; }
+
+/* Строка в таблице заказов */
+.sales-order-row { transition: background-color 0.2s; }
+.sales-order-row:hover { background-color: var(--surface-hover); }
+.sales-order-date { color: var(--text-muted); font-size: 13px; }
+.sales-order-deadline { color: var(--warning-text); font-weight: bold; }
+.sales-order-doc-link { color: var(--info); font-size: 14px; font-weight: bold; cursor: pointer; text-decoration: none; }
+.sales-order-doc-link:hover { text-decoration: underline; }
+.sales-order-amount { font-size: 12px; font-weight: bold; color: var(--text-main); }
+.sales-order-client { font-weight: bold; }
+.sales-order-address { font-size: 11px; color: var(--text-muted); }
+.sales-order-items { font-size: 12px; max-width: 250px; vertical-align: top; }
+.sales-order-actions-cell { text-align: right; min-width: 250px; vertical-align: middle; }
+.sales-order-actions-row { display: flex; justify-content: flex-end; gap: 5px; align-items: center; }
+.sales-btn-sm { padding: 4px 8px; font-size: 12px; }
+.sales-btn-sm-info { color: var(--info); border-color: var(--info); }
+.sales-btn-sm-danger { color: var(--danger); border-color: var(--danger); }
+.sales-btn-sm-success { color: #059669; border-color: #059669; }
+
+/* --- 17.12 Badges статусов --- */
+.sales-badge { padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; display: inline-block; }
+.badge-shipping { background: var(--info-bg); color: var(--info); border: 1px solid #bae6fd; }
+.badge-queued { background: var(--warning-bg); color: var(--warning-text); border: 1px solid #fde047; }
+.badge-paid { background: var(--success-bg); color: var(--success-text); border: 1px solid #bbf7d0; margin-top: 5px; }
+.badge-debt { background: var(--danger-bg); color: var(--danger-text); border: 1px solid #fecaca; margin-top: 5px; }
+.badge-advance { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; margin-top: 5px; }
+.badge-unpaid { background: var(--surface-alt); color: var(--text-muted); border: 1px solid #e2e8f0; margin-top: 5px; }
+
+/* Баланс клиента */
+.sales-balance-badge { margin-top: 5px; font-size: 11px; font-weight: bold; display: inline-block; padding: 3px 6px; border-radius: 4px; }
+.balance-overpaid { color: #059669; background: #d1fae5; border: 1px solid #34d399; }
+.balance-debt { color: #dc2626; background: var(--danger-bg); border: 1px solid #f87171; }
+.balance-zero { color: var(--text-muted); background: var(--surface-alt); border: 1px solid var(--border); }
+.sales-projected { font-size: 10px; color: #94a3b8; margin-top: 2px; }
+.sales-projected-positive { color: #10b981; }
+.sales-projected-negative { color: #ef4444; }
+
+/* --- 17.13 Пагинация --- */
+.sales-pagination { display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding: 10px; background: var(--surface-alt); border-radius: 8px; border: 1px solid var(--border); }
+.sales-page-info { font-size: 13px; color: var(--text-muted); }
+
+/* --- 17.14 Kanban --- */
+.sales-kanban-board { display: none; gap: 20px; align-items: flex-start; overflow-x: auto; padding-bottom: 10px; min-height: 500px; }
+.kanban-column { flex: 1; min-width: 320px; background: var(--surface-alt); border-radius: 8px; padding: 10px; border: 1px solid var(--border); }
+.kanban-column-processing { background: var(--success-bg); border-color: var(--success-border); }
+.kanban-column-title { margin: 0 0 15px 0; color: var(--text-muted); font-size: 14px; text-transform: uppercase; display: flex; justify-content: space-between; }
+.kanban-title-processing { color: var(--success); }
+.kanban-count { background: var(--surface-hover); color: var(--text-main); padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+.kanban-count-processing { background: var(--success-border); color: var(--success-text); padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+.kanban-items-container { min-height: 400px; }
+
+.kanban-card { background: var(--surface); padding: 15px; margin-bottom: 12px; border-radius: 8px; box-shadow: 0 1px 2px var(--shadow-sm); cursor: grab; user-select: none; border: 1px solid var(--surface-alt); }
+.kanban-card-pending { border-left: 5px solid #3b82f6; }
+.kanban-card-processing { border-left: 5px solid var(--success); }
+.kanban-card-header { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; display: flex; justify-content: space-between; }
+.kanban-card-client { font-weight: bold; margin-bottom: 8px; color: #1e293b; font-size: 14px; }
+.kanban-card-items { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.kanban-card-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--surface-alt); padding-top: 10px; }
+.kanban-card-total { font-size: 15px; font-weight: 800; color: #0f172a; }
+.kanban-card-btn { background: var(--surface-alt); border: none; padding: 4px 8px; border-radius: 4px; color: #3b82f6; cursor: pointer; font-size: 12px; font-weight: bold; transition: 0.2s; }
+.kanban-card-btn:hover { background: var(--info-bg); }
+
+/* --- 17.15 Архив --- */
+.sales-date-label { display: flex; justify-content: space-between; align-items: baseline; }
+.sales-date-shortcuts { font-size: 11px; }
+.sales-date-shortcuts a { color: var(--primary); text-decoration: none; padding: 0 3px; }
+.sales-date-shortcuts a:hover { text-decoration: underline; }
+.sales-date-input { background: var(--surface); cursor: pointer; }
+
+.sales-hist-row { transition: background-color 0.2s; }
+.sales-hist-row:hover { background-color: var(--surface-hover); }
+.sales-hist-date { color: var(--text-muted); font-size: 13px; }
+.sales-hist-doc { color: var(--primary); font-weight: bold; }
+.sales-hist-sum { text-align: right; color: var(--success); font-weight: bold; }
+.sales-hist-actions { text-align: right; min-width: 250px; }
+
+/* --- 17.16 Утилиты --- */
+.text-center { text-align: center; }
+.text-right { text-align: right; }

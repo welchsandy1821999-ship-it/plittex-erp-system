@@ -14,6 +14,14 @@ let chartCategories = null;
 let currentTransTypeFilter = 'all';
 let financeLockDate = null;
 let financeDateRange = { start: '', end: '' }; // Оставлено для совместимости функций экспорта
+window.erpCategories = []; // 🗂️ SSoT: Единый справочник категорий для всего ERP
+
+async function loadFinanceCategories() {
+    try {
+        const res = await fetch('/api/finance/categories?_t=' + Date.now());
+        if (res.ok) window.erpCategories = await res.json();
+    } catch (e) { console.warn('Не удалось загрузить справочник категорий', e); }
+}
 
 // === ГЛОБАЛЬНОЕ СОСТОЯНИЕ КАЛЕНДАРЯ ===
 let finPeriodType = 'all'; // Дефолт: За всё время (P&L имеет свой автозапуск за месяц)
@@ -224,6 +232,7 @@ async function loadFinanceData() {
 
         currentAccounts = await accRes.json();
         window.financeCategories = await catRes.json();
+        window.erpCategories = window.financeCategories; // 🗂️ SSoT: синхронизируем глобальный справочник
         financeCounterparties = await cpRes.json();
         financeInvoices = await invRes.json();
         // Сбрасываем галочку "Выбрать всё" при смене страницы
@@ -428,112 +437,214 @@ window.showImprestBreakdown = function () {
     UI.showModal('🙋‍♂️ Детализация: Подотчет (Сотрудники)', html, `<button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>`);
 };
 
-window.openImprestReportModal = function (accountId, employeeName, currentBalance) {
+window.openImprestReportModal = async function (accountId, employeeName, currentBalance) {
+    // 🛡️ Гарантируем загрузку справочника категорий перед открытием модалки
+    if (!window.erpCategories || window.erpCategories.length === 0) {
+        if (typeof loadFinanceCategories === 'function') {
+            await loadFinanceCategories();
+        }
+    }
+
     const today = new Date().toISOString().split('T')[0];
 
     // Закрываем предыдущую модалку детализации перед открытием новой
     UI.closeModal();
 
-    // Синхронизируем категории ДДС с основной формой
-    const expenseOptions = (window.financeCategories || [])
-        .filter(c => c.type === 'expense')
-        .map(c => `<option value="${c.name.replace(/"/g, '&quot;')}">`)
-        .join('');
-
     const html = `
         <div class="form-grid" style="grid-template-columns: 1fr; gap: 15px;">
-            <div class="form-group">
-                <label>Дата отчета:</label>
-                <input type="date" id="imprest-date" class="input-modern" value="${today}">
-            </div>
-            <div class="form-group">
-                <label>Потраченная сумма (₽): <span style="color:var(--danger)">*</span></label>
-                <input type="text" inputmode="decimal" id="imprest-amount" class="input-modern" style="font-size: 18px; font-weight: bold;" value="${Math.abs(parseFloat(currentBalance))}">
-                <label style="display: block; margin-top: 8px; font-size: 13px; cursor: pointer;">
-                    <input type="checkbox" id="imprest-close-check" checked> 
-                    Закрыть подотчет (остаток перенести в счет ЗП)
-                </label>
-            </div>
-            <div class="form-group">
-                <label style="color: var(--primary);">Категория (Выберите из списка или впишите новую):</label>
-                <div style="position: relative;">
-                    <input type="text" id="imprest-category" list="expense-categories" class="input-modern" style="font-weight: 600; width: 100%; box-sizing: border-box;" placeholder="Начните вводить или выберите..." autocomplete="off" onfocus="this.select(); if(typeof this.showPicker === 'function') this.showPicker();">
-                    <span style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #64748b; font-size: 10px; padding: 5px;" onclick="const inp = document.getElementById('imprest-category'); inp.focus(); if(typeof inp.showPicker === 'function') inp.showPicker();">▼</span>
+            <div class="form-group flex-between" style="display: flex; justify-content: space-between; align-items: flex-end;">
+                <div>
+                    <label>Дата отчета:</label>
+                    <input type="date" id="imprest-date" class="input-modern" value="${today}">
                 </div>
-                <datalist id="expense-categories">
-                    ${expenseOptions}
-                </datalist>
+                <div style="text-align: right;">
+                    <label style="display: block; font-size: 13px; cursor: pointer; padding-bottom: 5px;">
+                        <input type="checkbox" id="imprest-close-check"> 
+                        Закрыть подотчет (остаток перенести в ЗП)
+                    </label>
+                </div>
             </div>
-            <div class="form-group">
-                <label class="btn btn-outline-secondary w-100" style="cursor: pointer; border-style: dashed; padding: 10px; text-align: center;">
-                    📎 Прикрепить чек
-                    <input type="file" id="imprest-receipt" accept="image/*, .pdf" style="display: none;">
-                </label>
+            
+            <div id="imprest-items-container" style="display: flex; flex-direction: column; gap: 10px;">
+                <!-- Строки расходов будут добавлены здесь -->
             </div>
-            <div class="form-group">
-                <label>Основание (Комментарий):</label>
-                <input type="text" id="imprest-desc" class="input-modern" placeholder="Например: Аренда за март 2026...">
+            
+            <button type="button" class="btn btn-outline" style="align-self: flex-start; margin-top: 5px;" onclick="addImprestRow()">➕ Добавить расход</button>
+            <div style="text-align: center; color: var(--text-muted); font-size: 12px; margin-top: 10px;">
+                Баланс сотрудника: <b>${parseFloat(currentBalance).toLocaleString('ru-RU')} ₽</b>
             </div>
+            
         </div>
     `;
 
     UI.showModal(`🧾 Отчет за деньги: ${employeeName}`, html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-        <button class="btn btn-blue" onclick="submitImprestReport(${account_id}, '${employeeName.replace(/'/g, "\\'")}', ${currentBalance})">💾 Сохранить отчет</button>
+        <button class="btn btn-blue" onclick="submitImprestReport(${accountId}, '${employeeName.replace(/'/g, "\\'")}', ${currentBalance})">💾 Сохранить отчет</button>
     `);
+    
+    // Добавляем первую пустую строку сразу после открытия модалки
+    setTimeout(() => {
+        addImprestRow();
+    }, 50);
+};
+
+window.addImprestRow = function() {
+    const container = document.getElementById('imprest-items-container');
+    if (!container) return;
+
+    const rowId = 'imprest-row-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+    const div = document.createElement('div');
+    div.id = rowId;
+    div.className = 'imprest-item-row';
+    div.style.cssText = "display: grid; grid-template-columns: 2fr 3fr 3fr auto; gap: 10px; align-items: start; background: var(--surface-alt); padding: 10px; border-radius: 8px; border: 1px solid var(--border);";
+
+    // Универсальное извлечение категорий (защита от пустых массивов)
+    const sourceCategories = (window.erpCategories && window.erpCategories.length > 0)
+        ? window.erpCategories
+        : (window.financeCategories || []);
+
+    const expenseOptions = sourceCategories
+        .map(c => {
+            const name = typeof c === 'string' ? c : (c.name || '');
+            const type = typeof c === 'string' ? 'expense' : (c.type || 'expense');
+            return { name: String(name).trim(), type };
+        })
+        .filter(c => c.name !== '' && c.type === 'expense')
+        .map(c => {
+            const safeName = c.name.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return `<option value="${safeName}">${safeName}</option>`;
+        })
+        .join('');
+
+    div.innerHTML = `
+        <div>
+            <label style="font-size: 11px;">Сумма (₽) <span style="color:var(--danger)">*</span></label>
+            <input type="text" inputmode="decimal" class="input-modern imprest-row-amount" placeholder="0.00" style="width: 100%;">
+        </div>
+        <div>
+            <label style="font-size: 11px;">Категория <span style="color:var(--danger)">*</span></label>
+            <select class="imprest-category-select imprest-row-category" placeholder="Выберите или введите..." style="width: 100%;">
+                <option value=""></option>
+                ${expenseOptions}
+            </select>
+        </div>
+        <div>
+            <label style="font-size: 11px;">Основание</label>
+            <input type="text" class="input-modern imprest-row-desc" placeholder="Комментарий..." style="width: 100%;">
+        </div>
+        <div style="padding-top: 20px;">
+            <button class="btn-icon" style="color: var(--danger); background: none; border: none; font-size: 16px; cursor: pointer;" onclick="document.getElementById('${rowId}').remove()" title="Удалить строку">❌</button>
+        </div>
+    `;
+
+    container.appendChild(div);
+
+    // Микро-задержка гарантирует, что DOM уже отрисован, и TomSelect корректно рассчитает ширину
+    setTimeout(() => {
+        const selectEl = document.getElementById(rowId).querySelector('.imprest-category-select');
+        if (selectEl && !selectEl.tomselect) {
+            new TomSelect(selectEl, {
+                create: true,
+                plugins: ['clear_button'],
+                dropdownParent: 'body'
+            });
+        }
+    }, 50);
 };
 
 window.submitImprestReport = async function (account_id, employeeName, currentBalance) {
-    const amountInput = document.getElementById('imprest-amount');
-    if (!amountInput) {
-        console.error('Не найдено поле imprest-amount');
-        return UI.toast('Ошибка интерфейса: поле суммы не найдено', 'error');
-    }
+    const rows = document.querySelectorAll('.imprest-item-row');
+    const items = [];
+    let hasErrors = false;
 
-    let rawAmount = amountInput.value.toString();
-    // Уничтожаем ВСЁ, кроме цифр, точек и запятых. Затем меняем запятую на точку.
-    let cleanAmount = rawAmount.replace(/[^0-9.,]/g, '').replace(',', '.');
-    const amount = parseFloat(cleanAmount);
+    rows.forEach(row => {
+        const amountInput = row.querySelector('.imprest-row-amount').value.toString();
+        const categoryRaw = row.querySelector('.imprest-row-category').value;
+        const descInput = row.querySelector('.imprest-row-desc').value.trim();
 
-    if (isNaN(amount) || amount <= 0) {
-        return UI.toast('Введите корректную сумму', 'error');
-    }
+        // Пропускаем полностью пустые строки
+        if (!amountInput && !categoryRaw && !descInput) return;
 
-    const category = document.getElementById('imprest-category').value;
-    const date = document.getElementById('imprest-date').value;
-    const description = document.getElementById('imprest-desc').value.trim();
-    const isClosed = document.getElementById('imprest-close-check')?.checked || false;
-    if (!category) return UI.toast('Укажите категорию', 'warning');
+        let cleanAmount = amountInput.replace(/[^0-9.,]/g, '').replace(',', '.');
+        const amount = parseFloat(cleanAmount);
+        
+        const category = categoryRaw ? categoryRaw.replace(/&quot;/g, '"') : '';
 
-    const payload = { account_id, amount, category, description, date, employeeName, currentBalance, isClosed };
-    try {
-        const res = await fetch('/api/finance/imprest-report', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-
-        if (res.ok) {
-            UI.closeModal();
-            UI.toast('✅ Отчет принят', 'success');
-            loadFinanceData();
+        if (isNaN(amount) || amount <= 0) {
+            row.querySelector('.imprest-row-amount').style.borderColor = 'var(--danger)';
+            hasErrors = true;
         } else {
-            UI.toast(data.error || 'Ошибка сохранения', 'error');
+            row.querySelector('.imprest-row-amount').style.borderColor = '';
         }
-    } catch (e) {
-        console.error(e);
-        UI.toast('Ошибка сети', 'error');
+
+        try {
+            const tsWrapper = row.querySelector('.ts-wrapper');
+            if (tsWrapper) tsWrapper.style.border = category ? '' : '1px solid var(--danger)';
+        } catch(e) {}
+
+        if (!category) {
+            hasErrors = true;
+        }
+
+        if (!isNaN(amount) && amount > 0 && category) {
+            items.push({ amount, category, description: descInput });
+        }
+    });
+
+    if (hasErrors) {
+        return UI.toast('Проверьте заполнение выделенных полей', 'error');
+    }
+
+    const date = document.getElementById('imprest-date').value;
+    const isClosed = document.getElementById('imprest-close-check')?.checked || false;
+
+    if (items.length === 0) {
+        if (!isClosed) {
+            return UI.toast('Добавьте расходы или выберите закрытие подотчета', 'warning');
+        } else {
+            return UI.confirm('Вы не добавили расходов. Весь текущий остаток будет удержан из зарплаты. Подтверждаете закрытие?', async () => {
+                await sendImprestPayload({ account_id, items: [], date, employeeName, currentBalance, isClosed: true });
+            });
+        }
+    }
+
+    await sendImprestPayload({ account_id, items, date, employeeName, currentBalance, isClosed });
+
+    async function sendImprestPayload(payload) {
+        try {
+            const res = await fetch('/api/finance/imprest-report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (res.ok) {
+                UI.closeModal();
+                UI.toast('✅ Общий отчет принят', 'success');
+                loadFinanceData();
+            } else {
+                const contentType = res.headers ? res.headers.get("content-type") : null;
+                if (contentType && contentType.includes("application/json")) {
+                    const errData = await res.json();
+                    UI.toast(errData.error || 'Ошибка сервера', 'error');
+                } else {
+                    UI.toast('Системная ошибка (HTTP ' + res.status + ')', 'error');
+                }
+            }
+        } catch (e) {
+            console.error(e);
+            UI.toast('Ошибка сети', 'error');
+        }
     }
 };
 
 window.toggleAccountFilter = function (account_id) {
-    // 🛡️ БЛОКИРОВКА: Если кликнули по уже выбранному счету — ничего не делаем
     if (currentAccountFilter == account_id) {
-        return;
+        currentAccountFilter = null; // Снимаем выделение
+    } else {
+        currentAccountFilter = account_id; // Устанавливаем новый фильтр
     }
 
-    currentAccountFilter = accountId;
     currentFinancePage = 1;
     loadFinanceData();
 };
@@ -685,9 +796,13 @@ window.executeDeleteTransaction = async function (id) {
             UI.toast('🗑️ Операция удалена', 'success');
             loadFinanceData();
         } else {
-            // Читаем системную блокировку с бэкенда и показываем красным
-            const errData = await res.json();
-            UI.toast(errData.error || 'Ошибка при удалении', 'error');
+            const contentType = res.headers ? res.headers.get("content-type") : null;
+            if (contentType && contentType.includes("application/json")) {
+                const errData = await res.json();
+                UI.toast(errData.error || 'Ошибка сервера', 'error');
+            } else {
+                UI.toast('Системная ошибка (HTTP ' + res.status + ')', 'error');
+            }
         }
     } catch (e) {
         UI.toast('Ошибка связи с сервером', 'error');
@@ -911,7 +1026,7 @@ window.updateAccountSelectForCounterparty = function (counterpartyName, skipMode
     }
 
     const currentVal = select.value;
-    select.innerHTML = allowedAccounts.map(acc => `<option value="${acc.id}">${acc.name} (${parseFloat(acc.balance).toLocaleString()} ₽)</option>`).join('');
+    select.innerHTML = allowedAccounts.filter(acc => acc.type === 'bank' || acc.type === 'cash').map(acc => `<option value="${acc.id}">${acc.name} (${parseFloat(acc.balance).toLocaleString()} ₽)</option>`).join('');
 
     if (allowedAccounts.some(a => a.id == currentVal)) {
         select.value = currentVal;
@@ -956,7 +1071,7 @@ window.autoFillCategory = async function (counterpartyName) {
 
 // === ОКНО ДОБАВЛЕНИЯ ОПЕРАЦИИ ===
 window.openTransactionModal = function () {
-    const accountOptions = currentAccounts.map(acc => `<option value="${acc.id}" ${currentAccountFilter === acc.id ? 'selected' : ''}>${acc.name} (${parseFloat(acc.balance).toLocaleString()} ₽)</option>`).join('');
+    const accountOptions = currentAccounts.filter(acc => acc.type === 'bank' || acc.type === 'cash').map(acc => `<option value="${acc.id}" ${currentAccountFilter === acc.id ? 'selected' : ''}>${acc.name} (${parseFloat(acc.balance).toLocaleString()} ₽)</option>`).join('');
     const cpOptionsList = financeCounterparties.map(cp => `<option value="${cp.name}">`).join('');
 
     const html = `
@@ -1220,7 +1335,13 @@ window.saveTransaction = async function (btnElement) {
             UI.toast('✅ Операция успешно сохранена', 'success');
             loadFinanceData();
         } else {
-            UI.toast('Ошибка при сохранении', 'error');
+            const contentType = res.headers ? res.headers.get("content-type") : null;
+            if (contentType && contentType.includes("application/json")) {
+                const errData = await res.json();
+                UI.toast(errData.error || 'Ошибка сервера', 'error');
+            } else {
+                UI.toast('Системная ошибка (HTTP ' + res.status + ')', 'error');
+            }
         }
     } catch (e) {
         console.error(e);
@@ -1448,8 +1569,13 @@ window.saveEditedTransaction = async function (id) {
             if (typeof loadTransactions === 'function') loadTransactions();
             if (typeof loadFinanceData === 'function') loadFinanceData();
         } else {
-            const err = await res.json();
-            UI.toast(err.error || 'Ошибка сохранения', 'error');
+            const contentType = res.headers ? res.headers.get("content-type") : null;
+            if (contentType && contentType.includes("application/json")) {
+                const errData = await res.json();
+                UI.toast(errData.error || 'Ошибка сервера', 'error');
+            } else {
+                UI.toast('Системная ошибка (HTTP ' + res.status + ')', 'error');
+            }
         }
     } catch (e) {
         console.error(e);
@@ -1642,18 +1768,32 @@ window.toggleFinInvoiceType = function () {
     const type = document.getElementById('fin-invoice-type').value;
     document.getElementById('fin-general-block').style.display = type === 'general' ? 'block' : 'none';
     document.getElementById('fin-order-block').style.display = type === 'order' ? 'block' : 'none';
+    const contractBlock = document.getElementById('fin-contract-block');
+    if(contractBlock) contractBlock.style.display = type === 'contract' ? 'block' : 'none';
 };
 
 window.openFinanceInvoiceModal = async function (cpId, cpName) {
     let ordersHtml = '<option value="">-- У клиента нет активных заказов --</option>';
+    let contractsHtml = '<option value="">-- У клиента нет договоров --</option>';
+    
     try {
-        const res = await fetch('/api/sales/orders');
-        const allOrders = await res.json();
-        const clientOrders = allOrders.filter(o => o.counterparty_id === cpId);
-        if (clientOrders.length > 0) {
-            ordersHtml = clientOrders.map(o => `<option value="${o.doc_number}">Заказ №${o.doc_number} (на ${parseFloat(o.total_amount).toLocaleString('ru-RU')} ₽)</option>`).join('');
+        const resOrders = await fetch('/api/sales/orders');
+        if (resOrders.ok) {
+            const allOrders = await resOrders.json();
+            const clientOrders = allOrders.filter(o => o.counterparty_id === cpId);
+            if (clientOrders.length > 0) {
+                ordersHtml = clientOrders.map(o => `<option value="${o.doc_number}">Заказ №${o.doc_number} (на ${parseFloat(o.total_amount).toLocaleString('ru-RU')} ₽)</option>`).join('');
+            }
         }
-    } catch (e) { console.error(e); }
+
+        const resContracts = await fetch(`/api/counterparties/${cpId}/contracts`);
+        if (resContracts.ok) {
+            const clientContracts = await resContracts.json();
+            if (clientContracts.length > 0) {
+                contractsHtml = clientContracts.map(c => `<option value="${c.contract_id}">Договор №${c.contract_number} от ${c.contract_date}</option>`).join('');
+            }
+        }
+    } catch (e) { console.error('Ошибка загрузки связей:', e); }
 
     const html = `
         <div style="padding: 10px;">
@@ -1664,12 +1804,13 @@ window.openFinanceInvoiceModal = async function (cpId, cpName) {
                 <select id="fin-invoice-type" class="input-modern" onchange="toggleFinInvoiceType()">
                     <option value="general">Свободный счет (Пополнение баланса / Аванс)</option>
                     <option value="order">Привязать к существующему Заказу</option>
+                    <option value="contract">Привязать к существующему Договору</option>
                 </select>
             </div>
 
             <div id="fin-general-block" style="background: var(--surface-alt); padding: 10px; border-radius: 6px; border: 1px solid var(--border);">
                 <div class="form-group">
-                    <label>Сумма счета (₽):</label>
+                    <label>Сумма счета (₽): <span style="color:var(--danger)">*</span></label>
                     <input type="number" id="fin-invoice-amount" class="input-modern" placeholder="Например: 150000">
                 </div>
                 <div class="form-group" style="margin-top: 10px;">
@@ -1689,6 +1830,17 @@ window.openFinanceInvoiceModal = async function (cpId, cpName) {
                 </div>
             </div>
 
+            <div id="fin-contract-block" style="display: none; background: var(--surface-alt); padding: 10px; border-radius: 6px; border: 1px solid var(--success);">
+                <div class="form-group">
+                    <label>Выберите договор:</label>
+                    <select id="fin-invoice-contract" class="input-modern">${contractsHtml}</select>
+                </div>
+                <div class="form-group" style="margin-top: 10px;">
+                    <label>Сумма счета (₽): <span style="color:var(--danger)">*</span></label>
+                    <input type="number" id="fin-contract-custom-amount" class="input-modern" placeholder="Например: 50000">
+                </div>
+            </div>
+
             <div class="form-group" style="margin-top: 15px; border-top: 1px dashed var(--border); padding-top: 15px;">
                 <label>Выберите наши реквизиты (Банк):</label>
                 <select id="fin-invoice-bank" class="input-modern">
@@ -1699,13 +1851,13 @@ window.openFinanceInvoiceModal = async function (cpId, cpName) {
         </div>
     `;
 
-    // 🚀 ИСПРАВЛЕНИЕ: Добавили this в вызов кнопки
     UI.showModal('Выставление счета', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
         <button class="btn btn-blue" onclick="executeFinanceInvoice(${cpId}, this)">🖨️ Сгенерировать PDF</button>
     `);
+    
     setTimeout(() => {
-        ['fin-invoice-type', 'fin-invoice-order', 'fin-invoice-bank'].forEach(id => {
+        ['fin-invoice-order', 'fin-invoice-contract'].forEach(id => {
             const el = document.getElementById(id);
             if (el && !el.tomselect) new TomSelect(el, { plugins: ['clear_button'], dropdownParent: 'body' });
         });
@@ -1713,7 +1865,7 @@ window.openFinanceInvoiceModal = async function (cpId, cpName) {
 };
 
 window.executeFinanceInvoice = async function (cpId, btnElement) {
-    if (btnElement) btnElement.disabled = true; // 🛡️ Блокируем двойной клик
+    if (btnElement) btnElement.disabled = true;
 
     const type = document.getElementById('fin-invoice-type').value;
     const bank = document.getElementById('fin-invoice-bank').value;
@@ -1729,7 +1881,6 @@ window.executeFinanceInvoice = async function (cpId, btnElement) {
                 return;
             }
 
-            // 🚀 ИСПРАВЛЕНИЕ: Генерируем номер счета и реально СОХРАНЯЕМ ЕГО В БАЗУ ДАННЫХ
             const num = `СЧ-${new Date().getTime().toString().slice(-6)}`;
 
             const res = await fetch('/api/invoices', {
@@ -1744,10 +1895,16 @@ window.executeFinanceInvoice = async function (cpId, btnElement) {
                 UI.toast('✅ Счет выставлен и занесен в базу', 'success');
                 if (typeof loadFinanceData === 'function') loadFinanceData();
             } else {
-                UI.toast('Ошибка сохранения счета', 'error');
+                const contentType = res.headers ? res.headers.get("content-type") : null;
+                if (contentType && contentType.includes("application/json")) {
+                    const errData = await res.json();
+                    UI.toast(errData.error || 'Ошибка сервера', 'error');
+                } else {
+                    UI.toast('Системная ошибка (HTTP ' + res.status + ')', 'error');
+                }
             }
 
-        } else {
+        } else if (type === 'order') {
             const docNum = document.getElementById('fin-invoice-order').value;
             const customAmt = document.getElementById('fin-order-custom-amount').value;
 
@@ -1758,6 +1915,34 @@ window.executeFinanceInvoice = async function (cpId, btnElement) {
             }
             window.open(`/print/invoice?docNum=${docNum}&bank=${bank}&custom_amount=${customAmt}`, '_blank');
             UI.closeModal();
+            
+        } else if (type === 'contract') {
+            const contractId = document.getElementById('fin-invoice-contract').value;
+            const customAmt = document.getElementById('fin-contract-custom-amount').value;
+
+            if (!contractId || !customAmt || customAmt <= 0) {
+                UI.toast('Выберите договор и укажите сумму', 'warning');
+                if (btnElement) btnElement.disabled = false;
+                return;
+            }
+            
+            const num = `СЧ-${new Date().getTime().toString().slice(-6)}`;
+            const desc = "Оплата по договору"; 
+            
+            const res = await fetch('/api/invoices', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cp_id: cpId, amount: customAmt, desc: desc, num: num })
+            });
+            
+            if (res.ok) {
+                 window.open(`/print/invoice?contractId=${contractId}&cp_id=${cpId}&amount=${customAmt}&bank=${bank}&num=${num}`, '_blank');
+                 UI.closeModal();
+                 UI.toast('✅ Счет по договору выставлен', 'success');
+                 if (typeof loadFinanceData === 'function') loadFinanceData();
+            } else {
+                 UI.toast('Ошибка сохранения счета по договору', 'error');
+            }
         }
     } catch (e) {
         console.error(e);
@@ -1844,8 +2029,13 @@ window.executeInvoicePay = async function (id, btnElement) {
             if (typeof loadActiveOrders === 'function') loadActiveOrders();
 
         } else {
-            const errData = await res.json();
-            UI.toast(errData.error || 'Ошибка проведения оплаты', 'error');
+            const contentType = res.headers ? res.headers.get("content-type") : null;
+            if (contentType && contentType.includes("application/json")) {
+                const errData = await res.json();
+                UI.toast(errData.error || 'Ошибка сервера', 'error');
+            } else {
+                UI.toast('Системная ошибка (HTTP ' + res.status + ')', 'error');
+            }
         }
     } catch (e) {
         console.error(e);
@@ -1868,12 +2058,23 @@ window.executeDeleteInvoice = async function (id) {
     try {
         const res = await fetch(`/api/invoices/${id}`, { method: 'DELETE' });
         if (res.ok) {
-            UI.toast('🗑️ Счет отменен и удален', 'success');
+            const data = await res.json();
+            if (data.action === 'deleted') {
+                UI.toast('Счет полностью удален, нумерация восстановлена', 'success');
+            } else if (data.action === 'cancelled') {
+                UI.toast('Счет аннулирован (скрыт), так как после него уже выписаны другие', 'success');
+            } else {
+                UI.toast('Счет обработан', 'success');
+            }
             loadFinanceData();
         } else {
-            // Читаем системную ошибку с сервера и выводим на экран
-            const errData = await res.json();
-            UI.toast(errData.error || 'Ошибка при удалении счета', 'error');
+            const contentType = res.headers ? res.headers.get("content-type") : null;
+            if (contentType && contentType.includes("application/json")) {
+                const errData = await res.json();
+                UI.toast(errData.error || 'Ошибка сервера', 'error');
+            } else {
+                UI.toast('Системная ошибка (HTTP ' + res.status + ')', 'error');
+            }
         }
     } catch (e) {
         console.error(e);

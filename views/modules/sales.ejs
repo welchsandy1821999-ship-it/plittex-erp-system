@@ -1,37 +1,30 @@
 <div id="sales-mod" class="module">
-    <div
-        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+    <div class="sales-header">
         <div>
-            <h2 style="margin: 0 0 5px 0;">🛒 Отгрузка и Продажи</h2>
-            <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Управление заказами (OMS) и реализация</p>
+            <h2>🛒 Отгрузка и Продажи</h2>
+            <p class="sales-subtitle">Управление заказами (OMS) и реализация</p>
         </div>
 
-        <div style="display: flex; gap: 10px; align-items: center;">
-
-            <button class="btn btn-outline" onclick="openClientDocsModal()"
-                style="padding: 8px 16px; border-color: var(--info); color: var(--info);">
+        <div class="sales-header-actions">
+            <button class="btn btn-outline sales-btn-docs" onclick="openClientDocsModal()">
                 🖨️ Документы клиенту
             </button>
-            <button class="btn btn-outline" onclick="openReturnModal()"
-                style="padding: 8px 16px; border-color: var(--warning); color: var(--warning);">
+            <button class="btn btn-outline sales-btn-return" onclick="openReturnModal()">
                 🔙 Возврат
             </button>
 
             <div class="action-dropdown">
-                <button class="btn btn-outline"
-                    style="padding: 8px 15px; display: flex; align-items: center; gap: 8px; font-weight: bold; background: var(--surface-alt);">
-                    ⚙️ Инструменты и Отчеты <span style="font-size: 10px;">▼</span>
+                <button class="btn btn-outline sales-btn-tools">
+                    ⚙️ Инструменты и Отчеты <span class="sales-dropdown-arrow">▼</span>
                 </button>
                 <div class="action-dropdown-content">
                     <button onclick="openSalesDashboard()">📊 Дашборд продаж</button>
                     <button onclick="openLogisticsCalendar()">🚚 Календарь логиста</button>
                     <button onclick="openPalletsReport()">📦 Отчет по таре</button>
                     <button onclick="openPriceListModal()">📋 Установка Прайс-листа</button>
-                    <button style="color: var(--success); font-weight: bold; background: var(--success-bg);"
-                        onclick="openExport1CModal()">📥 Выгрузить в 1С (Excel)</button>
+                    <button class="sales-btn-1c" onclick="openExport1CModal()">📥 Выгрузить в 1С (Excel)</button>
                 </div>
             </div>
-
         </div>
     </div>
 
@@ -41,56 +34,46 @@
         <div class="sales-tab-btn" onclick="switchSalesTab('tab-history', this)">📜 Архив отгрузок</div>
     </div>
 
+    <!-- === ВКЛАДКА 1: НОВЫЙ ЗАКАЗ === -->
     <div id="tab-new-order" class="sales-tab-content active">
-        <div class="form-grid" style="grid-template-columns: 1fr 2fr; gap: 20px; align-items: start;">
+        <div class="sales-checkout-grid">
 
-            <div class="card" style="margin: 0; border-top: 4px solid var(--primary);">
-                <h3 style="margin-top: 0;">1. Контрагент и продукция</h3>
+            <div class="card sales-panel-left">
+                <h3 class="sales-section-title">1. Контрагент и продукция</h3>
 
                 <div class="form-group">
                     <label>Клиент (Контрагент):</label>
-                    <div style="display: flex; gap: 5px;">
+                    <div class="sales-input-row">
                         <select id="sale-client" class="input-modern" onchange="onClientChange()"></select>
-                        <button type="button" class="btn btn-outline" onclick="openMiniClientModal()"
-                            style="padding: 0 10px;">➕</button>
+                        <button type="button" class="btn btn-outline sales-btn-icon" onclick="openMiniClientModal()">➕</button>
                     </div>
-                    <div id="sale-client-info"
-                        style="display: none; margin-top: 10px; padding: 10px; background: var(--danger-bg); border: 1px dashed var(--danger-border); border-radius: 6px; font-size: 13px;">
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                            <span style="color: var(--danger-text);">Текущий долг:</span>
-                            <strong id="sale-client-debt" style="color: var(--danger);">0 ₽</strong>
+                    <div id="sale-client-info" class="sales-client-info">
+                        <div class="sales-client-row">
+                            <span class="sales-label-danger">Текущий долг:</span>
+                            <strong id="sale-client-debt" class="sales-debt-value">0 ₽</strong>
                         </div>
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                            <span style="color: var(--danger-text);">Долг по поддонам:</span>
-                            <strong id="sale-client-pallets" style="color: var(--warning-text);">0 шт.</strong>
+                        <div class="sales-client-row">
+                            <span class="sales-label-danger">Долг по поддонам:</span>
+                            <strong id="sale-client-pallets" class="sales-pallets-value">0 шт.</strong>
                         </div>
-                        <button class="btn btn-outline" onclick="printClientAct()"
-                            style="width: 100%; margin-top: 5px; padding: 4px; font-size: 12px; border-color: var(--danger-border); color: #db2777;">
+                        <button class="btn btn-outline sales-btn-act" onclick="printClientAct()">
                             🖨️ Распечатать Акт сверки
                         </button>
                     </div>
                 </div>
 
-                <div class="form-group" id="sale-contract-group"
-                    style="display: none; margin-top: 15px; padding: 10px; background: var(--surface-alt); border-radius: 6px; border: 1px solid #e2e8f0;">
-                    <label style="color: var(--text-muted); font-size: 12px;">Основание (Договор /
-                        Спецификация):</label>
-                    <div style="display: flex; gap: 5px;">
-                        <select id="sale-contract" class="input-modern"
-                            style="flex-grow: 1; border-color: var(--border);"></select>
-                        <button type="button" class="btn btn-outline" onclick="openMiniContractModal()"
-                            style="padding: 0 12px;">➕</button>
-                        <button class="btn btn-outline" onclick="printSelectedContract()"
-                            title="Распечатать этот договор"
-                            style="padding: 0 12px; border-color: var(--info); color: var(--info);">🖨️</button>
-                        <button class="btn btn-outline" onclick="openContractManager()" title="Управление договорами"
-                            style="padding: 0 12px; border-color: var(--border);">⚙️</button>
+                <div class="form-group sales-contract-group" id="sale-contract-group">
+                    <label class="sales-label-muted">Основание (Договор / Спецификация):</label>
+                    <div class="sales-input-row">
+                        <select id="sale-contract" class="input-modern sales-flex-grow"></select>
+                        <button type="button" class="btn btn-outline sales-btn-icon" onclick="openMiniContractModal()">➕</button>
+                        <button class="btn btn-outline sales-btn-info-icon" onclick="printSelectedContract()" title="Распечатать этот договор">🖨️</button>
+                        <button class="btn btn-outline sales-btn-icon" onclick="openContractManager()" title="Управление договорами">⚙️</button>
                     </div>
                 </div>
 
-                <div class="form-group"
-                    style="margin-top: 20px; padding-top: 15px; border-top: 1px dashed var(--border);">
-                    <label style="color: var(--warning-text); font-weight: bold;">Режим поиска и распределения:</label>
+                <div class="form-group sales-separator-top">
+                    <label class="sales-label-warning-bold">Режим поиска и распределения:</label>
                     <select id="sale-warehouse" class="input-modern" onchange="changeSaleWarehouse()">
                         <option value="all" selected>🌐 Весь справочник (Авто: Резерв + Производство)</option>
                         <option value="4">🟢 Склад №4 (Строго из наличия 1-го сорта)</option>
@@ -99,163 +82,129 @@
                 </div>
 
                 <div class="form-group">
-                    <label>Поиск (Весь справочник):</label>
-                    <div style="position: relative; display: inline-block; width: 100%;">
-                        <input type="text" id="sale-product-input" class="input-modern" list="sale-products-datalist"
-                            style="width: 100%; box-sizing: border-box;" placeholder="Например: Прямоугольник..."
-                            autocomplete="off" oninput="updateSaleMaxQty()"
-                            onfocus="this.select(); if(typeof this.showPicker === 'function') this.showPicker();">
-                        <span
-                            style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #64748b; font-size: 12px; padding: 5px;"
-                            onclick="this.previousElementSibling.focus();">▼</span>
-                    </div>
-                    <datalist id="sale-products-datalist"></datalist>
+                    <label>Поиск продукции:</label>
+                    <select id="sale-product-select" class="input-modern" placeholder="Начните вводить название..."></select>
                 </div>
 
-                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px; align-items: start;">
-                    <div class="form-group" style="margin: 0;">
-                        <label>Кол-во <span id="sale-unit-label"
-                                style="color: var(--primary); font-weight: bold;"></span>:</label>
+                <div class="form-grid sales-two-cols">
+                    <div class="form-group m-0">
+                        <label>Кол-во <span id="sale-unit-label" class="sales-unit-hint"></span>:</label>
                         <input type="number" id="sale-qty" class="input-modern" placeholder="1" min="0.1" step="0.1">
-                        <div style="min-height: 16px; margin-top: 4px;">
-                            <small id="sale-max-qty" style="color: var(--text-muted); font-size: 11px;">Остаток:
-                                0</small>
+                        <div class="sales-stock-hint-wrapper">
+                            <small id="sale-max-qty" class="sales-stock-hint">Остаток: 0</small>
                         </div>
                     </div>
-                    <div class="form-group" style="margin: 0;">
+                    <div class="form-group m-0">
                         <label>Цена за ед (₽):</label>
-                        <input type="number" id="sale-price" class="input-modern" placeholder="0"
-                            onfocus="this.select()">
+                        <input type="number" id="sale-price" class="input-modern" placeholder="0" onfocus="this.select()">
                     </div>
                 </div>
-                <div style="margin-bottom: 10px;">
-                    <button type="button" class="btn btn-outline w-100" id="btn-calc-sales-cost"
-                        style="border-color: var(--warning-text); color: var(--warning-text); font-weight: bold; display: none;"
-                        onclick="openCostAnalysisModal()">
+                <div class="sales-cost-btn-wrap">
+                    <button type="button" class="btn btn-outline w-100 sales-btn-cost" id="btn-calc-sales-cost" onclick="openCostAnalysisModal()">
                         📊 Рассчитать себестоимость
                     </button>
                 </div>
-                <button class="btn btn-outline" onclick="addToCart()"
-                    style="width: 100%; border-color: var(--primary); color: var(--primary); margin-top: 10px;">
+                <button class="btn btn-outline sales-btn-add-to-cart" onclick="addToCart()">
                     ⬇️ Добавить в спецификацию заказа
                 </button>
             </div>
 
-            <div class="card" style="margin: 0; display: flex; flex-direction: column; min-height: 100%;">
-                <h3 style="margin-top: 0;">2. Состав заказа</h3>
-                <div
-                    style="flex-grow: 1; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-bottom: 15px;">
-                    <table style="margin: 0; width: 100%;">
+            <div class="card sales-panel-right">
+                <h3 class="sales-section-title">2. Состав заказа</h3>
+                <div class="sales-cart-wrapper">
+                    <table class="sales-cart-table">
                         <thead class="bg-surface-alt">
                             <tr>
-                                <th style="padding: 10px;">Сорт</th>
-                                <th style="padding: 10px;">Наименование</th>
-                                <th style="padding: 10px; text-align: center;">Кол-во</th>
-                                <th style="padding: 10px; text-align: center;">Цена (₽)</th>
-                                <th style="padding: 10px; text-align: center; color: var(--danger);">Скидка (%)</th>
-                                <th style="padding: 10px; text-align: right;">Сумма</th>
-                                <th style="padding: 10px; text-align: center;">✖</th>
+                                <th>Сорт</th>
+                                <th>Наименование</th>
+                                <th class="text-center">Кол-во</th>
+                                <th class="text-center">Цена (₽)</th>
+                                <th class="text-center sales-th-discount">Скидка (%)</th>
+                                <th class="text-right">Сумма</th>
+                                <th class="text-center">✖</th>
                             </tr>
                         </thead>
                         <tbody id="cart-table">
-                            <tr>
-                                <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">
-                                    Корзина пуста</td>
-                            </tr>
+                            <tr><td colspan="7" class="sales-empty-cell">Корзина пуста</td></tr>
                         </tbody>
                     </table>
                 </div>
 
-                <div
-                    style="background: var(--surface-alt); padding: 15px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 15px;">
-                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 10px;">
+                <div class="sales-totals-block">
+                    <div class="form-grid sales-two-cols sales-mb-sm">
                         <div>
-                            <span style="font-size: 13px; color: var(--text-muted);">Скидка на чек (%):</span>
-                            <input type="number" id="sale-discount" class="input-modern" style="padding: 6px;"
-                                placeholder="0" min="0" max="100" oninput="renderCart()">
+                            <span class="sales-totals-label">Скидка на чек (%):</span>
+                            <input type="number" id="sale-discount" class="input-modern sales-input-sm" placeholder="0" min="0" max="100" oninput="renderCart()">
                         </div>
                         <div>
-                            <span style="font-size: 13px; color: var(--text-muted);">Стоимость доставки (₽):</span>
-                            <input type="number" id="sale-logistics-cost" class="input-modern" style="padding: 6px;"
-                                value="0" min="0" oninput="renderCart()">
+                            <span class="sales-totals-label">Стоимость доставки (₽):</span>
+                            <input type="number" id="sale-logistics-cost" class="input-modern sales-input-sm" value="0" min="0" oninput="renderCart()">
                         </div>
                     </div>
 
-                    <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 5px;">
+                    <div class="sales-summary-row">
                         <span>Общий вес продукции:</span>
                         <strong><span id="cart-total-weight">0</span> кг</strong>
                     </div>
-                    <div
-                        style="display: flex; justify-content: space-between; font-size: 18px; color: var(--primary); margin-top: 10px; border-top: 1px solid #e2e8f0; padding-top: 10px;">
+                    <div class="sales-grand-total">
                         <span>Итого к оплате (с доставкой):</span>
                         <div>
-                            <s id="cart-original-sum"
-                                style="color: #94a3b8; font-size: 14px; display: none; margin-right: 10px;">0 ₽</s>
+                            <s id="cart-original-sum" class="sales-original-sum">0 ₽</s>
                             <strong><span id="cart-total-sum">0</span> ₽</strong>
                         </div>
                     </div>
                 </div>
 
-                <div style="margin-bottom: 15px; border-bottom: 1px dashed var(--border); padding-bottom: 15px;">
-                    <h4 style="margin: 0 0 10px 0; color: var(--text-muted);">📍 Детали доставки и тара</h4>
-                    <div class="form-group" style="margin-bottom: 10px;">
+                <div class="sales-section-dashed">
+                    <h4 class="sales-section-sub-title">📍 Детали доставки и тара</h4>
+                    <div class="form-group sales-mb-sm">
                         <label>Адрес объекта (доставки):</label>
-                        <input type="text" id="sale-delivery-address" class="input-modern"
-                            placeholder="г. Армавир, ул. Ленина 1">
+                        <input type="text" id="sale-delivery-address" class="input-modern" placeholder="г. Армавир, ул. Ленина 1">
                     </div>
-                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 10px;">
-                        <div class="form-group" style="margin: 0;">
+                    <div class="form-grid sales-two-cols">
+                        <div class="form-group m-0">
                             <label>Желаемая дата отгрузки:</label>
                             <input type="date" id="sale-planned-date" class="input-modern">
                         </div>
-                        <div class="form-group" style="margin: 0;">
+                        <div class="form-group m-0">
                             <label>Поддоны (в долг), шт:</label>
-                            <input type="number" id="sale-pallets" class="input-modern" placeholder="Количество"
-                                min="0">
+                            <input type="number" id="sale-pallets" class="input-modern" placeholder="Количество" min="0">
                         </div>
                     </div>
                 </div>
 
-                <div style="margin-bottom: 15px; border-bottom: 1px dashed var(--border); padding-bottom: 15px;">
-                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
-                        <div class="form-group" style="margin: 0;">
+                <div class="sales-section-dashed">
+                    <div class="form-grid sales-two-cols sales-mb-sm">
+                        <div class="form-group m-0">
                             <label>ФИО Водителя:</label>
                             <input type="text" id="sale-driver" class="input-modern" placeholder="Иванов И.И.">
                         </div>
-                        <div class="form-group" style="margin: 0;">
+                        <div class="form-group m-0">
                             <label>Автомобиль:</label>
                             <input type="text" id="sale-auto" class="input-modern" placeholder="Гос. номер (Е123КХ)">
                         </div>
                     </div>
 
-                    <div
-                        style="background: var(--danger-bg); padding: 10px; border-radius: 6px; border: 1px solid var(--danger-border);">
-                        <div
-                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                            <label style="font-weight: bold; color: var(--danger-text); font-size: 13px;">Юридическое
-                                основание (Доверенность):</label>
-                            <label
-                                style="font-size: 12px; display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--danger); font-weight: bold;">
-                                <input type="checkbox" id="sale-no-poa" onchange="togglePoaMode()"> Отгрузка без
-                                доверенности
+                    <div class="sales-poa-block">
+                        <div class="sales-poa-header">
+                            <label class="sales-poa-title">Юридическое основание (Доверенность):</label>
+                            <label class="sales-poa-checkbox-label">
+                                <input type="checkbox" id="sale-no-poa" onchange="togglePoaMode()"> Отгрузка без доверенности
                             </label>
                         </div>
-                        <div id="poa-select-group" style="display: flex; gap: 5px;">
-                            <select id="sale-poa" class="input-modern"
-                                style="flex-grow: 1; border-color: var(--danger-border);"></select>
-                            <button class="btn btn-outline" onclick="openPoaManager()" title="Добавить доверенность"
-                                style="padding: 0 12px; border-color: var(--danger-border);">➕</button>
+                        <div id="poa-select-group" class="sales-input-row">
+                            <select id="sale-poa" class="input-modern sales-flex-grow sales-poa-select"></select>
+                            <button class="btn btn-outline sales-btn-poa-add" onclick="openPoaManager()" title="Добавить доверенность">➕</button>
                         </div>
-                        <div id="poa-comment-group" style="display: none; margin-top: 10px;">
-                            <input type="text" id="sale-poa-comment" class="input-modern"
-                                placeholder="Укажите, кто разрешил отгрузку без доверенности"
-                                style="border-color: var(--danger); background: var(--surface);">
+                        <div id="poa-comment-group" class="sales-poa-comment">
+                            <input type="text" id="sale-poa-comment" class="input-modern sales-poa-comment-input"
+                                placeholder="Укажите, кто разрешил отгрузку без доверенности">
                         </div>
                     </div>
                 </div>
 
-                <div style="margin-bottom: 15px;">
-                    <div class="form-group" style="margin-bottom: 10px;">
+                <div class="sales-payment-block">
+                    <div class="form-group sales-mb-sm">
                         <label>Оплата:</label>
                         <select id="sale-payment-method" class="input-modern" onchange="toggleSalePayment()">
                             <option value="debt">⏳ В долг (Счет на оплату / Ожидаем)</option>
@@ -264,62 +213,55 @@
                         </select>
                     </div>
 
-                    <div class="form-group" id="sale-advance-group" style="display: none; margin-bottom: 10px;">
-                        <label style="color: var(--warning-text); font-weight: bold;">Сумма внесенного аванса
-                            (₽):</label>
-                        <input type="number" id="sale-advance-amount" class="input-modern" placeholder="Например: 50000"
-                            style="border-color: var(--warning); background: var(--warning-bg);">
+                    <div class="form-group sales-mb-sm" id="sale-advance-group" style="display: none;">
+                        <label class="sales-label-warning-bold">Сумма внесенного аванса (₽):</label>
+                        <input type="number" id="sale-advance-amount" class="input-modern sales-advance-input" placeholder="Например: 50000">
                     </div>
 
-                    <div class="form-group" id="sale-account-group" style="display: none; margin-bottom: 0;">
+                    <div class="form-group" id="sale-account-group" style="display: none;">
                         <label>В какую кассу/счет поступили деньги?</label>
                         <select id="sale-account" class="input-modern"></select>
                     </div>
                 </div>
 
-                <div style="display: flex; gap: 10px; margin-top: auto;">
+                <div class="sales-action-bar">
                     <button class="btn btn-blue" onclick="generateKP()">📄 Печать КП</button>
                     <button class="btn btn-blue" onclick="generateBlankOrder()">🖨️ Печать Бланк-заказа</button>
-                    <button class="btn btn-blue" onclick="processCheckout()"
-                        style="flex: 2; padding: 12px; font-size: 16px;">
+                    <button class="btn btn-blue sales-btn-checkout" onclick="processCheckout()">
                         💾 Оформить заказ
                     </button>
                 </div>
             </div>
         </div>
     </div>
-    <div id="tab-active-orders" class="sales-tab-content">
-        <div class="card" style="margin: 0; min-height: 400px;">
 
-            <div
-                style="display: flex; gap: 10px; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 15px;">
+    <!-- === ВКЛАДКА 2: УПРАВЛЕНИЕ ЗАКАЗАМИ === -->
+    <div id="tab-active-orders" class="sales-tab-content">
+        <div class="card sales-card-flush">
+
+            <div class="sales-view-toggle">
                 <button id="view-btn-list" class="btn btn-blue" onclick="toggleSalesView('list')">📄 Списком</button>
-                <button id="view-btn-kanban" class="btn btn-outline" onclick="toggleSalesView('kanban')">📊 CRM
-                    Воронка</button>
+                <button id="view-btn-kanban" class="btn btn-outline" onclick="toggleSalesView('kanban')">📊 CRM Воронка</button>
             </div>
 
             <div id="sales-table-wrapper">
-                <div
-                    style="background: var(--surface-alt); padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 15px;">
-                    <div class="form-grid"
-                        style="grid-template-columns: 2fr 1.5fr 1.5fr 1.5fr auto; gap: 10px; align-items: end;">
-                        <div class="form-group" style="margin: 0;">
+                <div class="sales-filter-bar">
+                    <div class="form-grid sales-orders-filter-grid">
+                        <div class="form-group m-0">
                             <label>🔍 Текст (Номер, Адрес):</label>
-                            <input type="text" id="bo-search" class="input-modern" placeholder="Поиск..."
-                                oninput="applyOrderFilters()">
+                            <input type="text" id="bo-search" class="input-modern" placeholder="Поиск..." oninput="applyOrderFilters()">
                         </div>
-                        <div class="form-group" style="margin: 0;">
+                        <div class="form-group m-0">
                             <label>👤 Клиент:</label>
                             <select id="bo-client-filter" class="input-modern" onchange="applyOrderFilters()">
                                 <option value="">🌐 Все клиенты</option>
                             </select>
                         </div>
-                        <div class="form-group" style="margin: 0;">
+                        <div class="form-group m-0">
                             <label>📦 В составе есть (Товар):</label>
-                            <input type="text" id="bo-product-filter" class="input-modern" placeholder="Название..."
-                                oninput="applyOrderFilters()">
+                            <input type="text" id="bo-product-filter" class="input-modern" placeholder="Название..." oninput="applyOrderFilters()">
                         </div>
-                        <div class="form-group" style="margin: 0;">
+                        <div class="form-group m-0">
                             <label>🚦 Статус оплаты:</label>
                             <select id="bo-status-filter" class="input-modern" onchange="applyOrderFilters()">
                                 <option value="">Все статусы</option>
@@ -327,136 +269,109 @@
                                 <option value="paid">🟢 Оплачено 100%</option>
                             </select>
                         </div>
-                        <button class="btn btn-outline" onclick="resetOrderFilters()" title="Сбросить фильтры"
-                            style="padding: 8px 12px; height: 38px;">🔄</button>
+                        <button class="btn btn-outline sales-btn-reset" onclick="resetOrderFilters()" title="Сбросить фильтры">🔄</button>
                     </div>
                 </div>
 
-                <div class="table-container" style="margin: 0;">
-                    <table style="width: 100%;">
+                <div class="table-container m-0">
+                    <table class="sales-table-full">
                         <thead class="bg-surface-alt">
                             <tr>
-                                <th style="width: 15%;">Дата / Дедлайн</th>
-                                <th style="width: 15%;">Документ</th>
-                                <th style="width: 25%;">Клиент и Адрес</th>
-                                <th style="width: 20%;">Состав (Товары)</th>
-                                <th style="width: 10%; text-align: center;">Статус</th>
-                                <th style="width: 15%; text-align: right;">Действия</th>
+                                <th class="sales-col-date">Дата / Дедлайн</th>
+                                <th class="sales-col-doc">Документ</th>
+                                <th class="sales-col-client">Клиент и Адрес</th>
+                                <th class="sales-col-items">Состав (Товары)</th>
+                                <th class="sales-col-status">Статус</th>
+                                <th class="sales-col-actions">Действия</th>
                             </tr>
                         </thead>
                         <tbody id="blank-orders-table">
-                            <tr>
-                                <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">
-                                    Загрузка...</td>
-                            </tr>
+                            <tr><td colspan="6" class="sales-empty-cell">Загрузка...</td></tr>
                         </tbody>
                     </table>
                 </div>
 
-                <div
-                    style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding: 10px; background: var(--surface-alt); border-radius: 8px; border: 1px solid var(--border);">
+                <div class="sales-pagination">
                     <button class="btn btn-outline" onclick="changeBlankOrderPage(-1)">⬅ Назад</button>
-                    <span style="font-size: 13px; color: var(--text-muted);" id="bo-page-info">Страница 1 из 1</span>
+                    <span class="sales-page-info" id="bo-page-info">Страница 1 из 1</span>
                     <button class="btn btn-outline" onclick="changeBlankOrderPage(1)">Вперед ➡</button>
                 </div>
             </div>
 
-            <div id="sales-kanban-board"
-                style="display: none; gap: 20px; align-items: flex-start; overflow-x: auto; padding-bottom: 10px; min-height: 500px;">
-                <div class="kanban-column" data-status="pending"
-                    style="flex: 1; min-width: 320px; background: var(--surface-alt); border-radius: 8px; padding: 10px; border: 1px solid var(--border);">
-                    <h3
-                        style="margin: 0 0 15px 0; color: var(--text-muted); font-size: 14px; text-transform: uppercase; display: flex; justify-content: space-between;">
+            <div id="sales-kanban-board" class="sales-kanban-board">
+                <div class="kanban-column" data-status="pending">
+                    <h3 class="kanban-column-title">
                         <span>🆕 Новые заказы</span>
-                        <span class="column-count"
-                            style="background: var(--surface-hover); color: var(--text-main); padding: 2px 8px; border-radius: 10px; font-size: 12px;">0</span>
+                        <span class="column-count kanban-count">0</span>
                     </h3>
-                    <div class="kanban-items-container" style="min-height: 400px;"></div>
+                    <div class="kanban-items-container"></div>
                 </div>
 
-                <div class="kanban-column" data-status="processing"
-                    style="flex: 1; min-width: 320px; background: var(--success-bg); border-radius: 8px; padding: 10px; border: 1px solid var(--success-border);">
-                    <h3
-                        style="margin: 0 0 15px 0; color: var(--success); font-size: 14px; text-transform: uppercase; display: flex; justify-content: space-between;">
+                <div class="kanban-column kanban-column-processing" data-status="processing">
+                    <h3 class="kanban-column-title kanban-title-processing">
                         <span>⚙️ В работе</span>
-                        <span class="column-count"
-                            style="background: var(--success-border); color: var(--success-text); padding: 2px 8px; border-radius: 10px; font-size: 12px;">0</span>
+                        <span class="column-count kanban-count-processing">0</span>
                     </h3>
-                    <div class="kanban-items-container" style="min-height: 400px;"></div>
+                    <div class="kanban-items-container"></div>
                 </div>
             </div>
 
         </div>
     </div>
 
+    <!-- === ВКЛАДКА 3: АРХИВ ОТГРУЗОК === -->
     <div id="tab-history" class="sales-tab-content">
-        <div class="card" style="margin: 0; min-height: 400px;">
+        <div class="card sales-card-flush">
 
-            <div
-                style="background: var(--surface-alt); padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 15px;">
-                <div class="form-grid"
-                    style="grid-template-columns: 2fr 1.5fr 2.5fr auto; gap: 10px; align-items: end;">
-                    <div class="form-group" style="margin: 0;">
+            <div class="sales-filter-bar">
+                <div class="form-grid sales-history-filter-grid">
+                    <div class="form-group m-0">
                         <label>🔍 Номер документа:</label>
-                        <input type="text" id="hist-search" class="input-modern" placeholder="Поиск..."
-                            oninput="applyHistoryFilters()">
+                        <input type="text" id="hist-search" class="input-modern" placeholder="Поиск..." oninput="applyHistoryFilters()">
                     </div>
-                    <div class="form-group" style="margin: 0;">
+                    <div class="form-group m-0">
                         <label>👤 Клиент:</label>
                         <select id="hist-client-filter" class="input-modern" onchange="applyHistoryFilters()">
                             <option value="">🌐 Все клиенты</option>
                         </select>
                     </div>
-
-                    <div class="form-group" style="margin: 0;">
-                        <label style="display: flex; justify-content: space-between; align-items: baseline;">
+                    <div class="form-group m-0">
+                        <label class="sales-date-label">
                             <span>📅 Период отгрузки:</span>
-                            <span style="font-size: 11px;">
-                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('today')"
-                                    style="color: var(--primary); text-decoration: none; padding: 0 3px;">Сегодня</a> |
-                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('week')"
-                                    style="color: var(--primary); text-decoration: none; padding: 0 3px;">Неделя</a> |
-                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('month')"
-                                    style="color: var(--primary); text-decoration: none; padding: 0 3px;">Месяц</a> |
-                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('quarter')"
-                                    style="color: var(--primary); text-decoration: none; padding: 0 3px;">Квартал</a> |
-                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('year')"
-                                    style="color: var(--primary); text-decoration: none; padding: 0 3px;">Год</a>
+                            <span class="sales-date-shortcuts">
+                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('today')">Сегодня</a> |
+                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('week')">Неделя</a> |
+                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('month')">Месяц</a> |
+                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('quarter')">Квартал</a> |
+                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('year')">Год</a>
                             </span>
                         </label>
-                        <input type="text" id="hist-date-filter" class="input-modern"
-                            placeholder="Выберите 1 день или период..."
-                            style="background: var(--surface); cursor: pointer;">
+                        <input type="text" id="hist-date-filter" class="input-modern sales-date-input" placeholder="Выберите 1 день или период...">
                     </div>
-
-                    <button class="btn btn-outline" onclick="resetHistoryFilters()" title="Сбросить фильтры"
-                        style="padding: 8px 12px; height: 38px;">🔄</button>
+                    <button class="btn btn-outline sales-btn-reset" onclick="resetHistoryFilters()" title="Сбросить фильтры">🔄</button>
                 </div>
             </div>
-            <div class="table-container" style="margin: 0;">
-                <table style="width: 100%;">
+
+            <div class="table-container m-0">
+                <table class="sales-table-full">
                     <thead class="bg-surface-alt">
                         <tr>
-                            <th style="width: 15%;">Дата</th>
-                            <th style="width: 15%;">Документ</th>
-                            <th style="width: 25%;">Клиент</th>
-                            <th style="width: 15%; text-align: center;">Объем (ед.)</th>
-                            <th style="width: 15%; text-align: right;">Сумма</th>
-                            <th style="width: 15%; text-align: right;">Действия</th>
+                            <th class="sales-col-date">Дата</th>
+                            <th class="sales-col-doc">Документ</th>
+                            <th class="sales-col-client">Клиент</th>
+                            <th class="sales-col-vol">Объем (ед.)</th>
+                            <th class="sales-col-sum">Сумма</th>
+                            <th class="sales-col-actions">Действия</th>
                         </tr>
                     </thead>
                     <tbody id="sales-history-table">
-                        <tr>
-                            <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">
-                                Загрузка...</td>
-                        </tr>
+                        <tr><td colspan="6" class="sales-empty-cell">Загрузка...</td></tr>
                     </tbody>
                 </table>
             </div>
-            <div
-                style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding: 10px; background: var(--surface-alt); border-radius: 8px; border: 1px solid var(--border);">
+            <div class="sales-pagination">
                 <button class="btn btn-outline" onclick="changeHistoryPage(-1)">⬅ Назад</button>
-                <span style="font-size: 13px; color: var(--text-muted);" id="hist-page-info">Страница 1 из 1</span>
+                <span class="sales-page-info" id="hist-page-info">Страница 1 из 1</span>
                 <button class="btn btn-outline" onclick="changeHistoryPage(1)">Вперед ➡</button>
             </div>
         </div>
@@ -466,16 +381,10 @@
 
 <script>
     function switchSalesTab(tabId, btnElement) {
-        // Убираем active у всех вкладок
         document.querySelectorAll('.sales-tab-content').forEach(tab => tab.classList.remove('active'));
-        // Убираем active у всех кнопок
         document.querySelectorAll('.sales-tab-btn').forEach(btn => btn.classList.remove('active'));
-
-        // Добавляем active нужным
         document.getElementById(tabId).classList.add('active');
         btnElement.classList.add('active');
-
-        // Авто-обновление списков при переходе на вкладки
         if (tabId === 'tab-active-orders') loadActiveOrders();
         if (tabId === 'tab-history') loadSalesHistory();
     }

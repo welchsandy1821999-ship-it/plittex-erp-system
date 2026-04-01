@@ -54,13 +54,13 @@ module.exports = function (pool, withTransaction) {
     });
 
     router.post('/api/items', async (req, res) => {
-        // 🚀 ДОБАВИЛИ piece_rate
-        const { name, item_type, category, unit, price, weight, qty_per_cycle, mold_id, gost_mark, article, piece_rate } = req.body;
+        // 🚀 ДОБАВИЛИ piece_rate И шаблоны замесов
+        const { name, item_type, category, unit, price, weight, qty_per_cycle, mold_id, gost_mark, article, piece_rate, mix_main_tpl, mix_face_tpl } = req.body;
         try {
             await pool.query(`
-                INSERT INTO items (name, item_type, category, unit, current_price, weight_kg, qty_per_cycle, mold_id, gost_mark, article, piece_rate) 
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            `, [name, item_type, category, unit, price, weight, qty_per_cycle || 1, mold_id || null, gost_mark || '', article || null, piece_rate || 0]);
+                INSERT INTO items (name, item_type, category, unit, current_price, weight_kg, qty_per_cycle, mold_id, gost_mark, article, piece_rate, mix_main_tpl, mix_face_tpl) 
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            `, [name, item_type, category, unit, price, weight, qty_per_cycle || 1, mold_id || null, gost_mark || '', article || null, piece_rate || 0, mix_main_tpl || null, mix_face_tpl || null]);
             res.json({ success: true, message: 'Позиция добавлена' });
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
@@ -75,7 +75,9 @@ module.exports = function (pool, withTransaction) {
             'mold_id', 'min_stock',
             'weight_kg',      // Соответствует колонке в БД
             'qty_per_cycle',  // Тот самый "Выход с 1 удара"
-            'piece_rate'      // 🚀 НАША НОВАЯ СДЕЛЬНАЯ СТАВКА
+            'piece_rate',     // Сдельная ставка
+            'mix_main_tpl',   // Шаблон основного слоя
+            'mix_face_tpl'    // Шаблон лицевого слоя
         ];
 
         // 2. Фильтрация входящих данных: оставляем только те, что в белом списке

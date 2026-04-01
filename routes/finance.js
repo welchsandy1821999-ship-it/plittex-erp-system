@@ -22,6 +22,29 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
 
     // ==========================================
+    // 0. СПРАВОЧНИК КАТЕГОРИЙ (Single Source of Truth)
+    // ==========================================
+    router.get('/api/finance/categories', async (req, res) => {
+        try {
+            // Объединяем справочник и "дикие" категории из истории транзакций
+            const result = await pool.query(`
+                SELECT name, type, cost_group FROM transaction_categories
+                UNION
+                SELECT DISTINCT category as name, NULL as type, NULL as cost_group
+                  FROM transactions
+                 WHERE category IS NOT NULL AND category != ''
+                   AND (is_deleted IS NULL OR is_deleted = false)
+                   AND category NOT IN (SELECT name FROM transaction_categories)
+                ORDER BY name
+            `);
+            res.json(result.rows);
+        } catch (err) {
+            console.error('[API] Error in GET /api/finance/categories:', err);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // ==========================================
     // ==========================================
     // 1. ОТЧЕТ P&L (ДИНАМИЧЕСКИЙ МЕТОД СО СРЕДНЕВЗВЕШЕННОЙ COGS И ТАБЕЛЯМИ)
     // ==========================================
@@ -621,13 +644,13 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     router.get('/api/invoices', async (req, res) => {
         try {
             const result = await pool.query(`
-                SELECT co.id, co.doc_number as invoice_number, co.pending_debt as amount,
-                       c.name as counterparty_name, 'Долг по заказу' as description,
-                       TO_CHAR(co.created_at, 'DD.MM.YYYY') as date_formatted
-                FROM client_orders co
-                LEFT JOIN counterparties c ON co.counterparty_id = c.id
-                WHERE co.status != 'cancelled' AND co.status != 'completed' AND co.pending_debt > 0
-                ORDER BY co.id DESC
+                SELECT i.id, i.invoice_number, i.total_amount as amount, i.purpose as description, i.status, i.created_at,
+                       TO_CHAR(i.created_at, 'DD.MM.YYYY') as date_formatted,
+                       c.name as counterparty_name, c.id as cp_id
+                FROM invoices i
+                JOIN counterparties c ON i.counterparty_id = c.id
+                WHERE i.status = 'pending'
+                ORDER BY i.created_at DESC
             `);
             res.json(result.rows);
         } catch (err) {
@@ -637,7 +660,58 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     });
 
     router.post('/api/invoices', requireAdmin, async (req, res) => {
-        res.status(400).json({ error: 'Ручное выставление счетов отключено. Оформляйте заказы со статусом "Долг" через модуль Продаж!' });
+        const { cp_id, amount, desc } = req.body;
+        let client;
+        try {
+            client = await pool.connect();
+            await client.query('BEGIN');
+
+            const cpRes = await client.query('SELECT * FROM counterparties WHERE id = $1', [cp_id]);
+            const clientData = cpRes.rows[0] || { name: 'Неизвестный контрагент', id: cp_id };
+            const snapshot = JSON.stringify(clientData);
+
+            let generatedInvoiceNumber = '';
+            let isUnique = false;
+            for (let i = 0; i < 100; i++) {
+                let counterRes = await client.query(`UPDATE document_counters SET last_number = last_number + 1 WHERE prefix = 'СЧ-26-' RETURNING last_number`);
+                if (counterRes.rows.length === 0) {
+                    await client.query(`INSERT INTO document_counters (prefix, last_number) VALUES ('СЧ-26-', 0) ON CONFLICT DO NOTHING`);
+                    counterRes = await client.query(`UPDATE document_counters SET last_number = last_number + 1 WHERE prefix = 'СЧ-26-' RETURNING last_number`);
+                }
+                let seqNum = counterRes.rows[0].last_number;
+                generatedInvoiceNumber = `СЧ-26-${String(seqNum).padStart(5, '0')}`;
+                
+                const checkRes = await client.query(`SELECT id FROM invoices WHERE invoice_number = $1`, [generatedInvoiceNumber]);
+                if (checkRes.rows.length === 0) {
+                    isUnique = true;
+                    break;
+                }
+            }
+            if (!isUnique) throw new Error("Не удалось сгенерировать уникальный номер счета.");
+
+            const crypto = require('crypto');
+            const createdAt = new Date().toISOString();
+            const authorId = (req.user && req.user.id) ? req.user.id : null;
+            const hashString = `${generatedInvoiceNumber}|${createdAt}|${amount}|${cp_id}`;
+            const notaryHash = crypto.createHash('sha256').update(hashString).digest('hex');
+
+            await client.query(
+                `INSERT INTO invoices (
+                    counterparty_id, invoice_number, total_amount, purpose, 
+                    client_snapshot, author_id, created_at, notary_hash
+                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                [cp_id, generatedInvoiceNumber, amount, desc, snapshot, authorId, createdAt, notaryHash]
+            );
+
+            await client.query('COMMIT');
+            res.json({ success: true, invoiceNumber: generatedInvoiceNumber });
+        } catch (err) {
+            if (client) await client.query('ROLLBACK');
+            console.error('Ошибка сервера при сохранении счета:', err);
+            res.status(500).json({ error: 'Ошибка сервера при сохранении счета' });
+        } finally {
+            if (client) client.release();
+        }
     });
 
     router.post('/api/invoices/:id/pay', requireAdmin, async (req, res) => {
@@ -668,7 +742,43 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     });
 
     router.delete('/api/invoices/:id', requireAdmin, async (req, res) => {
-        res.status(400).json({ error: 'Удаление платежей недоступно. Если заказ отменен, перейдите в модуль Продаж и отмените его там.' });
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            const { id } = req.params;
+            
+            const invRes = await client.query('SELECT * FROM invoices WHERE id = $1', [id]);
+            if (invRes.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ error: 'Счет не найден' });
+            }
+            const invoice = invRes.rows[0];
+
+            if (invoice.status !== 'pending') {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ error: 'Счет участвует в финансовых движениях или оплачен. Удаление заблокировано.' });
+            }
+
+            const lastInvRes = await client.query('SELECT id FROM invoices ORDER BY id DESC LIMIT 1');
+            const lastId = lastInvRes.rows[0] ? lastInvRes.rows[0].id : null;
+
+            if (invoice.id === lastId) {
+                await client.query('DELETE FROM invoices WHERE id = $1', [id]);
+                await client.query("UPDATE document_counters SET last_number = last_number - 1 WHERE prefix = 'СЧ-26-' AND last_number > 0");
+                await client.query('COMMIT');
+                return res.json({ success: true, action: 'deleted' });
+            } else {
+                await client.query("UPDATE invoices SET status = 'cancelled' WHERE id = $1", [id]);
+                await client.query('COMMIT');
+                return res.json({ success: true, action: 'cancelled' });
+            }
+        } catch (err) {
+            await client.query('ROLLBACK');
+            console.error('Ошибка при удалении счета:', err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+        } finally {
+            client.release();
+        }
     });
 
     // ==========================================
@@ -917,37 +1027,70 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     });
 
     router.post('/api/finance/imprest-report', requireAdmin, async (req, res) => {
-        const { account_id, amount, category, description, date, employeeName, currentBalance, isClosed } = req.body;
+        const { account_id, date, employeeName, currentBalance, isClosed } = req.body;
+        const items = Array.isArray(req.body.items) ? req.body.items : [];
 
-        if (!amount || parseFloat(amount) <= 0) return res.status(400).json({ error: 'Сумма должна быть больше нуля' });
+        if (items.length === 0 && !isClosed) return res.status(400).json({ error: 'Список расходов пуст' });
         if (!account_id) return res.status(400).json({ error: 'Не указан подотчетный счет' });
 
         try {
             await withTransaction(pool, async (client) => {
-                const comment = `Авансовый отчет (${employeeName}). Комментарий: ${description || ''}`;
                 const transDate = date ? new Date(date).toISOString() : new Date().toISOString();
                 const transType = parseFloat(currentBalance) < 0 ? 'income' : 'expense';
+                
+                let totalAmount = new Big(0);
 
-                // 1. Основной расход (сумма по чеку)
-                await client.query(`
-                    INSERT INTO transactions (amount, transaction_type, category, description, account_id, counterparty_id, transaction_date, payment_method)
-                    VALUES ($1, $2, $3, $4, $5, NULL, $6, 'Взаимозачет')
-                `, [amount, transType, category || 'Хоз. нужды', comment, account_id, transDate]);
+                // 1. Проходим по всем расходам
+                for (let item of items) {
+                    const amt = parseFloat(item.amount);
+                    if (isNaN(amt) || amt <= 0) throw new Error('Обнаружена некорректная сумма в расходах');
+                    
+                    totalAmount = totalAmount.plus(amt);
+                    const categoryName = item.category || 'Хоз. нужды';
+                    const comment = `Авансовый отчет (${employeeName}). Комментарий: ${item.description || ''}`;
+
+                    // 🗂️ SSoT: Автоматически добавляем новую категорию в справочник (если ее нет)
+                    await client.query(
+                        `INSERT INTO transaction_categories (name, type, cost_group) VALUES ($1, 'expense', 'opex') ON CONFLICT (name) DO NOTHING`,
+                        [categoryName]
+                    );
+
+                    await client.query(`
+                        INSERT INTO transactions (amount, transaction_type, category, description, account_id, counterparty_id, transaction_date, payment_method)
+                        VALUES ($1, $2, $3, $4, $5, NULL, $6, 'Взаимозачет')
+                    `, [amt, transType, categoryName, comment, account_id, transDate]);
+                }
 
                 // 2. Умное закрытие: перенос остатка в ЗП
-                if (isClosed && currentBalance && parseFloat(amount) < Math.abs(parseFloat(currentBalance))) {
-                    const remainder = Number(new Big(currentBalance).abs().minus(amount).toFixed(2));
+                if (isClosed && currentBalance) {
+                    const finalBalance = new Big(currentBalance).minus(totalAmount).toNumber();
 
-                    // Ищем ID сотрудника по имени
-                    const cpRes = await client.query('SELECT id FROM counterparties WHERE name = $1 AND is_employee = true', [employeeName]);
-                    if (cpRes.rows.length > 0) {
-                        const employeeId = cpRes.rows[0].id;
+                    if (finalBalance !== 0) {
+                        const cpRes = await client.query('SELECT id, employee_id FROM counterparties WHERE name = $1 AND is_employee = true', [employeeName]);
+                        if (cpRes.rows.length > 0) {
+                            const cpId = cpRes.rows[0].id;
+                            const empId = cpRes.rows[0].employee_id;
+                            const absBalance = Math.abs(finalBalance);
 
-                        // Списание неизрасходованного остатка с подотчета и зачет в Акт сверки сотрудника
-                        await client.query(`
-                            INSERT INTO transactions (amount, transaction_type, category, description, account_id, counterparty_id, transaction_date, payment_method)
-                            VALUES ($1, $2, 'Доп. операции', $3, $4, $5, $6, 'Взаимозачет')
-                        `, [remainder, transType, `Неизрасходованный остаток подотчета (${category || 'Отчет'})`, account_id, employeeId, transDate]);
+                            // Очистка финансового счета (обнуляем подотчет)
+                            const closeType = finalBalance > 0 ? 'expense' : 'income';
+                            await client.query(`
+                                INSERT INTO transactions (amount, transaction_type, category, description, account_id, counterparty_id, transaction_date, payment_method)
+                                VALUES ($1, $2, 'Доп. операции', $3, $4, $5, $6, 'Взаимозачет')
+                            `, [absBalance, closeType, finalBalance > 0 ? 'Списание остатка (перенос в ЗП)' : 'Пополнение перерасхода (перенос из ЗП)', account_id, cpId, transDate]);
+
+                            // Трансляция в Зарплату (HR Модуль - salary_adjustments)
+                            if (empId) {
+                                const monthStr = transDate.substring(0, 7); // Формат YYYY-MM
+                                const adjAmount = finalBalance > 0 ? -absBalance : absBalance;
+                                const adjDesc = finalBalance > 0 ? 'Удержание неистраченного подотчета' : 'Компенсация перерасхода по авансовому отчету';
+                                
+                                await client.query(
+                                    `INSERT INTO salary_adjustments (employee_id, month_str, amount, description) VALUES ($1, $2, $3, $4)`,
+                                    [empId, monthStr, adjAmount, adjDesc]
+                                );
+                            }
+                        }
                     }
                 }
             });
@@ -955,7 +1098,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             res.json({ success: true, message: 'Отчет сохранен' });
         } catch (err) {
             console.error('[API] Error in imprest-report:', err);
-            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+            res.status(400).json({ error: err.message || 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 

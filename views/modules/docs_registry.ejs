@@ -24,6 +24,13 @@
             
             <!-- Кнопка обновления реестра с сервера -->
             <button class="btn btn-blue" onclick="loadDocsRegistry()" style="padding: 8px 15px;">🔍 Применить</button>
+
+            <div class="form-group" style="display: inline-block; margin-left: 15px; margin-bottom: 0;">
+                <label style="cursor: pointer; font-size: 13px; color: var(--text-muted); display: flex; align-items: center; gap: 5px;">
+                    <input type="checkbox" id="toggle-cancelled-docs" onchange="renderRegistryTable(allRegistryDocs)"> 
+                    👁️ Показывать аннулированные
+                </label>
+            </div>
         </div>
 
         <!-- Кнопка выгрузки в 1С -->
@@ -45,6 +52,7 @@
                     <th class="text-right" style="width: 150px;">Итого к оплате</th>
                     <th style="width: 150px;">Автор (Менеджер)</th>
                     <th class="text-center" style="width: 120px;">Статус 1С</th>
+                    <th style="width: 40px;"></th>
                 </tr>
             </thead>
             <tbody id="unique-registry-tbody">

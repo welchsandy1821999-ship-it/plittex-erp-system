@@ -169,7 +169,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
     // ------------------------------------------------------------------
     // 3. Оформление заказа (Без изменений, структура отличная)
     // ------------------------------------------------------------------
-    router.post('/api/sales/checkout', async (req, res) => {
+    router.post('/api/sales/checkout', requireAdmin, async (req, res) => {
         const { counterparty_id, items, payment_method, account_id, advance_amount, discount, driver, auto, contract_info, contract_id, delivery_address, logistics_cost, planned_shipment_date, pallets_qty, poa_info, user_id } = req.body;
 
         if (!items || items.length === 0) return res.status(400).json({ error: 'Корзина пуста!' });
@@ -306,43 +306,13 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
     });
 
     // ------------------------------------------------------------------
-    // 4. Удаление заказа
+    // 4. Удаление заказа (ДУБЛИКАТ УДАЛЁН — единственный обработчик ниже в блоке 6)
     // ------------------------------------------------------------------
-    router.delete('/api/sales/orders/:id', requireAdmin, async (req, res) => {
-        const orderId = req.params.id;
-        try {
-            await withTransaction(pool, async (client) => {
-                const orderRes = await client.query('SELECT doc_number, counterparty_id, paid_amount FROM client_orders WHERE id = $1', [orderId]);
-                if (orderRes.rows.length === 0) throw new Error('Заказ не найден');
-                const order = orderRes.rows[0];
-
-                if (new Big(order.paid_amount || 0).gt(0)) {
-                    throw new Error(`Нельзя удалить заказ ${order.doc_number}. По нему числится оплата (${order.paid_amount} ₽). Сначала сделайте возврат средств!`);
-                }
-
-                await client.query(`DELETE FROM inventory_movements WHERE description ILIKE $1`, [`%Заказ (Резерв): ${order.doc_number}%`]);
-                await client.query(`UPDATE transactions SET is_deleted = true WHERE linked_order_id = $1`, [orderId]);
-                await client.query(`DELETE FROM planned_production WHERE order_item_id IN (SELECT id FROM client_order_items WHERE order_id = $1)`, [orderId]);
-                await client.query('DELETE FROM client_order_items WHERE order_id = $1', [orderId]);
-                await client.query('DELETE FROM client_orders WHERE id = $1', [orderId]);
-
-                const numMatch = order.doc_number.match(/\d+/);
-                if (numMatch) {
-                    const deletedNum = parseInt(numMatch[0], 10);
-                    await client.query(`UPDATE document_counters SET last_number = last_number - 1 WHERE prefix = 'ЗК' AND last_number = $1`, [deletedNum]);
-                }
-            });
-            res.json({ success: true, message: 'Заказ успешно удален' });
-        } catch (err) {
-            console.error(err);
-            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
-        }
-    });
 
     // ------------------------------------------------------------------
     // 5. Отгрузка по заказу (ОСНОВА ДЛЯ ЧАСТИЧНЫХ ОТГРУЗОК)
     // ------------------------------------------------------------------
-    router.post('/api/sales/orders/:id/ship', async (req, res) => {
+    router.post('/api/sales/orders/:id/ship', requireAdmin, async (req, res) => {
         const orderId = req.params.id;
         const { items_to_ship, driver, auto, poa_info, pallets, user_id } = req.body;
 
@@ -394,66 +364,147 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
     });
 
     // ------------------------------------------------------------------
-    // 6. Отмена отгрузки
+    // 6. Отмена отгрузки (ИСПРАВЛЕНО: возврат товара в Резерв)
     // ------------------------------------------------------------------
-    // Вставьте эти блоки в routes/sales.js
-
-    // --- УДАЛЕНИЕ ОТГРУЗКИ ---
     router.delete('/api/sales/shipments/:docNum', requireAdmin, async (req, res) => {
         const { docNum } = req.params;
 
         try {
             await withTransaction(pool, async (client) => {
+                const reserveWhId = await getWhId(client, 'reserve');
+
                 // 1. Ищем все движения склада по этой отгрузке
                 const movements = await client.query(
-                    'SELECT id, item_id, quantity, linked_order_item_id FROM inventory_movements WHERE description LIKE $1 AND movement_type = $2',
+                    'SELECT id, item_id, quantity, batch_id, linked_order_item_id FROM inventory_movements WHERE description LIKE $1 AND movement_type = $2',
                     [`%${docNum}%`, 'sales_shipment']
                 );
 
-                // 2. Возвращаем товар в резерв/на склад и уменьшаем qty_shipped в заказе
+                if (movements.rows.length === 0) {
+                    throw new Error('Отгрузка не найдена или уже была отменена.');
+                }
+
+                // 2. Для каждой записи: уменьшаем qty_shipped, удаляем запись, ВОЗВРАЩАЕМ товар в Резерв
                 for (const m of movements.rows) {
+                    const returnQty = Math.abs(m.quantity);
+
+                    // 2a. Откатываем счётчик отгрузки
                     await client.query(
-                        'UPDATE client_order_items SET qty_shipped = qty_shipped - $1 WHERE id = $2',
-                        [Math.abs(m.quantity), m.linked_order_item_id]
+                        'UPDATE client_order_items SET qty_shipped = GREATEST(COALESCE(qty_shipped, 0) - $1, 0) WHERE id = $2',
+                        [returnQty, m.linked_order_item_id]
                     );
+
+                    // 2b. Удаляем оригинальную запись sales_shipment
                     await client.query('DELETE FROM inventory_movements WHERE id = $1', [m.id]);
+
+                    // 2c. 🛡️ ВОЗВРАЩАЕМ товар на Склад №7 (Резерв)
+                    await client.query(
+                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, linked_order_item_id)
+                         VALUES ($1, $2, 'shipment_reversal', $3, $4, $5, $6)`,
+                        [m.item_id, returnQty, `Отмена отгрузки: ${docNum}`, reserveWhId, m.batch_id || null, m.linked_order_item_id]
+                    );
+                }
+
+                // 3. Откатываем статус заказа на processing (если был completed)
+                const coiSample = movements.rows[0];
+                if (coiSample.linked_order_item_id) {
+                    const orderIdRes = await client.query('SELECT order_id FROM client_order_items WHERE id = $1', [coiSample.linked_order_item_id]);
+                    if (orderIdRes.rows.length > 0) {
+                        await client.query(
+                            `UPDATE client_orders SET status = 'processing' WHERE id = $1 AND status = 'completed'`,
+                            [orderIdRes.rows[0].order_id]
+                        );
+                    }
                 }
             });
-            res.json({ success: true, message: 'Отгрузка отменена, товары вернулись в заказ' });
+
+            const io = req.app.get('io');
+            if (io) io.emit('inventory_updated');
+            res.json({ success: true, message: 'Отгрузка отменена, товар возвращён в резерв' });
         } catch (err) {
             console.error(err);
-            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+            res.status(400).json({ error: err.message });
         }
     });
 
-    // --- УДАЛЕНИЕ ЗАКАЗА ---
+    // ------------------------------------------------------------------
+    // 7. Удаление заказа (ЕДИНСТВЕННЫЙ обработчик, с точечным откатом резерва)
+    // ------------------------------------------------------------------
     router.delete('/api/sales/orders/:id', requireAdmin, async (req, res) => {
         try {
             await withTransaction(pool, async (client) => {
                 const orderRes = await client.query('SELECT doc_number, paid_amount FROM client_orders WHERE id = $1', [req.params.id]);
                 if (orderRes.rows.length === 0) throw new Error('Заказ не найден');
-
                 const order = orderRes.rows[0];
 
-                // Проверка на оплаты
+                // ⛔ Проверка на оплаты
                 if (new Big(order.paid_amount || 0).gt(0)) {
                     throw new Error(`Нельзя удалить. По заказу числится оплата ${order.paid_amount} ₽. Сначала удалите платежи в Финансах.`);
                 }
 
-                // Проверка на отгрузки
-                const shipCheck = await client.query('SELECT id FROM inventory_movements WHERE description LIKE $1 LIMIT 1', [`%${order.doc_number}%`]);
+                // ⛔ Проверка на отгрузки (по movement_type, а не по ILIKE)
+                const shipCheck = await client.query(
+                    `SELECT id FROM inventory_movements 
+                     WHERE movement_type = 'sales_shipment' 
+                       AND linked_order_item_id IN (SELECT id FROM client_order_items WHERE order_id = $1) 
+                     LIMIT 1`,
+                    [req.params.id]
+                );
                 if (shipCheck.rows.length > 0) {
-                    throw new Error('Нельзя удалить. По заказу уже есть отгрузки. Сначала отмените их.');
+                    throw new Error('Нельзя удалить. По заказу есть отгрузки. Сначала отмените их.');
                 }
 
-                await client.query('DELETE FROM client_order_items WHERE order_id = $1', [req.params.id]);
+                // 🛡️ Точечный возврат из Резерва на Готовую продукцию
+                const reserveWhId = await getWhId(client, 'reserve');
+                const finishedWhId = await getWhId(client, 'finished');
+                const orderItemIds = await client.query('SELECT id FROM client_order_items WHERE order_id = $1', [req.params.id]);
+                const coiIds = orderItemIds.rows.map(r => r.id);
+
+                if (coiIds.length > 0) {
+                    // Находим все reserve_expense и reserve_receipt по позициям заказа
+                    const reserveMoves = await client.query(
+                        `SELECT id, item_id, quantity, batch_id, warehouse_id, movement_type 
+                         FROM inventory_movements 
+                         WHERE movement_type IN ('reserve_expense', 'reserve_receipt') 
+                           AND description LIKE $1`,
+                        [`%Заказ (Резерв): ${order.doc_number}%`]
+                    );
+
+                    // Удаляем парные движения резерва (они взаимно компенсируются)
+                    for (const mv of reserveMoves.rows) {
+                        await client.query('DELETE FROM inventory_movements WHERE id = $1', [mv.id]);
+                    }
+                }
+
+                // Удаляем плановое производство
+                await client.query(
+                    `DELETE FROM planned_production WHERE order_item_id IN (SELECT id FROM client_order_items WHERE order_id = $1)`,
+                    [req.params.id]
+                );
+
+                // Мягкое удаление финансовых транзакций
                 await client.query(`UPDATE transactions SET is_deleted = true WHERE linked_order_id = $1`, [req.params.id]);
+
+                // Удаляем позиции и сам заказ
+                await client.query('DELETE FROM client_order_items WHERE order_id = $1', [req.params.id]);
                 await client.query('DELETE FROM client_orders WHERE id = $1', [req.params.id]);
+
+                // Откатываем счётчик номера документа
+                const numMatch = order.doc_number.match(/\d+/);
+                if (numMatch) {
+                    const deletedNum = parseInt(numMatch[0], 10);
+                    await client.query(
+                        `UPDATE document_counters SET last_number = last_number - 1 WHERE prefix = 'ЗК' AND last_number = $1`,
+                        [deletedNum]
+                    );
+                }
             });
-            res.json({ success: true });
+
+            const io = req.app.get('io');
+            if (io) io.emit('inventory_updated');
+            res.json({ success: true, message: 'Заказ удалён, резервы возвращены на склад' });
         } catch (err) {
             console.error(err);
-            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+            res.status(400).json({ error: err.message });
         }
     });
     // ------------------------------------------------------------------

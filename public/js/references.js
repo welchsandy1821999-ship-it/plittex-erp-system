@@ -125,6 +125,11 @@ function clearRefForm() {
     }
     const gostEl = document.getElementById('ref-gost');
     if (gostEl) gostEl.value = '';
+
+    const mixMainEl = document.getElementById('ref-mix-main');
+    if (mixMainEl) mixMainEl.value = '';
+    const mixFaceEl = document.getElementById('ref-mix-face');
+    if (mixFaceEl) mixFaceEl.value = '';
 }
 
 function editReference(id) {
@@ -162,6 +167,11 @@ function editReference(id) {
                     }
                 }, 100);
 
+                const mixMainEl = document.getElementById('ref-mix-main');
+                if (mixMainEl) mixMainEl.value = item.mix_main_tpl || '';
+                const mixFaceEl = document.getElementById('ref-mix-face');
+                if (mixFaceEl) mixFaceEl.value = item.mix_face_tpl || '';
+
                 const typeEl = document.getElementById('ref-type');
                 typeEl.dispatchEvent(new Event('change'));
                 if (typeEl.tomselect) typeEl.tomselect.sync();
@@ -183,7 +193,9 @@ async function saveReference() {
         piece_rate: document.getElementById('ref-piece-rate') ? (parseFloat(document.getElementById('ref-piece-rate').value) || 0) : 0,
         qty_per_cycle: parseFloat(document.getElementById('ref-qty-cycle').value) || 1,
         mold_id: document.getElementById('ref-mold-id').value || null,
-        gost_mark: document.getElementById('ref-gost') ? document.getElementById('ref-gost').value.trim() : ''
+        gost_mark: document.getElementById('ref-gost') ? document.getElementById('ref-gost').value.trim() : '',
+        mix_main_tpl: document.getElementById('ref-mix-main') ? document.getElementById('ref-mix-main').value : null,
+        mix_face_tpl: document.getElementById('ref-mix-face') ? document.getElementById('ref-mix-face').value : null
     };
 
     if (!payload.name) return UI.toast('Укажите название позиции!', 'error');
@@ -280,10 +292,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const groupQty = document.getElementById('group-qty-cycle');
             const groupMold = document.getElementById('group-mold-select');
             const groupGost = document.getElementById('group-gost');
+            const groupMixTemplates = document.querySelector('.group-mix-templates');
 
             if (groupQty) groupQty.style.display = isProd ? 'block' : 'none';
             if (groupMold) groupMold.style.display = isProd ? 'block' : 'none';
             if (groupGost) groupGost.style.display = isProd ? 'block' : 'none';
+            if (groupMixTemplates) groupMixTemplates.style.display = isProd ? 'block' : 'none';
         });
     }
 });

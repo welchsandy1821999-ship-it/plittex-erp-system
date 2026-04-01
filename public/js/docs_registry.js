@@ -52,10 +52,18 @@ function renderRegistryTable(data) {
         return;
     }
 
-    console.log('=> НАЧИНАЮ РЕНДЕР (Кол-во элементов:', data.length, ')');
+    const showCancelled = document.getElementById('toggle-cancelled-docs')?.checked || false;
+    const docsToRender = showCancelled ? data : data.filter(d => d.status !== 'cancelled');
+
+    if (docsToRender.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">Нет документов, соответствующих фильтрам</td></tr>';
+        return;
+    }
+
+    console.log('=> НАЧИНАЮ РЕНДЕР (Кол-во элементов:', docsToRender.length, ')');
 
     try {
-        const htmlRows = data.map((doc, idx) => {
+        const htmlRows = docsToRender.map((doc, idx) => {
             console.log(`=> Отрисовка строки ${idx + 1}, ID документа: ${doc?.id}`);
 
             const createdAt = doc.created_at || doc.createdAt || doc.date || new Date();
@@ -84,7 +92,10 @@ function renderRegistryTable(data) {
             const lockIcon = isLocked 
                 ? '<span title="Документ защищён режимом Нотариус. Изменения невозможны" style="cursor: help; margin-right: 5px;">🔒</span>' 
                 : '';
-            const rowStyle = isLocked ? 'background-color: #f7f7f7; color: #555;' : '';
+            let rowStyle = isLocked ? 'background-color: #f7f7f7; color: #555;' : '';
+            if (doc.status === 'cancelled') {
+                rowStyle += ' color: #94a3b8; text-decoration: line-through; opacity: 0.7;';
+            }
 
             return `
                 <tr style="${rowStyle}">
@@ -95,6 +106,11 @@ function renderRegistryTable(data) {
                     <td class="text-right" style="font-weight: bold;">${sum}</td>
                     <td style="font-size: 12px; color: var(--text-muted);">${authorName}</td>
                     <td class="text-center">${stHtml}</td>
+                    <td style="text-align: center;">
+                        ${doc.status !== 'cancelled' ? `
+                            <button class="btn-icon" onclick="deleteRegistryInvoice(${doc.id})" title="Удалить/Аннулировать" style="color: var(--danger); cursor: pointer; background: none; border: none; font-size: 14px;">❌</button>
+                        ` : ''}
+                    </td>
                 </tr>
             `;
         }).join('');
@@ -253,3 +269,21 @@ function initStaticRegistrySelects() {
 
 // Ждем построения DOM и запускаем инициализацию 
 document.addEventListener('DOMContentLoaded', initRegistry);
+
+window.deleteRegistryInvoice = async function(id) {
+    UI.confirm('Вы уверены? Если это последний счет, он будет удален физически с откатом номера. Если нет — он будет аннулирован.', async () => {
+        try {
+            const res = await fetch(`/api/invoices/${id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (res.ok) {
+                UI.toast(data.action === 'deleted' ? 'Счет удален, номер откатан' : 'Счет аннулирован');
+                // Вызываем обновление данных реестра
+                if (typeof loadDocsRegistry === 'function') loadDocsRegistry();
+            } else {
+                UI.toast(data.error || 'Ошибка удаления', 'error');
+            }
+        } catch (e) {
+            UI.toast('Ошибка сети', 'error');
+        }
+    });
+};

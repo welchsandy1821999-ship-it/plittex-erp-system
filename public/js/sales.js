@@ -93,7 +93,8 @@ window.setHistoryDateRange = function (type) {
 window.changeSaleWarehouse = function () {
     currentSalesWarehouse = document.getElementById('sale-warehouse').value;
     loadSalesData(false);
-    document.getElementById('sale-product-input').value = '';
+    const productSel = document.getElementById('sale-product-select');
+    if (productSel && productSel.tomselect) productSel.tomselect.setValue('', true);
     updateSaleMaxQty();
 };
 
@@ -527,61 +528,91 @@ async function loadSalesData(fullLoad = true) {
 
         const inventoryMap = {};
         inventory.forEach(row => {
-            if (!inventoryMap[row.item_name]) inventoryMap[row.item_name] = { '4': 0, '5': 0 };
+            if (!inventoryMap[row.item_name]) inventoryMap[row.item_name] = { '4': 0, '5': 0, '7': 0 };
             if (row.warehouse_id === 4 || row.warehouse_id === 5) {
-                inventoryMap[row.item_name][row.warehouse_id] = parseFloat(row.total);
+                inventoryMap[row.item_name][row.warehouse_id] = (inventoryMap[row.item_name][row.warehouse_id] || 0) + parseFloat(row.total);
+            }
+            // Считаем резерв (Склад №7)
+            if (row.warehouse_id === 7) {
+                inventoryMap[row.item_name]['7'] = (inventoryMap[row.item_name]['7'] || 0) + parseFloat(row.total);
             }
         });
 
         Object.values(salesProductsInfo).forEach(p => {
             const price = parseFloat(p.price || p.current_price || 0);
             const dealerPrice = parseFloat(p.dealer_price || 0);
-
-            // 🚀 НОВОЕ: Ловим сдельную ставку из справочника
             const pieceRate = parseFloat(p.piece_rate || 0);
 
             const stock4 = inventoryMap[p.name] ? inventoryMap[p.name]['4'] : 0;
             const stock5 = inventoryMap[p.name] ? inventoryMap[p.name]['5'] : 0;
+            const reserved = inventoryMap[p.name] ? inventoryMap[p.name]['7'] : 0;
 
             if (currentSalesWarehouse === 'all') {
-                stockMap[p.name] = { id: p.id, warehouseId: 4, name: p.name, unit: p.unit, qty: stock4, price, dealer_price: dealerPrice, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Авто', allowProduction: true };
+                stockMap[p.name] = { id: p.id, warehouseId: 4, name: p.name, unit: p.unit, qty: stock4, reserved, price, dealer_price: dealerPrice, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Авто', allowProduction: true };
             } else if (currentSalesWarehouse === '4' && stock4 > 0) {
-                stockMap[p.name] = { id: p.id, warehouseId: 4, name: p.name, unit: p.unit, qty: stock4, price, dealer_price: dealerPrice, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: '1 сорт', allowProduction: false };
+                stockMap[p.name] = { id: p.id, warehouseId: 4, name: p.name, unit: p.unit, qty: stock4, reserved, price, dealer_price: dealerPrice, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: '1 сорт', allowProduction: false };
             } else if (currentSalesWarehouse === '5' && stock5 > 0) {
-                stockMap[p.name] = { id: p.id, warehouseId: 5, name: p.name, unit: p.unit, qty: stock5, price: Math.floor(price * 0.7), dealer_price: Math.floor(dealerPrice * 0.7), piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Уценка', allowProduction: false };
+                stockMap[p.name] = { id: p.id, warehouseId: 5, name: p.name, unit: p.unit, qty: stock5, reserved: 0, price: Math.floor(price * 0.7), dealer_price: Math.floor(dealerPrice * 0.7), piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Уценка', allowProduction: false };
             }
         });
 
-        updateDatalistUI();
+        updateProductSelectUI();
     } catch (e) { console.error('Ошибка в loadSalesData:', e); }
 }
-// === НОВАЯ ФУНКЦИЯ: ОБНОВЛЕНИЕ ЦЕН В ВЫПАДАЮЩЕМ СПИСКЕ ПОИСКА ===
-window.updateDatalistUI = function () {
-    const datalist = document.getElementById('sale-products-datalist');
-    if (!datalist) return;
-    datalist.innerHTML = '';
 
-    // Смотрим, какой клиент сейчас выбран
+// === ОБНОВЛЕНИЕ TomSelect ПРОДУКЦИИ (замена datalist) ===
+window.updateProductSelectUI = function () {
+    const selectEl = document.getElementById('sale-product-select');
+    if (!selectEl) return;
+
+    // Определяем уровень цен выбранного клиента
     const clientSelect = document.getElementById('sale-client');
     const selectedOption = clientSelect && clientSelect.selectedIndex >= 0 ? clientSelect.options[clientSelect.selectedIndex] : null;
     const priceLevel = selectedOption ? selectedOption.getAttribute('data-level') : 'basic';
 
-    Object.values(stockMap).forEach(item => {
-        const opt = document.createElement('option');
-        opt.value = item.name;
-
-        // Если клиент дилер и у товара есть оптовая цена, показываем её в подсказке
+    // Формируем опции
+    const options = Object.values(stockMap).map(item => {
         let displayPrice = item.price;
-        if (priceLevel === 'dealer' && item.dealer_price > 0) {
-            displayPrice = item.dealer_price;
-        }
-
-        opt.textContent = `В наличии: ${item.qty} ${item.unit} | Цена: ${displayPrice} ₽`;
-        datalist.appendChild(opt);
+        if (priceLevel === 'dealer' && item.dealer_price > 0) displayPrice = item.dealer_price;
+        const free = Math.max(0, item.qty - (item.reserved || 0));
+        const reservedLabel = item.reserved > 0 ? ` | Резерв: ${item.reserved}` : '';
+        return { value: item.name, text: item.name, free, reserved: item.reserved || 0, price: displayPrice, unit: item.unit, reservedLabel };
     });
+
+    if (!selectEl.tomselect) {
+        new TomSelect(selectEl, {
+            options: options,
+            valueField: 'value',
+            labelField: 'text',
+            searchField: ['text'],
+            maxItems: 1,
+            plugins: ['clear_button'],
+            placeholder: 'Начните вводить название...',
+            render: {
+                option: function (data, escape) {
+                    return `<div class="ts-option-product">
+                        <span class="ts-product-name">${escape(data.text)}</span>
+                        <span class="ts-product-meta">Свободно: <b class="sales-stock-free">${data.free}</b>${data.reservedLabel ? ' | Резерв: <b class="sales-stock-reserved">' + data.reserved + '</b>' : ''} | Цена: ${data.price} ₽</span>
+                    </div>`;
+                },
+                item: function (data, escape) {
+                    return `<div>${escape(data.text)}</div>`;
+                }
+            },
+            onChange: function (value) {
+                updateSaleMaxQty(value);
+            }
+        });
+    } else {
+        const ts = selectEl.tomselect;
+        const currentVal = ts.getValue();
+        ts.clearOptions();
+        ts.addOptions(options);
+        if (currentVal && stockMap[currentVal]) ts.setValue(currentVal, true);
+    }
 };
-window.updateSaleMaxQty = function () {
-    const inputVal = document.getElementById('sale-product-input').value.trim();
+window.updateSaleMaxQty = function (selectedName) {
+    const inputVal = selectedName || (document.getElementById('sale-product-select') && document.getElementById('sale-product-select').tomselect ? document.getElementById('sale-product-select').tomselect.getValue() : '');
     currentSelectedItem = stockMap[inputVal];
 
     const btnCalc = document.getElementById('btn-calc-sales-cost');
@@ -591,30 +622,32 @@ window.updateSaleMaxQty = function () {
 
     if (!currentSelectedItem) {
         document.getElementById('sale-unit-label').innerText = '';
-        document.getElementById('sale-max-qty').innerText = `Остаток: 0`;
+        document.getElementById('sale-max-qty').innerHTML = `Остаток: 0`;
         document.getElementById('sale-price').value = '';
         return;
     }
 
     document.getElementById('sale-unit-label').innerText = `(${currentSelectedItem.unit})`;
-    document.getElementById('sale-max-qty').innerText = `В наличии: ${currentSelectedItem.qty} ${currentSelectedItem.unit}`;
 
-    // === НОВАЯ ЛОГИКА: ПОДСТАНОВКА ДИЛЕРСКОЙ ИЛИ БАЗОВОЙ ЦЕНЫ ===
+    // === ШАГ 3: Показываем Свободно / В резерве / Цену ===
+    const reserved = currentSelectedItem.reserved || 0;
+    const free = Math.max(0, currentSelectedItem.qty - reserved);
+    let hintHtml = `Свободно: <span class="sales-stock-free">${free} ${currentSelectedItem.unit}</span>`;
+    if (reserved > 0) {
+        hintHtml += ` | В резерве: <span class="sales-stock-reserved">${reserved} ${currentSelectedItem.unit}</span>`;
+    }
+    document.getElementById('sale-max-qty').innerHTML = hintHtml;
+
+    // Подстановка дилерской или базовой цены
     const clientSelect = document.getElementById('sale-client');
-    const selectedOption = clientSelect.options[clientSelect.selectedIndex];
-
-    // Получаем уровень цен клиента (если не выбран, по умолчанию 'basic')
+    const selectedOption = clientSelect && clientSelect.selectedIndex >= 0 ? clientSelect.options[clientSelect.selectedIndex] : null;
     const priceLevel = selectedOption ? selectedOption.getAttribute('data-level') : 'basic';
 
-    // Берем базовую цену (которая записана в current_price или price)
     let finalPrice = parseFloat(currentSelectedItem.price || currentSelectedItem.current_price) || 0;
-
-    // Если клиент Дилер, и у товара реально задана дилерская цена (> 0)
     if (priceLevel === 'dealer' && currentSelectedItem.dealer_price && parseFloat(currentSelectedItem.dealer_price) > 0) {
         finalPrice = parseFloat(currentSelectedItem.dealer_price);
     }
 
-    // Вставляем правильную цену в поле ввода
     document.getElementById('sale-price').value = finalPrice;
 };
 
@@ -673,10 +706,11 @@ window.addToCart = async function () {
         unitCost: unitCost // 🚀 СОХРАНЯЕМ СЕБЕСТОИМОСТЬ В КОРЗИНУ НАВСЕГДА
     });
 
-    document.getElementById('sale-product-input').value = '';
+    const productSel = document.getElementById('sale-product-select');
+    if (productSel && productSel.tomselect) productSel.tomselect.setValue('', true);
     currentSelectedItem = null;
     document.getElementById('sale-unit-label').innerText = '';
-    document.getElementById('sale-max-qty').innerText = `Остаток: 0`;
+    document.getElementById('sale-max-qty').innerHTML = `Остаток: 0`;
     document.getElementById('sale-price').value = '';
     document.getElementById('sale-qty').value = '';
     renderCart();
@@ -687,7 +721,7 @@ window.renderCart = function () {
 
     // БЛОК 1: ЕСЛИ КОРЗИНА ПУСТАЯ
     if (cart.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">Корзина пуста</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="sales-empty-cell">Корзина пуста</td></tr>';
         document.getElementById('cart-total-sum').innerText = '0';
 
         const weightEl = document.getElementById('cart-total-weight');
@@ -720,18 +754,18 @@ window.renderCart = function () {
         totalProductionCost += costSum;
 
         return `
-            <tr style="border-bottom: 1px solid var(--surface-alt);">
+            <tr class="sales-cart-row">
                 <td>${item.sortLabel || '1 Сорт'}</td>
                 <td><b>${item.name}</b></td>
-                <td style="text-align: center;">${qty} ${item.unit}</td>
-                <td style="text-align: center;">
-                    <input type="number" class="input-modern" style="width: 70px; padding: 4px; text-align: center;" value="${basePrice}" onchange="updateCartItem(${index}, 'price', this.value)">
+                <td class="text-center">${qty} ${item.unit}</td>
+                <td class="text-center">
+                    <input type="number" class="input-modern sales-cart-price-input" value="${basePrice}" onchange="updateCartItem(${index}, 'price', this.value)">
                 </td>
-                <td style="text-align: center;">
-                    <input type="number" class="input-modern" style="width: 60px; padding: 4px; text-align: center; color: var(--danger);" value="${discount}" min="0" max="100" onchange="updateCartItem(${index}, 'discount', this.value)">
+                <td class="text-center">
+                    <input type="number" class="input-modern sales-cart-discount-input" value="${discount}" min="0" max="100" onchange="updateCartItem(${index}, 'discount', this.value)">
                 </td>
-                <td style="text-align: right; font-weight: bold; color: var(--primary);">${sum.toFixed(2)} ₽</td>
-                <td style="text-align: center;"><button style="background: none; border: none; color: var(--danger); cursor: pointer; font-size: 16px;" onclick="removeFromCart(${index})">✖</button></td>
+                <td class="sales-cart-sum">${sum.toFixed(2)} ₽</td>
+                <td class="text-center"><button class="sales-cart-remove" onclick="removeFromCart(${index})">✖</button></td>
             </tr>
         `;
     }).join('');
@@ -765,29 +799,23 @@ window.renderCart = function () {
         const totalSumContainer = document.getElementById('cart-total-sum').closest('div').parentNode;
         profitContainer = document.createElement('div');
         profitContainer.id = 'cart-profit-info';
-        profitContainer.style.marginTop = '15px';
-        profitContainer.style.padding = '15px';
-        profitContainer.style.borderRadius = '8px';
-        profitContainer.style.display = 'flex';
-        profitContainer.style.justifyContent = 'space-between';
-        profitContainer.style.alignItems = 'center';
+        profitContainer.className = 'sales-profit-block';
         totalSumContainer.parentNode.appendChild(profitContainer);
     }
 
     const isProfitable = netProfit > 0;
-    profitContainer.style.background = isProfitable ? 'var(--success-bg)' : 'var(--danger-bg)';
-    profitContainer.style.border = `1px solid ${isProfitable ? 'var(--success-border)' : 'var(--danger-border)'}`;
+    profitContainer.className = `sales-profit-block ${isProfitable ? 'profit-positive' : 'profit-negative'}`;
 
     profitContainer.innerHTML = `
         <div>
-            <div style="color: ${isProfitable ? 'var(--success-text)' : 'var(--danger-text)'}; font-weight: bold; font-size: 14px;">Очищенная прибыль сделки:</div>
-            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Удержан налог (${safeTaxPct}%). Оверхед уже учтен в себестоимости.</div>
+            <div class="${isProfitable ? 'profit-title-positive' : 'profit-title-negative'}">Очищенная прибыль сделки:</div>
+            <div class="profit-sub">Удержан налог (${safeTaxPct}%). Оверхед уже учтен в себестоимости.</div>
         </div>
         <div style="text-align: right;">
-            <div style="font-size: 24px; font-weight: 900; color: ${isProfitable ? 'var(--success)' : 'var(--danger)'}; line-height: 1;">
+            <div class="profit-value ${isProfitable ? 'profit-value-positive' : 'profit-value-negative'}">
                 ${netProfit.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽
             </div>
-            <div style="margin-top: 5px; font-size: 12px; padding: 3px 10px; border-radius: 12px; background: ${isProfitable ? 'var(--success)' : 'var(--danger)'}; color: white; font-weight: bold; display: inline-block;">
+            <div class="profit-badge ${isProfitable ? 'profit-badge-positive' : 'profit-badge-negative'}">
                 Рентабельность: ${marginPct}%
             </div>
         </div>
@@ -1061,7 +1089,7 @@ function renderBlankOrdersTable() {
     }
 
     if (paginated.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">Нет активных заказов</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="sales-empty-cell">Нет активных заказов</td></tr>';
         return;
     }
 
@@ -1070,73 +1098,74 @@ function renderBlankOrdersTable() {
         const ordered = parseFloat(o.total_ordered) || 0;
         const shipped = parseFloat(o.total_shipped) || 0;
         let statusBadge = shipped > 0 && shipped < ordered
-            ? `<span style="background: var(--info-bg); padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: var(--info); border: 1px solid #bae6fd;">🔵 Отгружается (${Math.round((shipped / ordered) * 100)}%)</span>`
-            : `<span style="background: var(--warning-bg); padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: var(--warning-text); border: 1px solid #fde047;">🟡 В очереди</span>`;
+            ? `<span class="sales-badge badge-shipping">🔵 Отгружается (${Math.round((shipped / ordered) * 100)}%)</span>`
+            : `<span class="sales-badge badge-queued">🟡 В очереди</span>`;
 
-        // --- 2. СТАТУС ОПЛАТЫ ИМЕННО ЭТОГО ЗАКАЗА ---
+        // --- 2. СТАТУС ОПЛАТЫ ---
         const totalAmt = parseFloat(o.total_amount) || 0;
         const paidAmt = parseFloat(o.paid_amount) || 0;
         const debtAmt = parseFloat(o.pending_debt) || 0;
         let finBadge = '';
         if (paidAmt >= totalAmt) {
-            finBadge = `<span style="background: var(--success-bg); padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: var(--success-text); border: 1px solid #bbf7d0; display: inline-block; margin-top: 5px;">🟢 Оплачен 100%</span>`;
+            finBadge = `<span class="sales-badge badge-paid">🟢 Оплачен 100%</span>`;
         } else if (debtAmt > 0) {
-            finBadge = `<span style="background: var(--danger-bg); padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: var(--danger-text); border: 1px solid #fecaca; display: inline-block; margin-top: 5px;">🔴 Долг: ${debtAmt.toLocaleString('ru-RU')} ₽</span>`;
+            finBadge = `<span class="sales-badge badge-debt">🔴 Долг: ${debtAmt.toLocaleString('ru-RU')} ₽</span>`;
         } else if (paidAmt > 0) {
-            finBadge = `<span style="background: #fef3c7; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: #b45309; border: 1px solid #fde68a; display: inline-block; margin-top: 5px;">🟡 Аванс: ${paidAmt.toLocaleString('ru-RU')} ₽</span>`;
+            finBadge = `<span class="sales-badge badge-advance">🟡 Аванс: ${paidAmt.toLocaleString('ru-RU')} ₽</span>`;
         } else {
-            finBadge = `<span style="background: var(--surface-alt); padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; color: var(--text-muted); border: 1px solid #e2e8f0; display: inline-block; margin-top: 5px;">⚪ Не оплачен</span>`;
+            finBadge = `<span class="sales-badge badge-unpaid">⚪ Не оплачен</span>`;
         }
 
-        // --- 3. ОБЩИЙ БАЛАНС КЛИЕНТА (ПО ФАКТУ ОТГРУЗКИ) ---
+        // --- 3. БАЛАНС КЛИЕНТА ---
         const clientBalance = parseFloat(o.client_balance) || 0;
         let clientBalanceBadge = '';
         if (clientBalance > 0) {
-            clientBalanceBadge = `<div style="margin-top: 5px; font-size: 11px; color: #059669; font-weight: bold; background: #d1fae5; display: inline-block; padding: 3px 6px; border-radius: 4px; border: 1px solid #34d399;">💰 Переплата (Аванс): +${clientBalance.toLocaleString('ru-RU')} ₽</div>`;
+            clientBalanceBadge = `<div class="sales-balance-badge balance-overpaid">💰 Переплата (Аванс): +${clientBalance.toLocaleString('ru-RU')} ₽</div>`;
         } else if (clientBalance < 0) {
-            clientBalanceBadge = `<div style="margin-top: 5px; font-size: 11px; color: #dc2626; font-weight: bold; background: var(--danger-bg); display: inline-block; padding: 3px 6px; border-radius: 4px; border: 1px solid #f87171;">📉 Общий долг: ${Math.abs(clientBalance).toLocaleString('ru-RU')} ₽</div>`;
+            clientBalanceBadge = `<div class="sales-balance-badge balance-debt">📉 Общий долг: ${Math.abs(clientBalance).toLocaleString('ru-RU')} ₽</div>`;
         } else {
-            clientBalanceBadge = `<div style="margin-top: 5px; font-size: 11px; color: var(--text-muted); font-weight: bold; background: var(--surface-alt); display: inline-block; padding: 3px 6px; border-radius: 4px; border: 1px solid var(--border);">⚖️ Взаиморасчеты: 0 ₽</div>`;
+            clientBalanceBadge = `<div class="sales-balance-badge balance-zero">⚖️ Взаиморасчеты: 0 ₽</div>`;
         }
 
-        // --- 4. ПРОГНОЗ БАЛАНСА (С УЧЕТОМ ВСЕХ ЗАКАЗОВ) ---
+        // --- 4. ПРОГНОЗ ---
         const projected = parseFloat(o.projected_balance) || 0;
-        const projHtml = `<div style="font-size: 10px; color: #94a3b8; margin-top: 2px;">Итог по всем заказам: <b style="color: ${projected < 0 ? '#ef4444' : '#10b981'}">${projected.toLocaleString('ru-RU')} ₽</b></div>`;
+        const projHtml = `<div class="sales-projected">Итог по всем заказам: <b class="${projected < 0 ? 'sales-projected-negative' : 'sales-projected-positive'}">${projected.toLocaleString('ru-RU')} ₽</b></div>`;
 
-        // --- 5. КНОПКА ВЗАИМОЗАЧЕТА (ЕСЛИ ЕСТЬ ПЕРЕПЛАТА И ДОЛГ ПО ЭТОМУ ЗАКАЗУ) ---
+        // --- 5. ВЗАИМОЗАЧЕТ ---
         let offsetBtn = '';
         if (clientBalance > 0 && debtAmt > 0) {
             const offsetAmount = Math.min(clientBalance, debtAmt);
-            offsetBtn = `<button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: #059669; border-color: #059669;" onclick="offsetOrderAdvance('${o.doc_number}', ${offsetAmount})" title="Зачесть аванс в счет заказа">💸 Зачесть</button>`;
+            offsetBtn = `<button class="btn btn-outline sales-btn-sm sales-btn-sm-success" onclick="offsetOrderAdvance('${o.doc_number}', ${offsetAmount})" title="Зачесть аванс в счет заказа">💸 Зачесть</button>`;
         }
 
-        // --- РЕНДЕР СТРОКИ ---
+        // --- РЕНДЕР СТРОКИ (ШАГ 4: entity-links) ---
         return `
-        <tr style="transition: 0.2s;" onmouseover="this.style.backgroundColor='var(--surface-hover)'" onmouseout="this.style.backgroundColor=''">
-            <td style="color: var(--text-muted); font-size: 13px;">
+        <tr class="sales-order-row">
+            <td class="sales-order-date">
                 ${o.date_formatted}<br>
-                <span style="color: var(--warning-text); font-weight: bold;">до ${o.deadline || 'Не указан'}</span>
+                <span class="sales-order-deadline">до ${o.deadline || 'Не указан'}</span>
             </td>
             <td>
-                <strong style="color: var(--info); font-size: 14px;">${o.doc_number}</strong><br>
-                <span style="font-size: 12px; font-weight: bold; color: var(--text-main);">${totalAmt.toLocaleString('ru-RU')} ₽</span>
+                <span class="sales-order-doc-link entity-link" onclick="window.app.openEntity('document_order', ${o.id})">${o.doc_number}</span><br>
+                <span class="sales-order-amount">${totalAmt.toLocaleString('ru-RU')} ₽</span>
             </td>
             <td style="vertical-align: top;">
-                <b>${escapeHTML(o.client_name || 'Неизвестный клиент')}</b><br>
-                <span style="font-size: 11px; color: var(--text-muted);">📍 ${escapeHTML(o.delivery_address || 'Самовывоз')}</span><br>
+                <span class="sales-order-client entity-link" onclick="window.app.openEntity('client', ${o.client_id})">${escapeHTML(o.client_name || 'Неизвестный клиент')}</span><br>
+                <span class="sales-order-address">📍 ${escapeHTML(o.delivery_address || 'Самовывоз')}</span><br>
                 ${clientBalanceBadge}
                 ${projHtml}
             </td>
-            <td style="font-size: 12px; max-width: 250px; vertical-align: top;">${escapeHTML(o.items_list || 'Пусто')}</td>  <td style="text-align: center; vertical-align: middle;">
+            <td class="sales-order-items">${escapeHTML(o.items_list || 'Пусто')}</td>
+            <td class="text-center" style="vertical-align: middle;">
                 ${statusBadge}<br>
                 ${finBadge}
             </td>
-            <td style="text-align: right; min-width: 250px; vertical-align: middle;">
-                <div style="display: flex; justify-content: flex-end; gap: 5px; align-items: center;">
+            <td class="sales-order-actions-cell">
+                <div class="sales-order-actions-row">
                     ${offsetBtn}
-                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--info); border-color: var(--info);" onclick="openInvoiceModal('${o.doc_number}', ${debtAmt > 0 ? debtAmt : totalAmt})" title="Счет на оплату">🖨️ Счет</button>
-                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--info); border-color: var(--info);" onclick="openOrderManager(${o.id})">⚙️ Управл.</button>
-                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--danger); border-color: var(--danger);" onclick="confirmDeleteOrder(${o.id}, '${o.doc_number}')" title="Отменить и удалить заказ">❌</button>
+                    <button class="btn btn-outline sales-btn-sm sales-btn-sm-info" onclick="openInvoiceModal('${o.doc_number}', ${debtAmt > 0 ? debtAmt : totalAmt})" title="Счет на оплату">🖨️ Счет</button>
+                    <button class="btn btn-outline sales-btn-sm sales-btn-sm-info" onclick="openOrderManager(${o.id})">⚙️ Управл.</button>
+                    <button class="btn btn-outline sales-btn-sm sales-btn-sm-danger" onclick="confirmDeleteOrder(${o.id}, '${o.doc_number}')" title="Отменить и удалить заказ">❌</button>
                 </div>
             </td>
         </tr>
@@ -1243,7 +1272,7 @@ function renderHistoryTable() {
     const paginated = filtered.slice(start, start + 5);
 
     if (paginated.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">Отгрузки не найдены</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="sales-empty-cell">Отгрузки не найдены</td></tr>';
         return;
     }
 
@@ -1253,20 +1282,21 @@ function renderHistoryTable() {
         const sumText = rowSum > 0 ? rowSum.toLocaleString('ru-RU') + ' ₽' : '-';
 
         return `
-        <tr style="transition: 0.2s;" onmouseover="this.style.backgroundColor='var(--surface-hover)'" onmouseout="this.style.backgroundColor=''">
-            <td style="color: var(--text-muted); font-size: 13px;">${h.date_formatted}</td>
-            <td><strong style="color: var(--primary);">${h.doc_num}</strong></td>
-            <td><b>${escapeHTML(h.client_name || 'Неизвестный клиент')}</b><br><span style="font-size: 11px; color: var(--text-muted);">${h.payment || ''}</span></td>
-            <td style="text-align: center; font-weight: bold;">${parseFloat(h.total_qty).toLocaleString('ru-RU')}</td>
-            
-            <td style="text-align: right; color: var(--success); font-weight: bold;">${sumText}</td>
-            
-            <td style="text-align: right; min-width: 250px;">
-            <div style="display: flex; justify-content: flex-end; gap: 5px; align-items: center;">
-                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--info); border-color: var(--info);" onclick="window.open('/print/upd?docNum=${h.doc_num}', '_blank')" title="УПД и Пропуск на выезд">🖨️ УПД + Пропуск</button>
-                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--warning-text); border-color: var(--warning-text);" onclick="window.open('/print/specification?docNum=${h.doc_num}', '_blank')" title="Спецификация">🖨️ Спец.</button>
-                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--primary); border-color: var(--primary);" onclick="window.open('/print/waybill?docNum=${h.doc_num}', '_blank')" title="Накладная">🖨️ Накладная</button>
-                <button class="btn btn-outline" style="color: var(--danger); border-color: var(--danger); padding: 4px 8px; font-size: 12px;" onclick="cancelShipment('${h.doc_num}')" title="Отменить">❌</button>
+        <tr class="sales-hist-row">
+            <td class="sales-hist-date">${h.date_formatted}</td>
+            <td><strong class="sales-hist-doc entity-link" onclick="window.app.openEntity('document_shipment', '${h.doc_num}')">${h.doc_num}</strong></td>
+            <td>
+                <b class="entity-link" onclick="window.app.openEntity('client', ${h.client_id || 0})">${escapeHTML(h.client_name || 'Неизвестный клиент')}</b><br>
+                <span class="profit-sub">${h.payment || ''}</span>
+            </td>
+            <td class="text-center" style="font-weight: bold;">${parseFloat(h.total_qty).toLocaleString('ru-RU')}</td>
+            <td class="sales-hist-sum">${sumText}</td>
+            <td class="sales-hist-actions">
+            <div class="sales-order-actions-row">
+                <button class="btn btn-outline sales-btn-sm sales-btn-sm-info" onclick="window.open('/print/upd?docNum=${h.doc_num}', '_blank')" title="УПД и Пропуск на выезд">🖨️ УПД + Пропуск</button>
+                <button class="btn btn-outline sales-btn-sm" style="color: var(--warning-text); border-color: var(--warning-text);" onclick="window.open('/print/specification?docNum=${h.doc_num}', '_blank')" title="Спецификация">🖨️ Спец.</button>
+                <button class="btn btn-outline sales-btn-sm" style="color: var(--primary); border-color: var(--primary);" onclick="window.open('/print/waybill?docNum=${h.doc_num}', '_blank')" title="Накладная">🖨️ Накладная</button>
+                <button class="btn btn-outline sales-btn-sm sales-btn-sm-danger" onclick="cancelShipment('${h.doc_num}')" title="Отменить">❌</button>
             </div>
             </td>
         </tr>
@@ -2835,28 +2865,24 @@ window.renderKanbanBoard = function () {
         counts[order.status] = (counts[order.status] || 0) + 1;
 
         const card = document.createElement('div');
-        card.className = 'kanban-card';
+        card.className = `kanban-card ${order.status === 'processing' ? 'kanban-card-processing' : 'kanban-card-pending'}`;
         card.draggable = true;
         card.dataset.id = order.id;
 
-        const borderColor = order.status === 'processing' ? 'var(--success)' : '#3b82f6';
-        card.style = `background: var(--surface); padding: 15px; margin-bottom: 12px; border-radius: 8px; box-shadow: 0 1px 2px var(--shadow-sm); cursor: grab; border-left: 5px solid ${borderColor}; user-select: none; border-top: 1px solid var(--surface-alt); border-right: 1px solid var(--surface-alt); border-bottom: 1px solid var(--surface-alt);`;
-
         card.innerHTML = `
-            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px; display: flex; justify-content: space-between;">
+            <div class="kanban-card-header">
                 <span>${order.id ? `<span class="entity-link" onclick="window.app.openEntity('document_order', ${order.id})">${order.doc_number}</span>` : order.doc_number}</span>
                 <span title="Дедлайн">⏳ ${order.deadline || order.date_formatted}</span>
             </div>
-            <div style="font-weight: bold; margin-bottom: 8px; color: #1e293b; font-size: 14px;">
+            <div class="kanban-card-client">
                 ${order.client_id ? `<span class="entity-link" onclick="window.app.openEntity('client', ${order.client_id})">${escapeHTML(order.client_name)}</span>` : escapeHTML(order.client_name)}
             </div>
-            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+            <div class="kanban-card-items">
                 ${escapeHTML(order.items_list)}
             </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--surface-alt); padding-top: 10px;">
-                <span style="font-size: 15px; font-weight: 800; color: #0f172a;">${parseFloat(order.total_amount).toLocaleString()} ₽</span>
-                
-                <button onclick="openOrderDetails(${order.id})" style="background:var(--surface-alt); border:none; padding: 4px 8px; border-radius: 4px; color: #3b82f6; cursor: pointer; font-size: 12px; font-weight: bold; transition: 0.2s;" onmouseover="this.style.background='var(--info-bg)'" onmouseout="this.style.background='var(--surface-alt)'">
+            <div class="kanban-card-footer">
+                <span class="kanban-card-total">${parseFloat(order.total_amount).toLocaleString()} ₽</span>
+                <button onclick="openOrderDetails(${order.id})" class="kanban-card-btn">
                     Детали ➔
                 </button>
             </div>

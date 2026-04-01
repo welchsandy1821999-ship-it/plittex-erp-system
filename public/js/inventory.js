@@ -112,8 +112,36 @@ window.saveAudit = async function () {
 
 function renderInventoryTable() {
     const tbody = document.getElementById('inventory-table');
+    const thead = document.getElementById('inventory-thead');
     if (!tbody) return;
     tbody.innerHTML = '';
+
+    const isReserveView = currentWarehouseFilter === '7';
+
+    // Динамический заголовок: Склад №7 показывает колонку "Заказ"
+    if (thead) {
+        if (isReserveView) {
+            thead.innerHTML = `<tr>
+                <th class="inv-col-batch">№ Партии</th>
+                <th class="inv-col-name">Наименование</th>
+                <th class="inv-col-order">Заказ</th>
+                <th class="inv-col-qty">Остаток</th>
+                <th class="inv-col-unit">Ед.</th>
+                <th class="inv-col-actions">Действия</th>
+            </tr>`;
+        } else {
+            thead.innerHTML = `<tr>
+                <th class="inv-col-wh">Склад</th>
+                <th class="inv-col-batch">№ Партии</th>
+                <th class="inv-col-name">Наименование (Сырье / Продукция)</th>
+                <th class="inv-col-qty">Остаток</th>
+                <th class="inv-col-unit">Ед. изм.</th>
+                <th class="inv-col-actions">Действия</th>
+            </tr>`;
+        }
+    }
+
+    const colSpan = 6;
 
     const filtered = allInventory.filter(item => {
         if (parseFloat(item.total) === 0) return false;
@@ -122,7 +150,7 @@ function renderInventoryTable() {
     });
 
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 30px;">На складе нет остатков</td></tr>';
+        tbody.innerHTML = `<tr><td colspan="${colSpan}" class="inv-empty-row">На складе нет остатков</td></tr>`;
         return;
     }
 
@@ -131,57 +159,76 @@ function renderInventoryTable() {
         let qtyHtml = '';
 
         if (isAuditMode) {
-            // РЕЖИМ ИНВЕНТАРИЗАЦИИ: Поле ввода
-            qtyHtml = `<td style="text-align: right;">
+            qtyHtml = `<td class="inv-actions-cell">
                 <input type="number" class="input-modern audit-qty-input" 
                        data-item-id="${item.item_id}" 
                        data-batch-id="${item.batch_id || ''}" 
                        data-old-qty="${item.total}" 
                        value="${parseFloat(item.total)}" 
-            style="width: 100px; padding: 4px; text-align: right; font-weight: bold; border: 2px solid var(--primary); margin: 0; background: var(--surface); color: var(--text-main);"                       onfocus="this.select()">
+                       onfocus="this.select()">
             </td>`;
         } else {
-            // ОБЫЧНЫЙ РЕЖИМ: Просто текст
-            qtyHtml = `<td style="font-weight: bold; font-size: 15px; text-align: right;">${parseFloat(item.total).toLocaleString('ru-RU')}</td>`;
+            qtyHtml = `<td class="inv-qty-cell">${parseFloat(item.total).toLocaleString('ru-RU')}</td>`;
 
-            // Кнопки действий зависят от склада
-            if (item.warehouse_id === 3) {
-                actionHtml = `<button class="btn btn-blue" style="padding: 4px 8px; font-size: 12px;" 
+            if (isReserveView) {
+                // Склад №7: кнопка управления резервом
+                actionHtml = `<button class="btn btn-outline inv-btn-reserve" 
+                    onclick="openReserveManagerModal(${item.item_id}, '${escapeHTML(item.item_name)}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.linked_order_item_id || 'null'}, '${item.order_doc_number || ''}', ${item.order_id || 'null'}, ${item.total})">
+                    🔄 Управление
+                </button>`;
+            } else if (item.warehouse_id === 3) {
+                actionHtml = `<button class="btn btn-blue inv-btn-demold" 
                             onclick="openDemoldingModal(${item.batch_id}, '${item.batch_number || 'Б/Н'}', ${item.item_id}, '${item.item_name}', ${item.total})">
                             🧱 Распалубить
                           </button>`;
             } else if (item.warehouse_id === 5 || item.warehouse_id === 6) {
-                actionHtml = `<button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--danger-text); border-color: var(--danger-border); background: var(--danger-bg);" 
+                actionHtml = `<button class="btn btn-outline inv-btn-dispose" 
                             onclick="openDisposeModal(${item.item_id}, '${item.item_name}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
                             🗑️ Утилизировать
                           </button>`;
             } else {
-                actionHtml = `<button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--danger); border-color: var(--danger);" 
+                actionHtml = `<button class="btn btn-outline inv-btn-move" 
                     onclick="openDirectScrapModal(${item.item_id}, '${item.item_name}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
                       ↘️ Переместить
                 </button>`;
             }
         }
 
-        tbody.innerHTML += `
-        <tr>
-            <td><span class="badge" style="background: var(--surface-hover); color: var(--text-muted);">${escapeHTML(item.warehouse_name)}</span></td>                <td style="color: var(--primary); font-weight: bold;">${item.batch_number ? '#' + escapeHTML(item.batch_number) : (item.batch_id ? '#' + item.batch_id : '-')}</td>
+        if (isReserveView) {
+            // Спец-разметка для Склада №7: с колонкой "Заказ"
+            const orderBadge = item.order_doc_number 
+                ? `<span class="badge inv-order-badge">${escapeHTML(item.order_doc_number)}</span>` 
+                : '<span class="badge inv-wh-badge">Без привязки</span>';
+            tbody.innerHTML += `
+            <tr>
+                <td class="inv-batch-cell">${item.batch_number ? '#' + escapeHTML(item.batch_number) : '-'}</td>
+                <td><strong>${escapeHTML(item.item_name)}</strong></td>
+                <td>${orderBadge}</td>
+                ${qtyHtml}
+                <td class="inv-unit-cell">${item.unit}</td>
+                <td class="inv-actions-cell">${actionHtml}</td>
+            </tr>`;
+        } else {
+            tbody.innerHTML += `
+            <tr>
+                <td><span class="badge inv-wh-badge">${escapeHTML(item.warehouse_name)}</span></td>
+                <td class="inv-batch-cell">${item.batch_number ? '#' + escapeHTML(item.batch_number) : (item.batch_id ? '#' + item.batch_id : '-')}</td>
                 <td><strong>${escapeHTML(item.item_name)}</strong></td>
                 ${qtyHtml}
-                <td style="color: var(--text-muted);">${item.unit}</td>
-                <td style="text-align: right;">${actionHtml}</td>
+                <td class="inv-unit-cell">${item.unit}</td>
+                <td class="inv-actions-cell">${actionHtml}</td>
             </tr>`;
+        }
     });
 }
 
 // === ПРЯМОЕ СПИСАНИЕ БОЯ И БРАКА ===
 window.openDirectScrapModal = function (itemId, itemName, batchId, batchNum, warehouseId, currentQty) {
-    // Весь HTML-код должен быть строго внутри этих обратных кавычек `
     const html = `
-        <div style="background: var(--surface-alt); padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 20px;">
-            <div style="font-size: 15px;">Продукция: <b>${escapeHTML(itemName)}</b></div>
-            ${batchNum ? `<div style="margin-top: 5px;">Партия: <span style="color: var(--primary); font-weight: bold;">${escapeHTML(batchNum)}</span></div>` : ''}
-            <div style="margin-top: 5px; color: var(--text-muted);">Текущий остаток: <b style="font-size: 16px; color: var(--text-main);">${currentQty}</b> ед.</div>
+        <div class="inv-modal-info">
+            <div class="inv-modal-product">Продукция: <b>${escapeHTML(itemName)}</b></div>
+            ${batchNum ? `<div class="inv-modal-batch">Партия: ${escapeHTML(batchNum)}</div>` : ''}
+            <div class="inv-modal-stock">Текущий остаток: <b class="inv-modal-stock-value">${currentQty}</b> ед.</div>
         </div>
 
         <input type="hidden" id="scrap-direct-item-id" value="${itemId}">
@@ -189,10 +236,14 @@ window.openDirectScrapModal = function (itemId, itemName, batchId, batchNum, war
         <input type="hidden" id="scrap-direct-warehouse-id" value="${warehouseId}">
         
         <div class="form-group">
-            <label style="color: var(--danger); font-weight: bold;">Количество брака/боя:</label>
+            <label class="inv-label-danger">Количество брака/боя:</label>
             <input type="number" id="scrap-direct-qty" class="input-modern" placeholder="Сколько разбилось?" max="${currentQty}" onfocus="this.select()">
         </div>
-    `; // Конец переменной html
+        <div class="form-group">
+            <label>Причина списания:</label>
+            <input type="text" id="scrap-direct-desc" class="input-modern" placeholder="Например: Бой при погрузке" value="Отбраковка">
+        </div>
+    `;
 
     const buttons = `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
@@ -237,29 +288,29 @@ window.executeDirectScrap = async function () {
 // === ОКНО РАСПАЛУБКИ ===
 window.openDemoldingModal = function (batchId, batchNum, tileId, productName, plannedQty) {
     const html = `
-        <div style="background: var(--surface-alt); padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 20px;">
-            <h4 style="margin: 0 0 5px 0;">Партия: <span style="color: var(--primary);">${escapeHTML(batchNum)}</span></h4>
-            <div style="font-size: 15px;">Продукция: <b>${escapeHTML(productName)}</b></div>
-            <div style="margin-top: 5px; color: var(--text-muted);">В сушилке числится: <b style="font-size: 16px; color: var(--text-main);">${plannedQty}</b> ед.</div>
+        <div class="inv-modal-info">
+            <h4 class="inv-modal-batch">Партия: ${escapeHTML(batchNum)}</h4>
+            <div class="inv-modal-product">Продукция: <b>${escapeHTML(productName)}</b></div>
+            <div class="inv-modal-stock">В сушилке числится: <b class="inv-modal-stock-value">${plannedQty}</b> ед.</div>
         </div>
 
         <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
             <div class="form-group">
-                <label style="color: var(--success); font-weight: bold;">🟢 1-й сорт:</label>
+                <label class="inv-label-success">🟢 1-й сорт:</label>
                 <input type="number" id="demold-good" class="input-modern" value="${plannedQty}">
             </div>
             <div class="form-group">
-                <label style="color: var(--warning-text); font-weight: bold;">🟡 2-й сорт:</label>
+                <label class="inv-label-warning">🟡 2-й сорт:</label>
                 <input type="number" id="demold-grade2" class="input-modern" value="0">
             </div>
             <div class="form-group">
-                <label style="color: var(--danger); font-weight: bold;">🔴 Брак:</label>
+                <label class="inv-label-danger">🔴 Брак:</label>
                 <input type="number" id="demold-scrap" class="input-modern" value="0">
             </div>
         </div>
         
-        <div style="margin-top: 15px;">
-            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+        <div class="form-group">
+            <label class="d-flex align-items-center gap-2">
                 <input type="checkbox" id="demold-complete" checked>
                 Полностью закрыть партию
             </label>
@@ -304,9 +355,9 @@ window.executeDemolding = async function (batchId, tileId, currentWipQty) {
 // === ПЕРЕМЕЩЕНИЕ В УЦЕНКУ (5) ИЛИ УТИЛЬ (6) ===
 window.openScrapModal = function (itemId, itemName, batchId, batchNum, warehouseId, currentQty) {
     const html = `
-        <div style="background: var(--surface-alt); padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 20px;">
-            <div style="font-size: 15px;">Продукция: <b>${escapeHTML(itemName)}</b></div>
-            ${batchNum ? `<div style="margin-top: 5px;">Партия: <span style="color: var(--primary); font-weight: bold;">${escapeHTML(batchNum)}</span></div>` : ''}
+        <div class="inv-modal-info">
+            <div class="inv-modal-product">Продукция: <b>${escapeHTML(itemName)}</b></div>
+            ${batchNum ? `<div class="inv-modal-batch">Партия: ${escapeHTML(batchNum)}</div>` : ''}
         </div>
 
         <input type="hidden" id="scrap-item-id" value="${itemId}">
@@ -380,19 +431,19 @@ window.executeScrap = async function () {
 
 window.openDisposeModal = function (itemId, itemName, batchId, batchNum, warehouseId, maxQty) {
     const html = `
-        <div style="padding: 10px;">
-            <p>Утилизация <b>${escapeHTML(itemName)}</b> ${batchNum ? '(Партия #' + escapeHTML(batchNum) + ')' : ''}.</p>
-            <div class="form-group">
-                <label>Количество (макс: ${maxQty}):</label>
-                <input type="number" id="dispose-qty" class="input-modern" value="${maxQty}">
-                <input type="hidden" id="dispose-item-id" value="${itemId}">
-                <input type="hidden" id="dispose-batch-id" value="${batchId || ''}">
-                <input type="hidden" id="dispose-warehouse-id" value="${warehouseId}">
-            </div>
-            <div class="form-group">
-                <label>Комментарий:</label>
-                <input type="text" id="dispose-desc" class="input-modern" value="Вывоз на свалку">
-            </div>
+        <div class="inv-modal-info">
+            <div class="inv-modal-product">Утилизация: <b>${escapeHTML(itemName)}</b> ${batchNum ? '(Партия #' + escapeHTML(batchNum) + ')' : ''}</div>
+        </div>
+        <div class="form-group">
+            <label>Количество (макс: ${maxQty}):</label>
+            <input type="number" id="dispose-qty" class="input-modern" value="${maxQty}">
+            <input type="hidden" id="dispose-item-id" value="${itemId}">
+            <input type="hidden" id="dispose-batch-id" value="${batchId || ''}">
+            <input type="hidden" id="dispose-warehouse-id" value="${warehouseId}">
+        </div>
+        <div class="form-group">
+            <label>Комментарий:</label>
+            <input type="text" id="dispose-desc" class="input-modern" value="Вывоз на свалку">
         </div>
     `;
 
@@ -432,9 +483,104 @@ window.executeDispose = async function () {
         if (res.ok) {
             UI.closeModal();
             UI.toast(data.message || '✅ Успешно утилизировано', 'success');
-            loadTable(); // Автоматически обновляем таблицу остатков
+            loadTable();
         } else {
             UI.toast(data.error || 'Ошибка при утилизации', 'error');
+        }
+    } catch (e) {
+        console.error(e);
+        UI.toast('Критическая ошибка связи с сервером', 'error');
+    }
+};
+
+// === УПРАВЛЕНИЕ РЕЗЕРВАМИ (Склад №7) ===
+window.openReserveManagerModal = function (itemId, itemName, batchId, batchNum, linkedOrderItemId, orderDocNum, orderId, maxQty) {
+    const html = `
+        <div class="inv-modal-info">
+            <div class="inv-modal-product">Продукция: <b>${escapeHTML(itemName)}</b></div>
+            ${batchNum ? `<div class="inv-modal-batch">Партия: ${escapeHTML(batchNum)}</div>` : ''}
+            <div class="inv-modal-stock">Привязка: <b class="inv-modal-stock-value">${orderDocNum || 'Без заказа'}</b></div>
+            <div class="inv-modal-stock">В резерве: <b class="inv-modal-stock-value">${maxQty}</b> ед.</div>
+        </div>
+
+        <input type="hidden" id="reserve-item-id" value="${itemId}">
+        <input type="hidden" id="reserve-batch-id" value="${batchId || ''}">
+        <input type="hidden" id="reserve-linked-coi" value="${linkedOrderItemId || ''}">
+
+        <div class="form-group">
+            <label>Действие:</label>
+            <select id="reserve-action" class="input-modern" onchange="toggleReserveTransferTarget()">
+                <option value="release">✅ Снять резерв (Вернуть на Склад №4)</option>
+                <option value="transfer">🔄 Перебросить на другой заказ</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Количество:</label>
+            <input type="number" id="reserve-qty" class="input-modern" value="${maxQty}" max="${maxQty}" onfocus="this.select()">
+        </div>
+
+        <div class="form-group inv-hidden" id="reserve-transfer-target">
+            <label>Целевой заказ:</label>
+            <select id="reserve-target-coi" class="input-modern">
+                <option value="">Загрузка...</option>
+            </select>
+        </div>
+    `;
+
+    const buttons = `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-blue" onclick="executeReserveAction()">✅ Выполнить</button>
+    `;
+
+    UI.showModal('🔒 Управление резервом', html, buttons);
+
+    // Предзагрузка списка заказов для переброски
+    fetch(`/api/inventory/active-order-items?itemId=${itemId}`)
+        .then(r => r.json())
+        .then(orders => {
+            const sel = document.getElementById('reserve-target-coi');
+            if (!sel) return;
+            sel.innerHTML = '<option value="">Выберите заказ...</option>';
+            orders.forEach(o => {
+                if (String(o.id) === String(linkedOrderItemId)) return; // Скрываем текущий
+                sel.innerHTML += `<option value="${o.id}">${escapeHTML(o.doc_number)} | ${escapeHTML(o.client_name || '')} (Заказ: ${o.qty_ordered}, Рез: ${o.qty_reserved || 0})</option>`;
+            });
+        });
+};
+
+// Переключатель видимости селекта целевого заказа
+window.toggleReserveTransferTarget = function () {
+    const action = document.getElementById('reserve-action').value;
+    const target = document.getElementById('reserve-transfer-target');
+    if (target) target.classList.toggle('inv-hidden', action !== 'transfer');
+};
+
+// Выполнение действия с резервом
+window.executeReserveAction = async function () {
+    const action = document.getElementById('reserve-action').value;
+    const itemId = document.getElementById('reserve-item-id').value;
+    const batchId = document.getElementById('reserve-batch-id').value || null;
+    const linkedOrderItemId = document.getElementById('reserve-linked-coi').value || null;
+    const qty = parseFloat(document.getElementById('reserve-qty').value);
+    const targetOrderItemId = action === 'transfer' ? document.getElementById('reserve-target-coi').value : null;
+
+    if (!qty || qty <= 0) return UI.toast('Укажите количество!', 'warning');
+    if (action === 'transfer' && !targetOrderItemId) return UI.toast('Выберите целевой заказ!', 'warning');
+
+    try {
+        const res = await fetch('/api/inventory/reserve-action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action, itemId, batchId, linkedOrderItemId, qty, targetOrderItemId })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            UI.closeModal();
+            UI.toast(data.message || '✅ Готово', 'success');
+            loadTable();
+        } else {
+            UI.toast(data.error || 'Ошибка', 'error');
         }
     } catch (e) {
         console.error(e);

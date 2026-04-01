@@ -138,8 +138,8 @@
 
             try {
                 const response = await originalFetch(resource, config);
-                // Проверка 401/403
-                if ((response.status === 401 || response.status === 403) && typeof url === 'string' && url.includes('/api') && !url.includes('/api/login')) {
+                // Проверка только 401 (Unauthorized) - 403 обрабатывается локально
+                if (response.status === 401 && typeof url === 'string' && url.includes('/api') && !url.includes('/api/login')) {
                     const latestToken = localStorage.getItem('token') || localStorage.getItem('jwtToken');
                     if (latestToken === requestToken) {
                         console.warn("Session expired on request:", url);
@@ -364,6 +364,17 @@
             closeModal: (id = 'app-modal') => {
                 const targetModal = document.getElementById(id);
                 if (targetModal) { targetModal.classList.remove('active'); targetModal.style.display = 'none'; }
+            },
+            confirm: (msg, onConfirm) => {
+                UI.showModal('⚠️ Подтверждение', `<div style="padding: 15px; text-align: center; font-size: 15px;">${msg}</div>`, `
+                    <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+                    <button class="btn btn-red" id="ui-confirm-btn">Да, продолжить</button>
+                `);
+                const btn = document.getElementById('ui-confirm-btn');
+                if (btn) btn.onclick = () => {
+                    UI.closeModal();
+                    if (onConfirm) onConfirm();
+                };
             }
         };
 
@@ -495,9 +506,10 @@
     </script>
 
 <% if (locals.devMode) { %>
-    <div id="dev-toolbar" class="surface-alt border-top" style="position: fixed; bottom: 0; left: 0; width: 100%; padding: 10px 20px; z-index: 10000; display: flex; gap: 15px; align-items: center; justify-content: space-between; background: var(--surface);">
+    <div id="dev-toolbar" class="surface-alt border-top dev-panel-hidden" style="position: fixed; bottom: 0; left: 0; width: 100%; padding: 10px 20px; z-index: 10000; display: flex; gap: 15px; align-items: center; justify-content: space-between; background: var(--surface);">
         <div style="display: flex; gap: 10px; align-items: center; color: var(--warning);">
             <span>🛠️ <strong>DEV PANEL</strong></span>
+            <button type="button" onclick="toggleDevPanel()" style="background:none; border:none; cursor:pointer; font-size:14px; margin-left: 10px;" title="Скрыть (Ctrl+Shift+D)">❌</button>
             <span class="text-muted" style="font-size: 12px; color: var(--text-muted);">Работает поверх «Нотариуса»</span>
         </div>
         <div style="display: flex; gap: 5px;">
@@ -508,6 +520,22 @@
     </div>
     <script>
         document.body.classList.add('dev-mode-active');
+        document.body.classList.add('dev-panel-hidden-active');
+
+        window.toggleDevPanel = function() {
+            const panel = document.getElementById('dev-toolbar');
+            if (panel) {
+                panel.classList.toggle('dev-panel-hidden');
+                document.body.classList.toggle('dev-panel-hidden-active');
+            }
+        };
+
+        document.addEventListener('keydown', function(event) {
+            if (event.ctrlKey && event.shiftKey && event.code === 'KeyD') {
+                event.preventDefault();
+                window.toggleDevPanel();
+            }
+        });
         
         async function openDevUnlockModal() {
             const orderId = prompt("Введите ID заказа для разблокировки:");

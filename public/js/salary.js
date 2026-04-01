@@ -11,7 +11,10 @@ let currentPrintAdvancesData = [];
 function initSalary() {
     const now = new Date();
     const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    document.getElementById('ts-month-picker').value = currentMonth;
+    const tsPicker = document.getElementById('ts-month-picker');
+    const payPicker = document.getElementById('payroll-period-select');
+    if (tsPicker) tsPicker.value = currentMonth;
+    if (payPicker) payPicker.value = currentMonth;
 
     loadEmployees().then(() => {
         loadMonthlyTimesheet();
@@ -358,8 +361,24 @@ window.executeHardDelete = async function (id) {
     }
 };
 
+// === СИНХРОНИЗАЦИЯ СЕЛЕКТОВ МЕСЯЦА ===
+window.syncSalaryMonth = function(val) {
+    if (!val) return;
+    const tsPicker = document.getElementById('ts-month-picker');
+    const payPicker = document.getElementById('payroll-period-select');
+    
+    // Предотвращение infinite loop: проверка текущего значения перед установкой
+    if (tsPicker && tsPicker.value !== val) tsPicker.value = val;
+    if (payPicker && payPicker.value !== val) payPicker.value = val;
+    
+    // Единый вызов загрузки данных
+    if (typeof loadMonthlyTimesheet === 'function') {
+        loadMonthlyTimesheet();
+    }
+};
+
 // === ЗАГРУЗКА МЕСЯЧНЫХ ДАННЫХ (УСКОРЕННАЯ) ===
-async function loadMonthlyTimesheet() {
+window.loadMonthlyTimesheet = async function() {
     const monthPicker = document.getElementById('ts-month-picker').value;
     if (!monthPicker) return;
     const [year, month] = monthPicker.split('-');
@@ -452,7 +471,7 @@ window.renderTimesheetMatrix = function (year, month) {
 
             // 3. Логика уволенных (показываем только если есть отметки в этом месяце)
             if (e.status !== 'fired') return true;
-            return currentMonthRecords.some(r => r.employee_id === e.id && ['present', 'sick', 'vacation'].includes(r.status));
+            return currentMonthRecords.some(r => r.employee_id === e.id && ['present', 'partial', 'sick', 'vacation'].includes(r.status));
         });
 
         if (depEmps.length === 0) return;
@@ -488,6 +507,7 @@ window.renderTimesheetMatrix = function (year, month) {
                 let cellPenaltyComment = '';
                 let cellBaseRate = dailyCost;
                 let ktuText = '';
+                let cellMultiplier = 1.0;
 
                 if (record) {
                     status = record.status;
@@ -495,6 +515,9 @@ window.renderTimesheetMatrix = function (year, month) {
                     cellPenalty = parseFloat(record.penalty) || 0;
                     cellBonusComment = record.bonus_comment || '';
                     cellPenaltyComment = record.penalty_comment || '';
+                    if (record.multiplier !== undefined && record.multiplier !== null) {
+                        cellMultiplier = parseFloat(record.multiplier);
+                    }
 
                     if (record.custom_rate !== null && record.custom_rate !== undefined) cellBaseRate = parseFloat(record.custom_rate);
                     if (record.ktu && parseFloat(record.ktu) !== 1.0) ktuText = ` (КТУ ${parseFloat(record.ktu)})`;
@@ -507,6 +530,9 @@ window.renderTimesheetMatrix = function (year, month) {
                 if (status === 'present') {
                     worked++;
                     earnedBase += cellBaseRate;
+                } else if (status === 'partial') {
+                    worked += cellMultiplier;
+                    earnedBase += (cellBaseRate * cellMultiplier);
                 } else if (status === 'sick') sick++;
                 else if (status === 'vacation') vacation++;
                 else if (status === 'absent') absent++;
@@ -524,15 +550,26 @@ window.renderTimesheetMatrix = function (year, month) {
 
                 // 🌟 БЕЗОПАСНЫЙ ДВИЖОК СОБЫТИЙ С ЧТЕНИЕМ ЧЕРЕЗ DATA-*
                 const isFired = emp.status === 'fired';
-                const actionEvents = isFired
-                    ? `onclick="UI.toast('Сотрудник уволен. Редактирование дней запрещено.', 'warning')"`
-                    : `data-emp-id="${emp.id}"
+                const isMonthClosedForEdit = window.currentMonthStatus?.isClosed === true;
+                
+                let actionEvents = '';
+                let cellCursor = '';
+                
+                if (isMonthClosedForEdit) {
+                    actionEvents = `onclick="UI.toast('Месяц закрыт. Редактирование запрещено.', 'warning')"`;
+                    cellCursor = 'cursor: not-allowed; opacity: 0.8;';
+                } else if (isFired) {
+                    actionEvents = `onclick="UI.toast('Сотрудник уволен. Редактирование запрещено.', 'warning')"`;
+                    cellCursor = 'cursor: not-allowed;';
+                } else {
+                    actionEvents = `data-emp-id="${emp.id}"
                        data-emp-name="${escapeHTML(emp.full_name)}"
                        data-date="${dateStr}"
                        data-status="${status}"
                        data-bonus="${cellBonus}"
                        data-penalty="${cellPenalty}"
                        data-cost="${dailyCost}"
+                       data-multiplier="${cellMultiplier}"
                        data-b-comment="${escapeHTML(cellBonusComment)}"
                        data-p-comment="${escapeHTML(cellPenaltyComment)}"
                        onmousedown="startCellPress(event, this)" 
@@ -541,15 +578,17 @@ window.renderTimesheetMatrix = function (year, month) {
                        ontouchstart="startCellPress(event, this)"
                        ontouchend="endCellPress(event, this)"
                        ontouchcancel="cancelCellPress()"`;
+                    cellCursor = 'cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: manipulation;';
+                }
 
                 bodyHtml += `
                     <td style="${tdStyle}">
                         <div style="position: relative; width: max-content; margin: 0 auto; ${isFired && status === 'weekend' ? 'opacity: 0.4;' : ''}">
                             <div class="ts-cell status-${status}" 
-                                title="${emp.full_name} | ${dateStr}\nОклад (Факт): ${cellBaseRate}₽/д${ktuText}\nПремия: ${cellBonus}₽ | Штраф: ${cellPenalty}₽"
+                                title="${emp.full_name} | ${dateStr}\nОклад (Факт): ${cellBaseRate}₽/д${ktuText}\nПремия: ${cellBonus}₽ | Штраф: ${cellPenalty}₽\nДоля: ${cellMultiplier}"
                                 ${actionEvents}
-                                style="${isFired ? 'cursor: not-allowed;' : 'cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: manipulation;'}">
-                                ${day}
+                                style="${cellCursor}">
+                                ${status === 'partial' ? cellMultiplier : day}
                             </div>
                             ${extraIcons}
                         </div>
@@ -638,9 +677,10 @@ window.renderTimesheetMatrix = function (year, month) {
         if (emp.status === 'fired' && earnedToday === 0 && prevBalance === 0 && advances === 0 && adjSum === 0) return;
 
         // ВАЖНО: Математику считаем для ВСЕХ сотрудников (чтобы итоги карточек не ломались)
+        const netChange = earnedToday - finalTax - advances + adjSum;
         sumTotal[emp.department] += availableToPay;
         sumTotal['Всего'] += availableToPay;
-        currentMonthBalances.push({ employee_id: emp.id, balance: availableToPay, accrued: earnedToday });
+        currentMonthBalances.push({ employee_id: emp.id, balance: availableToPay, accrued: earnedToday, net_change: netChange });
 
         if (availableToPay !== 0 || earnedToday > 0) {
             currentPrintData.push({
@@ -691,6 +731,12 @@ window.renderTimesheetMatrix = function (year, month) {
     const isClosed = window.currentMonthStatus?.isClosed;
     const displayTaxes = isClosed ? parseFloat(window.currentMonthStatus.total_taxes) : totalMonthTaxes;
 
+    // Управление видимостью кнопки отмены закрытия в верхней панели (рядом с селектом)
+    const topReopenBtn = document.getElementById('reopen-month-btn-payroll');
+    if (topReopenBtn) {
+        topReopenBtn.style.display = isClosed ? 'inline-block' : 'none';
+    }
+
     // === ЧИСТАЯ ГЕНЕРАЦИЯ ПОДВАЛА ТАБЛИЦЫ ===
     payoutsHtml += `
         <tr>
@@ -701,12 +747,30 @@ window.renderTimesheetMatrix = function (year, month) {
                 </span>
                 
                 ${isClosed
-            ? `<span class="badge-closed">🔒 Месяц закрыт</span>`
+            ? `<span class="badge-closed">🔒 Месяц закрыт</span> <button class="btn btn-outline admin-only" style="margin-left: 15px; border-color: var(--danger); color: var(--danger);" onclick="reopenSalaryMonth()">🔓 Отменить закрытие</button>`
             : `<button class="btn btn-blue" style="background: var(--danger); border-color: var(--danger); padding: 10px 20px;" onclick="closeSalaryMonth()">🔒 Закрыть месяц</button>`
         }
             </td>
         </tr>
     `;
+
+    // Вызываем скрытие admin-only кнопок, если пользователь не админ (используя глобальную логику)
+    setTimeout(() => {
+        if (typeof window.startApp === 'function') {
+            const token = localStorage.getItem('token') || localStorage.getItem('jwtToken');
+            if (token) {
+                try {
+                    const parts = token.split('.');
+                    if (parts.length === 3) {
+                        const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+                        if (payload.role !== 'admin') {
+                            document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
+                        }
+                    }
+                } catch (e) { }
+            }
+        }
+    }, 50);
 
     // === ЧИСТАЯ ОТРИСОВКА КАРТОЧК ИТОГОВ ===
     const summaryBoxes = document.getElementById('salary-summary-boxes');
@@ -983,6 +1047,62 @@ window.executeCloseSalaryMonth = async function (monthStr, totalTaxes) {
         } else {
             const err = await res.json();
             UI.toast(err.error || 'Ошибка при закрытии месяца', 'error');
+        }
+    } catch (e) {
+        console.error(e);
+        UI.toast('Критическая ошибка связи с сервером', 'error');
+    }
+};
+
+// ==========================================
+// ОТМЕНА ЗАКРЫТИЯ МЕСЯЦА (Только для Админов)
+// ==========================================
+
+window.reopenSalaryMonth = function () {
+    const monthStr = document.getElementById('ts-month-picker').value;
+
+    const html = `
+        <div style="padding: 10px; font-size: 15px;">
+            <div style="text-align: center; font-size: 40px; margin-bottom: 10px;">🔓</div>
+            <div style="text-align: center; margin-bottom: 15px; color: var(--danger);">
+                <b>ВНИМАНИЕ: ОПАСНАЯ ОПЕРАЦИЯ</b><br>
+                Вы собираетесь отменить закрытие <b>${monthStr}</b>!
+            </div>
+            <ul style="color: var(--text-muted); font-size: 14px; line-height: 1.5; background: var(--surface-alt); padding: 10px 10px 10px 30px; border-radius: 6px;">
+                <li>Балансы сотрудников будут математически возвращены к состоянию на <b>НАЧАЛО ${monthStr}</b>.</li>
+                <li>Автоматические транзакции "Начисление ЗП" за этот месяц будут <b>УДАЛЕНЫ</b>.</li>
+                <li>После отмены вы обязаны проверить данные и закрыть месяц снова!</li>
+            </ul>
+        </div>
+    `;
+
+    const buttons = `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-blue" style="background: var(--danger); border-color: var(--danger);" 
+                onclick="executeReopenSalaryMonth('${monthStr}')">🔓 Я понимаю риски, отменить закрытие</button>
+    `;
+
+    UI.showModal('Отмена закрытия месяца', html, buttons);
+};
+
+window.executeReopenSalaryMonth = async function (monthStr) {
+    UI.closeModal();
+    UI.toast(`⏳ Математический откат балансов периода ${monthStr}...`, 'info');
+
+    try {
+        // Отправляем текущие посчитанные балансы (diff_to_subtract)
+        const res = await fetch('/api/salary/reopen-month', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ monthStr, balances: currentMonthBalances })
+        });
+
+        if (res.ok) {
+            UI.toast('✅ Месяц успешно открыт! Балансы и транзакции откачены.', 'success');
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            const err = await res.json();
+            UI.toast(err.error || 'Ошибка при отмене закрытия', 'error');
         }
     } catch (e) {
         console.error(e);
@@ -1432,6 +1552,7 @@ window.startCellPress = function (e, el) {
             el.getAttribute('data-bonus'),
             el.getAttribute('data-penalty'),
             el.getAttribute('data-cost'),
+            el.getAttribute('data-multiplier'),
             el.getAttribute('data-b-comment'),
             el.getAttribute('data-p-comment')
         );
@@ -1456,19 +1577,23 @@ window.endCellPress = async function (e, el) {
         const currentBComment = el.getAttribute('data-b-comment') || '';
         const currentPComment = el.getAttribute('data-p-comment') || '';
 
-        const newStatus = (currentStatus === 'present') ? 'weekend' : 'present';
+        const newStatus = (currentStatus === 'present' || currentStatus === 'partial') ? 'weekend' : 'present';
+        const newMultiplier = 1.0;
 
         // === 1. ОПТИМИСТИЧНЫЙ UI (МГНОВЕННАЯ РЕАКЦИЯ) ===
         // Визуально меняем ячейку прямо сейчас, не дожидаясь ответа сервера!
         el.setAttribute('data-status', newStatus);
+        el.setAttribute('data-multiplier', newMultiplier);
         el.className = `ts-cell status-${newStatus}`;
+        el.innerText = newStatus === 'partial' ? newMultiplier : el.innerText.trim();
 
         // Обновляем данные в локальной памяти, чтобы перерасчет сумм был верным
         let localRecord = currentMonthRecords.find(r => r.employee_id == empId && r.record_date.startsWith(dateStr));
         if (localRecord) {
             localRecord.status = newStatus;
+            localRecord.multiplier = newMultiplier;
         } else {
-            currentMonthRecords.push({ employee_id: parseInt(empId), record_date: dateStr, status: newStatus, bonus: currentBonus, penalty: currentPenalty });
+            currentMonthRecords.push({ employee_id: parseInt(empId), record_date: dateStr, status: newStatus, multiplier: newMultiplier, bonus: currentBonus, penalty: currentPenalty });
         }
 
         // Мгновенно пересчитываем итоги справа (сделка, суммы), используя локальный кэш
@@ -1483,6 +1608,7 @@ window.endCellPress = async function (e, el) {
                     employee_id: empId,
                     date: dateStr,
                     status: newStatus,
+                    multiplier: newMultiplier,
                     bonus: currentBonus,
                     penalty: currentPenalty,
                     bonus_comment: currentBComment,
@@ -1512,10 +1638,12 @@ window.endCellPress = async function (e, el) {
 };
 
 // === 📅 МОДАЛЬНОЕ ОКНО (С АВТОШТРАФОМ И СТАВКОЙ) ===
-window.openCellEditModal = function (empId, empName, dateStr, currentStatus, currentBonus, currentPenalty, dailyCost, bonusComment, penaltyComment) {
+window.openCellEditModal = function (empId, empName, dateStr, currentStatus, currentBonus, currentPenalty, dailyCost, currentMultiplier, bonusComment, penaltyComment) {
     bonusComment = (bonusComment && bonusComment !== 'undefined') ? bonusComment : '';
     penaltyComment = (penaltyComment && penaltyComment !== 'undefined') ? penaltyComment : '';
     const costNum = parseFloat(dailyCost) || 0;
+
+    const initialMultiplier = (parseFloat(currentMultiplier) === 0.25 || parseFloat(currentMultiplier) === 0.75) ? parseFloat(currentMultiplier) : 0.5;
 
     const html = `
         <p style="margin-top: 0; margin-bottom: 20px;">Отметка для <b>${escapeHTML(empName)}</b><br>
@@ -1523,8 +1651,9 @@ window.openCellEditModal = function (empId, empName, dateStr, currentStatus, cur
         
         <div class="form-group">
             <label>Статус:</label>
-            <select id="cell-status-select" class="input-modern" onchange="togglePenaltyCheck(${costNum})">
+            <select id="cell-status-select" class="input-modern" onchange="toggleCellStatusDeps(${costNum})">
                 <option value="present" ${currentStatus === 'present' ? 'selected' : ''}>🟢 Был на работе</option>
+                <option value="partial" ${currentStatus === 'partial' ? 'selected' : ''}>🌗 Неполный день (Частичный выход)</option>
                 <option value="weekend" ${currentStatus === 'weekend' ? 'selected' : ''}>⚪ Выходной</option>
                 <option value="absent" ${currentStatus === 'absent' ? 'selected' : ''}>🔴 Прогул</option>
                 <option value="sick" ${currentStatus === 'sick' ? 'selected' : ''}>🟡 Больничный</option>
@@ -1532,9 +1661,27 @@ window.openCellEditModal = function (empId, empName, dateStr, currentStatus, cur
             </select>
         </div>
 
-        <div id="penalty-check-container" style="display: ${currentStatus === 'absent' ? 'flex' : 'none'}; align-items: center; gap: 10px; margin: 10px 0; padding: 10px; background: var(--danger-bg); border-radius: 6px; border: 1px solid var(--danger-border);">
-            <input type="checkbox" id="cell-auto-penalty" style="width:18px; height:18px;" onchange="applyAutoPenalty(this.checked, ${costNum})">
-            <label for="cell-auto-penalty" style="font-size: 13px; color: var(--danger-text); font-weight: bold; cursor:pointer;">Вычесть стоимость смены за прогул (-${costNum} ₽)?</label>
+        <div id="multiplier-select-container" class="multiplier-block" style="display: ${currentStatus === 'partial' ? 'flex' : 'none'}">
+            <div class="multiplier-block-row">
+                <label class="multiplier-block-label">Отработанная доля:</label>
+                <label class="multiplier-radio-label">
+                    <input type="radio" name="cell-multiplier" value="0.25" ${initialMultiplier === 0.25 ? 'checked' : ''} onchange="updateModalDayResult(${costNum})"> 25%
+                </label>
+                <label class="multiplier-radio-label">
+                    <input type="radio" name="cell-multiplier" value="0.5" ${initialMultiplier === 0.5 ? 'checked' : ''} onchange="updateModalDayResult(${costNum})"> 50%
+                </label>
+                <label class="multiplier-radio-label">
+                    <input type="radio" name="cell-multiplier" value="0.75" ${initialMultiplier === 0.75 ? 'checked' : ''} onchange="updateModalDayResult(${costNum})"> 75%
+                </label>
+            </div>
+            <div class="modal-day-result-row">
+                Итого за день: <span id="modal-day-result" class="modal-day-result-value">${(costNum * initialMultiplier).toLocaleString('ru-RU')} ₽</span>
+            </div>
+        </div>
+
+        <div id="penalty-check-container" class="penalty-check-block" style="display: ${currentStatus === 'absent' ? 'flex' : 'none'}">
+            <input type="checkbox" id="cell-auto-penalty" onchange="applyAutoPenalty(this.checked, ${costNum})">
+            <label for="cell-auto-penalty">Вычесть стоимость смены за прогул (-${costNum} ₽)?</label>
         </div>
 
         <div class="form-grid" style="grid-template-columns: 1fr 1fr; margin-top: 15px; gap: 15px;">
@@ -1562,15 +1709,34 @@ window.openCellEditModal = function (empId, empName, dateStr, currentStatus, cur
     }, 50);
 };
 
-// === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (ДЛЯ АВТОШТРАФА) ===
-window.togglePenaltyCheck = function (dailyCost) {
+// === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (ДЛЯ АВТОШТРАФА И МНОЖИТЕЛЯ) ===
+window.toggleCellStatusDeps = function (dailyCost) {
     const status = document.getElementById('cell-status-select').value;
-    const container = document.getElementById('penalty-check-container');
-    if (status === 'absent') {
-        container.style.display = 'flex';
-    } else {
-        container.style.display = 'none';
-        document.getElementById('cell-auto-penalty').checked = false;
+    const penContainer = document.getElementById('penalty-check-container');
+    const multContainer = document.getElementById('multiplier-select-container');
+
+    if (penContainer) {
+        penContainer.style.display = (status === 'absent') ? 'flex' : 'none';
+        if (status !== 'absent') {
+            const penCheck = document.getElementById('cell-auto-penalty');
+            if (penCheck) penCheck.checked = false;
+        }
+    }
+    
+    if (multContainer) {
+        multContainer.style.display = (status === 'partial') ? 'flex' : 'none';
+        if (status === 'partial') {
+            updateModalDayResult(dailyCost);
+        }
+    }
+};
+
+window.updateModalDayResult = function (dailyCost) {
+    const checkedMulti = document.querySelector('input[name="cell-multiplier"]:checked');
+    const resultEl = document.getElementById('modal-day-result');
+    if (checkedMulti && resultEl) {
+        const mult = parseFloat(checkedMulti.value);
+        resultEl.innerText = (dailyCost * mult).toLocaleString('ru-RU') + ' ₽';
     }
 };
 
@@ -1583,6 +1749,12 @@ window.saveCellStatus = async function (empId, dateStr) {
     const penalty = parseFloat(document.getElementById('cell-penalty').value) || 0;
     const newStatus = document.getElementById('cell-status-select').value;
 
+    let newMultiplier = 1.0;
+    if (newStatus === 'partial') {
+        const checkedMulti = document.querySelector('input[name="cell-multiplier"]:checked');
+        if (checkedMulti) newMultiplier = parseFloat(checkedMulti.value);
+    }
+
     if (bonus < 0 || penalty < 0) {
         return UI.toast('Суммы не могут быть отрицательными!', 'warning');
     }
@@ -1591,6 +1763,7 @@ window.saveCellStatus = async function (empId, dateStr) {
         employee_id: empId,
         date: dateStr,
         status: newStatus,
+        multiplier: newMultiplier,
         bonus,
         penalty,
         bonus_comment: document.getElementById('cell-bonus-comment').value.trim(),
@@ -1612,8 +1785,20 @@ window.saveCellStatus = async function (empId, dateStr) {
                 localRecord.status = newStatus;
                 localRecord.bonus = bonus;
                 localRecord.penalty = penalty;
+                localRecord.multiplier = newMultiplier;
+                localRecord.bonus_comment = payload.bonus_comment;
+                localRecord.penalty_comment = payload.penalty_comment;
             } else {
-                currentMonthRecords.push({ employee_id: parseInt(empId), record_date: dateStr, status: newStatus, bonus: bonus, penalty: penalty });
+                currentMonthRecords.push({
+                    employee_id: parseInt(empId),
+                    record_date: dateStr,
+                    status: newStatus,
+                    bonus: bonus,
+                    penalty: penalty,
+                    multiplier: newMultiplier,
+                    bonus_comment: payload.bonus_comment,
+                    penalty_comment: payload.penalty_comment
+                });
             }
 
             if (typeof reRenderTimesheet === 'function') reRenderTimesheet();
