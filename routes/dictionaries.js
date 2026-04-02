@@ -3,6 +3,8 @@ const express = require('express');
 const router = express.Router();
 
 // 👈 Добавили withTransaction
+const { requireAdmin } = require('../middleware/auth');
+const { validateItem } = require('../middleware/validator');
 module.exports = function (pool, withTransaction) {
 
     // ==========================================
@@ -53,7 +55,7 @@ module.exports = function (pool, withTransaction) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    router.post('/api/items', async (req, res) => {
+    router.post('/api/items', requireAdmin, validateItem, async (req, res) => {
         // 🚀 ДОБАВИЛИ piece_rate И шаблоны замесов
         const { name, item_type, category, unit, price, weight, qty_per_cycle, mold_id, gost_mark, article, piece_rate, mix_main_tpl, mix_face_tpl } = req.body;
         try {
@@ -65,7 +67,7 @@ module.exports = function (pool, withTransaction) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    router.put('/api/items/:id', async (req, res) => {
+    router.put('/api/items/:id', requireAdmin, async (req, res) => {
         const itemId = req.params.id;
 
         // 1. Белый список разрешенных полей (строго по схеме БД)
@@ -112,7 +114,7 @@ module.exports = function (pool, withTransaction) {
     });
 
     // === БЕЗОПАСНОЕ УДАЛЕНИЕ ТОВАРА (SOFT DELETE) ===
-    router.delete('/api/items/:id', async (req, res) => {
+    router.delete('/api/items/:id', requireAdmin, async (req, res) => {
         try {
             await pool.query(`UPDATE items SET is_deleted = true WHERE id = $1`, [req.params.id]);
             res.json({ success: true, message: 'Позиция перенесена в архив' });
@@ -128,7 +130,7 @@ module.exports = function (pool, withTransaction) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    router.post('/api/products/update-prices', async (req, res) => {
+    router.post('/api/products/update-prices', requireAdmin, async (req, res) => {
         const { prices } = req.body;
         if (!prices || !Array.isArray(prices) || prices.length === 0) return res.json({ success: true });
 
@@ -167,7 +169,7 @@ module.exports = function (pool, withTransaction) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    router.post('/api/employees', async (req, res) => {
+    router.post('/api/employees', requireAdmin, async (req, res) => {
         const { full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, status } = req.body;
         try {
             await withTransaction(pool, async (client) => {
@@ -195,7 +197,7 @@ module.exports = function (pool, withTransaction) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    router.put('/api/employees/:id', async (req, res) => {
+    router.put('/api/employees/:id', requireAdmin, async (req, res) => {
         const { full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, status } = req.body;
         const currentMonthStr = new Date().toISOString().substring(0, 7);
 
@@ -232,7 +234,7 @@ module.exports = function (pool, withTransaction) {
     });
 
     // === БЕЗОПАСНОЕ УДАЛЕНИЕ СОТРУДНИКА (УВОЛЬНЕНИЕ) ===
-    router.delete('/api/employees/:id', async (req, res) => {
+    router.delete('/api/employees/:id', requireAdmin, async (req, res) => {
         try {
             await withTransaction(pool, async (client) => {
                 // 1. Мягкое удаление сотрудника
@@ -269,7 +271,7 @@ module.exports = function (pool, withTransaction) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    router.post('/api/equipment', async (req, res) => {
+    router.post('/api/equipment', requireAdmin, async (req, res) => {
         const { name, equipment_type, purchase_cost, planned_cycles, current_cycles, qty_per_cycle, status } = req.body;
         try {
             await pool.query(`
@@ -280,7 +282,7 @@ module.exports = function (pool, withTransaction) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    router.put('/api/equipment/:id', async (req, res) => {
+    router.put('/api/equipment/:id', requireAdmin, async (req, res) => {
         const { name, equipment_type, purchase_cost, planned_cycles, current_cycles, qty_per_cycle, status } = req.body;
         try {
             await pool.query(`
@@ -291,7 +293,7 @@ module.exports = function (pool, withTransaction) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    router.post('/api/equipment/:id/maintenance', async (req, res) => {
+    router.post('/api/equipment/:id/maintenance', requireAdmin, async (req, res) => {
         const { amount, description, account_id, reset_cycles } = req.body;
         const equipId = req.params.id;
 
@@ -323,16 +325,12 @@ module.exports = function (pool, withTransaction) {
         }
     });
 
-    router.delete('/api/equipment/:id', async (req, res) => {
+    router.delete('/api/equipment/:id', requireAdmin, async (req, res) => {
         try {
-            await pool.query(`DELETE FROM equipment WHERE id = $1`, [req.params.id]);
-            res.json({ success: true, message: 'Удалено' });
+            await pool.query(`UPDATE equipment SET status = 'scrapped' WHERE id = $1`, [req.params.id]);
+            res.json({ success: true, message: 'Успешно списано (Soft Delete)' });
         } catch (err) {
-            if (err.code === '23503') {
-                res.status(400).json({ error: 'Невозможно удалить: оборудование привязано к продукции. Измените статус на "Списано".' });
-            } else {
-                res.status(500).json({ error: err.message });
-            }
+            res.status(500).json({ error: err.message });
         }
     });
 

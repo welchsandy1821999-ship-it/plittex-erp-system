@@ -103,7 +103,81 @@
 }
 
 /* ==========================================================================
-   2. БАЗОВЫЕ СТИЛИ (Сброс и типографика)
+   0. UTILITY CLASSES (ГЛОБАЛЬНЫЕ)
+   ========================================================================== */
+/* Флекс-сетки */
+.flex-row { display: flex; flex-direction: row; }
+.flex-col { display: flex; flex-direction: column; }
+.flex-center { display: flex; justify-content: center; align-items: center; }
+.flex-between { display: flex; justify-content: space-between; align-items: center; }
+.align-center { align-items: center; display: flex; }
+
+/* Отступы (Gaps) */
+.gap-5 { gap: 5px; }
+.gap-10 { gap: 10px; }
+.gap-15 { gap: 15px; }
+.gap-20 { gap: 20px; }
+
+/* Отступы (Margins & Paddings) */
+.m-0 { margin: 0 !important; }
+.mt-0 { margin-top: 0; }
+.mt-5 { margin-top: 5px; }
+.mt-10 { margin-top: 10px; }
+.mt-15 { margin-top: 15px; }
+.mt-20 { margin-top: 20px; }
+.mb-0 { margin-bottom: 0 !important; }
+.mb-5 { margin-bottom: 5px; }
+.mb-10 { margin-bottom: 10px; }
+.mb-15 { margin-bottom: 15px; }
+.mb-20 { margin-bottom: 20px; }
+
+.p-0 { padding: 0 !important; }
+.p-5 { padding: 5px; }
+.p-10 { padding: 10px; }
+.p-15 { padding: 15px; }
+.p-20 { padding: 20px; }
+
+/* Текст */
+.text-center { text-align: center; }
+.text-right { text-align: right !important; }
+.text-left { text-align: left; }
+.text-main { color: var(--text-main); }
+.text-muted { color: var(--text-muted); }
+.text-success { color: var(--success); }
+.text-warning { color: var(--warning); }
+.text-danger { color: var(--danger); }
+.text-info { color: var(--info); }
+.font-bold { font-weight: bold; }
+.font-600 { font-weight: 600; }
+.font-700 { font-weight: 700; }
+.font-900 { font-weight: 900; }
+.font-normal { font-weight: normal; }
+.font-11 { font-size: 11px; }
+.font-12 { font-size: 12px; }
+.font-13 { font-size: 13px; }
+.font-14 { font-size: 14px; }
+.font-15 { font-size: 15px; }
+.font-16 { font-size: 16px; }
+.font-18 { font-size: 18px; }
+.font-bold-14 { font-size: 14px; font-weight: bold; }
+.font-bold-16 { font-size: 16px; font-weight: bold; }
+.font-bold-18 { font-size: 18px; font-weight: bold; }
+.cursor-pointer { cursor: pointer; }
+.align-start { align-items: flex-start; }
+.align-stretch { align-items: stretch; }
+.text-primary { color: var(--primary); }
+.text-warning { color: var(--warning); }
+.border-left-primary { border-left: 4px solid var(--primary); }
+.border-left-muted { border-left: 4px solid var(--border); }
+.label-sm { display: block; font-size: 11px; margin-bottom: 2px; }
+
+/* Ширина и Высота */
+.w-100 { width: 100%; }
+.h-100 { height: 100%; }
+.flex-grow-1 { flex-grow: 1; }
+
+/* ==========================================================================
+   1. БАЗОВЫЕ СТИЛИ (Сброс и типографика)
    ========================================================================== */
 *,
 *::before,
@@ -414,15 +488,6 @@ h4 {
     flex-direction: column;
     gap: 6px;
     margin-bottom: 16px;
-    /* ⬅️ ВОССТАНОВИЛИ ОТСТУП МЕЖДУ ПОЛЯМИ */
-}
-
-.form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-bottom: 16px;
-    /* ⬅️ ВОССТАНОВИЛИ ОТСТУП МЕЖДУ ПОЛЯМИ */
 }
 
 /* Если поля стоят в сетке, там работает gap, поэтому margin отключаем */
@@ -678,79 +743,7 @@ tr:hover {
     margin-bottom: 20px;
 }
 
-/* ==========================================================================
-   7. УТИЛИТЫ (ВСПОМОГАТЕЛЬНЫЕ КЛАССЫ)
-   ========================================================================== */
-.flex-between {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
 
-.flex-column {
-    display: flex;
-    flex-direction: column;
-}
-
-.gap-10 {
-    gap: 10px;
-}
-
-.gap-15 {
-    gap: 15px;
-}
-
-.mb-15 {
-    margin-bottom: 15px;
-}
-
-.mb-20 {
-    margin-bottom: 20px;
-}
-
-.mt-0 {
-    margin-top: 0;
-}
-
-.mt-15 {
-    margin-top: 15px;
-}
-
-.mt-20 {
-    margin-top: 20px;
-}
-
-.w-100 {
-    width: 100%;
-}
-
-.text-center {
-    text-align: center;
-}
-
-.text-right {
-    text-align: right !important;
-}
-
-.text-main {
-    color: var(--text-main);
-}
-
-.text-muted {
-    color: var(--text-muted);
-}
-
-.text-success {
-    color: var(--success-text);
-}
-
-.text-warning {
-    color: var(--warning-text);
-}
-
-.text-danger {
-    color: var(--danger-text);
-}
 
 .toolbar-group {
     display: flex;
@@ -2341,7 +2334,7 @@ body.dev-panel-hidden-active {
 .kanban-card-processing { border-left: 5px solid var(--success); }
 .kanban-card-header { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; display: flex; justify-content: space-between; }
 .kanban-card-client { font-weight: bold; margin-bottom: 8px; color: #1e293b; font-size: 14px; }
-.kanban-card-items { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.kanban-card-items { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .kanban-card-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--surface-alt); padding-top: 10px; }
 .kanban-card-total { font-size: 15px; font-weight: 800; color: #0f172a; }
 .kanban-card-btn { background: var(--surface-alt); border: none; padding: 4px 8px; border-radius: 4px; color: #3b82f6; cursor: pointer; font-size: 12px; font-weight: bold; transition: 0.2s; }
@@ -2364,3 +2357,899 @@ body.dev-panel-hidden-active {
 /* --- 17.16 Утилиты --- */
 .text-center { text-align: center; }
 .text-right { text-align: right; }
+
+/* ==========================================================================
+   18. ДАШБОРД (Кодовое имя: dashboard.ejs)
+   ========================================================================== */
+.dash-header-btn {
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    transition: 0.3s;
+}
+.dash-header-btn:hover { background: var(--surface-hover); }
+
+/* Границы (Цветные обводки) */
+.dash-border-primary { border-bottom: 4px solid var(--primary); }
+.dash-border-warning { border-bottom: 4px solid var(--warning); }
+.dash-border-danger { border-bottom: 4px solid var(--danger); }
+
+/* Карточка Склада */
+.dash-stock-card { border-top: 4px solid var(--info); transition: 0.3s; padding: 0 !important; }
+.dash-stock-title { margin: 0; font-size: 16px; color: var(--info); }
+.dash-accordion-body { padding: 0 15px 15px 15px; border-top: 1px dashed var(--border); }
+.cursor-pointer { cursor: pointer; }
+
+/* Поиск */
+.dash-main-search { font-size: 15px; padding: 12px 15px; border-radius: 8px; border: 1px solid var(--border); }
+.dash-search-container { border-left: 4px solid var(--primary); }
+.dash-panel-header { border-bottom: 1px solid var(--border); padding-bottom: 15px; }
+
+/* Три Кита (Вкладки) */
+.dash-triad-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.dash-tab-card { cursor: pointer; transition: 0.3s; margin-bottom: 0 !important; }
+.dash-tab-success { border-top: 4px solid var(--success); }
+.dash-tab-warning { border-top: 4px solid var(--warning); }
+.dash-tab-primary { border-top: 4px solid var(--primary); }
+
+.dash-tab-title { margin-top: 0; margin-bottom: 5px; font-size: 16px; }
+.dash-tab-desc { font-size: 12px; color: var(--text-muted); margin-bottom: 15px; }
+.dash-tab-val { font-size: 24px; font-weight: bold; margin-bottom: 5px; }
+
+/* Слайдер-панели */
+.dash-panel-success { border-left: 4px solid var(--success); }
+.dash-panel-warning { border-left: 4px solid var(--warning); }
+.dash-panel-primary { border-left: 4px solid var(--primary); }
+.btn-sm-pad { padding: 6px 12px; }
+
+/* Финансовая модель */
+.dash-finance-card { border-left: 5px solid var(--warning); max-width: 700px; }
+.dash-finance-tax-box { text-align: right; background: var(--surface-alt); padding: 8px 12px; border-radius: 6px; border: 1px dashed var(--primary); }
+.dash-tax-input-wrap { display: flex; align-items: center; justify-content: flex-end; gap: 5px; margin-top: 3px; }
+.dash-tax-input { width: 60px; height: 28px; padding: 2px 5px; text-align: center; }
+
+.dash-finance-input-box { background: var(--surface-alt); padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 15px; }
+.dash-finance-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; align-items: start; }
+
+.dash-finance-result-box { display: flex; justify-content: space-between; align-items: center; background: var(--surface-hover); padding: 15px; border-radius: 8px; border: 1px dashed var(--border); margin-bottom: 15px; }
+
+/* Дополнительные глобальные утилиты */
+.align-end { align-items: flex-end; }
+.font-16 { font-size: 16px; }
+.font-24 { font-size: 24px; }
+.mr-5 { margin-right: 5px; }
+.mr-10 { margin-right: 10px; }
+.ml-5 { margin-left: 5px; }
+.ml-10 { margin-left: 10px; }
+.flex-wrap { flex-wrap: wrap; }
+.text-primary { color: var(--primary); }
+
+/* Колонки таблиц (%) */
+.w-4 { width: 4%; }
+.w-8 { width: 8%; }
+.w-9 { width: 9%; }
+.w-10 { width: 10%; }
+.w-12 { width: 12%; }
+.w-15 { width: 15%; }
+.w-20 { width: 20%; }
+.w-25 { width: 25%; }
+
+/* --- JS HTML генерация Дашборда --- */
+.dash-warn-card { background: #fef2f2; color: #b91c1c; border: 1px solid #fca5a5; padding: 15px; }
+.dash-success-card { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; padding: 15px; }
+
+.dash-search-tx-row { display: flex; justify-content: space-between; padding: 8px 15px 8px 30px; border-bottom: 1px solid var(--surface-hover); }
+.dash-search-tx-info { flex-grow: 1; min-width: 0; padding-right: 15px; }
+.dash-text-ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-search-tx-amount { font-weight: bold; color: var(--danger); white-space: nowrap; margin-right: 15px; }
+.dash-search-cat-header { background: var(--surface-alt); padding: 8px 15px 8px 20px; font-weight: bold; border-bottom: 1px solid var(--border); color: var(--text-main); }
+.dash-search-group-wrap { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+
+.dash-drill-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; border-bottom: 1px solid var(--surface-hover); cursor: pointer; transition: 0.2s; }
+.dash-drill-tx { padding: 12px 15px; border-bottom: 1px dashed var(--border); }
+.dash-bulk-bar { display: none; position: sticky; bottom: 0; background: var(--surface); border-top: 2px solid var(--primary); padding: 10px 15px; z-index: 5; }
+.dash-tx-wrapper { max-height: 420px; overflow-y: auto; position: relative; }
+
+/* ==========================================================================
+   19. ФИНАНСЫ И КАССА (finance.ejs и finance.js)
+   ========================================================================== */
+.finance-charts-grid { grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 25px; }
+.finance-chart-container { height: 250px; }
+.finance-invoices-wrap { margin-bottom: 20px; display: none; }
+.finance-search-input { width: 350px; }
+
+.finance-summary-bar {
+    background: var(--surface-hover);
+    border: 1px solid var(--primary);
+    border-left: 4px solid var(--primary);
+    padding: 12px 15px;
+    border-radius: 8px;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.finance-summary-count {
+    font-size: 13px;
+    color: var(--text-muted);
+    background: var(--surface);
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.finance-btn-reset {
+    padding: 4px 10px;
+    font-size: 12px;
+    border: none;
+    background: white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+.finance-btn-reset:hover { background: var(--surface-alt); }
+
+.finance-table { table-layout: fixed; word-break: break-word; }
+.finance-limit-select { padding: 2px 5px; min-height: 30px; width: 70px; }
+
+/* --- JS HTML генерация Финансов --- */
+.finance-alert-danger { background: var(--danger-bg); padding: 15px; border-radius: 8px; border: 1px solid var(--danger-border); border-left: 5px solid var(--danger); animation: fadeIn 0.5s; }
+.finance-alert-danger h4 { margin: 0 0 5px 0; color: var(--danger-text); display: flex; align-items: center; gap: 8px; }
+.finance-alert-success { background: var(--success-bg); padding: 15px; border-radius: 8px; border: 1px solid var(--success-border); border-left: 5px solid var(--success); animation: fadeIn 0.5s; }
+.finance-alert-success h4 { margin: 0 0 5px 0; color: var(--success-text); display: flex; align-items: center; gap: 8px; }
+.finance-alert-text { font-size: 13px; color: var(--text-main); line-height: 1.5; }
+
+.finance-margin-grid { display: grid; gap: 10px; margin-top: 10px; }
+.finance-margin-card { background: var(--surface); padding: 12px; border-radius: 8px; border: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+
+.finance-pnl-wrap { background: var(--surface-alt); padding: 20px; border-radius: 8px; border: 1px solid var(--border); }
+.finance-pnl-header { margin-top: 0; text-align: center; color: var(--text-main); }
+.finance-pnl-toolbar { display: flex; justify-content: center; gap: 10px; margin-bottom: 20px; align-items: center; background: var(--surface); padding: 10px; border-radius: 8px; border: 1px solid var(--border); }
+.finance-pnl-date-badge { text-align: center; margin-bottom: 25px; }
+.finance-pnl-date-badge span { background: var(--surface-alt); color: var(--primary); padding: 6px 15px; border-radius: 20px; font-weight: bold; font-size: 13px; border: 1px solid var(--primary); }
+.finance-pnl-row { display: flex; justify-content: space-between; padding: 10px 15px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 5px; }
+.finance-pnl-total-row { display: flex; justify-content: space-between; padding: 12px 15px; background: var(--surface-alt); border-right: 3px solid transparent; margin-bottom: 20px; align-items: center; }
+.finance-pnl-result-row { display: flex; justify-content: space-between; padding: 25px 20px; border-radius: 8px; align-items: center; border: 2px solid transparent; }
+
+.cp-card-box { background: var(--surface); padding: 12px 15px; border-radius: 8px; border: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; transition: 0.2s; }
+.cp-card-stat { flex: 1.2; text-align: center; border-left: 1px solid var(--border); border-right: 1px solid var(--border); padding: 0 10px; }
+.cp-card-money { flex: 1.2; padding-left: 15px; text-align: right; }
+.cp-flag-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid transparent; }
+
+/* CRM profile styles */
+.crm-tx-row { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.crm-tx-right { text-align: right; width: 45%; padding-right: 10px; font-weight: 500; }
+.crm-tx-amount { font-weight: bold; white-space: nowrap; }
+.crm-inv-row { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.crm-profile-card { background: var(--surface-alt); padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 15px; }
+.crm-profile-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.crm-profile-title { margin: 0 0 10px 0; display: flex; align-items: center; }
+.crm-profile-info { font-size: 12px; color: var(--text-muted); line-height: 1.6; }
+.crm-toggle-header { margin: 0 0 5px 0; cursor: pointer; background: var(--surface-alt); padding: 10px; border-radius: 6px; border: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; transition: 0.2s; }
+.crm-toggle-content { border: 1px solid var(--border); border-radius: 8px; max-height: 200px; overflow-y: auto; background: var(--surface); }
+.crm-block-header { margin: 0 0 10px 0; }
+.crm-list-box { border: 1px solid var(--border); border-radius: 8px; max-height: 150px; overflow-y: auto; background: var(--surface); margin-bottom: 15px; }
+.crm-actions-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+.crm-history-box { border: 1px solid var(--border); border-radius: 8px; max-height: 600px; overflow-y: auto; background: var(--surface); }
+
+/* --- Таблица транзакций (renderTransactionsTable) --- */
+.tx-row-system { opacity: 0.6; background-color: #f9f9f9; }
+.tx-account-label { font-size: 11px; font-weight: bold; display: block; margin-top: 3px; }
+.tx-actions-cell { text-align: center; display: flex; gap: 5px; justify-content: center; align-items: center; }
+.tx-locked-badge { font-size: 11px; color: var(--text-muted); font-weight: bold; background: var(--surface-alt); padding: 4px 8px; border-radius: 4px; }
+
+/* --- counterpartiesModal layout --- */
+.cp-modal-filter-bar { background: var(--surface-alt); padding: 15px; border-radius: 12px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.cp-modal-filter-flex { flex: 1; min-width: 200px; }
+.cp-list-container { max-height: 550px; overflow-y: auto; padding-right: 5px; display: flex; flex-direction: column; gap: 8px; }
+
+/* --- imprest widget --- */
+.imprest-item-row { display: grid; grid-template-columns: 2fr 3fr 3fr auto; gap: 10px; align-items: start; background: var(--surface-alt); padding: 10px; border-radius: 8px; border: 1px solid var(--border); }
+
+/* ==========================================================================
+   20. ПРОИЗВОДСТВО И ФОРМОВКА
+   ========================================================================== */
+
+/* --- Шапка модуля --- */
+.prod-date-input { width: 140px; cursor: pointer; }
+.prod-header-datepicker { margin: 0; }
+.prod-shift-group { margin: 0; width: 250px; }
+
+/* --- Сетка шагов (3 колонки: Формовка / Основной замес / Лицевой замес) --- */
+.prod-steps-grid { grid-template-columns: 1fr 1fr 1fr; align-items: stretch; }
+
+/* --- Превью объёма (итого м²/шт) --- */
+.prod-volume-preview {
+    font-weight: 900;
+    font-size: 16px;
+    padding: 10px;
+    background: var(--surface);
+    border-radius: 6px;
+    border: 1px solid var(--success-border);
+}
+
+/* --- Кнопка добавления в партию --- */
+.prod-add-btn { height: 42px; font-size: 14px; font-weight: 700; }
+
+/* --- Норма смешивания (блок) --- */
+.prod-mix-norms-main { background: var(--surface-alt); }
+.prod-mix-norms-face { background: var(--warning-bg); }
+
+/* --- Секция истории партий --- */
+.prod-history-card { margin-top: 20px; }
+.prod-search-wrap { position: relative; width: 350px; }
+.prod-search-icon { position: absolute; left: 12px; top: 10px; opacity: 0.5; pointer-events: none; }
+.prod-search-input { padding-left: 35px; margin: 0; border-radius: 20px; }
+
+/* --- Заголовки таблицы истории (сортируемые) --- */
+.prod-th-sortable { cursor: pointer; }
+.prod-th-date { cursor: pointer; color: var(--primary); }
+
+/* --- Подвал таблицы (итоги смены) --- */
+.prod-tfoot-summary { background: var(--surface-alt); font-weight: bold; border-top: 2px solid var(--border); }
+.prod-tfoot-label { text-align: right; padding: 12px; }
+.prod-tfoot-volume { padding: 12px; color: var(--primary); }
+.prod-tfoot-cost { padding: 12px; color: var(--danger); }
+.prod-tfoot-actions { text-align: right; padding: 12px; }
+
+/* --- production.js dynamic elements --- */
+/* Calendar styles */
+.prod-cal-active { font-weight: bold; color: var(--primary); }
+.prod-cal-dot { position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; background-color: var(--success); border-radius: 50%; }
+
+/* Template Editor */
+.prod-tpl-hint { font-size: 11px; margin-bottom: 5px; opacity: 0.8; }
+.prod-tpl-row { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding: 4px 0; }
+.prod-tpl-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.prod-tpl-input { width: 75px; padding: 2px 5px; text-align: right; margin: 0; font-weight: bold; font-size: 13px; border: 1px solid var(--border); }
+.prod-tpl-unit { font-size: 11px; width: 15px; text-align: left; }
+
+/* Session Products */
+.prod-session-empty { color: var(--text-muted); font-size: 13px; text-align: center; padding: 15px; border: 1px dashed var(--border); border-radius: 6px; }
+.prod-session-item { display: flex; justify-content: space-between; align-items: center; background: var(--surface); padding: 10px 15px; border-radius: 8px; border: 1px solid var(--border); }
+
+/* History Statuses */
+.prod-badge-draft { background: var(--warning); color: #000; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: bold; margin-left: 6px; }
+.prod-row-draft { border-left: 3px solid var(--warning) !important; }
+
+/* Batch Details */
+.prod-details-td { padding: 0; background: #fdfdfd; border-bottom: 3px solid var(--primary); }
+.prod-details-wrap { padding: 30px; font-family: 'Inter', system-ui, sans-serif; color: #333; }
+.prod-details-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 25px; border-bottom: 2px solid #eee; padding-bottom: 15px; }
+.prod-details-title { margin: 0; font-size: 20px; color: var(--text-main); }
+.prod-details-vol { margin: 5px 0 0; color: var(--text-muted); font-size: 14px; }
+.prod-details-cost-label { font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+.prod-details-cost-val { font-size: 32px; font-weight: 900; color: var(--primary); line-height: 1; }
+.prod-details-grid { display: grid; grid-template-columns: 320px 1fr; gap: 30px; }
+.prod-cost-cards { display: flex; flex-direction: column; gap: 18px; }
+.prod-cost-card { background: white; padding: 18px; border-radius: 12px; border: 1px solid #e0e0e0; }
+.prod-cost-card-mat { border-left: 5px solid var(--success); }
+.prod-cost-card-mach { border-left: 5px solid var(--warning); }
+.prod-cost-card-mold { border-left: 5px solid #007bff; }
+.prod-cost-header { display: flex; justify-content: space-between; margin-bottom: 10px; }
+.prod-cost-title { font-weight: bold; color: #555; }
+.prod-cost-val { font-size: 16px; }
+.prod-cost-bar-bg { background: #f0f0f0; height: 8px; border-radius: 4px; margin-bottom: 10px; overflow: hidden; }
+.prod-cost-bar-fill { height: 100%; background: var(--success); }
+.prod-cost-unit-mat { display: flex; justify-content: space-between; font-size: 14px; padding: 8px; border-radius: 6px; background: #f9f9f9; }
+.prod-cost-unit-mach { display: flex; justify-content: space-between; font-size: 14px; padding: 8px; border-radius: 6px; background: #fffcf5; border: 1px solid #fff3d6; }
+.prod-cost-unit-mold { display: flex; justify-content: space-between; font-size: 14px; padding: 8px; border-radius: 6px; background: #f0f7ff; border: 1px solid #d1e7ff; }
+
+.prod-mat-table-wrap { background: white; padding: 25px; border-radius: 12px; border: 1px solid #e0e0e0; box-shadow: 0 10px 30px rgba(0,0,0,0.03); }
+.prod-mat-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.prod-mat-title { margin: 0; font-size: 15px; text-transform: uppercase; letter-spacing: 0.5px; color: #666; }
+.prod-mat-badge { background: #eee; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; }
+.prod-table-modern { width: 100%; border-collapse: collapse; }
+.prod-th-styled { padding: 12px; border-bottom: 2px solid #eee; font-size: 11px; color: #888; text-align: left; background: #f8f9fa; }
+.prod-th-right { text-align: right; }
+.prod-tr-styled { border-bottom: 1px solid #f5f5f5; }
+.prod-td-styled { padding: 12px; }
+.prod-td-right { text-align: right; }
+.prod-mat-name { font-weight: 600; color: #333; }
+.prod-tfoot-styled { background: #fcfcfc; border-top: 2px solid #eee; font-weight: 900; color: var(--text-main); }
+.prod-tfoot-td { padding: 15px 12px; }
+
+/* MRP Dashboard */
+.mrp-plan-row { border-bottom: 1px solid var(--border); }
+.mrp-plan-qty { text-align: right; color: var(--primary); font-weight: bold; font-size: 14px; }
+.mrp-deficit-row { border-bottom: 1px solid var(--border); }
+.mrp-card-block { margin-bottom: 0; padding: 0; overflow: hidden; border: 1px solid var(--border); }
+.mrp-card-header { background: var(--surface-alt); padding: 12px 15px; border-bottom: 2px solid var(--info); }
+.mrp-card-title { margin: 0; color: var(--text-main); display: flex; justify-content: space-between; align-items: center; }
+.mrp-title-badge { background: var(--info); color: white; padding: 3px 10px; border-radius: 12px; font-size: 11px; }
+
+/* Template Modal Table */
+.prod-tpl-edit-th { padding: 12px 10px; background: var(--surface-alt); color: var(--text-muted); font-size: 13px; text-transform: uppercase; text-align: left; }
+.prod-tpl-edit-tr { border-bottom: 1px solid var(--border); transition: background 0.2s; }
+.prod-tpl-edit-tr:hover { background: var(--surface-alt); }
+.prod-tpl-edit-add-wrap { background: var(--surface-alt); padding: 18px; border-radius: 10px; border: 1px dashed var(--border); box-shadow: 0 4px 15px rgba(0,0,0,0.03); }
+
+/* ==========================================================================
+   21. СКЛАДЫ И СУШИЛКА
+   ========================================================================== */
+
+.inv-filter-panel {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.inv-stock-card {
+    border-top: 4px solid var(--info);
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.03);
+    overflow: hidden;
+}
+
+/* Width utilities for stock table columns */
+.inv-col-wh { width: 10%; }
+.inv-col-batch { width: 12%; }
+.inv-col-name { width: auto; }
+.inv-col-qty { width: 12%; }
+.inv-col-unit { width: 8%; }
+.inv-col-actions { width: 12%; }
+
+/* Grid utilities */
+.inv-grid-3 { grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.inv-grid-2 { grid-template-columns: 1fr 1fr; gap: 10px; }
+
+/* Buttons */
+.inv-reserve-btn {
+    border-color: var(--warning);
+    color: var(--warning-text);
+}
+.inv-reserve-btn.active {
+    background-color: var(--warning);
+    color: #000;
+}
+.inv-reserve-btn:hover {
+    background-color: var(--warning-bg);
+    color: var(--warning-text);
+}
+
+.inv-hidden {
+    display: none !important;
+}
+
+/* ==========================================================================
+   22. ПРОДАЖИ И ИНВОЙСЫ
+   ========================================================================== */
+.sales-tabs {
+    display: flex; gap: 10px; margin-bottom: 20px; overflow-x: auto;
+}
+.sales-tab-btn {
+    padding: 10px 20px; border-radius: 8px; background: var(--surface);
+    border: 1px solid var(--border); cursor: pointer; font-weight: bold;
+    color: var(--text-muted); transition: 0.2s; white-space: nowrap;
+}
+.sales-tab-btn:hover { background: var(--surface-alt); }
+.sales-tab-btn.active {
+    background: var(--primary); color: white; border-color: var(--primary);
+}
+.sales-tab-content { display: none; }
+.sales-tab-content.active { display: block; animation: fadeIn 0.3s ease; }
+
+.sales-hidden { display: none !important; }
+
+/* Checkout Grid */
+.sales-checkout-grid { display: grid; grid-template-columns: 350px 1fr; gap: 20px; align-items: start; }
+.sales-two-cols { grid-template-columns: 1fr 1fr; }
+
+/* Dropdown */
+.sales-dropdown { position: relative; display: inline-block; }
+.sales-dropdown-content {
+    display: none; position: absolute; background-color: #fff;
+    min-width: 220px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.1);
+    z-index: 10; border-radius: 8px; top: calc(100% + 5px); right: 0;
+    border: 1px solid var(--border); overflow: hidden;
+}
+.sales-dropdown-content button {
+    color: var(--text-main); padding: 12px 16px; text-decoration: none;
+    display: block; width: 100%; border: none; background: none;
+    text-align: left; cursor: pointer; font-size: 13px; font-family: inherit;
+}
+.sales-dropdown-content button:hover { background-color: var(--surface-alt); }
+.sales-dropdown:hover .sales-dropdown-content { display: block; }
+
+/* Kanban Styles Extension */
+.sales-kanban-board { display: flex; gap: 20px; overflow-x: auto; padding-bottom: 10px; }
+.kanban-column {
+    background: var(--surface-alt); border-radius: 10px; min-width: 320px; flex: 1;
+    border: 1px solid var(--border); display: flex; flex-direction: column; 
+}
+.kanban-column-title {
+    margin: 0; padding: 15px; background: var(--surface); 
+    border-bottom: 2px solid var(--border); font-size: 15px; 
+    display: flex; justify-content: space-between; align-items: center; 
+    border-radius: 10px 10px 0 0;
+}
+.kanban-count { background: var(--border); padding: 3px 10px; border-radius: 12px; font-size: 12px; }
+.kanban-items-container { padding: 15px; flex-grow: 1; overflow-y: auto; max-height: 800px; display: flex; flex-direction: column; gap: 10px; }
+
+/* ==========================================================================
+   23. КАДРЫ И ЗАРПЛАТА (HR & Payroll Module)
+   ========================================================================== */
+
+/* --- 23.1 Аккордеоны (цветная левая полоса по типу) --- */
+.hr-accordion-success { border-left: 4px solid var(--success); }
+.hr-accordion-danger  { border-left: 4px solid var(--danger); }
+.hr-accordion-primary { border-left: 4px solid var(--primary); }
+.hr-accordion-warning { border-left: 4px solid var(--warning); }
+
+/* --- 23.2 Панель инструментов (фильтры и кнопки) --- */
+.hr-toolbar-panel {
+    padding: 10px;
+    border-radius: 8px;
+}
+.hr-toolbar-filters { max-width: 600px; }
+
+/* --- 23.3 Выпадающий список отдела --- */
+.hr-dep-select { width: 150px; }
+
+/* --- 23.4 Колонка действий (фиксированная ширина) --- */
+.hr-action-col { width: 80px; }
+
+/* --- 23.5 Колонка сотрудника в ведомости --- */
+.hr-employee-col { width: 20%; }
+
+/* --- 23.6 Поле выбора месяца в табеле --- */
+.hr-month-picker {
+    width: 160px;
+    font-weight: bold;
+}
+
+/* --- 23.7 Поиск по табелю (ограниченная ширина) --- */
+.hr-ts-search { max-width: 250px; }
+
+/* --- 23.8 Подсказка-легенда кликов по ячейкам --- */
+.hr-hint-text {
+    font-size: 11px;
+    max-width: 120px;
+    line-height: 1.2;
+    color: var(--text-muted);
+}
+
+/* --- 23.9 Контейнер табеля (горизонтальный скролл) --- */
+.hr-timesheet-wrapper { overflow-x: auto; }
+
+/* --- 23.10 Таблица табеля (фиксированная мин. ширина для горизонтального скролла) --- */
+.hr-timesheet-table { min-width: 1200px; }
+
+/* --- 23.11 Ячейка загрузки (заглушка) --- */
+.hr-loading-cell { padding: 20px; }
+
+/* --- 23.12 Секция уволенных сотрудников (фон-предупреждение) --- */
+.hr-fired-section { background: var(--danger-bg); }
+
+/* --- 23.13 Таблица табеля: заголовки и ячейки --- */
+.hr-ts-sticky-name {
+    position: sticky; top: 0; left: 0; background: var(--surface-alt); 
+    z-index: 30; border-right: 2px solid var(--border); min-width: 250px; vertical-align: middle;
+}
+.hr-ts-day-th {
+    position: sticky; top: 0; z-index: 20; text-align: center; 
+    padding: 6px 2px; min-width: 35px; border-bottom: 2px solid var(--border); background: var(--surface-alt);
+}
+.hr-ts-day-name { font-size: 10px; opacity: 0.8; font-weight: normal; margin-bottom: 3px; }
+.hr-ts-weekend-head { color: var(--danger); }
+.hr-ts-today-head { color: var(--primary); font-weight: 800; border-bottom: 2px solid var(--primary) !important; }
+.hr-ts-summary-head {
+    position: sticky; top: 0; z-index: 20; text-align: right;
+    background: var(--surface-alt); border-left: 2px solid var(--border); vertical-align: middle;
+}
+.hr-ts-dept-row { background: var(--surface-hover); font-weight: bold; padding: 8px 15px; color: var(--text-main); }
+
+/* --- 23.14 Sticky-ячейка имени сотрудника в табеле --- */
+.hr-ts-sticky-cell {
+    position: sticky; left: 0; background: var(--surface); 
+    z-index: 10; border-right: 2px solid var(--border); padding: 8px 15px;
+}
+
+/* --- 23.15 Ячейка дня табеля --- */
+.hr-ts-cell-td { padding: 4px; border-bottom: 1px solid var(--border); }
+.hr-weekend-bg { background: var(--surface-alt); }
+.hr-today-cell { border-left: 2px solid var(--primary); border-right: 2px solid var(--primary); background: var(--surface-hover); }
+.hr-ts-cell-wrap { position: relative; width: max-content; margin: 0 auto; }
+.hr-fired-faded { opacity: 0.4; }
+.hr-cell-active { cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.hr-cell-locked { cursor: not-allowed; }
+
+/* --- 23.16 Индикаторные точки (премия/штраф) в ячейках --- */
+.hr-ts-dot {
+    position: absolute; width: 6px; height: 6px; border-radius: 50%;
+    box-shadow: 0 0 2px rgba(0,0,0,0.3);
+}
+.hr-ts-dot-bonus { top: -2px; right: -2px; background: var(--success); }
+.hr-ts-dot-penalty { bottom: -2px; right: -2px; background: var(--danger); }
+
+/* --- 23.17 Итоговая ячейка табеля (справа) --- */
+.hr-ts-summary-cell {
+    text-align: right; padding: 8px 12px; 
+    background: var(--surface-alt); border-left: 2px solid var(--border);
+}
+
+/* --- 23.18 Строка выплат: статусы и ячейки --- */
+.hr-payout-positive { background: var(--success-bg); color: var(--success-text); }
+.hr-payout-negative { background: var(--danger-bg); color: var(--danger-text); }
+.hr-adj-cell { cursor: pointer; background: var(--warning-bg); }
+.hr-adj-btn { padding: 4px; font-size: 12px; }
+.hr-pay-btn { padding: 6px 12px; font-size: 12px; }
+
+/* --- 23.19 Кнопки действий в строках таблиц --- */
+.hr-row-btn { padding: 4px 8px; font-size: 12px; display: flex; justify-content: center; }
+.hr-fired-row { opacity: 0.8; }
+
+/* --- 23.20 Бейдж отдела в таблице сотрудников --- */
+.hr-dept-badge { background: var(--surface-hover); color: var(--text-main); font-size: 11px; border: 1px solid var(--border); }
+
+/* --- 23.21 Поле налогов в подвале таблицы выплат --- */
+.hr-taxes-input { width: 120px; text-align: right; }
+
+/* --- 23.22 Форма сотрудника: выделенные секции --- */
+.hr-form-cash-block { background: var(--success-bg); padding: 10px; border-radius: 6px; border: 1px dashed var(--success); grid-column: span 2; }
+.hr-form-official-block { background: var(--surface-alt); padding: 10px; border-radius: 6px; border: 1px dashed var(--text-muted); grid-column: span 2; }
+.hr-form-status-block { background: var(--danger-bg); padding: 10px; border-radius: 6px; border: 1px dashed var(--danger); grid-column: span 2; }
+.hr-form-balance-block { background: var(--surface-hover); padding: 10px; border-radius: 6px; border: 1px dashed var(--primary); grid-column: span 2; }
+.hr-form-live-balance { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); font-size: 13px; }
+
+/* --- 23.23 Модал выдачи зарплаты --- */
+.hr-payout-hero { background: var(--success-bg); padding: 25px; border-radius: 12px; border: 1px solid var(--success-border); margin-bottom: 20px; text-align: center; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02); }
+.hr-payout-hero-label { font-size: 13px; color: var(--success-text); text-transform: uppercase; font-weight: 800; letter-spacing: 1px; }
+.hr-payout-hero-amount { font-size: 36px; font-weight: 900; color: var(--success); margin: 10px 0; }
+.hr-debt-block { background: var(--warning-bg); padding: 15px; border-radius: 8px; border: 1px solid var(--warning-border); margin-bottom: 15px; }
+
+/* --- 23.24 Сдельная ЗП: модал начисления --- */
+.hr-piece-info-block { background: var(--bg-main); border: 1px solid var(--border); padding: 15px; border-radius: 8px; margin-bottom: 15px; }
+.hr-piece-fund-label { font-size: 13px; color: var(--primary); font-weight: bold; }
+.hr-piece-fund-value { color: var(--primary); font-size: 24px; }
+.hr-piece-crew-scroll { max-height: 250px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+.hr-piece-table { width: 100%; font-size: 13px; border-collapse: collapse; }
+
+/* --- 23.25 Adj modal --- */
+.hr-adj-history-block { background: var(--surface-alt); padding: 15px; border-radius: 8px; margin-bottom: 15px; }
+.hr-adj-new-block { border: 1px dashed var(--warning); padding: 15px; border-radius: 8px; background: var(--warning-bg); }
+
+/* --- 23.26 Доп. элементы --- */
+.hr-checkbox { width: 20px; height: 20px; cursor: pointer; }
+.position-sticky-top { position: sticky; top: 0; }
+.z-10 { z-index: 10; }
+
+/* ============================================================
+   24. СПРАВОЧНИКИ (REFERENCES)
+   ============================================================ */
+
+/* --- 24.1 Панель фильтров: сетка 2fr 1fr 1fr --- */
+.dict-filter-grid { grid-template-columns: 2fr 1fr 1fr; align-items: end; }
+
+/* --- 24.2 Панель формы (карточка) с синей левой границей, скрытая по умолчанию --- */
+.dict-form-panel {
+    display: none;
+    border-left: 4px solid var(--primary);
+    position: relative;
+}
+
+/* --- 24.3 Поле артикула — подсветка основным цветом --- */
+.dict-article-input {
+    border-color: var(--primary);
+    background-color: var(--bg-main);
+}
+
+/* --- 24.4 Обёртка datalist-инпута с кнопкой раскрытия --- */
+.dict-datalist-wrap {
+    position: relative;
+    display: inline-block;
+    width: 100%;
+}
+.dict-datalist-arrow {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    cursor: pointer;
+    color: #64748b;
+    font-size: 12px;
+    padding: 5px;
+}
+
+/* --- 24.5 Блок сдельной ставки (зелёный дашборд) --- */
+.dict-piece-rate-block {
+    background: var(--surface-bg);
+    padding: 10px;
+    border-radius: 6px;
+    border: 1px dashed var(--success);
+}
+
+/* --- 24.6 Блок архитектуры составов (серый) --- */
+.dict-mix-block {
+    background: var(--surface-alt);
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+}
+
+/* --- 24.7 Сетка 2-колонки состава (шаблоны слоёв) --- */
+.dict-mix-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+/* --- 24.8 Кнопка сохранения позиции --- */
+.dict-save-btn { height: 42px; }
+
+/* --- 24.9 Колонки таблицы Справочника --- */
+.dict-col-id      { width: 5%; }
+.dict-col-type    { width: 8%; }
+.dict-col-cat     { width: 15%; }
+.dict-col-article { width: 12%; }
+.dict-col-name    { width: 30%; }
+.dict-col-unit    { width: 10%; }
+.dict-col-price   { width: 10%; }
+.dict-col-actions { width: 10%; }
+
+/* --- 24.10 Дополнительные утилиты, специфичные для модуля --- */
+.mb-0  { margin-bottom: 0; }
+.mb-5  { margin-bottom: 5px; }
+.line-height-12 { line-height: 1.2; }
+
+/* --- 24.11 Строка таблицы --- */
+.ref-table-row { transition: background 0.15s; }
+.ref-table-row:hover { background: var(--surface-hover); }
+
+/* --- 24.12 Ячейка артикула (моноширинный шрифт) --- */
+.dict-article-cell {
+    font-family: monospace;
+    font-size: 13px;
+    font-weight: bold;
+    color: var(--primary);
+}
+
+/* --- 24.13 Бейдж «Продукция» --- */
+.badge-product {
+    background: var(--primary-bg, rgba(59,130,246,0.12));
+    color: var(--primary);
+    border: 1px solid var(--primary);
+}
+
+/* --- 24.14 Бейдж «Сырье / Материал» --- */
+.badge-material {
+    background: var(--surface-hover);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+}
+
+/* --- 24.15 Кнопки действий в строке таблицы --- */
+.dict-row-btn { padding: 4px 8px; font-size: 12px; }
+
+/* --- 24.16 Утилиты, специфичные для модуля --- */
+.text-border  { color: var(--border); }
+.font-normal  { font-weight: normal; }
+.mr-5         { margin-right: 5px; }
+
+/* ============================================================
+   25. ЗАКУПКИ И ПРИЕМКА (PURCHASE)
+   ============================================================ */
+
+/* --- 25.1 Главная панель прихода --- */
+.pur-main-panel {
+    border-left: 4px solid var(--primary);
+}
+
+/* --- 25.2 Информер по материалу (остатки) --- */
+.pur-material-infobox {
+    margin-top: 6px;
+    font-size: 12px;
+    padding: 6px 10px;
+    background: var(--surface-alt);
+    border-radius: 6px;
+    border: 1px dashed var(--border);
+}
+
+/* --- 25.3 Поиск поставщика (рядом кнопка +) --- */
+.pur-supplier-flex {
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+}
+.pur-supplier-btn {
+    padding: 0 18px;
+    font-weight: bold;
+    font-size: 16px;
+    border-color: var(--border);
+    color: var(--primary);
+}
+
+/* --- 25.4 Блок с чекбоксом доставки --- */
+.pur-delivery-toggle-wrap {
+    margin-top: 5px;
+    padding-top: 15px;
+    border-top: 1px dashed var(--border);
+}
+.pur-delivery-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    color: var(--primary);
+    margin: 0;
+}
+.pur-delivery-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+/* --- 25.5 Поля доставки --- */
+.pur-delivery-fields-grid {
+    grid-column: span 2;
+    background: var(--surface-alt);
+    padding: 15px;
+    border-radius: 8px;
+    gap: 15px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    margin-bottom: 5px;
+}
+
+/* --- 25.6 Финальный итог (Итого за сырье) --- */
+.pur-summary-box {
+    margin-top: 15px;
+    margin-bottom: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 15px;
+    background: var(--surface-alt);
+    border-radius: 8px;
+    border: 1px dashed var(--border);
+}
+.pur-total-input {
+    width: 140px;
+    margin: 0;
+    text-align: right;
+    font-size: 18px;
+    font-weight: 900;
+    color: var(--primary);
+}
+
+/* --- 25.7 Кнопки формы --- */
+.pur-submit-flex {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+}
+.pur-btn-ok { padding: 14px; font-weight: bold; }
+.pur-btn-cancel {
+    padding: 14px;
+    border-color: var(--danger);
+    color: var(--danger);
+    font-weight: bold;
+}
+
+/* --- 25.8 История приходов (шапка) --- */
+.pur-history-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+.pur-search-wrap {
+    position: relative;
+    width: 350px;
+}
+.pur-search-icon {
+    position: absolute;
+    left: 12px;
+    top: 10px;
+    opacity: 0.5;
+}
+.pur-search-input {
+    padding-left: 35px;
+    margin: 0;
+    border-radius: 20px;
+}
+
+/* --- 25.9 Таблица истории: Итоги за день (футер) --- */
+.pur-daily-summary-foot {
+    background: var(--surface-alt);
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+}
+.pur-daily-summary-row td {
+    padding: 15px 10px;
+}
+.pur-th-date { color: var(--primary); }
+.pur-date-input { width: 140px; cursor: pointer; }
+
+/* --- 25.10 Утилиты --- */
+.mb-2 { margin-bottom: 2px; }
+.min-w-0 { min-width: 0; }
+.d-block { display: block; }
+.w-25 { width: 25%; }
+.w-10 { width: 10%; }
+
+/* --- 25.11 UI-утилиты для JS (Flatpickr, Модалки, Таблицы) --- */
+.pur-active-date-dot {
+    position: absolute;
+    bottom: 2px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 4px;
+    height: 4px;
+    background-color: var(--success);
+    border-radius: 50%;
+}
+.pur-modal-details-box {
+    background: var(--surface-alt);
+    padding: 15px;
+    border-radius: 6px;
+    border: 1px dashed var(--border);
+}
+.pur-modal-total-box {
+    margin-top: 15px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    font-size: 16px;
+    display: flex;
+    justify-content: space-between;
+    font-weight: bold;
+}
+.pur-table-row:hover {
+    background: var(--surface-hover);
+}
+.pur-row-btn {
+    padding: 4px 8px;
+    font-size: 14px;
+}
+.white-space-nowrap { white-space: nowrap; }
+.border-border      { border-color: var(--border); }
+
+/* ============================================================
+   26. ДОКУМЕНТЫ И РЕЕСТР (DOCS REGISTRY)
+   ============================================================ */
+
+/* --- 26.1 Панель фильтров реестра --- */
+.docs-filter-panel {
+    padding: 10px;
+    border-radius: 8px;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+.docs-filter-group {
+    gap: 10px;
+    flex-grow: 1;
+}
+
+/* --- 26.2 Элементы фильтра --- */
+.docs-client-select { min-width: 250px; }
+.docs-apply-btn { padding: 8px 15px; }
+
+/* --- 26.3 Опции (чекбокс) --- */
+.docs-option-wrap {
+    display: inline-block;
+    margin-left: 15px;
+    margin-bottom: 0;
+}
+.docs-option-label {
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+/* --- 26.4 Таблица реестра: Ширины колонок --- */
+.docs-col-check   { width: 40px; text-align: center; }
+.docs-col-date    { width: 130px; }
+.docs-col-docnum  { width: 140px; }
+.docs-col-total   { width: 150px; }
+.docs-col-author  { width: 150px; }
+.docs-col-status  { width: 120px; }
+.docs-col-actions { width: 40px; }
+
+/* --- 26.5 Стили рендера таблицы JS --- */
+.docs-tbl-row { transition: background 0.15s; }
+.docs-tbl-row:hover { background: var(--surface-hover); }
+
+.docs-locked-icon { cursor: help; }
+.docs-locked-row { background-color: #f7f7f7; color: #555; }
+.docs-cancelled-row { color: #94a3b8; text-decoration: line-through; opacity: 0.7; }
+.docs-delete-btn { cursor: pointer; background: none; border: none; font-size: 14px; }

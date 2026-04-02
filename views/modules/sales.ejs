@@ -1,28 +1,28 @@
 <div id="sales-mod" class="module">
-    <div class="sales-header">
+    <div class="flex-between mb-20">
         <div>
-            <h2>🛒 Отгрузка и Продажи</h2>
-            <p class="sales-subtitle">Управление заказами (OMS) и реализация</p>
+            <h2 class="mt-0 mb-0">🛒 Отгрузка и Продажи</h2>
+            <p class="text-muted font-14 mt-5 mb-0">Управление заказами (OMS) и реализация</p>
         </div>
 
-        <div class="sales-header-actions">
-            <button class="btn btn-outline sales-btn-docs" onclick="openClientDocsModal()">
+        <div class="flex-row gap-10 align-center">
+            <button class="btn btn-outline" onclick="openClientDocsModal()">
                 🖨️ Документы клиенту
             </button>
-            <button class="btn btn-outline sales-btn-return" onclick="openReturnModal()">
+            <button class="btn btn-outline" onclick="openReturnModal()">
                 🔙 Возврат
             </button>
 
-            <div class="action-dropdown">
-                <button class="btn btn-outline sales-btn-tools">
-                    ⚙️ Инструменты и Отчеты <span class="sales-dropdown-arrow">▼</span>
+            <div class="sales-dropdown">
+                <button class="btn btn-outline">
+                    ⚙️ Инструменты и Отчеты <span class="font-10 ml-5">▼</span>
                 </button>
-                <div class="action-dropdown-content">
+                <div class="sales-dropdown-content">
                     <button onclick="openSalesDashboard()">📊 Дашборд продаж</button>
                     <button onclick="openLogisticsCalendar()">🚚 Календарь логиста</button>
                     <button onclick="openPalletsReport()">📦 Отчет по таре</button>
                     <button onclick="openPriceListModal()">📋 Установка Прайс-листа</button>
-                    <button class="sales-btn-1c" onclick="openExport1CModal()">📥 Выгрузить в 1С (Excel)</button>
+                    <button class="text-primary font-bold" onclick="openExport1CModal()">📥 Выгрузить в 1С (Excel)</button>
                 </div>
             </div>
         </div>
@@ -38,42 +38,42 @@
     <div id="tab-new-order" class="sales-tab-content active">
         <div class="sales-checkout-grid">
 
-            <div class="card sales-panel-left">
-                <h3 class="sales-section-title">1. Контрагент и продукция</h3>
+            <div class="card p-20 m-0">
+                <h3 class="font-18 mt-0 mb-20 text-main">1. Контрагент и продукция</h3>
 
                 <div class="form-group">
                     <label>Клиент (Контрагент):</label>
-                    <div class="sales-input-row">
-                        <select id="sale-client" class="input-modern" onchange="onClientChange()"></select>
-                        <button type="button" class="btn btn-outline sales-btn-icon" onclick="openMiniClientModal()">➕</button>
+                    <div class="flex-row gap-10 align-stretch">
+                        <select id="sale-client" class="input-modern flex-grow-1" onchange="onClientChange()"></select>
+                        <button type="button" class="btn btn-outline p-10" onclick="openMiniClientModal()">➕</button>
                     </div>
-                    <div id="sale-client-info" class="sales-client-info">
-                        <div class="sales-client-row">
-                            <span class="sales-label-danger">Текущий долг:</span>
-                            <strong id="sale-client-debt" class="sales-debt-value">0 ₽</strong>
+                    <div id="sale-client-info" class="sales-hidden mt-10"> <!-- sales-client-info removed -->
+                        <div class="flex-between mb-5">
+                            <span class="text-danger font-13">Текущий долг:</span>
+                            <strong id="sale-client-debt" class="font-16 text-danger">0 ₽</strong>
                         </div>
-                        <div class="sales-client-row">
-                            <span class="sales-label-danger">Долг по поддонам:</span>
-                            <strong id="sale-client-pallets" class="sales-pallets-value">0 шт.</strong>
+                        <div class="flex-between mb-10">
+                            <span class="text-danger font-13">Долг по поддонам:</span>
+                            <strong id="sale-client-pallets" class="font-16 text-danger">0 шт.</strong>
                         </div>
-                        <button class="btn btn-outline sales-btn-act" onclick="printClientAct()">
+                        <button class="btn btn-outline w-100" onclick="printClientAct()">
                             🖨️ Распечатать Акт сверки
                         </button>
                     </div>
                 </div>
 
-                <div class="form-group sales-contract-group" id="sale-contract-group">
-                    <label class="sales-label-muted">Основание (Договор / Спецификация):</label>
-                    <div class="sales-input-row">
-                        <select id="sale-contract" class="input-modern sales-flex-grow"></select>
-                        <button type="button" class="btn btn-outline sales-btn-icon" onclick="openMiniContractModal()">➕</button>
-                        <button class="btn btn-outline sales-btn-info-icon" onclick="printSelectedContract()" title="Распечатать этот договор">🖨️</button>
-                        <button class="btn btn-outline sales-btn-icon" onclick="openContractManager()" title="Управление договорами">⚙️</button>
+                <div class="form-group" id="sale-contract-group">
+                    <label class="text-muted font-13">Основание (Договор / Спецификация):</label>
+                    <div class="flex-row gap-10 align-stretch">
+                        <select id="sale-contract" class="input-modern flex-grow-1"></select>
+                        <button type="button" class="btn btn-outline p-10" onclick="openMiniContractModal()">➕</button>
+                        <button class="btn btn-outline p-10" onclick="printSelectedContract()" title="Распечатать этот договор">🖨️</button>
+                        <button class="btn btn-outline p-10" onclick="openContractManager()" title="Управление договорами">⚙️</button>
                     </div>
                 </div>
 
-                <div class="form-group sales-separator-top">
-                    <label class="sales-label-warning-bold">Режим поиска и распределения:</label>
+                <div class="form-group border-top pt-15">
+                    <label class="text-warning font-bold">Режим поиска и распределения:</label>
                     <select id="sale-warehouse" class="input-modern" onchange="changeSaleWarehouse()">
                         <option value="all" selected>🌐 Весь справочник (Авто: Резерв + Производство)</option>
                         <option value="4">🟢 Склад №4 (Строго из наличия 1-го сорта)</option>
@@ -86,12 +86,12 @@
                     <select id="sale-product-select" class="input-modern" placeholder="Начните вводить название..."></select>
                 </div>
 
-                <div class="form-grid sales-two-cols">
-                    <div class="form-group m-0">
-                        <label>Кол-во <span id="sale-unit-label" class="sales-unit-hint"></span>:</label>
+                <div class="form-grid sales-two-cols gap-15">
+                    <div class="form-group m-0 relative">
+                        <label>Кол-во <span id="sale-unit-label" class="text-muted font-11"></span>:</label>
                         <input type="number" id="sale-qty" class="input-modern" placeholder="1" min="0.1" step="0.1">
-                        <div class="sales-stock-hint-wrapper">
-                            <small id="sale-max-qty" class="sales-stock-hint">Остаток: 0</small>
+                        <div class="mt-5">
+                            <small id="sale-max-qty" class="text-muted font-12 bg-surface-alt p-5 border-radius-4 d-inline-block">Остаток: 0</small>
                         </div>
                     </div>
                     <div class="form-group m-0">
@@ -99,69 +99,72 @@
                         <input type="number" id="sale-price" class="input-modern" placeholder="0" onfocus="this.select()">
                     </div>
                 </div>
-                <div class="sales-cost-btn-wrap">
-                    <button type="button" class="btn btn-outline w-100 sales-btn-cost" id="btn-calc-sales-cost" onclick="openCostAnalysisModal()">
+                <div class="mt-20 mb-10">
+                    <button type="button" class="btn btn-outline w-100" id="btn-calc-sales-cost" onclick="openCostAnalysisModal()">
                         📊 Рассчитать себестоимость
                     </button>
                 </div>
-                <button class="btn btn-outline sales-btn-add-to-cart" onclick="addToCart()">
+                <button class="btn btn-outline w-100 font-bold" onclick="addToCart()">
                     ⬇️ Добавить в спецификацию заказа
                 </button>
             </div>
 
-            <div class="card sales-panel-right">
-                <h3 class="sales-section-title">2. Состав заказа</h3>
-                <div class="sales-cart-wrapper">
-                    <table class="sales-cart-table">
+            <div class="card p-0 m-0 overflow-hidden flex-column">
+                <div class="p-20 border-bottom">
+                    <h3 class="font-18 m-0 text-main">2. Состав заказа</h3>
+                </div>
+                
+                <div class="flex-grow-1 overflow-auto" style="min-height: 250px;">
+                    <table class="table-modern w-100">
                         <thead class="bg-surface-alt">
                             <tr>
-                                <th>Сорт</th>
-                                <th>Наименование</th>
-                                <th class="text-center">Кол-во</th>
-                                <th class="text-center">Цена (₽)</th>
-                                <th class="text-center sales-th-discount">Скидка (%)</th>
-                                <th class="text-right">Сумма</th>
-                                <th class="text-center">✖</th>
+                                <th class="p-10 text-left font-12 text-muted">Сорт</th>
+                                <th class="p-10 text-left font-12 text-muted">Наименование</th>
+                                <th class="p-10 text-center font-12 text-muted">Кол-во</th>
+                                <th class="p-10 text-center font-12 text-muted">Цена (₽)</th>
+                                <th class="p-10 text-center font-12 text-muted" style="width: 80px;">Скидка (%)</th>
+                                <th class="p-10 text-right font-12 text-muted">Сумма</th>
+                                <th class="p-10 text-center font-12 text-muted">✖</th>
                             </tr>
                         </thead>
                         <tbody id="cart-table">
-                            <tr><td colspan="7" class="sales-empty-cell">Корзина пуста</td></tr>
+                            <tr><td colspan="7" class="text-center p-20 text-muted" style="font-style: italic;">Корзина пуста</td></tr>
                         </tbody>
                     </table>
                 </div>
 
-                <div class="sales-totals-block">
-                    <div class="form-grid sales-two-cols sales-mb-sm">
-                        <div>
-                            <span class="sales-totals-label">Скидка на чек (%):</span>
-                            <input type="number" id="sale-discount" class="input-modern sales-input-sm" placeholder="0" min="0" max="100" oninput="renderCart()">
+                <div class="bg-surface-alt p-20 border-top">
+                    <div class="form-grid sales-two-cols gap-15 mb-15">
+                        <div class="form-group m-0">
+                            <span class="font-13 font-bold text-muted d-block mb-5">Скидка на чек (%):</span>
+                            <input type="number" id="sale-discount" class="input-modern m-0" placeholder="0" min="0" max="100" oninput="renderCart()">
                         </div>
-                        <div>
-                            <span class="sales-totals-label">Стоимость доставки (₽):</span>
-                            <input type="number" id="sale-logistics-cost" class="input-modern sales-input-sm" value="0" min="0" oninput="renderCart()">
+                        <div class="form-group m-0">
+                            <span class="font-13 font-bold text-muted d-block mb-5">Стоимость доставки (₽):</span>
+                            <input type="number" id="sale-logistics-cost" class="input-modern m-0" value="0" min="0" oninput="renderCart()">
                         </div>
                     </div>
 
-                    <div class="sales-summary-row">
+                    <div class="flex-between mb-5 font-14">
                         <span>Общий вес продукции:</span>
                         <strong><span id="cart-total-weight">0</span> кг</strong>
                     </div>
-                    <div class="sales-grand-total">
+                    <div class="flex-between font-18 mt-10">
                         <span>Итого к оплате (с доставкой):</span>
-                        <div>
-                            <s id="cart-original-sum" class="sales-original-sum">0 ₽</s>
-                            <strong><span id="cart-total-sum">0</span> ₽</strong>
+                        <div class="text-right">
+                            <s id="cart-original-sum" class="text-muted font-14 mr-10">0 ₽</s>
+                            <strong class="text-primary"><span id="cart-total-sum">0</span> ₽</strong>
                         </div>
                     </div>
                 </div>
 
-                <div class="sales-section-dashed">
-                    <h4 class="sales-section-sub-title">📍 Детали доставки и тара</h4>
-                    <div class="form-group sales-mb-sm">
+                <div class="p-20 border-top dashed bg-surface">
+                    <h4 class="mt-0 mb-15 font-15 text-main">📍 Детали доставки и тара</h4>
+                    <div class="form-group mb-15">
                         <label>Адрес объекта (доставки):</label>
                         <input type="text" id="sale-delivery-address" class="input-modern" placeholder="г. Армавир, ул. Ленина 1">
                     </div>
-                    <div class="form-grid sales-two-cols">
+                    <div class="form-grid sales-two-cols gap-15">
                         <div class="form-group m-0">
                             <label>Желаемая дата отгрузки:</label>
                             <input type="date" id="sale-planned-date" class="input-modern">
@@ -173,8 +176,8 @@
                     </div>
                 </div>
 
-                <div class="sales-section-dashed">
-                    <div class="form-grid sales-two-cols sales-mb-sm">
+                <div class="p-20 border-top dashed bg-surface">
+                    <div class="form-grid sales-two-cols gap-15 mb-15">
                         <div class="form-group m-0">
                             <label>ФИО Водителя:</label>
                             <input type="text" id="sale-driver" class="input-modern" placeholder="Иванов И.И.">
@@ -185,26 +188,26 @@
                         </div>
                     </div>
 
-                    <div class="sales-poa-block">
-                        <div class="sales-poa-header">
-                            <label class="sales-poa-title">Юридическое основание (Доверенность):</label>
-                            <label class="sales-poa-checkbox-label">
-                                <input type="checkbox" id="sale-no-poa" onchange="togglePoaMode()"> Отгрузка без доверенности
+                    <div class="bg-surface-alt p-15 border-radius-8 border">
+                        <div class="flex-between mb-10">
+                            <label class="font-bold text-main m-0">Основание (Доверенность):</label>
+                            <label class="font-12 d-flex align-center cursor-pointer m-0">
+                                <input type="checkbox" id="sale-no-poa" onchange="togglePoaMode()" class="mr-5"> Без доверенности
                             </label>
                         </div>
-                        <div id="poa-select-group" class="sales-input-row">
-                            <select id="sale-poa" class="input-modern sales-flex-grow sales-poa-select"></select>
-                            <button class="btn btn-outline sales-btn-poa-add" onclick="openPoaManager()" title="Добавить доверенность">➕</button>
+                        <div id="poa-select-group" class="flex-row gap-10 align-stretch mb-0">
+                            <select id="sale-poa" class="input-modern flex-grow-1 m-0"></select>
+                            <button class="btn btn-outline p-10" onclick="openPoaManager()" title="Добавить доверенность">➕</button>
                         </div>
-                        <div id="poa-comment-group" class="sales-poa-comment">
-                            <input type="text" id="sale-poa-comment" class="input-modern sales-poa-comment-input"
+                        <div id="poa-comment-group" class="sales-hidden mt-10">
+                            <input type="text" id="sale-poa-comment" class="input-modern m-0"
                                 placeholder="Укажите, кто разрешил отгрузку без доверенности">
                         </div>
                     </div>
                 </div>
 
-                <div class="sales-payment-block">
-                    <div class="form-group sales-mb-sm">
+                <div class="p-20 border-top bg-surface-alt">
+                    <div class="form-group mb-15">
                         <label>Оплата:</label>
                         <select id="sale-payment-method" class="input-modern" onchange="toggleSalePayment()">
                             <option value="debt">⏳ В долг (Счет на оплату / Ожидаем)</option>
@@ -213,21 +216,21 @@
                         </select>
                     </div>
 
-                    <div class="form-group sales-mb-sm" id="sale-advance-group" style="display: none;">
-                        <label class="sales-label-warning-bold">Сумма внесенного аванса (₽):</label>
-                        <input type="number" id="sale-advance-amount" class="input-modern sales-advance-input" placeholder="Например: 50000">
+                    <div class="form-group mb-15 sales-hidden" id="sale-advance-group">
+                        <label class="text-warning font-bold">Сумма внесенного аванса (₽):</label>
+                        <input type="number" id="sale-advance-amount" class="input-modern font-18 font-bold text-main" placeholder="Например: 50000">
                     </div>
 
-                    <div class="form-group" id="sale-account-group" style="display: none;">
+                    <div class="form-group m-0 sales-hidden" id="sale-account-group">
                         <label>В какую кассу/счет поступили деньги?</label>
                         <select id="sale-account" class="input-modern"></select>
                     </div>
                 </div>
 
-                <div class="sales-action-bar">
-                    <button class="btn btn-blue" onclick="generateKP()">📄 Печать КП</button>
-                    <button class="btn btn-blue" onclick="generateBlankOrder()">🖨️ Печать Бланк-заказа</button>
-                    <button class="btn btn-blue sales-btn-checkout" onclick="processCheckout()">
+                <div class="p-20 bg-surface border-top flex-row gap-10 flex-wrap">
+                    <button class="btn btn-outline flex-grow-1" onclick="generateKP()">📄 Печать КП</button>
+                    <button class="btn btn-outline flex-grow-1" onclick="generateBlankOrder()">🖨️ Печать Бланк-заказа</button>
+                    <button class="btn btn-blue font-bold font-15 w-100 mt-10" onclick="processCheckout()">
                         💾 Оформить заказ
                     </button>
                 </div>
@@ -237,63 +240,64 @@
 
     <!-- === ВКЛАДКА 2: УПРАВЛЕНИЕ ЗАКАЗАМИ === -->
     <div id="tab-active-orders" class="sales-tab-content">
-        <div class="card sales-card-flush">
-
-            <div class="sales-view-toggle">
-                <button id="view-btn-list" class="btn btn-blue" onclick="toggleSalesView('list')">📄 Списком</button>
-                <button id="view-btn-kanban" class="btn btn-outline" onclick="toggleSalesView('kanban')">📊 CRM Воронка</button>
+        <div class="card p-0 overflow-hidden border-0">
+            <div class="p-20 border-bottom bg-surface flex-between align-center">
+                <div class="flex-row gap-10">
+                    <button id="view-btn-list" class="btn btn-blue" onclick="toggleSalesView('list')">📄 Списком</button>
+                    <button id="view-btn-kanban" class="btn btn-outline" onclick="toggleSalesView('kanban')">📊 CRM Воронка</button>
+                </div>
             </div>
 
             <div id="sales-table-wrapper">
-                <div class="sales-filter-bar">
-                    <div class="form-grid sales-orders-filter-grid">
+                <div class="bg-surface-alt p-15 border-bottom">
+                    <div class="form-grid gap-15 align-end" style="grid-template-columns: 2fr 2fr 2fr 2fr auto;">
                         <div class="form-group m-0">
-                            <label>🔍 Текст (Номер, Адрес):</label>
-                            <input type="text" id="bo-search" class="input-modern" placeholder="Поиск..." oninput="applyOrderFilters()">
+                            <label class="font-12 text-muted">🔍 Текст (Номер, Адрес):</label>
+                            <input type="text" id="bo-search" class="input-modern m-0" placeholder="Поиск..." oninput="applyOrderFilters()">
                         </div>
                         <div class="form-group m-0">
-                            <label>👤 Клиент:</label>
-                            <select id="bo-client-filter" class="input-modern" onchange="applyOrderFilters()">
+                            <label class="font-12 text-muted">👤 Клиент:</label>
+                            <select id="bo-client-filter" class="input-modern m-0" onchange="applyOrderFilters()">
                                 <option value="">🌐 Все клиенты</option>
                             </select>
                         </div>
                         <div class="form-group m-0">
-                            <label>📦 В составе есть (Товар):</label>
-                            <input type="text" id="bo-product-filter" class="input-modern" placeholder="Название..." oninput="applyOrderFilters()">
+                            <label class="font-12 text-muted">📦 В составе (Товар):</label>
+                            <input type="text" id="bo-product-filter" class="input-modern m-0" placeholder="Название..." oninput="applyOrderFilters()">
                         </div>
                         <div class="form-group m-0">
-                            <label>🚦 Статус оплаты:</label>
-                            <select id="bo-status-filter" class="input-modern" onchange="applyOrderFilters()">
+                            <label class="font-12 text-muted">🚦 Статус оплаты:</label>
+                            <select id="bo-status-filter" class="input-modern m-0" onchange="applyOrderFilters()">
                                 <option value="">Все статусы</option>
                                 <option value="debt">🔴 Есть долг</option>
                                 <option value="paid">🟢 Оплачено 100%</option>
                             </select>
                         </div>
-                        <button class="btn btn-outline sales-btn-reset" onclick="resetOrderFilters()" title="Сбросить фильтры">🔄</button>
+                        <button class="btn btn-outline p-10 h-100" onclick="resetOrderFilters()" title="Сбросить фильтры">🔄</button>
                     </div>
                 </div>
 
                 <div class="table-container m-0">
-                    <table class="sales-table-full">
+                    <table class="table-modern w-100">
                         <thead class="bg-surface-alt">
                             <tr>
-                                <th class="sales-col-date">Дата / Дедлайн</th>
-                                <th class="sales-col-doc">Документ</th>
-                                <th class="sales-col-client">Клиент и Адрес</th>
-                                <th class="sales-col-items">Состав (Товары)</th>
-                                <th class="sales-col-status">Статус</th>
-                                <th class="sales-col-actions">Действия</th>
+                                <th class="p-10 font-12 text-muted text-left" style="width: 12%;">Дата / Дедлайн</th>
+                                <th class="p-10 font-12 text-muted text-left" style="width: 15%;">Документ</th>
+                                <th class="p-10 font-12 text-muted text-left" style="width: 25%;">Клиент и Адрес</th>
+                                <th class="p-10 font-12 text-muted text-left" style="width: 20%;">Состав (Товары)</th>
+                                <th class="p-10 font-12 text-muted text-center" style="width: 13%;">Статус</th>
+                                <th class="p-10 font-12 text-muted text-right" style="width: 15%;">Действия</th>
                             </tr>
                         </thead>
                         <tbody id="blank-orders-table">
-                            <tr><td colspan="6" class="sales-empty-cell">Загрузка...</td></tr>
+                            <tr><td colspan="6" class="text-center p-20 text-muted" style="font-style: italic;">Загрузка...</td></tr>
                         </tbody>
                     </table>
                 </div>
 
-                <div class="sales-pagination">
+                <div class="flex-between p-15 border-top bg-surface">
                     <button class="btn btn-outline" onclick="changeBlankOrderPage(-1)">⬅ Назад</button>
-                    <span class="sales-page-info" id="bo-page-info">Страница 1 из 1</span>
+                    <span class="font-bold text-muted" id="bo-page-info">Страница 1 из 1</span>
                     <button class="btn btn-outline" onclick="changeBlankOrderPage(1)">Вперед ➡</button>
                 </div>
             </div>
@@ -321,57 +325,56 @@
 
     <!-- === ВКЛАДКА 3: АРХИВ ОТГРУЗОК === -->
     <div id="tab-history" class="sales-tab-content">
-        <div class="card sales-card-flush">
-
-            <div class="sales-filter-bar">
-                <div class="form-grid sales-history-filter-grid">
+        <div class="card p-0 overflow-hidden border-0">
+            <div class="bg-surface-alt p-15 border-bottom">
+                <div class="form-grid gap-15 align-end" style="grid-template-columns: 2fr 2fr 4fr auto;">
                     <div class="form-group m-0">
-                        <label>🔍 Номер документа:</label>
-                        <input type="text" id="hist-search" class="input-modern" placeholder="Поиск..." oninput="applyHistoryFilters()">
+                        <label class="font-12 text-muted">🔍 Номер документа:</label>
+                        <input type="text" id="hist-search" class="input-modern m-0" placeholder="Поиск..." oninput="applyHistoryFilters()">
                     </div>
                     <div class="form-group m-0">
-                        <label>👤 Клиент:</label>
-                        <select id="hist-client-filter" class="input-modern" onchange="applyHistoryFilters()">
+                        <label class="font-12 text-muted">👤 Клиент:</label>
+                        <select id="hist-client-filter" class="input-modern m-0" onchange="applyHistoryFilters()">
                             <option value="">🌐 Все клиенты</option>
                         </select>
                     </div>
                     <div class="form-group m-0">
-                        <label class="sales-date-label">
-                            <span>📅 Период отгрузки:</span>
-                            <span class="sales-date-shortcuts">
-                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('today')">Сегодня</a> |
-                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('week')">Неделя</a> |
-                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('month')">Месяц</a> |
-                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('quarter')">Квартал</a> |
-                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('year')">Год</a>
+                        <div class="flex-between mb-5">
+                            <label class="font-12 text-muted m-0">📅 Период отгрузки:</label>
+                            <span class="font-11 text-primary">
+                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('today')" class="text-decoration-none">Сегодня</a> |
+                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('week')" class="text-decoration-none">Неделя</a> |
+                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('month')" class="text-decoration-none">Месяц</a> |
+                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('quarter')" class="text-decoration-none">Квартал</a> |
+                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('year')" class="text-decoration-none">Год</a>
                             </span>
-                        </label>
-                        <input type="text" id="hist-date-filter" class="input-modern sales-date-input" placeholder="Выберите 1 день или период...">
+                        </div>
+                        <input type="text" id="hist-date-filter" class="input-modern m-0 text-center" placeholder="Выберите 1 день или период...">
                     </div>
-                    <button class="btn btn-outline sales-btn-reset" onclick="resetHistoryFilters()" title="Сбросить фильтры">🔄</button>
+                    <button class="btn btn-outline p-10 h-100" onclick="resetHistoryFilters()" title="Сбросить фильтры">🔄</button>
                 </div>
             </div>
 
             <div class="table-container m-0">
-                <table class="sales-table-full">
+                <table class="table-modern w-100">
                     <thead class="bg-surface-alt">
                         <tr>
-                            <th class="sales-col-date">Дата</th>
-                            <th class="sales-col-doc">Документ</th>
-                            <th class="sales-col-client">Клиент</th>
-                            <th class="sales-col-vol">Объем (ед.)</th>
-                            <th class="sales-col-sum">Сумма</th>
-                            <th class="sales-col-actions">Действия</th>
+                            <th class="p-10 font-12 text-muted text-left" style="width: 12%;">Дата</th>
+                            <th class="p-10 font-12 text-muted text-left" style="width: 15%;">Документ</th>
+                            <th class="p-10 font-12 text-muted text-left" style="width: 25%;">Клиент</th>
+                            <th class="p-10 font-12 text-muted text-right" style="width: 15%;">Объем (ед.)</th>
+                            <th class="p-10 font-12 text-muted text-right" style="width: 15%;">Сумма</th>
+                            <th class="p-10 font-12 text-muted text-right" style="width: 18%;">Действия</th>
                         </tr>
                     </thead>
                     <tbody id="sales-history-table">
-                        <tr><td colspan="6" class="sales-empty-cell">Загрузка...</td></tr>
+                        <tr><td colspan="6" class="text-center p-20 text-muted" style="font-style: italic;">Загрузка...</td></tr>
                     </tbody>
                 </table>
             </div>
-            <div class="sales-pagination">
+            <div class="flex-between p-15 border-top bg-surface">
                 <button class="btn btn-outline" onclick="changeHistoryPage(-1)">⬅ Назад</button>
-                <span class="sales-page-info" id="hist-page-info">Страница 1 из 1</span>
+                <span class="font-bold text-muted" id="hist-page-info">Страница 1 из 1</span>
                 <button class="btn btn-outline" onclick="changeHistoryPage(1)">Вперед ➡</button>
             </div>
         </div>

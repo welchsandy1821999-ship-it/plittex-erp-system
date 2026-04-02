@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const Big = require('big.js');
 const { requireAdmin } = require('../middleware/auth');
+const { validateSalaryAdjustment } = require('../middleware/validator');
 
 // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (Вне экспорта) ===
 
@@ -22,15 +23,9 @@ async function isMonthClosed(pool, monthStr) {
 
 module.exports = function (pool, withTransaction) {
 
-    // 🚀 АВТО-МИГРАЦИЯ: Добавляем недостающий столбец для налогов
-    pool.query("ALTER TABLE closed_periods ADD COLUMN IF NOT EXISTS total_taxes NUMERIC(15,2) DEFAULT 0")
-        .catch(e => console.log("Migrations: total_taxes check done."));
-
-    pool.query("ALTER TABLE timesheet_records ADD COLUMN IF NOT EXISTS multiplier NUMERIC(3,2) DEFAULT 1.0")
-        .catch(e => console.log("Migrations: multiplier check done."));
 
     // 2. КОРРЕКТИРОВКИ (ГСМ, Займы)
-    router.post('/api/salary/adjustments', async (req, res) => {
+    router.post('/api/salary/adjustments', requireAdmin, validateSalaryAdjustment, async (req, res) => {
         const { employee_id, month_str, amount, description } = req.body;
         try {
             // 🛡️ ЗАЩИТА №2: Не даем добавлять ГСМ/Займы в закрытый месяц
@@ -117,7 +112,7 @@ module.exports = function (pool, withTransaction) {
     });
 
     // ОБНОВЛЕННЫЙ РОУТ: Сохранение ячейки табеля
-    router.post('/api/timesheet/cell', async (req, res) => {
+    router.post('/api/timesheet/cell', requireAdmin, async (req, res) => {
         const { employee_id, date, status, bonus, penalty, bonus_comment, penalty_comment, multiplier } = req.body;
         const monthStr = date.substring(0, 7); // Получаем YYYY-MM из даты
 
@@ -161,7 +156,7 @@ module.exports = function (pool, withTransaction) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    router.post('/api/timesheet', async (req, res) => {
+    router.post('/api/timesheet', requireAdmin, async (req, res) => {
         const { date, records } = req.body;
         try {
             await withTransaction(pool, async (client) => {
@@ -512,34 +507,7 @@ module.exports = function (pool, withTransaction) {
         }
     });
 
-    router.get('/api/salary/run-migration-temp', async (req, res) => {
-        try {
-            const result = await pool.query(`
-                INSERT INTO transactions (
-                    transaction_date, counterparty_id, amount, transaction_type, 
-                    category, description, payment_method, account_id
-                )
-                SELECT 
-                    '2026-03-01 00:00:00',
-                    c.id,
-                    ABS(e.prev_balance),
-                    CASE WHEN e.prev_balance > 0 THEN 'income' ELSE 'expense' END,
-                    'Ввод начальных остатков',
-                    'Сальдо на 01.03.2026',
-                    'Взаимозачет',
-                    NULL
-                FROM employees e
-                JOIN counterparties c ON c.employee_id = e.id
-                WHERE e.prev_balance IS NOT NULL 
-                  AND e.prev_balance != 0 
-                  AND e.status != 'fired'
-                RETURNING id
-            `);
-            res.json({ success: true, count: result.rowCount || 0 });
-        } catch (err) {
-            res.status(500).json({ error: err.message });
-        }
-    });
+
 
     return router;
 };

@@ -4,7 +4,6 @@ const fs = require('fs');
 const path = require('path');
 const Big = require('big.js');
 const { requireAdmin } = require('../middleware/auth');
-const crypto = require('crypto');
 
 // 🚀 Единая функция поиска документов в тексте (Защита от опечаток)
 function extractDocNumber(description) {
@@ -341,15 +340,6 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     // ==========================================
     // 4. КАТЕГОРИИ ТРАНЗАКЦИЙ (СПРАВОЧНИК)
     // ==========================================
-    router.get('/api/finance/categories', async (req, res) => {
-        try {
-            const result = await pool.query('SELECT * FROM transaction_categories ORDER BY type, name');
-            res.json(result.rows);
-        } catch (err) {
-            console.error(err);
-            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
-        }
-    });
 
     router.post('/api/finance/categories', requireAdmin, async (req, res) => {
         try {

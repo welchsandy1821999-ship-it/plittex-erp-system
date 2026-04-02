@@ -1,4 +1,4 @@
-let currentEmployees = [];
+﻿let currentEmployees = [];
 let currentMonthRecords = [];
 let currentMonthPayments = [];
 let currentMonthStats = [];
@@ -109,17 +109,17 @@ function renderEmployeesTable() {
 
                     activeHtml += `
                         <tr>
-                            <td style="font-weight: 600;">
+                            <td class="font-600">
                                 <span class="entity-link" title="Открыть профиль" onclick="window.app.openEntity('employee', ${emp.id})">${escapeHTML(emp.full_name)}</span>
                             </td>
-                            <td style="color: var(--text-muted);">${escapeHTML(emp.position)}</td>
-                            <td><span class="badge" style="background: var(--surface-hover); color: var(--text-main); font-size: 11px; border: 1px solid var(--border);">${emp.department}</span> <b>${emp.schedule_type}</b></td>
-                            <td style="text-align: right; color: var(--success); font-weight: bold;">${parseFloat(emp.salary_cash).toLocaleString('ru-RU')} ₽</td>
-                            <td style="text-align: right; color: var(--text-muted);">${parseFloat(emp.salary_official).toLocaleString('ru-RU')} ₽</td>
-                            <td style="text-align: right; color: var(--danger);">-${parseFloat(emp.tax_withheld || 0).toLocaleString('ru-RU')} ₽</td>
-                            <td style="text-align: right; color: ${balColor}; font-weight: bold;">${balSign}${balance.toLocaleString('ru-RU')} ₽</td>
-                            <td style="text-align: center; vertical-align: middle;">
-                                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; width: 100%; display: flex; justify-content: center;" onclick="editEmployee(${emp.id})" title="Редактировать">✏️</button>
+                            <td class="text-muted">${escapeHTML(emp.position)}</td>
+                            <td><span class="badge hr-dept-badge">${emp.department}</span> <b>${emp.schedule_type}</b></td>
+                            <td class="text-right text-success font-bold">${parseFloat(emp.salary_cash).toLocaleString('ru-RU')} ₽</td>
+                            <td class="text-right text-muted">${parseFloat(emp.salary_official).toLocaleString('ru-RU')} ₽</td>
+                            <td class="text-right text-danger">-${parseFloat(emp.tax_withheld || 0).toLocaleString('ru-RU')} ₽</td>
+                            <td class="text-right font-bold ${balance >= 0 ? 'text-primary' : 'text-danger'}">${balSign}${balance.toLocaleString('ru-RU')} ₽</td>
+                            <td class="text-center align-middle">
+                                <button class="btn btn-outline hr-row-btn" onclick="editEmployee(${emp.id})" title="Редактировать">✏️</button>
                             </td>
                         </tr>`;
                 });
@@ -133,17 +133,17 @@ function renderEmployeesTable() {
             const balSign = balance > 0 ? '+' : '';
             activeHtml += `
                 <tr>
-                    <td style="font-weight: 600;">
+                    <td class="font-600">
                         <span class="entity-link" title="Открыть профиль" onclick="window.app.openEntity('employee', ${emp.id})">${escapeHTML(emp.full_name)}</span>
                     </td>
-                    <td style="color: var(--text-muted);">${escapeHTML(emp.position)}</td>
-                    <td><span class="badge" style="background: var(--surface-hover); color: var(--text-main); font-size: 11px; border: 1px solid var(--border);">${emp.department}</span> <b>${emp.schedule_type}</b></td>
-                    <td style="text-align: right; color: var(--success); font-weight: bold;">${parseFloat(emp.salary_cash).toLocaleString('ru-RU')} ₽</td>
-                    <td style="text-align: right; color: var(--text-muted);">${parseFloat(emp.salary_official).toLocaleString('ru-RU')} ₽</td>
-                    <td style="text-align: right; color: var(--danger);">-${parseFloat(emp.tax_withheld || 0).toLocaleString('ru-RU')} ₽</td>
-                    <td style="text-align: right; color: ${balColor}; font-weight: bold;">${balSign}${balance.toLocaleString('ru-RU')} ₽</td>
-                    <td style="text-align: center; vertical-align: middle;">
-                        <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; width: 100%; display: flex; justify-content: center;" onclick="editEmployee(${emp.id})" title="Редактировать">✏️</button>
+                    <td class="text-muted">${escapeHTML(emp.position)}</td>
+                    <td><span class="badge hr-dept-badge">${emp.department}</span> <b>${emp.schedule_type}</b></td>
+                    <td class="text-right text-success font-bold">${parseFloat(emp.salary_cash).toLocaleString('ru-RU')} ₽</td>
+                    <td class="text-right text-muted">${parseFloat(emp.salary_official).toLocaleString('ru-RU')} ₽</td>
+                    <td class="text-right text-danger">-${parseFloat(emp.tax_withheld || 0).toLocaleString('ru-RU')} ₽</td>
+                    <td class="text-right font-bold ${balance >= 0 ? 'text-primary' : 'text-danger'}">${balSign}${balance.toLocaleString('ru-RU')} ₽</td>
+                    <td class="text-center align-middle">
+                        <button class="btn btn-outline hr-row-btn" onclick="editEmployee(${emp.id})" title="Редактировать">✏️</button>
                     </td>
                 </tr>`;
         });
@@ -156,21 +156,21 @@ function renderEmployeesTable() {
         const balColor = balance >= 0 ? 'var(--text-muted)' : 'var(--danger)';
 
         firedHtml += `
-            <tr style="opacity: 0.8;">
-                <td style="font-weight: 600;">
+            <tr class="hr-fired-row">
+                <td class="font-600">
                     <span class="entity-link" title="Открыть профиль" onclick="window.app.openEntity('employee', ${emp.id})">${escapeHTML(emp.full_name)}</span>
                 </td>
-                <td style="color: var(--text-muted);">${escapeHTML(emp.position)}</td>
+                <td class="text-muted">${escapeHTML(emp.position)}</td>
                 <td>${emp.department}</td>
-                <td style="text-align: right; color: ${balColor}; font-weight: bold;">${balance.toLocaleString('ru-RU')} ₽</td>
-                <td style="text-align: center; vertical-align: middle;">
-                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--danger); border-color: var(--danger); width: 100%; display: flex; justify-content: center;" onclick="hardDeleteEmployee(${emp.id}, '${escapeHTML(emp.full_name)}')" title="Удалить навсегда">❌</button>
+                <td class="text-right font-bold ${balance >= 0 ? 'text-muted' : 'text-danger'}">${balance.toLocaleString('ru-RU')} ₽</td>
+                <td class="text-center align-middle">
+                    <button class="btn btn-outline hr-row-btn border-danger text-danger" onclick="hardDeleteEmployee(${emp.id}, '${escapeHTML(emp.full_name)}')" title="Удалить навсегда">❌</button>
                 </td>
             </tr>`;
     });
 
-    if (activeHtml === '') activeHtml = '<tr><td colspan="8" class="text-center text-muted" style="padding: 20px;">Сотрудники не найдены</td></tr>';
-    if (firedHtml === '') firedHtml = '<tr><td colspan="5" class="text-center text-muted" style="padding: 20px;">Архив пуст</td></tr>';
+    if (activeHtml === '') activeHtml = '<tr><td colspan="8" class="text-center text-muted hr-loading-cell">Сотрудники не найдены</td></tr>';
+    if (firedHtml === '') firedHtml = '<tr><td colspan="5" class="text-center text-muted hr-loading-cell">Архив пуст</td></tr>';
 
     if (tbodyActive) tbodyActive.innerHTML = activeHtml;
     if (tbodyFired) tbodyFired.innerHTML = firedHtml;
@@ -209,15 +209,15 @@ window.openEmployeeForm = async function (empId = null) {
         const balColor = liveBalance >= 0 ? 'var(--primary)' : 'var(--danger)';
         const balSign = liveBalance > 0 ? '+' : '';
         liveBalanceHtml = `
-            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); font-size: 13px;">
+            <div class="hr-form-live-balance">
                 Текущий расчетный остаток (с учетом табеля): 
-                <b style="color: ${balColor}; font-size: 15px;">${balSign}${liveBalance.toLocaleString('ru-RU')} ₽</b>
+                <b class="font-15 ${liveBalance >= 0 ? 'text-primary' : 'text-danger'}">${balSign}${liveBalance.toLocaleString('ru-RU')} ₽</b>
             </div>
         `;
     }
 
     const html = `
-        <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
+        <div class="form-grid form-grid-2col">
             <div class="form-group">
                 <label>ФИО сотрудника:</label>
                 <input type="text" id="emp-name" class="input-modern" value="${isEdit ? escapeHTML(emp.full_name) : ''}">
@@ -242,39 +242,39 @@ window.openEmployeeForm = async function (empId = null) {
                 </select>
             </div>
             
-            <div class="form-group" style="background: var(--success-bg); padding: 10px; border-radius: 6px; border: 1px dashed var(--success); grid-column: span 2;">
-                <label style="color: var(--success); font-weight: bold;">Базовая ставка / Оклад (Нал):</label>
-                <input type="number" id="emp-sal-cash" class="input-modern" style="font-size: 16px; font-weight: bold;" value="${isEdit ? emp.salary_cash : '0'}">
+            <div class="form-group hr-form-cash-block">
+                <label class="text-success font-bold">Базовая ставка / Оклад (Нал):</label>
+                <input type="number" id="emp-sal-cash" class="input-modern font-16 font-bold" value="${isEdit ? emp.salary_cash : '0'}">
             </div>
 
-            <div class="form-group" style="background: var(--surface-alt); padding: 10px; border-radius: 6px; border: 1px dashed var(--text-muted); grid-column: span 2;">
-                <label style="font-weight: bold;">Официальная ЗП (Безнал):</label>
+            <div class="form-group hr-form-official-block">
+                <label class="font-bold">Официальная ЗП (Безнал):</label>
                 <input type="number" id="emp-sal-off" class="input-modern" value="${isEdit ? emp.salary_official : '20000'}" oninput="calcTaxWithheld()">
                 
-                <div style="display: flex; gap: 10px; margin-top: 10px;">
-                    <div style="flex: 1;">
-                        <label style="font-size: 11px;">Ставка налога (%):</label>
+                <div class="flex-row gap-10 mt-10">
+                    <div class="flex-1">
+                        <label class="font-11">Ставка налога (%):</label>
                         <input type="number" id="emp-tax-rate" class="input-modern" value="${isEdit ? emp.tax_rate : '13'}" oninput="calcTaxWithheld()">
                     </div>
-                    <div style="flex: 1;">
-                        <label style="font-size: 11px; color: var(--danger);">Фактическое удержание из Нал. (₽):</label>
-                        <input type="number" id="emp-tax-withheld" class="input-modern" style="color: var(--danger); font-weight: bold;" value="${isEdit ? emp.tax_withheld : '2600'}">
+                    <div class="flex-1">
+                        <label class="font-11 text-danger">Фактическое удержание из Нал. (₽):</label>
+                        <input type="number" id="emp-tax-withheld" class="input-modern text-danger font-bold" value="${isEdit ? emp.tax_withheld : '2600'}">
                     </div>
                 </div>
             </div>
 
-            <div class="form-group" style="background: var(--danger-bg); padding: 10px; border-radius: 6px; border: 1px dashed var(--danger); grid-column: span 2;">
-                <label style="color: var(--danger); font-weight: bold;">Статус в компании:</label>
-                <select id="emp-status" class="input-modern" style="font-weight: bold;">
+            <div class="form-group hr-form-status-block">
+                <label class="text-danger font-bold">Статус в компании:</label>
+                <select id="emp-status" class="input-modern font-bold">
                     <option value="active" ${isEdit && emp.status === 'active' ? 'selected' : ''}>🟢 Работает</option>
                     <option value="fired" ${isEdit && emp.status === 'fired' ? 'selected' : ''}>🔴 УВОЛЕН (В архив)</option>
                 </select>
             </div>
 
-            <div class="form-group" style="background: var(--surface-hover); padding: 10px; border-radius: 6px; border: 1px dashed var(--primary); grid-column: span 2;">
-                <label style="color: var(--primary); font-weight: bold;">± Остаток на НАЧАЛО месяца (Исторический долг):</label>
-                <input type="number" id="emp-prev-balance" class="input-modern" style="font-size: 15px; font-weight: bold;" value="${isEdit ? (emp.prev_balance || 0) : '0'}">
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Внимание: редактируйте поле выше ТОЛЬКО для исправления старых долгов.</div>
+            <div class="form-group hr-form-balance-block">
+                <label class="text-primary font-bold">± Остаток на НАЧАЛО месяца (Исторический долг):</label>
+                <input type="number" id="emp-prev-balance" class="input-modern font-15 font-bold" value="${isEdit ? (emp.prev_balance || 0) : '0'}">
+                <div class="font-11 text-muted mt-4">Внимание: редактируйте поле выше ТОЛЬКО для исправления старых долгов.</div>
                 ${liveBalanceHtml}
             </div>
         </div>
@@ -332,14 +332,14 @@ async function saveEmployee(id) {
 // ==========================================
 window.hardDeleteEmployee = function (id, name) {
     const html = `
-        <div style="padding: 15px; text-align: center; font-size: 15px;">
-            Вы уверены, что хотите <b>НАВСЕГДА</b> удалить карточку <br><b style="color: var(--danger); font-size: 18px;">${escapeHTML(name)}</b>?<br><br>
-            <small style="color: var(--text-muted);">Удаляйте только в том случае, если сотрудник был добавлен по ошибке и по нему еще нет табелей. Иначе старые расчеты могут сломаться.</small>
+        <div class="p-15 text-center font-15">
+            Вы уверены, что хотите <b>НАВСЕГДА</b> удалить карточку <br><b class="text-danger font-18">${escapeHTML(name)}</b>?<br><br>
+            <small class="text-muted">Удаляйте только в том случае, если сотрудник был добавлен по ошибке и по нему еще нет табелей. Иначе старые расчеты могут сломаться.</small>
         </div>`;
 
     UI.showModal('⚠️ Полное удаление из базы', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-        <button class="btn btn-blue" style="background: var(--danger); border-color: var(--danger);" onclick="executeHardDelete(${id})">🗑️ Да, удалить навсегда</button>
+        <button class="btn btn-blue bg-danger-btn border-danger" onclick="executeHardDelete(${id})">🗑️ Да, удалить навсегда</button>
     `);
 };
 
@@ -435,22 +435,22 @@ window.renderTimesheetMatrix = function (year, month) {
 
     const thead = document.getElementById('monthly-ts-head');
     const dayNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-    let headHtml = `<tr><th style="position: sticky; top: 0; left: 0; background: var(--surface-alt); z-index: 30; border-right: 2px solid var(--border); min-width: 250px; vertical-align: middle;">Сотрудник</th>`;
+    let headHtml = `<tr><th class="hr-ts-sticky-name">Сотрудник</th>`;
     for (let day = 1; day <= daysInMonth; day++) {
         const dow = new Date(year, month - 1, day).getDay();
         const isWeekend = dow === 0 || dow === 6;
         const isToday = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}` === todayStr;
 
-        let thStyle = `position: sticky; top: 0; z-index: 20; text-align: center; padding: 6px 2px; min-width: 35px; border-bottom: 2px solid var(--border); background: var(--surface-alt); `;
-        if (isWeekend) thStyle += `color: var(--danger); `;
-        if (isToday) thStyle += `color: var(--primary); font-weight: 800; border-bottom: 2px solid var(--primary);`;
+        const thClasses = ['hr-ts-day-th'];
+        if (isWeekend) thClasses.push('hr-ts-weekend-head');
+        if (isToday) thClasses.push('hr-ts-today-head');
 
-        headHtml += `<th style="${thStyle}">
-            <div style="font-size: 10px; opacity: 0.8; font-weight: normal; margin-bottom: 3px;">${dayNames[dow]}</div>
+        headHtml += `<th class="${thClasses.join(' ')}">
+            <div class="hr-ts-day-name">${dayNames[dow]}</div>
             <div>${day}</div>
         </th>`;
     }
-    headHtml += `<th style="position: sticky; top: 0; z-index: 20; text-align: right; background: var(--surface-alt); border-left: 2px solid var(--border); vertical-align: middle;">Итого (Дни / ₽)</th></tr>`;
+    headHtml += `<th class="hr-ts-summary-head">Итого (Дни / ₽)</th></tr>`;
 
     const tbody = document.getElementById('monthly-ts-body');
     let bodyHtml = '';
@@ -476,7 +476,7 @@ window.renderTimesheetMatrix = function (year, month) {
 
         if (depEmps.length === 0) return;
 
-        bodyHtml += `<tr><td colspan="${daysInMonth + 2}" style="background: var(--surface-hover); font-weight: bold; padding: 8px 15px; color: var(--text-main);">Отдел: ${dep.toUpperCase()}</td></tr>`;
+        bodyHtml += `<tr><td colspan="${daysInMonth + 2}" class="hr-ts-dept-row">Отдел: ${dep.toUpperCase()}</td></tr>`;
 
         depEmps.forEach(emp => {
             const empStat = currentMonthStats.find(s => s.employee_id === emp.id) || emp;
@@ -485,9 +485,9 @@ window.renderTimesheetMatrix = function (year, month) {
 
             // Убрали onmouseover и жесткий белый фон
             bodyHtml += `<tr>
-                <td style="position: sticky; left: 0; background: var(--surface); z-index: 10; border-right: 2px solid var(--border); padding: 8px 15px;">
-                    <div style="font-weight: 600;">${emp.full_name} ${emp.status === 'fired' ? '<span class="badge" style="background: var(--danger); color: white; padding: 2px 6px; font-size: 10px;">Уволен</span>' : ''}</div>
-                    <div style="font-size: 11px; color: var(--text-muted);">${emp.position} | Оклад: ${baseSalary.toLocaleString()} ₽ | График: <b>${emp.schedule_type}</b></div>
+                <td class="hr-ts-sticky-cell">
+                    <div class="font-600">${emp.full_name} ${emp.status === 'fired' ? '<span class="badge bg-danger text-white font-10 p-2-6">Уволен</span>' : ''}</div>
+                    <div class="font-11 text-muted">${emp.position} | Оклад: ${baseSalary.toLocaleString()} ₽ | График: <b>${emp.schedule_type}</b></div>
                 </td>`;
 
             let worked = 0, sick = 0, vacation = 0, absent = 0;
@@ -540,13 +540,13 @@ window.renderTimesheetMatrix = function (year, month) {
                 totalBonus += cellBonus;
                 totalPenalty += cellPenalty;
 
-                let tdStyle = `padding: 4px; border-bottom: 1px solid var(--border); `;
-                if (isWeekend) tdStyle += `background: var(--surface-alt); `;
-                if (isToday) tdStyle += `border-left: 2px solid var(--primary); border-right: 2px solid var(--primary); background: var(--surface-hover); `;
+                const tdClasses = ['hr-ts-cell-td'];
+                if (isWeekend) tdClasses.push('hr-weekend-bg');
+                if (isToday) tdClasses.push('hr-today-cell');
 
                 let extraIcons = '';
-                if (cellBonus > 0) extraIcons += '<div style="position:absolute; top:-2px; right:-2px; width:6px; height:6px; background:var(--success); border-radius:50%; box-shadow: 0 0 2px rgba(0,0,0,0.3);"></div>';
-                if (cellPenalty > 0) extraIcons += '<div style="position:absolute; bottom:-2px; right:-2px; width:6px; height:6px; background:var(--danger); border-radius:50%; box-shadow: 0 0 2px rgba(0,0,0,0.3);"></div>';
+                if (cellBonus > 0) extraIcons += '<div class="hr-ts-dot hr-ts-dot-bonus"></div>';
+                if (cellPenalty > 0) extraIcons += '<div class="hr-ts-dot hr-ts-dot-penalty"></div>';
 
                 // 🌟 БЕЗОПАСНЫЙ ДВИЖОК СОБЫТИЙ С ЧТЕНИЕМ ЧЕРЕЗ DATA-*
                 const isFired = emp.status === 'fired';
@@ -582,12 +582,11 @@ window.renderTimesheetMatrix = function (year, month) {
                 }
 
                 bodyHtml += `
-                    <td style="${tdStyle}">
-                        <div style="position: relative; width: max-content; margin: 0 auto; ${isFired && status === 'weekend' ? 'opacity: 0.4;' : ''}">
-                            <div class="ts-cell status-${status}" 
+                    <td class="${tdClasses.join(' ')}">
+                        <div class="hr-ts-cell-wrap ${isFired && status === 'weekend' ? 'hr-fired-faded' : ''}">
+                            <div class="ts-cell status-${status} ${isMonthClosedForEdit || isFired ? 'hr-cell-locked' : 'hr-cell-active'}" 
                                 title="${emp.full_name} | ${dateStr}\nОклад (Факт): ${cellBaseRate}₽/д${ktuText}\nПремия: ${cellBonus}₽ | Штраф: ${cellPenalty}₽\nДоля: ${cellMultiplier}"
-                                ${actionEvents}
-                                style="${cellCursor}">
+                                ${actionEvents}>
                                 ${status === 'partial' ? cellMultiplier : day}
                             </div>
                             ${extraIcons}
@@ -598,17 +597,17 @@ window.renderTimesheetMatrix = function (year, month) {
 
             const totalEarned = earnedBase + totalBonus - totalPenalty;
 
-            let summaryHtml = `<td style="text-align: right; padding: 8px 12px; background: var(--surface-alt); border-left: 2px solid var(--border);">`;
+            let summaryHtml = `<td class="hr-ts-summary-cell">`;
             const normText = emp.schedule_type === '5/2' ? `${worked} / ${normDays52} дн` : `${worked} / ${Math.round(normShifts13)} см`;
             const isNormMet = emp.schedule_type === '5/2' ? worked >= normDays52 : worked >= normShifts13;
 
-            summaryHtml += `<div style="font-size: 12px; font-weight: 600; color: ${isNormMet ? 'var(--success)' : 'var(--text-main)'};">${normText}</div>`;
-            summaryHtml += `<div style="color: var(--primary); font-weight: bold; font-size: 15px; margin-top: 4px;">${totalEarned.toLocaleString('ru-RU')} ₽</div>`;
+            summaryHtml += `<div class="font-12 font-600 ${isNormMet ? 'text-success' : 'text-main'}">${normText}</div>`;
+            summaryHtml += `<div class="text-primary font-bold font-15 mt-4">${totalEarned.toLocaleString('ru-RU')} ₽</div>`;
 
             let moneyStats = [];
-            if (totalBonus > 0) moneyStats.push(`<span style="color: var(--success);">+${totalBonus.toLocaleString()}₽</span>`);
-            if (totalPenalty > 0) moneyStats.push(`<span style="color: var(--danger);">-${totalPenalty.toLocaleString()}₽</span>`);
-            if (moneyStats.length > 0) summaryHtml += `<div style="font-size: 11px; margin-top: 4px; display: flex; gap: 6px; justify-content: flex-end; font-weight: bold;">${moneyStats.join(' ')}</div>`;
+            if (totalBonus > 0) moneyStats.push(`<span class="text-success">+${totalBonus.toLocaleString()}₽</span>`);
+            if (totalPenalty > 0) moneyStats.push(`<span class="text-danger">-${totalPenalty.toLocaleString()}₽</span>`);
+            if (moneyStats.length > 0) summaryHtml += `<div class="font-11 mt-4 flex-row gap-6 justify-end font-bold">${moneyStats.join(' ')}</div>`;
 
             summaryHtml += `</td>`;
             bodyHtml += summaryHtml + `</tr>`;
@@ -695,25 +694,25 @@ window.renderTimesheetMatrix = function (year, month) {
         const matchSearch = emp.full_name.toLowerCase().includes(paySearchTerm) || emp.position.toLowerCase().includes(paySearchTerm);
 
         if (matchDep && matchSearch) {
-            let advancesHtml = `<span style="color: var(--text-muted);">0 ₽</span>`;
-            if (advances > 0) advancesHtml = `<span style="color: var(--primary); text-decoration: underline; cursor: pointer; font-weight: bold;" onclick="openAdvancesDetails(${emp.id}, '${escapeHTML(emp.full_name)}')">-${advances.toLocaleString()} ₽</span>`;
+            let advancesHtml = `<span class="text-muted">0 ₽</span>`;
+            if (advances > 0) advancesHtml = `<span class="text-primary text-underline cursor-pointer font-bold" onclick="openAdvancesDetails(${emp.id}, '${escapeHTML(emp.full_name)}')">-${advances.toLocaleString()} ₽</span>`;
 
-            let adjHtml = `<span style="color: var(--text-muted);">0 ₽</span>`;
-            if (adjSum !== 0) adjHtml = `<span style="color: ${adjSum > 0 ? 'var(--success)' : 'var(--danger)'}; font-weight: bold;">${adjSum > 0 ? '+' : ''}${adjSum.toLocaleString()} ₽</span>`;
+            let adjHtml = `<span class="text-muted">0 ₽</span>`;
+            if (adjSum !== 0) adjHtml = `<span class="font-bold ${adjSum > 0 ? 'text-success' : 'text-danger'}">${adjSum > 0 ? '+' : ''}${adjSum.toLocaleString()} ₽</span>`;
 
             payoutsHtml += `
                 <tr>
-                    <td><strong style="font-size: 14px;">${escapeHTML(emp.full_name)}</strong><br><span style="font-size: 11px; color: ${emp.status === 'fired' ? 'var(--danger)' : 'var(--text-muted)'};">${emp.status === 'fired' ? 'УВОЛЕН' : escapeHTML(emp.position)}</span></td>
-                    <td class="text-right" style="font-weight: bold; font-size: 15px;">${earnedToday.toLocaleString()} ₽</td>
-                    <td class="text-right" style="color: ${prevBalance >= 0 ? 'var(--primary)' : 'var(--danger)'}; font-weight: bold;">${prevBalance > 0 ? '+' : ''}${prevBalance.toLocaleString()} ₽</td>
+                    <td><strong class="font-14">${escapeHTML(emp.full_name)}</strong><br><span class="font-11 ${emp.status === 'fired' ? 'text-danger' : 'text-muted'}">${emp.status === 'fired' ? 'УВОЛЕН' : escapeHTML(emp.position)}</span></td>
+                    <td class="text-right font-bold font-15">${earnedToday.toLocaleString()} ₽</td>
+                    <td class="text-right font-bold ${prevBalance >= 0 ? 'text-primary' : 'text-danger'}">${prevBalance > 0 ? '+' : ''}${prevBalance.toLocaleString()} ₽</td>
                     <td class="text-right text-danger">-${finalTax.toLocaleString()} ₽</td>
                     <td class="text-right">${advancesHtml}</td>
-                    <td class="text-right" style="cursor: pointer; background: var(--warning-bg);" onclick="openAdjustmentsModal(${emp.id}, '${escapeHTML(emp.full_name)}', '${year}-${String(month).padStart(2, '0')}')">${adjHtml}</td>
-                    <td class="text-right" style="background: ${availableToPay >= 0 ? 'var(--success-bg)' : 'var(--danger-bg)'}; color: ${availableToPay >= 0 ? 'var(--success-text)' : 'var(--danger-text)'}; font-size: 16px; font-weight: bold;">${availableToPay.toLocaleString()} ₽</td>
+                    <td class="text-right hr-adj-cell cursor-pointer" onclick="openAdjustmentsModal(${emp.id}, '${escapeHTML(emp.full_name)}', '${year}-${String(month).padStart(2, '0')}')">‌${adjHtml}</td>
+                    <td class="text-right font-bold font-16 ${availableToPay >= 0 ? 'hr-payout-positive' : 'hr-payout-negative'}">${availableToPay.toLocaleString()} ₽</td>
                     <td class="text-center">
-                        <div style="display: flex; gap: 5px; justify-content: center;">
-                            <button class="btn btn-outline" style="padding: 4px; font-size: 12px; border-color: var(--warning-text); color: var(--warning-text);" onclick="openAdjustmentsModal(${emp.id}, '${escapeHTML(emp.full_name)}', '${year}-${String(month).padStart(2, '0')}')" title="Доп. операция">⚙️</button>
-                            <button class="btn btn-blue" style="padding: 6px 12px; font-size: 12px;" onclick="openPayoutModal(${emp.id}, '${escapeHTML(emp.full_name)}', ${availableToPay})">💳</button>
+                        <div class="flex-row gap-5 justify-center">
+                            <button class="btn btn-outline hr-adj-btn border-warning text-warning" onclick="openAdjustmentsModal(${emp.id}, '${escapeHTML(emp.full_name)}', '${year}-${String(month).padStart(2, '0')}')">⚙️</button>
+                            <button class="btn btn-blue hr-pay-btn" onclick="openPayoutModal(${emp.id}, '${escapeHTML(emp.full_name)}', ${availableToPay})">💳</button>
                         </div>
                     </td>
                 </tr>
@@ -743,12 +742,12 @@ window.renderTimesheetMatrix = function (year, month) {
             <td colspan="8" class="payouts-footer">
                 <span class="tax-control-group">
                     Управленческие Налоги (13%): 
-                    <input type="number" id="final-month-taxes" class="input-modern" style="width: 120px; text-align: right;" value="${displayTaxes}" ${isClosed ? 'disabled' : ''}> ₽
+                    <input type="number" id="final-month-taxes" class="input-modern hr-taxes-input text-right" value="${displayTaxes}" ${isClosed ? 'disabled' : '}> ₽
                 </span>
                 
                 ${isClosed
-            ? `<span class="badge-closed">🔒 Месяц закрыт</span> <button class="btn btn-outline admin-only" style="margin-left: 15px; border-color: var(--danger); color: var(--danger);" onclick="reopenSalaryMonth()">🔓 Отменить закрытие</button>`
-            : `<button class="btn btn-blue" style="background: var(--danger); border-color: var(--danger); padding: 10px 20px;" onclick="closeSalaryMonth()">🔒 Закрыть месяц</button>`
+            ? `<span class="badge-closed">🔒 Месяц закрыт</span> <button class="btn btn-outline admin-only border-danger text-danger ml-15" onclick="reopenSalaryMonth()">🔓 Отменить закрытие</button>`
+            : `<button class="btn btn-blue bg-danger-btn border-danger p-10-20" onclick="closeSalaryMonth()">🔒 Закрыть месяц</button>`
         }
             </td>
         </tr>
@@ -808,14 +807,14 @@ window.openAdvancesDetails = function (empId, empName) {
     let detailsHtml = `
         <div class="table-container">
             <table>
-                <thead style="background: var(--surface-alt);"><tr><th>Дата выдачи</th><th style="text-align: right;">Сумма</th><th>Комментарий (Основание)</th></tr></thead>
+                <thead class="bg-surface-alt"><tr><th>Дата выдачи</th><th class="text-right">Сумма</th><th>Комментарий (Основание)</th></tr></thead>
                 <tbody>
                     ${empPayments.map(p => `
                         <tr>
-                            <td style="font-weight: 600;">${p.payment_date}</td>
-                            <td style="text-align: right; font-weight: bold; color: var(--danger);">${parseFloat(p.amount).toLocaleString()} ₽</td>
-                            <td style="color: var(--text-muted); font-size: 13px;">${p.description}</td>
-                            <td style="text-align: center;"><button class="btn btn-outline" style="padding:2px 6px; color:var(--danger); border-color:var(--danger);" onclick="deleteSalaryPayment(${p.id})">🗑️</button></td>
+                            <td class="font-600">${p.payment_date}</td>
+                            <td class="text-right font-bold text-danger">${parseFloat(p.amount).toLocaleString()} ₽</td>
+                            <td class="text-muted font-13">${p.description}</td>
+                            <td class="text-center"><button class="btn btn-outline border-danger text-danger p-2-6" onclick="deleteSalaryPayment(${p.id})">🗑️</button></td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -846,44 +845,44 @@ window.openPayoutModal = async function (empId, empName, availableAmount) {
     const hasDebt = debt > 0;
 
     const html = `
-        <div style="background: var(--success-bg); padding: 25px; border-radius: 12px; border: 1px solid var(--success-border); margin-bottom: 20px; text-align: center; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
-            <div style="font-size: 13px; color: var(--success-text); text-transform: uppercase; font-weight: 800; letter-spacing: 1px;">Доступно к выдаче</div>
-            <div id="payout-display-amount" style="font-size: 36px; font-weight: 900; color: var(--success); margin: 10px 0; ">${(hasDebt ? (availableAmount - debt) : availableAmount).toLocaleString()} ₽</div>
-            <div style="font-size: 14px; color: var(--text-main);">Сотрудник: <span class="entity-link" style="font-weight: bold;" title="Открыть профиль" onclick="window.app.openEntity('employee', ${empId})">${escapeHTML(empName)}</span></div>
+        <div class="hr-payout-hero">
+            <div class="hr-payout-hero-label">Доступно к выдаче</div>
+            <div id="payout-display-amount" class="hr-payout-hero-amount">${(hasDebt ? (availableAmount - debt) : availableAmount).toLocaleString()} ₽</div>
+            <div class="font-14 text-main">Сотрудник: <span class="entity-link font-bold" title="Открыть профиль" onclick="window.app.openEntity('employee', ${empId})">${escapeHTML(empName)}</span></div>
         </div>
 
         ${hasDebt ? `
-        <div style="background: var(--warning-bg); padding: 15px; border-radius: 8px; border: 1px solid var(--warning-border); margin-bottom: 15px;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div class="hr-debt-block">
+            <div class="flex-between align-center">
                 <div>
-                    <div style="font-size: 12px; color: var(--warning-text); font-weight: bold;">ДОЛГ ПО ПОДОТЧЕТУ</div>
-                    <div style="font-size: 18px; font-weight: bold; color: var(--danger);">${debt.toLocaleString()} ₽</div>
+                    <div class="font-12 text-warning font-bold">ДОЛГ ПО ПОДОТЧЕТУ</div>
+                    <div class="font-18 font-bold text-danger">${debt.toLocaleString()} ₽</div>
                 </div>
-                <div style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                    <input type="checkbox" id="hold-imprest-debt" style="width: 20px; height: 20px; cursor: pointer;" 
+                <div class="flex-row align-center gap-8 cursor-pointer">
+                    <input type="checkbox" id="hold-imprest-debt" class="hr-checkbox" 
                            ${hasDebt ? 'checked' : ''} 
                            onchange="updatePayoutFinalAmount(${availableAmount}, ${debt})">
-                    <label for="hold-imprest-debt" style="font-size: 13px; font-weight: 600; cursor: pointer;">Удержать долг</label>
+                    <label for="hold-imprest-debt" class="font-13 font-600 cursor-pointer">Удержать долг</label>
                 </div>
             </div>
             <input type="hidden" id="imprest-debt-amount" value="${debt}">
         </div>
         ` : ''}
 
-        <div class="form-group" style="margin-bottom: 15px;">
-            <label style="font-weight: bold;">Сумма к выдаче на руки (₽):</label>
-            <input type="number" id="payout-amount" class="input-modern" style="font-size: 20px; font-weight: bold; color: var(--primary);" 
+        <div class="form-group mb-15">
+            <label class="font-bold">Сумма к выдаче на руки (₽):</label>
+            <input type="number" id="payout-amount" class="input-modern font-20 font-bold text-primary" 
                    value="${hasDebt ? (availableAmount - debt) : availableAmount}" onfocus="this.select()">
         </div>
         
-        <div class="form-group" style="margin-bottom: 15px;">
+        <div class="form-group mb-15">
             <label>Списать со счета:</label>
-            <select id="payout-account-id" class="input-modern" style="font-weight: bold;">
+            <select id="payout-account-id" class="input-modern font-bold">
                 ${options || '<option disabled>Счета не найдены</option>'}
             </select>
         </div>
 
-        <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
+        <div class="form-grid form-grid-2col gap-15">
             <div class="form-group"><label>Дата:</label><input type="date" id="payout-date" class="input-modern" value="${today}"></div>
             <div class="form-group"><label>Комментарий:</label><input type="text" id="payout-desc" class="input-modern" value="Зарплата"></div>
         </div>
@@ -957,9 +956,9 @@ window.executePayout = async function (empId, empName) {
 // ПОДГОТОВКА (Показ окна)
 window.payOfficialTaxes = function (monthStr, amount) {
     const html = `
-        <div style="padding: 10px; font-size: 15px; text-align: center;">
-            <div style="font-size: 40px; margin-bottom: 10px;">🏦</div>
-            Списать <b style="color: var(--primary); font-size: 18px;">${amount.toLocaleString()} ₽</b><br>
+        <div class="p-10 font-15 text-center">
+            <div class="font-40 mb-10">🏦</div>
+            Списать <b class="text-primary font-18">${amount.toLocaleString()} ₽</b><br>
             с расчетного счета на уплату налогов за <b>${monthStr}</b>?
         </div>
     `;
@@ -1007,14 +1006,14 @@ window.closeSalaryMonth = function () {
     const totalTaxes = parseFloat(document.getElementById('final-month-taxes').value) || 0;
 
     const html = `
-        <div style="padding: 10px; font-size: 15px;">
-            <div style="text-align: center; font-size: 40px; margin-bottom: 10px;">🔒</div>
-            <div style="text-align: center; margin-bottom: 15px;">
-                Вы уверены, что хотите закрыть <b style="color: var(--primary);">${monthStr}</b>?
+        <div class="p-10 font-15">
+            <div class="text-center font-40 mb-10">🔒</div>
+            <div class="text-center mb-15">
+                Вы уверены, что хотите закрыть <b class="text-primary">${monthStr}</b>?
             </div>
-            <ul style="color: var(--text-muted); font-size: 14px; line-height: 1.5; background: var(--surface-alt); padding: 10px 10px 10px 30px; border-radius: 6px;">
+            <ul class="text-muted font-14 bg-surface-alt p-10-10-10-30 border-radius-6">
                 <li>Заработанные суммы будут перенесены в архив.</li>
-                <li>Налог (<b style="color: var(--text-main);">${totalTaxes.toLocaleString()} ₽</b>) будет зафиксирован.</li>
+                <li>Налог (<b class="text-main">${totalTaxes.toLocaleString()} ₽</b>) будет зафиксирован.</li>
                 <li>Текущие балансы "К ВЫДАЧЕ" станут начальным долгом/переплатой на следующий месяц.</li>
             </ul>
         </div>
@@ -1022,7 +1021,7 @@ window.closeSalaryMonth = function () {
 
     const buttons = `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-        <button class="btn btn-blue" style="background: var(--danger); border-color: var(--danger);" 
+        <button class="btn btn-blue bg-danger-btn border-danger" 
                 onclick="executeCloseSalaryMonth('${monthStr}', ${totalTaxes})">🔒 Да, закрыть месяц</button>
     `;
 
@@ -1062,13 +1061,13 @@ window.reopenSalaryMonth = function () {
     const monthStr = document.getElementById('ts-month-picker').value;
 
     const html = `
-        <div style="padding: 10px; font-size: 15px;">
-            <div style="text-align: center; font-size: 40px; margin-bottom: 10px;">🔓</div>
-            <div style="text-align: center; margin-bottom: 15px; color: var(--danger);">
+        <div class="p-10 font-15">
+            <div class="text-center font-40 mb-10">🔓</div>
+            <div class="text-center mb-15 text-danger">
                 <b>ВНИМАНИЕ: ОПАСНАЯ ОПЕРАЦИЯ</b><br>
                 Вы собираетесь отменить закрытие <b>${monthStr}</b>!
             </div>
-            <ul style="color: var(--text-muted); font-size: 14px; line-height: 1.5; background: var(--surface-alt); padding: 10px 10px 10px 30px; border-radius: 6px;">
+            <ul class="text-muted font-14 bg-surface-alt p-10-10-10-30 border-radius-6">
                 <li>Балансы сотрудников будут математически возвращены к состоянию на <b>НАЧАЛО ${monthStr}</b>.</li>
                 <li>Автоматические транзакции "Начисление ЗП" за этот месяц будут <b>УДАЛЕНЫ</b>.</li>
                 <li>После отмены вы обязаны проверить данные и закрыть месяц снова!</li>
@@ -1078,7 +1077,7 @@ window.reopenSalaryMonth = function () {
 
     const buttons = `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-        <button class="btn btn-blue" style="background: var(--danger); border-color: var(--danger);" 
+        <button class="btn btn-blue bg-danger-btn border-danger" 
                 onclick="executeReopenSalaryMonth('${monthStr}')">🔓 Я понимаю риски, отменить закрытие</button>
     `;
 
@@ -1113,28 +1112,28 @@ window.executeReopenSalaryMonth = async function (monthStr) {
 // === ДОП ОПЕРАЦИИ (ГСМ, ЗАЙМЫ) ===
 window.openAdjustmentsModal = function (empId, empName, monthStr) {
     const adjs = currentMonthAdjustments.filter(a => a.employee_id === empId);
-    let listHtml = adjs.length === 0 ? '<p style="color: var(--text-muted); font-size: 13px;">В этом месяце операций не было.</p>' : '';
+    let listHtml = adjs.length === 0 ? '<p class="text-muted font-13">В этом месяце операций не было.</p>' : '';
     if (adjs.length > 0) {
-        listHtml = `<table style="width:100%; font-size:13px; margin-bottom:15px;">
+        listHtml = `<table class="w-100 font-13 mb-15">
             ${adjs.map(a => `
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <td style="padding: 5px 0;">${a.description}</td>
-                    <td style="text-align:right; font-weight:bold; color: ${parseFloat(a.amount) > 0 ? 'var(--success)' : 'var(--danger)'};">${parseFloat(a.amount) > 0 ? '+' : ''}${parseFloat(a.amount).toLocaleString()} ₽</td>
-                    <td style="text-align:right;"><button class="btn btn-outline" style="padding:2px 6px; color:var(--danger);" onclick="deleteAdjustment(${a.id})">❌</button></td>
+                <tr class="border-bottom">
+                    <td class="p-5-0">${a.description}</td>
+                    <td class="text-right font-bold ${parseFloat(a.amount) > 0 ? 'text-success' : 'text-danger'}">${parseFloat(a.amount) > 0 ? '+' : ''}${parseFloat(a.amount).toLocaleString()} ₽</td>
+                    <td class="text-right"><button class="btn btn-outline" class="border-danger text-danger p-2-6" onclick="deleteAdjustment(${a.id})">❌</button></td>
                 </tr>
             `).join('')}
         </table>`;
     }
     const html = `
-        <div style="background: var(--surface-alt); padding: 15px; border-radius: 8px; margin-bottom: 15px;"><h4 style="margin: 0 0 10px 0;">История операций (${monthStr})</h4>${listHtml}</div>
-        <div style="border: 1px dashed var(--warning); padding: 15px; border-radius: 8px; background: var(--warning-bg);">
-            <h4 style="margin: 0 0 10px 0; color: var(--warning-text);">➕ Добавить операцию</h4>
-            <div class="form-group" style="margin-bottom: 10px;">
+        <div class="hr-adj-history-block"><h4 class="m-0 mb-10">История операций (${monthStr})</h4>${listHtml}</div>
+        <div class="hr-adj-new-block">
+            <h4 class="m-0 mb-10 text-warning">➕ Добавить операцию</h4>
+            <div class="form-group mb-10">
                 <label>Сумма (₽):</label><input type="number" id="adj-amount" class="input-modern" placeholder="Например: -5000 или 2000">
-                <span style="font-size: 11px; color: var(--text-muted);">Используйте <b>минус</b> для удержания (ГСМ, Займ) и <b>плюс</b> для начисления.</span>
+                <span class="font-11 text-muted">Используйте <b>минус</b> для удержания (ГСМ, Займ) и <b>плюс</b> для начисления.</span>
             </div>
             <div class="form-group"><label>Основание:</label><input type="text" id="adj-desc" class="input-modern" placeholder="Топливная карта №123"></div>
-            <button class="btn btn-blue" style="width:100%; margin-top:15px;" onclick="saveAdjustment(${empId}, '${monthStr}')">Сохранить операцию</button>
+            <button class="btn btn-blue w-100 mt-15" onclick="saveAdjustment(${empId}, '${monthStr}')">Сохранить операцию</button>
         </div>
     `;
     UI.showModal(`⚙️ Разовые операции: ${empName}`, html, '<button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>');
@@ -1153,9 +1152,9 @@ window.deleteAdjustment = async function (id) {
     try { await fetch(`/api/salary/adjustments/${id}`, { method: 'DELETE' }); UI.closeModal(); loadMonthlyTimesheet(); } catch (e) { }
 };
 window.deleteSalaryPayment = function (paymentId) {
-    UI.showModal('⚠️ Подтверждение удаления', '<div style="text-align: center;"><p style="font-size: 16px; margin-bottom: 10px;">Аннулировать эту выплату?</p></div>', `
+    UI.showModal('⚠️ Подтверждение удаления', '<div class="text-center"><p class="font-16 mb-10">Аннулировать эту выплату?</p></div>', `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-        <button class="btn btn-outline" style="color: var(--danger); border-color: var(--danger);" onclick="executeDeleteSalaryPayment(${paymentId})">🗑️ Да, удалить</button>
+        <button class="btn btn-outline border-danger text-danger" onclick="executeDeleteSalaryPayment(${paymentId})">🗑️ Да, удалить</button>
     `);
 };
 window.executeDeleteSalaryPayment = async function (paymentId) {
@@ -1188,7 +1187,7 @@ window.loadPieceRateData = async function () {
     }
     const normShifts13 = daysInMonth / 4;
 
-    document.getElementById('piece-rate-content').innerHTML = '<p style="text-align: center; color: var(--text-muted);">Загрузка данных...</p>';
+    document.getElementById('piece-rate-content').innerHTML = '<p class="text-center text-muted">Загрузка данных...</p>';
     try {
         const resStats = await fetch(`/api/production/daily-stats?date=${date}`);
         const stats = await resStats.json();
@@ -1214,39 +1213,39 @@ window.loadPieceRateData = async function () {
                 const currentRate = record && record.custom_rate !== null ? parseFloat(record.custom_rate) : dailyCost;
 
                 empsHtml += `
-                    <tr style="border-bottom: 1px solid var(--border); background: var(--surface);">
-                        <td style="padding: 8px;"><label style="display: flex; align-items: center; gap: 8px; cursor: pointer;"><input type="checkbox" class="piece-emp-checkbox" value="${emp.id}" checked onchange="recalcPieceRate()"><span style="font-size: 13px;"><b>${emp.full_name}</b><br><span style="color: var(--text-muted); font-size: 11px;">${emp.position}</span></span></label></td>
-                        <td style="padding: 8px; text-align: center;"><input type="number" id="ktu-${emp.id}" class="input-modern" value="${currentKtu}" step="0.1" min="0" style="width: 60px; text-align: center; font-weight: bold;" oninput="recalcPieceRate()"></td>
-                        <td style="padding: 8px;"><div style="display: flex; align-items: center; gap: 4px;"><input type="number" id="rate-${emp.id}" class="input-modern" value="${currentRate}" style="width: 75px; text-align: right;" oninput="recalcPieceRate()"><div style="display: flex; flex-direction: column; gap: 2px;"><button class="btn btn-outline" style="padding: 1px 4px; font-size: 10px;" onclick="setRate(${emp.id}, ${dailyCost})">100%</button><button class="btn btn-outline" style="padding: 1px 4px; font-size: 10px;" onclick="setRate(${emp.id}, ${Math.round(dailyCost / 2)})">50%</button><button class="btn btn-outline" style="padding: 1px 4px; font-size: 10px; color: var(--danger); border-color: var(--danger);" onclick="setRate(${emp.id}, 0)">0</button></div></div></td>
-                        <td id="bonus-${emp.id}" style="padding: 8px; text-align: right; color: var(--success); font-weight: bold; font-size: 14px;">0 ₽</td>
-                        <td id="total-${emp.id}" style="padding: 8px; text-align: right; font-weight: bold; font-size: 15px;">0 ₽</td>
+                    <tr class="border-bottom bg-surface">
+                        <td class="p-8"><label class="flex-row align-center gap-8 cursor-pointer"><input type="checkbox" class="piece-emp-checkbox" value="${emp.id}" checked onchange="recalcPieceRate()"><span class="font-13"><b>${emp.full_name}</b><br><span class="text-muted font-11">${emp.position}</span></span></label></td>
+                        <td class="p-8 text-center"><input type="number" id="ktu-${emp.id}" class="input-modern text-center font-bold w-60" oninput="recalcPieceRate()"></td>
+                        <td class="p-8"><div class="flex-row align-center gap-4"><input type="number" id="rate-${emp.id}" class="input-modern text-right w-75" oninput="recalcPieceRate()"><div class="flex-col gap-2"><button class="btn btn-outline p-1-4 font-10" onclick="setRate(${emp.id}, ${dailyCost})">100%</button><button class="btn btn-outline p-1-4 font-10" onclick="setRate(${emp.id}, ${Math.round(dailyCost / 2)})">50%</button><button class="btn btn-outline p-1-4 font-10 border-danger text-danger" onclick="setRate(${emp.id}, 0)">0</button></div></div></td>
+                        <td id="bonus-${emp.id}" class="p-8 text-right text-success font-bold font-14">0 ₽</td>
+                        <td id="total-${emp.id}" class="p-8 text-right font-bold font-15">0 ₽</td>
                     </tr>`;
             }
         });
-        if (activeCount === 0) empsHtml = '<tr><td colspan="5" style="padding: 15px; text-align: center; color: var(--danger);">В этот день нет работающих сотрудников цеха.</td></tr>';
+        if (activeCount === 0) empsHtml = '<tr><td colspan="5" class="p-15 text-center text-danger">В этот день нет работающих сотрудников цеха.</td></tr>';
 
         // 🚀 НОВОЕ: Полностью автоматический интерфейс без ручного ввода ставки
         document.getElementById('piece-rate-content').innerHTML = `
-            <div style="background: var(--bg-main); border: 1px solid var(--border); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div class="hr-piece-info-block">
+                <div class="flex-between align-center">
                     <div>
-                        <div style="font-size: 13px; color: var(--text-muted);">Выпущено продукции (План):</div>
-                        <div style="font-size: 18px; font-weight: bold; color: var(--text-main);">${totalProduced} шт.</div>
+                        <div class="font-13 text-muted">Выпущено продукции (План):</div>
+                        <div class="font-18 font-bold text-main">${totalProduced} шт.</div>
                     </div>
-                    <div style="text-align: right;">
-                        <div style="font-size: 13px; color: var(--primary); font-weight: bold;">Сдельный фонд смены:</div>
+                    <div class="text-right">
+                        <div class="hr-piece-fund-label">Сдельный фонд смены:</div>
                         <input type="hidden" id="piece-fund-value" value="${totalFund}">
-                        <b id="piece-fund" style="color: var(--primary); font-size: 24px;">${totalFund.toLocaleString()} ₽</b>
+                        <b id="piece-fund" class="hr-piece-fund-value">${totalFund.toLocaleString()} ₽</b>
                     </div>
                 </div>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border);">
+                <div class="font-11 text-muted mt-10 pt-10 border-top dashed">
                     * 🤖 Фонд рассчитан <b>автоматически</b>. Система нашла все выпущенные партии за эту смену и умножила их на индивидуальную сдельную З/П каждого товара из Справочника.
                 </div>
             </div>
-            <h4 style="margin-bottom: 10px;">Бригада на смене (Распределение КТУ):</h4>
-            <div style="max-height: 250px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;">
-                <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
-                    <thead style="background: var(--surface-alt); position: sticky; top: 0; z-index: 10;"><tr><th style="padding: 8px; text-align: left;">Сотрудник</th><th style="padding: 8px; text-align: center;">КТУ</th><th style="padding: 8px; text-align: left;">Оклад (Смена)</th><th style="padding: 8px; text-align: right;">Сделка</th><th style="padding: 8px; text-align: right;">Итого день</th></tr></thead>
+            <h4 class="mb-10">Бригада на смене (Распределение КТУ):</h4>
+            <div class="hr-piece-crew-scroll">
+                <table class="hr-piece-table">
+                    <thead class="bg-surface-alt position-sticky-top z-10"><tr><th class="p-8 text-left">Сотрудник</th><th class="p-8 text-center">КТУ</th><th class="p-8 text-left">Оклад (Смена)</th><th class="p-8 text-right">Сделка</th><th class="p-8 text-right">Итого день</th></tr></thead>
                     <tbody>${empsHtml}</tbody>
                 </table>
             </div>
@@ -1646,8 +1645,8 @@ window.openCellEditModal = function (empId, empName, dateStr, currentStatus, cur
     const initialMultiplier = (parseFloat(currentMultiplier) === 0.25 || parseFloat(currentMultiplier) === 0.75) ? parseFloat(currentMultiplier) : 0.5;
 
     const html = `
-        <p style="margin-top: 0; margin-bottom: 20px;">Отметка для <b>${escapeHTML(empName)}</b><br>
-        <span style="color: var(--text-muted); font-size: 13px;">Дата: ${dateStr} | <b>Ставка: ${costNum.toLocaleString()} ₽</b></span></p>
+        <p class="mt-0 mb-20">Отметка для <b>${escapeHTML(empName)}</b><br>
+        <span class="text-muted font-13">Дата: ${dateStr} | <b>Ставка: ${costNum.toLocaleString()} ₽</b></span></p>
         
         <div class="form-group">
             <label>Статус:</label>
@@ -1684,16 +1683,16 @@ window.openCellEditModal = function (empId, empName, dateStr, currentStatus, cur
             <label for="cell-auto-penalty">Вычесть стоимость смены за прогул (-${costNum} ₽)?</label>
         </div>
 
-        <div class="form-grid" style="grid-template-columns: 1fr 1fr; margin-top: 15px; gap: 15px;">
-            <div style="background: var(--success-bg); padding: 10px; border-radius: 6px; border: 1px dashed var(--success);">
-                <label style="color: var(--success-text); font-weight: bold;">Премия (₽):</label>
+        <div class="form-grid form-grid-2col mt-15 gap-15">
+            <div class="bg-success-bg p-10 border-radius-6 border-success dashed">
+                <label class="text-success font-bold">Премия (₽):</label>
                 <input type="number" id="cell-bonus" class="input-modern" value="${parseFloat(currentBonus) || ''}" placeholder="0">
-                <input type="text" id="cell-bonus-comment" class="input-modern" style="margin-top:5px; font-size:12px;" value="${escapeHTML(bonusComment)}" placeholder="За что...">
+                <input type="text" id="cell-bonus-comment" class="input-modern mt-5 font-12" value="${escapeHTML(bonusComment)}" placeholder="За что...">
             </div>
-            <div style="background: var(--danger-bg); padding: 10px; border-radius: 6px; border: 1px dashed var(--danger);">
-                <label style="color: var(--danger-text); font-weight: bold;">Штраф (₽):</label>
+            <div class="bg-danger-bg p-10 border-radius-6 border-danger dashed">
+                <label class="text-danger font-bold">Штраф (₽):</label>
                 <input type="number" id="cell-penalty" class="input-modern" value="${parseFloat(currentPenalty) || ''}" placeholder="0">
-                <input type="text" id="cell-penalty-comment" class="input-modern" style="margin-top:5px; font-size:12px;" value="${escapeHTML(penaltyComment)}" placeholder="Причина...">
+                <input type="text" id="cell-penalty-comment" class="input-modern mt-5 font-12" value="${escapeHTML(penaltyComment)}" placeholder="Причина...">
             </div>
         </div>
     `;
@@ -1828,3 +1827,10 @@ window.reRenderTimesheet = function () {
     // Вызываем отрисовку с уже загруженными данными (currentMonthRecords и т.д.)
     renderTimesheetMatrix(parseInt(year), parseInt(month));
 };
+
+
+
+
+
+
+

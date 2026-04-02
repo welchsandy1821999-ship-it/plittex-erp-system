@@ -21,7 +21,7 @@ module.exports = function (pool, getWhId, withTransaction) {
         }
     });
 
-    router.post('/api/mix-templates', async (req, res) => {
+    router.post('/api/mix-templates', requireAdmin, async (req, res) => {
         try {
             await pool.query(`
                 INSERT INTO settings (key, value) VALUES ('mix_templates', $1)
@@ -47,37 +47,34 @@ module.exports = function (pool, getWhId, withTransaction) {
     });
 
     // Безопасное точечное сохранение 1 шаблона (для двойного модуля Рецептур)
-    router.post('/api/mix-templates/single', async (req, res) => {
+    router.post('/api/mix-templates/single', requireAdmin, async (req, res) => {
         const { templateKey, ingredients, yieldValue } = req.body;
         if (!templateKey || !Array.isArray(ingredients)) return res.status(400).json({error: 'Bad Request'});
 
         try {
-            await pool.query('BEGIN');
-            
-            // 1. Сохраняем массив сырья
-            const resMix = await pool.query(`SELECT value FROM settings WHERE key = 'mix_templates' FOR UPDATE`);
-            let mixTemplates = resMix.rows.length > 0 ? resMix.rows[0].value : {};
-            mixTemplates[templateKey] = ingredients;
-            
-            await pool.query(`
-                INSERT INTO settings (key, value) VALUES ('mix_templates', $1)
-                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-            `, [JSON.stringify(mixTemplates)]);
+            await withTransaction(pool, async (client) => {
+                // 1. Сохраняем массив сырья
+                const resMix = await client.query(`SELECT value FROM settings WHERE key = 'mix_templates' FOR UPDATE`);
+                let mixTemplates = resMix.rows.length > 0 ? resMix.rows[0].value : {};
+                mixTemplates[templateKey] = ingredients;
+                
+                await client.query(`
+                    INSERT INTO settings (key, value) VALUES ('mix_templates', $1)
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+                `, [JSON.stringify(mixTemplates)]);
 
-            // 2. Сохраняем выход (yield)
-            const resYields = await pool.query(`SELECT value FROM settings WHERE key = 'mix_template_yields' FOR UPDATE`);
-            let mixYields = resYields.rows.length > 0 ? resYields.rows[0].value : {};
-            mixYields[templateKey] = parseFloat(yieldValue) || 1;
+                // 2. Сохраняем выход (yield)
+                const resYields = await client.query(`SELECT value FROM settings WHERE key = 'mix_template_yields' FOR UPDATE`);
+                let mixYields = resYields.rows.length > 0 ? resYields.rows[0].value : {};
+                mixYields[templateKey] = parseFloat(yieldValue) || 1;
 
-            await pool.query(`
-                INSERT INTO settings (key, value) VALUES ('mix_template_yields', $1)
-                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-            `, [JSON.stringify(mixYields)]);
-
-            await pool.query('COMMIT');
+                await client.query(`
+                    INSERT INTO settings (key, value) VALUES ('mix_template_yields', $1)
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+                `, [JSON.stringify(mixYields)]);
+            });
             res.json({ success: true });
         } catch (err) {
-            await pool.query('ROLLBACK');
             console.error(err);
             res.status(500).json({ error: 'Ошибка сохранения шаблона.' });
         }
@@ -202,7 +199,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
 
     // --- ТРАНЗАКЦИОННЫЕ МАРШРУТЫ (БЕЗОПАСНЫЕ) ---
-    router.post('/api/production', async (req, res) => {
+    router.post('/api/production', requireAdmin, async (req, res) => {
         let { date, shiftName, products, materialsUsed, status: requestedStatus } = req.body;
         const isDraft = (requestedStatus === 'draft');
 
@@ -291,91 +288,12 @@ module.exports = function (pool, getWhId, withTransaction) {
         }
     });
 
-    // ⚠️ LEGACY: Старый API формовки (не используется фронтендом, закрыт requireAdmin)
-    router.post('/api/produce', requireAdmin, async (req, res) => {
-        const { tileId, quantity, moisture = 0, defect = 0 } = req.body;
-        if (new Big(quantity || 0).lte(0)) return res.status(400).json({ error: 'Количество должно быть больше нуля!' });
-        const userId = req.user ? req.user.id : null;
 
-        try {
-            await withTransaction(pool, async (client) => {
-                const materialsWh = await getWhId(client, 'materials');
-                const dryingWh = await getWhId(client, 'drying');
-
-                const recipeRes = await client.query(`
-                    SELECT r.material_id, r.quantity_per_unit, i.name, i.current_price 
-                    FROM recipes r JOIN items i ON r.material_id = i.id WHERE r.product_id = $1
-                `, [tileId]);
-
-                if (recipeRes.rows.length === 0) throw new Error('Рецепт не найден!');
-
-                const matIds = recipeRes.rows.map(r => r.material_id);
-                await client.query(`SELECT id FROM items WHERE id = ANY($1::int[]) FOR UPDATE`, [matIds]);
-
-                const qtyBig = new Big(quantity);
-                const defectMultiplier = new Big(1).plus(new Big(defect).div(100));
-                const grossQuantity = qtyBig.times(defectMultiplier);
-                const ingredientsToSpend = [];
-
-                for (let ing of recipeRes.rows) {
-                    let needed = new Big(ing.quantity_per_unit).times(grossQuantity);
-                    if (ing.name.toLowerCase().includes('песок') && moisture > 0) {
-                        const moistureFactor = new Big(1).minus(new Big(moisture).div(100));
-                        needed = needed.div(moistureFactor);
-                    }
-
-                    const stockRes = await client.query(`
-                        SELECT SUM(quantity) as balance FROM inventory_movements 
-                        WHERE item_id = $1 AND warehouse_id = $2
-                          AND movement_type != 'production_draft'
-                    `, [ing.material_id, materialsWh]);
-
-                    const currentBalance = new Big(stockRes.rows[0]?.balance || 0);
-                    if (currentBalance.lt(needed)) throw new Error(`Недостаточно: ${ing.name} (Нужно ${needed.toFixed(2)}, есть ${currentBalance.toFixed(2)})`);
-
-                    ingredientsToSpend.push({ id: ing.material_id, needed: needed, price: new Big(ing.current_price || 0) });
-                }
-
-                const dateStr = new Date().toISOString().split('T')[0];
-                const countRes = await client.query(`SELECT COUNT(*) FROM production_batches WHERE created_at::date = CURRENT_DATE`);
-                const batchNum = `${dateStr}-${(parseInt(countRes.rows[0].count) + 1).toString().padStart(2, '0')}`;
-
-                const batchRes = await client.query(`
-                    INSERT INTO production_batches (batch_number, product_id, planned_quantity, mat_cost_total, status)
-                    VALUES ($1, $2, $3, 0, 'in_drying') RETURNING id
-                `, [batchNum, tileId, quantity]);
-                const batchId = batchRes.rows[0].id;
-
-                let totalMatCost = new Big(0);
-                for (let mat of ingredientsToSpend) {
-                    totalMatCost = totalMatCost.plus(mat.needed.times(mat.price));
-                    await client.query(`
-                        INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, unit_price) 
-                        VALUES ($1, $2, 'production_expense', $3, $4, $5, $6, $7)
-                    `, [mat.id, mat.needed.times(-1).toFixed(4), `Замес партии ${batchNum}`, materialsWh, batchId, userId, mat.price.toFixed(4)]);
-                }
-
-                await client.query(`UPDATE production_batches SET mat_cost_total = $1 WHERE id = $2`, [totalMatCost.toFixed(2), batchId]);
-                await client.query(`
-                    INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id) 
-                    VALUES ($1, $2, 'production_receipt', $3, $4, $5, $6)
-                `, [tileId, quantity, `Партия ${batchNum} (Сушка)`, dryingWh, batchId, userId]);
-            });
-            // === МАГИЯ WEBSOCKETS И TELEGRAM ===
-            const io = req.app.get('io');
-            if (io) io.emit('inventory_updated');
-            sendNotify(`⏳ <b>Производство запущено</b>\nПартия: ${batchNum}\nСырье списано, отправлено в сушилку.`);
-
-            res.json({ success: true, message: `Партия успешно запущена` });
-        } catch (err) {
-            res.status(400).json({ error: err.message });
-        }
-    });
 
     // ------------------------------------------------------------------
     // ФИКСАЦИЯ СМЕНЫ: Превращает все черновики (draft) за дату в полноценные партии
     // ------------------------------------------------------------------
-    router.post('/api/production/fixate-shift', async (req, res) => {
+    router.post('/api/production/fixate-shift', requireAdmin, async (req, res) => {
         const { date, materialsUsed } = req.body;
 
         if (!date) return res.status(400).json({ error: 'Не указана дата для фиксации.' });
@@ -605,7 +523,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 }
 
                 // 3. УДАЛЯЕМ САМУ ПАРТИЮ
-                await client.query('DELETE FROM production_batches WHERE id = $1', [batchId]);
+                await client.query('UPDATE production_batches SET status = \'deleted\' WHERE id = $1', [batchId]);
 
                 // 🔄 4. КАСКАДНЫЙ ПЕРЕСЧЕТ ЗАРПЛАТЫ
                 if (batch.is_salary_calculated) {
@@ -651,7 +569,7 @@ module.exports = function (pool, getWhId, withTransaction) {
         }
     });
 
-    router.post('/api/recipes/save', async (req, res) => {
+    router.post('/api/recipes/save', requireAdmin, async (req, res) => {
         const { productId, productName, ingredients, force } = req.body;
         try {
             await withTransaction(pool, async (client) => {
@@ -691,7 +609,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
 
 
-    router.post('/api/recipes/sync-category', async (req, res) => {
+    router.post('/api/recipes/sync-category', requireAdmin, async (req, res) => {
         const { targetProductIds, materials } = req.body;
         try {
             await withTransaction(pool, async (client) => {
@@ -740,50 +658,47 @@ module.exports = function (pool, getWhId, withTransaction) {
             `);
 
             const productionPlan = planRes.rows;
-            const materialsNeeded = {};
+            // 2. Рассчитываем потребность по рецептам и остатки одним мощным CTE запросом
+            let deficitReport = [];
+            
+            if (productionPlan.length > 0) {
+                const deficitRes = await pool.query(`
+                    WITH needed_materials AS (
+                        SELECT r.material_id, SUM(r.quantity_per_unit * pp.total_needed_qty) as total_needed
+                        FROM recipes r
+                        JOIN (
+                            SELECT pp.item_id, SUM(pp.quantity) as total_needed_qty
+                            FROM planned_production pp
+                            JOIN client_order_items coi ON pp.order_item_id = coi.id
+                            JOIN client_orders co ON coi.order_id = co.id
+                            WHERE co.status IN ('pending', 'processing')
+                            GROUP BY pp.item_id
+                        ) pp ON r.product_id = pp.item_id
+                        GROUP BY r.material_id
+                    ),
+                    material_stock AS (
+                        SELECT m.item_id, COALESCE(SUM(m.quantity), 0) as balance
+                        FROM inventory_movements m
+                        WHERE m.warehouse_id = $1
+                        GROUP BY m.item_id
+                    )
+                    SELECT i.name, i.unit, nm.total_needed, COALESCE(ms.balance, 0) as balance
+                    FROM needed_materials nm
+                    JOIN items i ON nm.material_id = i.id
+                    LEFT JOIN material_stock ms ON ms.item_id = nm.material_id
+                `, [materialsWh]);
 
-            // 2. Рассчитываем потребность по рецептам
-            for (let prod of productionPlan) {
-                const recipeRes = await pool.query(
-                    `SELECT material_id, quantity_per_unit FROM recipes WHERE product_id = $1`,
-                    [prod.item_id]
-                );
-
-                for (let mat of recipeRes.rows) {
-                    const matQtyBig = new Big(mat.quantity_per_unit || 0);
-                    const prodQtyBig = new Big(prod.total_needed_qty || 0);
-                    const totalForThisProd = Number(matQtyBig.times(prodQtyBig).toFixed(4));
-                    
-                    if (!materialsNeeded[mat.material_id]) materialsNeeded[mat.material_id] = 0;
-                    materialsNeeded[mat.material_id] = Number(new Big(materialsNeeded[mat.material_id]).plus(totalForThisProd).toFixed(4));
-                }
-            }
-
-            // 3. Сопоставляем с реальными остатками на складе
-            const deficitReport = [];
-            for (let matId in materialsNeeded) {
-                const stockRes = await pool.query(`
-                    SELECT i.name, i.unit, COALESCE(SUM(m.quantity), 0) as balance
-                    FROM items i
-                    LEFT JOIN inventory_movements m ON i.id = m.item_id AND m.warehouse_id = $2
-                    WHERE i.id = $1
-                    GROUP BY i.name, i.unit
-                `, [matId, materialsWh]); // 🚀 Используем materialsWh вместо 1
-
-                if (stockRes.rows.length > 0) {
-                    const row = stockRes.rows[0];
-                    const needed = materialsNeeded[matId];
-                    const neededBig = new Big(materialsNeeded[matId] || 0);
+                deficitReport = deficitRes.rows.map(row => {
+                    const neededBig = new Big(row.total_needed || 0);
                     const balanceBig = new Big(row.balance || 0);
-
-                    deficitReport.push({
+                    return {
                         name: row.name,
                         unit: row.unit,
                         needed: neededBig.toFixed(2),
                         stock: balanceBig.toFixed(2),
                         shortage: neededBig.gt(balanceBig) ? neededBig.minus(balanceBig).toFixed(2) : 0
-                    });
-                }
+                    };
+                });
             }
 
             res.json({ success: true, productionPlan, deficitReport });

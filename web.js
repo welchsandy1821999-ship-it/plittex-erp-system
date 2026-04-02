@@ -69,6 +69,10 @@ app.set('views', './views');
 app.use(express.static('public'));
 app.use(express.json({ limit: '50mb' }));
 
+// Защита API от спама и DDoS
+const apiRateLimiter = require('./middleware/rateLimit');
+app.use('/api', apiRateLimiter);
+
 // [Блок 4: Вспомогательные функции (Транзакции, Нумерация, Склады)]
 async function getNextDocNumber(client, prefix, table, column) {
     let result = await client.query(`

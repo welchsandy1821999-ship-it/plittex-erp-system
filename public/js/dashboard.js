@@ -135,12 +135,12 @@ window.loadCostConstructor = async function () {
 
         const diff = Math.abs(totalAll - totalRaw);
         if (diff > 0.01) {
-            warnEl.innerHTML = `<div class="card mb-20 fade-in-drilldown" style="background:#fef2f2; color:#b91c1c; border:1px solid #fca5a5; padding: 15px;">
+            warnEl.innerHTML = `<div class="card mb-20 fade-in-drilldown dash-warn-card">
                 🔴 <b>ВНИМАНИЕ! Расхождение: ${fmtRub(diff)} ₽.</b> Дашборд не совпадает с реестром транзакций.<br>
                 <small>БД: ${fmtRub(totalRaw)} ₽ / Дашборд: ${fmtRub(totalAll)} ₽</small>
             </div>`;
         } else {
-            warnEl.innerHTML = `<div class="card mb-20 fade-in-drilldown" style="background:#f0fdf4; color:#166534; border:1px solid #bbf7d0; padding: 15px;">
+            warnEl.innerHTML = `<div class="card mb-20 fade-in-drilldown dash-success-card">
                 🟢 <b>Капитализация (Остаток): ${fmtRub(Math.abs(totalAll))} ₽. Баланс с кассой сошёлся.</b>
             </div>`;
         }
@@ -333,27 +333,27 @@ window.renderGlobalSearch = function() {
 
             if (matchingTxs.length > 0) {
                 let txsHtml = matchingTxs.map(t => `
-                    <div style="display: flex; justify-content: space-between; padding: 8px 15px 8px 30px; border-bottom: 1px solid var(--surface-hover);">
-                        <div style="flex-grow: 1; min-width:0; padding-right:15px;">
-                            <div style="font-weight: 500; font-size: 14px; color: var(--text-main);">
+                    <div class="dash-search-tx-row">
+                        <div class="dash-search-tx-info">
+                            <div class="font-bold font-14 text-main">
                                 ${highlightText(t.counterparty || 'Без контрагента', ccSearchQuery)}
                             </div>
-                            <div style="font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                            <div class="font-12 text-muted dash-text-ellipsis">
                                 ${highlightText(t.description || '—', ccSearchQuery)} (${t.date})
                             </div>
                         </div>
-                        <div style="font-weight: bold; color: var(--danger); white-space: nowrap; margin-right: 15px; display: flex; align-items: center;">
+                        <div class="dash-search-tx-amount flex-row align-center">
                             ${fmtRub(t.amount)} ₽
                         </div>
-                        <div style="display: flex; align-items: center;">
-                            <button class="btn btn-outline" style="padding: 2px 6px; font-size: 12px; height: 26px;" onclick="moveTransaction(${t.id})">🔄</button>
+                        <div class="flex-row align-center">
+                            <button class="btn btn-outline p-5 font-12" style="height: 26px;" onclick="moveTransaction(${t.id})">🔄</button>
                         </div>
                     </div>
                 `).join('');
 
                 groupHtml += `
-                    <div style="background: var(--surface-alt); margin-bottom: 1px;">
-                        <div style="padding: 8px 15px 8px 20px; font-weight: bold; border-bottom: 1px solid var(--border); color: var(--text-main);">
+                    <div class="mb-0 bg-surface-alt">
+                        <div class="dash-search-cat-header">
                             📁 ${highlightText(cat.name, ccSearchQuery)}
                         </div>
                         ${txsHtml}
@@ -364,7 +364,7 @@ window.renderGlobalSearch = function() {
 
         if (groupHtml) {
             html += `
-                <div class="mb-15 fade-in-drilldown" style="border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
+                <div class="mb-15 fade-in-drilldown dash-search-group-wrap">
                     <div style="background: ${colors[grp]}15; padding: 10px 15px; font-weight: bold; color: ${colors[grp]}; border-bottom: 2px solid ${colors[grp]}; text-transform: uppercase;">
                         ${titles[grp]}
                     </div>
@@ -487,18 +487,18 @@ window.renderDrilldown = function() {
             const animDelay = index * 0.03;
 
             html += `
-                <div class="fade-in-drilldown hover-row" style="animation-delay: ${animDelay}s; display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; border-bottom: 1px solid var(--surface-hover); cursor: pointer; transition: 0.2s;" 
+                <div class="fade-in-drilldown hover-row dash-drill-row" style="animation-delay: ${animDelay}s;" 
                      onclick="openCostCategory('${cat.name.replace(/'/g, "\\'")}')">
-                    <div style="font-weight: 500;">
-                        <span style="color: ${groupColor}; margin-right: 5px;">📁</span> 
+                    <div class="font-bold">
+                        <span style="color: ${groupColor};" class="mr-5">📁</span> 
                         ${highlightText(cat.name, ccSearchQuery)} 
-                        <span class="text-muted" style="font-size: 11px; margin-left: 5px;">— ${pct}% от группы (${cat.transactions.length} тр.)</span>
+                        <span class="text-muted font-11 ml-5">— ${pct}% от группы (${cat.transactions.length} тр.)</span>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <div style="font-weight: bold; color: ${groupColor};">${fmtRub(Math.abs(cat.total))} ₽</div>
-                        <button class="btn btn-outline" style="padding: 4px 8px; font-size: 11px;" data-ids="${cat.transactions.map(t => t.id).join(',')}" data-group="${ccCurrentGroup}" onclick="event.stopPropagation(); renameFolder(this)" title="Переименовать папку">✏️</button>
-                        <button class="btn btn-outline" style="padding: 4px 8px; font-size: 11px;" data-ids="${cat.transactions.map(t => t.id).join(',')}" onclick="event.stopPropagation(); moveFolderCategory(this)" title="Перенести всю папку в другую группу">🔄</button>
-                        <span style="color: var(--text-muted);">➔</span>
+                    <div class="flex-row align-center gap-10">
+                        <div class="font-bold" style="color: ${groupColor};">${fmtRub(Math.abs(cat.total))} ₽</div>
+                        <button class="btn btn-outline p-5 font-11" data-ids="${cat.transactions.map(t => t.id).join(',')}" data-group="${ccCurrentGroup}" onclick="event.stopPropagation(); renameFolder(this)" title="Переименовать папку">✏️</button>
+                        <button class="btn btn-outline p-5 font-11" data-ids="${cat.transactions.map(t => t.id).join(',')}" onclick="event.stopPropagation(); moveFolderCategory(this)" title="Перенести всю папку в другую группу">🔄</button>
+                        <span class="text-muted">➔</span>
                     </div>
                 </div>
             `;
@@ -519,17 +519,17 @@ window.renderDrilldown = function() {
                 const animDelay = index * 0.02;
 
                 html += `
-                    <div class="fade-in-drilldown" style="animation-delay: ${animDelay}s; display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; border-bottom: 1px dashed var(--border);">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <input type="checkbox" class="tx-select-checkbox" value="${t.id}" onclick="event.stopPropagation(); updateBulkSelectBtn(this)" style="width: 16px; height: 16px; cursor: pointer; accent-color: ${groupColor};">
+                    <div class="fade-in-drilldown flex-between align-center dash-drill-tx" style="animation-delay: ${animDelay}s;">
+                        <div class="flex-row align-center gap-10">
+                            <input type="checkbox" class="tx-select-checkbox cursor-pointer" value="${t.id}" onclick="event.stopPropagation(); updateBulkSelectBtn(this)" style="width: 16px; height: 16px; accent-color: ${groupColor};">
                             <div>
-                                <div style="font-size: 13px; font-weight: 500; color: ${groupColor};">${highlightText(t.counterparty || 'Без контрагента', ccSearchQuery)}</div>
-                                <div style="font-size: 11px; color: var(--text-muted);">${t.date} | ${highlightText(t.description || 'Нет описания', ccSearchQuery)}</div>
+                                <div class="font-bold font-13" style="color: ${groupColor};">${highlightText(t.counterparty || 'Без контрагента', ccSearchQuery)}</div>
+                                <div class="font-11 text-muted">${t.date} | ${highlightText(t.description || 'Нет описания', ccSearchQuery)}</div>
                             </div>
                         </div>
-                        <div style="display: flex; align-items: center; gap: 15px;">
-                            <div style="font-weight: bold; color: ${groupColor};">${highlightText(fmtRub(Math.abs(t.amount)), ccSearchQuery)} ₽</div>
-                            <button class="btn btn-outline" style="padding: 4px 8px; font-size: 11px;" onclick="moveTransaction(${t.id})" title="Сменить категорию">🔄</button>
+                        <div class="flex-row align-center gap-15">
+                            <div class="font-bold" style="color: ${groupColor};">${highlightText(fmtRub(Math.abs(t.amount)), ccSearchQuery)} ₽</div>
+                            <button class="btn btn-outline p-5 font-11" onclick="moveTransaction(${t.id})" title="Сменить категорию">🔄</button>
                         </div>
                     </div>
                 `;
@@ -539,19 +539,19 @@ window.renderDrilldown = function() {
 
         // Панель массового действия (по умолчанию скрыта)
         const bulkBar = `
-            <div class="bulk-select-bar" style="display: none; position: sticky; bottom: 0; background: var(--surface); border-top: 2px solid var(--primary); padding: 10px 15px; justify-content: space-between; align-items: center; gap: 10px; z-index: 5;">
-                <label style="cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted);">
-                    <input type="checkbox" class="bulk-select-all-cb" onclick="toggleAllCheckboxes(this)" style="width: 16px; height: 16px; cursor: pointer;">
+            <div class="bulk-select-bar dash-bulk-bar flex-between align-center gap-10">
+                <label class="cursor-pointer flex-row align-center gap-5 font-12 text-muted">
+                    <input type="checkbox" class="bulk-select-all-cb cursor-pointer" onclick="toggleAllCheckboxes(this)" style="width: 16px; height: 16px;">
                     Выбрать все
                 </label>
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <span class="bulk-select-count" style="font-size: 12px; color: var(--text-muted);"></span>
-                    <button class="btn btn-blue" style="padding: 6px 14px; font-size: 13px;" onclick="moveSelectedTransactions(this)">🔄 Перенести выбранные</button>
+                <div class="flex-row align-center gap-10">
+                    <span class="bulk-select-count font-12 text-muted"></span>
+                    <button class="btn btn-blue p-5 font-13" onclick="moveSelectedTransactions(this)">🔄 Перенести выбранные</button>
                 </div>
             </div>
         `;
         // Оборачиваем список транзакций в скроллируемый контейнер
-        html = `<div class="folder-tx-wrapper" style="max-height: 420px; overflow-y: auto; position: relative;">${html}${bulkBar}</div>`;
+        html = `<div class="folder-tx-wrapper dash-tx-wrapper">${html}${bulkBar}</div>`;
     }
 
     container.innerHTML = html;

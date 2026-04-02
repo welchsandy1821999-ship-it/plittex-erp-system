@@ -1,4 +1,4 @@
-let allPurchaseMaterials = [];
+﻿let allPurchaseMaterials = [];
 let allCounterparties = [];
 let allAccounts = [];
 window.activePurchaseDates = [];
@@ -44,9 +44,9 @@ async function loadPurchaseMaterials() {
                     const dateStr = `${year}-${month}-${day}`;
 
                     if (window.activePurchaseDates.includes(dateStr)) {
-                        dayElem.style.fontWeight = 'bold';
-                        dayElem.style.color = 'var(--primary)';
-                        dayElem.innerHTML += '<span style="position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; background-color: var(--success); border-radius: 50%;"></span>';
+                        dayElem.classList.add('font-bold');
+                        dayElem.classList.add('text-primary');
+                        dayElem.innerHTML += '<span class="pur-active-date-dot"></span>';
                     }
                 }
             });
@@ -76,25 +76,25 @@ function initStaticPurchaseSelects() {
                 if (!informer) return;
 
                 if (!value) {
-                    informer.style.display = 'none';
+                    informer.classList.add('inv-hidden');
                     return;
                 }
 
-                informer.style.display = 'block';
+                informer.classList.remove('inv-hidden');
                 informer.innerHTML = '<i>⏳ Загрузка данных...</i>';
 
                 try {
                     const res = await fetch(`/api/inventory/material-stats/${value}`);
                     const stats = await res.json();
-                    let html = `<span style="color: var(--text-main);">📊 На складе: <b>${parseFloat(stats.balance).toFixed(2)} ${mat ? mat.unit : ''}</b></span>`;
+                    let html = `<span class="text-main">📊 На складе: <b>${parseFloat(stats.balance).toFixed(2)} ${mat ? mat.unit : ''}</b></span>`;
                     if (stats.lastPrice) {
-                        html += `<br><span style="color: var(--text-muted);">💸 Прошлая закупка (${stats.lastDate}): по <b>${parseFloat(stats.lastPrice).toFixed(2)} ₽</b></span>`;
+                        html += `<br><span class="text-muted">💸 Прошлая закупка (${stats.lastDate}): по <b>${parseFloat(stats.lastPrice).toFixed(2)} ₽</b></span>`;
                     } else {
-                        html += `<br><span style="color: var(--text-muted);">💸 Ранее не закупалось</span>`;
+                        html += `<br><span class="text-muted">💸 Ранее не закупалось</span>`;
                     }
                     informer.innerHTML = html;
                 } catch (e) {
-                    informer.innerHTML = '<span style="color: var(--danger);">❌ Ошибка загрузки данных</span>';
+                    informer.innerHTML = '<span class="text-danger">❌ Ошибка загрузки данных</span>';
                 }
             }
         });
@@ -137,7 +137,7 @@ function initStaticPurchaseSelects() {
 window.toggleDeliveryFields = function () {
     const isChecked = document.getElementById('purchase-has-delivery').checked;
     const fields = document.getElementById('delivery-fields');
-    fields.style.display = isChecked ? 'grid' : 'none';
+    fields.classList.toggle('inv-hidden', !isChecked);
 
     if (!isChecked) {
         document.getElementById('purchase-delivery-cost').value = '';
@@ -204,28 +204,28 @@ window.submitPurchase = function () {
     const isEditing = !!window.currentEditingPurchaseId;
 
     const html = `
-        <div style="padding: 10px; font-size: 15px;">
-            <div style="text-align: center; font-size: 40px; margin-bottom: 10px;">${isEditing ? '✏️' : '🛒'}</div>
-            <div style="text-align: center; margin-bottom: 15px;">
+        <div class="p-10 font-15">
+            <div class="text-center font-40 mb-10">${isEditing ? '✏️' : '🛒'}</div>
+            <div class="text-center mb-15">
                 ${isEditing ? 'Подтверждаете <b>изменение</b> данных закупки?' : 'Подтверждаете закупку сырья?'}
             </div>
-            <div style="background: var(--surface-alt); padding: 15px; border-radius: 6px; border: 1px dashed var(--border);">
-                <div style="margin-bottom: 5px;">📦 Материал: <b style="color: var(--primary);">${mat.name}</b></div>
-                <div style="margin-bottom: 5px;">🏭 Поставщик: <b>${sup.name}</b></div>
-                <div style="margin-bottom: 5px;">⚖️ Объем: <b>${quantity}</b> (по ${pricePerUnit} ₽)</div>
-                <div style="margin-bottom: 5px; padding-bottom: 10px; border-bottom: 1px solid var(--border);">📅 Дата: <b>${purchaseDate}</b></div>
+            <div class="pur-modal-details-box">
+                <div class="mb-5">📦 Материал: <b class="text-primary">${mat.name}</b></div>
+                <div class="mb-5">🏭 Поставщик: <b>${sup.name}</b></div>
+                <div class="mb-5">⚖️ Объем: <b>${quantity}</b> (по ${pricePerUnit} ₽)</div>
+                <div class="mb-5 pb-10 border-bottom">📅 Дата: <b>${purchaseDate}</b></div>
                 
-                <div style="display: flex; justify-content: space-between; margin-top: 10px;">
+                <div class="flex-between mt-10">
                     <span>За сырье:</span> <b>${totalCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</b>
                 </div>
                 ${deliveryCost > 0 ? `
-                <div style="display: flex; justify-content: space-between; margin-top: 5px;">
+                <div class="flex-between mt-5">
                     <span>Доставка:</span> <b>${deliveryCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</b>
                 </div>
                 ` : ''}
                 
-                <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 16px; display: flex; justify-content: space-between; font-weight: bold;">
-                    <span>Общая себестоимость:</span> <span style="color: var(--primary);">${grandTotal.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</span>
+                <div class="pur-modal-total-box">
+                    <span>Общая себестоимость:</span> <span class="text-primary">${grandTotal.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</span>
                 </div>
             </div>
         </div>
@@ -335,7 +335,7 @@ window.editPurchase = async function (id) {
         const btnSubmit = document.getElementById('btn-submit-purchase');
         btnSubmit.innerHTML = '💾 Сохранить изменения';
         btnSubmit.className = 'btn btn-purple w-100';
-        document.getElementById('btn-cancel-edit').style.display = 'block';
+        document.getElementById('btn-cancel-edit').classList.remove('inv-hidden');
 
         window.scrollTo({ top: 0, behavior: 'smooth' });
         UI.toast('✏️ Режим редактирования', 'success');
@@ -351,7 +351,7 @@ window.cancelEditMode = function () {
     const btnSubmit = document.getElementById('btn-submit-purchase');
     btnSubmit.innerHTML = '📥 Оформить приход';
     btnSubmit.className = 'btn btn-blue w-100';
-    document.getElementById('btn-cancel-edit').style.display = 'none';
+    document.getElementById('btn-cancel-edit').classList.add('inv-hidden');
 
     document.getElementById('purchase-material-select').tomselect.clear();
     document.getElementById('purchase-supplier-select').tomselect.clear();
@@ -372,15 +372,15 @@ async function loadDailyPurchases(dateStr) {
     const tfoot = document.getElementById('daily-purchases-summary');
     if (!tbody || !dateStr) return;
 
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Загрузка...</td></tr>';
-    if (tfoot) tfoot.style.display = 'none';
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Загрузка...</td></tr>';
+    if (tfoot) tfoot.classList.add('inv-hidden');
 
     try {
         const res = await fetch(`/api/inventory/daily-purchases?date=${dateStr}`);
         const data = await res.json();
 
         if (data.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">В этот день приходов сырья не было.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">В этот день приходов сырья не было.</td></tr>';
             return;
         }
 
@@ -397,20 +397,20 @@ async function loadDailyPurchases(dateStr) {
             totalDailyAmount += parseFloat(p.amount) || 0;
 
             return `
-            <tr id="purchase-row-${p.id}">
+            <tr id="purchase-row-${p.id}" class="pur-table-row">
                 <td><strong>${p.item_name}</strong></td>
-                <td>${p.supplier_name || '<i style="color:var(--text-muted)">Не указан</i>'}</td>
-                <td style="text-align: right;">${parseFloat(p.quantity).toFixed(2)} <small>${p.unit}</small></td>
-                <td style="text-align: right;">${parseFloat(p.price).toFixed(2)} ₽</td>
-                <td style="text-align: right;"><strong style="color: var(--danger);">${parseFloat(p.amount).toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</strong></td>
-                <td style="text-align: right; white-space: nowrap;">
-                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 14px; border-color: var(--border); margin-right: 5px;" 
+                <td>${p.supplier_name || '<i class="text-muted">Не указан</i>'}</td>
+                <td class="text-right">${parseFloat(p.quantity).toFixed(2)} <small>${p.unit}</small></td>
+                <td class="text-right">${parseFloat(p.price).toFixed(2)} ₽</td>
+                <td class="text-right"><strong class="text-danger">${parseFloat(p.amount).toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</strong></td>
+                <td class="text-right white-space-nowrap">
+                    <button class="btn btn-outline" class="pur-row-btn border-border mr-5" 
                             onclick="printReceipt('${p.id}', '${safeItem}', '${safeSupplier}', ${p.quantity}, '${p.unit}', ${p.price}, ${p.amount})" 
                             title="Распечатать приходный ордер">🖨️</button>
-                    <button class="btn btn-outline" style="color: var(--warning-text); padding: 4px 8px; font-size: 14px; border-color: var(--warning-text); margin-right: 5px;" 
+                    <button class="btn btn-outline" class="pur-row-btn text-warning border-warning mr-5" 
                             onclick="editPurchase('${p.id}')" 
                             title="Редактировать закупку">✏️</button>
-                    <button class="btn btn-outline" style="color: var(--danger); padding: 4px 8px; font-size: 14px; border-color: var(--danger);" 
+                    <button class="btn btn-outline" class="pur-row-btn text-danger border-danger" 
                             onclick="deletePurchase('${p.id}', '${safeItem}')" 
                             title="Отменить закупку">❌</button>
                 </td>
@@ -419,22 +419,22 @@ async function loadDailyPurchases(dateStr) {
         }).join('');
 
         if (tfoot) {
-            tfoot.style.display = 'table-footer-group';
+            tfoot.classList.remove('inv-hidden');
             document.getElementById('daily-total-qty').innerHTML = `${totalDailyQty.toFixed(2)} <small>ед.</small>`;
             document.getElementById('daily-total-amount').innerText = `${totalDailyAmount.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽`;
         }
 
     } catch (e) {
         console.error(e);
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--danger);">Ошибка загрузки истории</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-danger">Ошибка загрузки истории</td></tr>';
     }
 }
 
 window.deletePurchase = function (id, itemName) {
     const html = `
-        <div style="padding: 15px; text-align: center; font-size: 15px;">
+        <div class="p-15 text-center font-15">
             Точно отменить приход сырья <b>${itemName}</b>?<br><br>
-            <span style="color: var(--danger); font-size: 13px;">Сырье будет списано со склада, а деньги (включая доставку) вернутся на счет.</span>
+            <span class="text-danger font-13">Сырье будет списано со склада, а деньги (включая доставку) вернутся на счет.</span>
         </div>
     `;
 
@@ -480,12 +480,12 @@ window.executeDeletePurchase = async function (id) {
 
 window.openAddSupplierModal = function () {
     const html = `
-        <div style="padding: 10px;">
+        <div class="p-10">
             <div class="form-group">
-                <label>Название (ИП, ООО или ФИО): <span style="color: var(--danger);">*</span></label>
+                <label>Название (ИП, ООО или ФИО): <span class="text-danger">*</span></label>
                 <input type="text" id="new-sup-name" class="input-modern" placeholder="Например: ООО Стройтех">
             </div>
-            <div class="form-group" style="margin-bottom: 0;">
+            <div class="form-group m-0">
                 <label>ИНН (необязательно):</label>
                 <input type="text" id="new-sup-inn" class="input-modern" placeholder="1234567890">
             </div>
@@ -654,7 +654,7 @@ window.handlePurchaseSearch = function () {
 
     // Если поиск очистили — возвращаем режим "День"
     if (query.length === 0) {
-        document.getElementById('th-date').style.display = 'none'; // Прячем колонку Дата
+        document.getElementById('th-date').classList.add('inv-hidden'); // Прячем колонку Дата
         if (dateEl && dateEl.value) loadDailyPurchases(dateEl.value);
         return;
     }
@@ -666,18 +666,18 @@ window.handlePurchaseSearch = function () {
         const tbody = document.getElementById('daily-purchases-table');
         const tfoot = document.getElementById('daily-purchases-summary');
 
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">🔍 Ищем в базе...</td></tr>';
-        if (tfoot) tfoot.style.display = 'none'; // Скрываем итоги за день
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">🔍 Ищем в базе...</td></tr>';
+        if (tfoot) tfoot.classList.add('inv-hidden'); // Скрываем итоги за день
 
         try {
             const res = await fetch(`/api/inventory/purchase-search?q=${encodeURIComponent(query)}`);
             currentSearchResults = await res.json();
 
-            document.getElementById('th-date').style.display = 'table-cell'; // Показываем колонку Дата
+            document.getElementById('th-date').classList.remove('inv-hidden'); // Показываем колонку Дата
             renderSearchResults();
         } catch (e) {
             console.error(e);
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--danger);">Ошибка поиска</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-danger">Ошибка поиска</td></tr>';
         }
     }, 400);
 };
@@ -686,7 +686,7 @@ window.renderSearchResults = function () {
     const tbody = document.getElementById('daily-purchases-table');
 
     if (currentSearchResults.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Ничего не найдено.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">Ничего не найдено.</td></tr>';
         return;
     }
 
@@ -696,19 +696,19 @@ window.renderSearchResults = function () {
         const safeDate = p.purchase_date.split('-').reverse().join('.');
 
         return `
-        <tr id="purchase-row-${p.id}">
+        <tr id="purchase-row-${p.id}" class="pur-table-row">
             <td><strong>${p.item_name}</strong></td>
-            <td>${p.supplier_name || '<i style="color:var(--text-muted)">Не указан</i>'}</td>
-            <td style="color: var(--primary); font-weight: bold; white-space: nowrap;">${safeDate}</td>
-            <td style="text-align: right;">${parseFloat(p.quantity).toFixed(2)} <small>${p.unit}</small></td>
-            <td style="text-align: right;">${parseFloat(p.price).toFixed(2)} ₽</td>
-            <td style="text-align: right;"><strong style="color: var(--danger);">${parseFloat(p.amount).toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</strong></td>
-            <td style="text-align: right; white-space: nowrap;">
-                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 14px; border-color: var(--border); margin-right: 5px;" 
+            <td>${p.supplier_name || '<i class="text-muted">Не указан</i>'}</td>
+            <td class="text-primary font-bold white-space-nowrap">${safeDate}</td>
+            <td class="text-right">${parseFloat(p.quantity).toFixed(2)} <small>${p.unit}</small></td>
+            <td class="text-right">${parseFloat(p.price).toFixed(2)} ₽</td>
+            <td class="text-right"><strong class="text-danger">${parseFloat(p.amount).toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</strong></td>
+            <td class="text-right white-space-nowrap">
+                <button class="btn btn-outline" class="pur-row-btn border-border mr-5" 
                         onclick="printReceipt('${p.id}', '${safeItem}', '${safeSupplier}', ${p.quantity}, '${p.unit}', ${p.price}, ${p.amount})" title="Распечатать">🖨️</button>
-                <button class="btn btn-outline" style="color: var(--warning-text); padding: 4px 8px; font-size: 14px; border-color: var(--warning-text); margin-right: 5px;" 
+                <button class="btn btn-outline" class="pur-row-btn text-warning border-warning mr-5" 
                         onclick="editPurchase('${p.id}')" title="Редактировать">✏️</button>
-                <button class="btn btn-outline" style="color: var(--danger); padding: 4px 8px; font-size: 14px; border-color: var(--danger);" 
+                <button class="btn btn-outline" class="pur-row-btn text-danger border-danger" 
                         onclick="deletePurchase('${p.id}', '${safeItem}')" title="Отменить">❌</button>
             </td>
         </tr>
@@ -748,3 +748,4 @@ window.sortSearchResults = function (field) {
 
     renderSearchResults();
 };
+

@@ -36,12 +36,12 @@ window.toggleAuditMode = function () {
     if (isAuditMode) {
         btnMode.classList.replace('btn-outline', 'btn-red');
         btnMode.innerText = '❌ Отменить инвентаризацию';
-        btnSave.style.display = 'inline-block';
+        btnSave.classList.remove('inv-hidden');
         UI.toast('Режим инвентаризации включен. Введите фактические остатки.', 'info');
     } else {
         btnMode.classList.replace('btn-red', 'btn-outline');
         btnMode.innerText = '📋 Инвентаризация';
-        btnSave.style.display = 'none';
+        btnSave.classList.add('inv-hidden');
     }
     renderInventoryTable();
 };
@@ -294,7 +294,7 @@ window.openDemoldingModal = function (batchId, batchNum, tileId, productName, pl
             <div class="inv-modal-stock">В сушилке числится: <b class="inv-modal-stock-value">${plannedQty}</b> ед.</div>
         </div>
 
-        <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+        <div class="form-grid inv-grid-3">
             <div class="form-group">
                 <label class="inv-label-success">🟢 1-й сорт:</label>
                 <input type="number" id="demold-good" class="input-modern" value="${plannedQty}">
@@ -372,7 +372,7 @@ window.openScrapModal = function (itemId, itemName, batchId, batchNum, warehouse
             </select>
         </div>
 
-        <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 10px;">
+        <div class="form-grid inv-grid-2">
             <div class="form-group">
                 <label>Количество:</label>
                 <input type="number" id="scrap-qty" class="input-modern" max="${currentQty}" placeholder="0">

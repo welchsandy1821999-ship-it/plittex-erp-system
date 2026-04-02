@@ -671,16 +671,42 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
         try {
             const result = await pool.query(`SELECT COALESCE(SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) as doc_num, TO_CHAR(MAX(m.movement_date), 'DD.MM.YYYY HH24:MI') as date_formatted, SUM(ABS(m.quantity)) as total_qty, (SELECT c.name FROM client_order_items coi JOIN client_orders co ON coi.order_id = co.id JOIN counterparties c ON co.counterparty_id = c.id WHERE coi.id = MAX(m.linked_order_item_id)) as client_name FROM inventory_movements m WHERE m.movement_type = 'sales_shipment' GROUP BY COALESCE(SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) HAVING COALESCE(SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) IS NOT NULL ORDER BY MAX(m.movement_date) DESC LIMIT 100`);
             if (result.rows.length === 0) return res.json([]);
-            for (let row of result.rows) {
-                if (!row.doc_num) continue;
-                let tx = await pool.query(`SELECT t.amount, c.name as client_name FROM transactions t LEFT JOIN counterparties c ON t.counterparty_id = c.id WHERE t.description LIKE $1`, [`%${row.doc_num}%`]);
-                if (tx.rows.length > 0) { row.amount = tx.rows[0].amount; row.client_name = row.client_name || tx.rows[0].client_name; row.payment = '💰 Оплачено'; }
-                else {
-                    let inv = await pool.query(`SELECT i.amount, c.name as client_name FROM invoices i LEFT JOIN counterparties c ON i.counterparty_id = c.id WHERE i.invoice_number = $1`, [row.doc_num]);
-                    if (inv.rows.length > 0) { row.amount = inv.rows[0].amount; row.client_name = row.client_name || inv.rows[0].client_name; row.payment = '⏳ В долг'; }
+            const validRows = result.rows.filter(r => r.doc_num);
+            if (validRows.length === 0) return res.json([]);
+            
+            const docNumsPattern = validRows.map(r => '%' + r.doc_num + '%');
+            const docNumsExact = validRows.map(r => r.doc_num);
+
+            const txRes = await pool.query(`
+                SELECT t.amount, c.name as client_name, t.description 
+                FROM transactions t 
+                LEFT JOIN counterparties c ON t.counterparty_id = c.id 
+                WHERE t.description LIKE ANY($1::text[])
+            `, [docNumsPattern]);
+            
+            const invRes = await pool.query(`
+                SELECT i.amount, c.name as client_name, i.invoice_number 
+                FROM invoices i 
+                LEFT JOIN counterparties c ON i.counterparty_id = c.id 
+                WHERE i.invoice_number = ANY($1::text[])
+            `, [docNumsExact]);
+
+            for (let row of validRows) {
+                const tx = txRes.rows.find(t => t.description && t.description.includes(row.doc_num));
+                if (tx) { 
+                    row.amount = tx.amount; 
+                    row.client_name = row.client_name || tx.client_name; 
+                    row.payment = '💰 Оплачено'; 
+                } else {
+                    const inv = invRes.rows.find(i => i.invoice_number === row.doc_num);
+                    if (inv) { 
+                        row.amount = inv.amount; 
+                        row.client_name = row.client_name || inv.client_name; 
+                        row.payment = '⏳ В долг'; 
+                    }
                 }
             }
-            res.json(result.rows.filter(r => r.doc_num));
+            res.json(validRows);
         } catch (err) {
             console.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });

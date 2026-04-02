@@ -4,6 +4,7 @@ const Big = require('big.js');
 const path = require('path');
 const fs = require('fs');
 const fsPromises = require('fs').promises;
+const { requireAdmin } = require('../middleware/auth');
 
 module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     async function rotateDocs(directory, maxFiles = 500) {
@@ -436,7 +437,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     });
 
     // 10. API: СОХРАНЕНИЕ PDF
-    router.post('/api/docs/save-pdf', express.json({ limit: '10mb' }), async (req, res) => {
+    router.post('/api/docs/save-pdf', requireAdmin, express.json({ limit: '10mb' }), async (req, res) => {
         try {
             const { filename, fileData } = req.body;
             if (!fileData || !filename) return res.status(400).json({ error: 'Данные отсутствуют' });
@@ -595,7 +596,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     });
 
     // 15. API: ВЫГРУЗКА РЕЕСТРА В 1С (XML CommerceML 2.0)
-    router.post('/api/docs/export-1c', async (req, res) => {
+    router.post('/api/docs/export-1c', requireAdmin, async (req, res) => {
         try {
             const { invoiceIds } = req.body;
             if (!Array.isArray(invoiceIds) || invoiceIds.length === 0) {

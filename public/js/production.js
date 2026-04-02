@@ -42,9 +42,8 @@ async function initProduction() {
 
                         // Берем даты из глобального массива
                         if (window.activeProductionDates && window.activeProductionDates.includes(dateStr)) {
-                            dayElem.style.fontWeight = 'bold';
-                            dayElem.style.color = 'var(--primary, #0056b3)';
-                            dayElem.innerHTML += '<span style="position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; background-color: var(--success, #28a745); border-radius: 50%;"></span>';
+                            dayElem.classList.add('prod-cal-active');
+                            dayElem.innerHTML += '<span class="prod-cal-dot"></span>';
                         }
                     }
                 });
@@ -192,14 +191,14 @@ window.renderSelectedTemplates = function () {
     const faceKey = document.getElementById('face-template-select').value;
 
     const drawEditableList = (templateList, containerId, prefix) => {
-        let html = '<div style="font-size: 11px; margin-bottom: 5px; opacity: 0.8;">На 1 замес (можно изменить сейчас):</div>';
+        let html = '<div class="prod-tpl-hint">На 1 замес (можно изменить сейчас):</div>';
 
         html += (templateList || []).map(m => `
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding: 4px 0;">
-                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;">${m.name}</span>
-                <div style="display: flex; align-items: center; gap: 5px;">
-                    <input type="number" class="input-modern ${prefix}-qty" data-id="${m.id}" data-name="${m.name}" data-unit="${m.unit}" value="${m.qty}" style="width: 75px; padding: 2px 5px; text-align: right; margin: 0; font-weight: bold; font-size: 13px; border: 1px solid var(--border);" onfocus="this.select()" title="Изменить для этого конкретного замеса">
-                    <span style="font-size: 11px; width: 15px; text-align: left;">${m.unit}</span>
+            <div class="prod-tpl-row">
+                <span class="prod-tpl-name">${m.name}</span>
+                <div class="flex-row gap-5 align-center">
+                    <input type="number" class="input-modern ${prefix}-qty prod-tpl-input" data-id="${m.id}" data-name="${m.name}" data-unit="${m.unit}" value="${m.qty}" onfocus="this.select()" title="Изменить для этого конкретного замеса">
+                    <span class="prod-tpl-unit">${m.unit}</span>
                 </div>
             </div>
         `).join('');
@@ -417,18 +416,18 @@ window.addProdToSession = async function () {
 function renderSessionProducts() {
     const container = document.getElementById('session-products-list');
     if (sessionProducts.length === 0) {
-        container.innerHTML = `<div style="color: var(--text-muted); font-size: 13px; text-align: center; padding: 15px; border: 1px dashed var(--border); border-radius: 6px;">Смена пуста. Выберите продукцию выше.</div>`;
+        container.innerHTML = `<div class="prod-session-empty">Смена пуста. Выберите продукцию выше.</div>`;
         return;
     }
 
     container.innerHTML = sessionProducts.map((p, i) => `
-        <div style="display: flex; justify-content: space-between; align-items: center; background: var(--surface); padding: 10px 15px; border-radius: 8px; border: 1px solid var(--border);">
+        <div class="prod-session-item">
             <div>
-                <b style="color: var(--primary);">${p.name}</b><br>
-                <small style="color: var(--text-muted);">${p.fromServer ? '<em>📝 Сохранён на сервере</em>' : `Циклов: <b>${p.cycles}</b> | Итого: <b>${p.quantity.toFixed(2)} ${p.unit || ''}</b>`}</small><br>
-                <small style="color: var(--text-muted);">${p.fromServer ? '' : `Замесы: Осн (${p.mainCount || 0}), Лиц (${p.faceCount || 0})`}</small>
+                <b class="text-primary">${p.name}</b><br>
+                <small class="text-muted">${p.fromServer ? '<em>📝 Сохранён на сервере</em>' : `Циклов: <b class="text-main">${p.cycles}</b> | Итого: <b class="text-main">${p.quantity.toFixed(2)} ${p.unit || ''}</b>`}</small><br>
+                <small class="text-muted">${p.fromServer ? '' : `Замесы: Осн (${p.mainCount || 0}), Лиц (${p.faceCount || 0})`}</small>
             </div>
-            <button class="btn" style="color: var(--danger); padding: 5px;" onclick="removeSessionProduct(${i})">🗑️</button>
+            <button class="btn text-danger p-5" onclick="removeSessionProduct(${i})">🗑️</button>
         </div>
     `).join('');
 }
@@ -569,16 +568,16 @@ window.editMixTemplate = function (templateKey) {
         });
 
         return `
-            <tr style="border-bottom: 1px solid var(--border); transition: background 0.2s;" onmouseover="this.style.background='var(--surface-alt)'" onmouseout="this.style.background='transparent'">
-                <td style="padding: 12px 10px;">
-                    <select class="input-modern tpl-mat-select w-100" data-index="${index}" style="margin: 0;">
+            <tr class="prod-tpl-edit-tr">
+                <td class="prod-tpl-edit-th">
+                    <select class="input-modern tpl-mat-select w-100 m-0" data-index="${index}">
                         ${rowMatOptions}
                     </select>
                 </td>
-                <td style="padding: 12px 10px; width: 140px;">
-                    <input type="number" step="any" class="input-modern tpl-qty-input text-center" data-index="${index}" value="${mat.qty}" style="width: 100%; margin: 0; font-weight: bold;" onfocus="this.select()">
+                <td class="p-10" style="width: 140px;">
+                    <input type="number" step="any" class="input-modern tpl-qty-input text-center font-bold m-0 w-100" data-index="${index}" value="${mat.qty}" onfocus="this.select()">
                 </td>
-                <td style="padding: 12px 10px; text-align: right; width: 60px;">
+                <td class="text-right p-10" style="width: 60px;">
                     <button class="btn btn-red" style="padding: 6px 12px; height: auto;" onclick="removeMaterialFromTemplate('${templateKey}', ${index})" title="Удалить строку">✕</button>
                 </td>
             </tr>
@@ -586,26 +585,26 @@ window.editMixTemplate = function (templateKey) {
     }).join('');
 
     const html = `
-        <div style="margin-bottom: 25px;">
-            <table class="w-100" style="border-collapse: collapse; margin-bottom: 25px;">
+        <div class="mb-20">
+            <table class="w-100 prod-table-modern mb-20">
                 <thead>
-                    <tr style="background: var(--surface-alt); text-align: left; color: var(--text-muted); font-size: 13px; text-transform: uppercase;">
-                        <th style="padding: 12px 10px; border-radius: 8px 0 0 8px;">Сырье (можно заменить)</th>
-                        <th style="padding: 12px 10px; text-align: center;">Норма (кг)</th>
-                        <th style="padding: 12px 10px; text-align: right; border-radius: 0 8px 8px 0;">Удалить</th>
+                    <tr>
+                        <th class="prod-tpl-edit-th" style="border-radius: 8px 0 0 8px;">Сырье (можно заменить)</th>
+                        <th class="prod-tpl-edit-th text-center">Норма (кг)</th>
+                        <th class="prod-tpl-edit-th text-right" style="border-radius: 0 8px 8px 0;">Удалить</th>
                     </tr>
                 </thead>
                 <tbody>
-                    ${tableRows || '<tr><td colspan="3" style="padding: 20px 10px; text-align: center; color: var(--text-muted); font-style: italic;">В шаблоне пока нет сырья</td></tr>'}
+                    ${tableRows || '<tr><td colspan="3" class="text-center text-muted p-20" style="font-style: italic;">В шаблоне пока нет сырья</td></tr>'}
                 </tbody>
             </table>
 
-            <div style="background: var(--surface-alt); padding: 18px; border-radius: 10px; border: 1px dashed var(--border); box-shadow: 0 4px 15px rgba(0,0,0,0.03);">
-                <label style="font-weight: 600; margin-bottom: 12px; display: block; font-size: 14px; color: var(--primary);">➕ Добавить новое сырье в шаблон:</label>
-                <div style="display: flex; gap: 12px; align-items: stretch;">
-                    <select id="new-tpl-mat" class="input-modern" style="flex: 1; margin: 0;">${matOptionsGlobal}</select>
-                    <input type="number" step="any" id="new-tpl-qty" class="input-modern text-center" placeholder="0.00" style="width: 120px; margin: 0; font-weight: bold;" onfocus="this.select()">
-                    <button class="btn btn-green shadow-success" style="padding: 0 20px; font-weight: bold;" onclick="addMaterialToTemplate('${templateKey}')">Добавить</button>
+            <div class="prod-tpl-edit-add-wrap">
+                <label class="text-primary font-bold font-14 mb-10" style="display: block;">➕ Добавить новое сырье в шаблон:</label>
+                <div class="flex-row gap-10 align-stretch">
+                    <select id="new-tpl-mat" class="input-modern flex-grow-1 m-0">${matOptionsGlobal}</select>
+                    <input type="number" step="any" id="new-tpl-qty" class="input-modern text-center font-bold m-0" placeholder="0.00" style="width: 120px;" onfocus="this.select()">
+                    <button class="btn btn-green shadow-success font-bold p-10" onclick="addMaterialToTemplate('${templateKey}')">Добавить</button>
                 </div>
             </div>
         </div>
@@ -764,21 +763,21 @@ async function loadDailyHistory() {
             dayTotalVolume += volume;
             dayTotalCost += cost;
 
-            const draftBadge = isDraft ? '<span style="background: var(--warning); color: #000; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: bold; margin-left: 6px;">📝 Черновик</span>' : '';
-            const costDisplay = isDraft ? '<span style="color: var(--text-muted); font-style: italic;">—</span>' : `${cost.toFixed(2)} ₽`;
+            const draftBadge = isDraft ? '<span class="prod-badge-draft">📝 Черновик</span>' : '';
+            const costDisplay = isDraft ? '<span class="text-muted" style="font-style: italic;">—</span>' : `${cost.toFixed(2)} ₽`;
 
             return `
-            <tr id="row-${b.id}" style="${isDraft ? 'border-left: 3px solid var(--warning);' : ''}">
+            <tr id="row-${b.id}" class="${isDraft ? 'prod-row-draft' : ''}">
                 <td onclick="toggleBatchDetails(${b.id})"><strong>${b.batch_number}</strong>${draftBadge}</td>
                 <td onclick="toggleBatchDetails(${b.id})">${b.product_name}</td>
                 <td onclick="toggleBatchDetails(${b.id})">${volume.toFixed(2)}</td>
                 <td onclick="toggleBatchDetails(${b.id})">${costDisplay}</td>
-                <td style="text-align: right; white-space: nowrap;">
-                    <button class="btn btn-outline" style="color: var(--primary); padding: 5px 10px; margin-right: 5px;" 
+                <td class="text-right" style="white-space: nowrap;">
+                    <button class="btn btn-outline text-primary p-5" style="margin-right: 5px;" 
                             onclick="event.stopPropagation(); window.open('/print/passport?batchId=${b.id}', '_blank')">🖨️</button>
-                    ${isDraft ? `<button class="btn btn-outline" style="color: var(--warning-text); padding: 5px 10px; margin-right: 5px;" 
+                    ${isDraft ? `<button class="btn btn-outline p-5" style="color: var(--warning-text); margin-right: 5px;" 
                                          onclick="event.stopPropagation(); editDraftBatch(${b.id})">✏️</button>` : ''}
-                    <button class="btn btn-outline" style="color: var(--danger); padding: 5px 10px;" 
+                    <button class="btn btn-outline text-danger p-5" 
                             onclick="event.stopPropagation(); deleteBatch(${b.id}, '${b.batch_number}')">❌</button>
                 </td>
             </tr>`;
@@ -829,75 +828,75 @@ async function toggleBatchDetails(batchId) {
         const totalWeightUnit = totalWeightBatch / plannedQty;
 
         let html = `
-<td colspan="6" style="padding: 0; background: #fdfdfd; border-bottom: 3px solid var(--primary);">
-    <div style="padding: 30px; font-family: 'Inter', system-ui, sans-serif; color: #333;">
+<td colspan="6" class="prod-details-td">
+    <div class="prod-details-wrap">
         
-        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 25px; border-bottom: 2px solid #eee; padding-bottom: 15px;">
+        <div class="prod-details-header">
             <div>
-                <h3 style="margin: 0; font-size: 20px; color: var(--text-main);">📊 Экономика и себестоимость партии #${batchId}</h3>
-                <p style="margin: 5px 0 0; color: var(--text-muted); font-size: 14px;">Общий объем выпуска: <b style="color: var(--text-main);">${plannedQty.toFixed(2)} ${batchInfo.unit || 'ед.'}</b></p>
+                <h3 class="prod-details-title">📊 Экономика и себестоимость партии #${batchId}</h3>
+                <p class="prod-details-vol">Общий объем выпуска: <b class="text-main">${plannedQty.toFixed(2)} ${batchInfo.unit || 'ед.'}</b></p>
             </div>
-            <div style="text-align: right;">
-                <div style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Полная себестоимость 1 ед.</div>
-                <div style="font-size: 32px; font-weight: 900; color: var(--primary); line-height: 1;">${unitTotalCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</div>
+            <div class="text-right">
+                <div class="prod-details-cost-label">Полная себестоимость 1 ед.</div>
+                <div class="prod-details-cost-val">${unitTotalCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</div>
             </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: 320px 1fr; gap: 30px;">
+        <div class="prod-details-grid">
             
-            <div style="display: flex; flex-direction: column; gap: 18px;">
-                <div style="background: white; padding: 18px; border-radius: 12px; border: 1px solid #e0e0e0; border-left: 5px solid var(--success);">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-                        <span style="font-weight: bold; color: #555;">📦 Сырье и материалы</span>
-                        <b style="font-size: 16px;">${matCost.toLocaleString('ru-RU')} ₽</b>
+            <div class="prod-cost-cards">
+                <div class="prod-cost-card prod-cost-card-mat">
+                    <div class="prod-cost-header">
+                        <span class="prod-cost-title">📦 Сырье и материалы</span>
+                        <b class="prod-cost-val">${matCost.toLocaleString('ru-RU')} ₽</b>
                     </div>
-                    <div style="background: #f0f0f0; height: 8px; border-radius: 4px; margin-bottom: 10px; overflow: hidden;">
-                        <div style="width: ${(matCost / totalCost * 100).toFixed(0)}%; height: 100%; background: var(--success);"></div>
+                    <div class="prod-cost-bar-bg">
+                        <div class="prod-cost-bar-fill" style="width: ${(matCost / totalCost * 100).toFixed(0)}%;"></div>
                     </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 14px; background: #f9f9f9; padding: 8px; border-radius: 6px;">
-                        <span style="color: #666;">На 1 единицу:</span>
-                        <b style="color: var(--success);">${unitMatCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</b>
+                    <div class="prod-cost-unit-mat">
+                        <span class="text-muted">На 1 единицу:</span>
+                        <b class="text-success">${unitMatCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</b>
                     </div>
                 </div>
 
-                <div style="background: white; padding: 18px; border-radius: 12px; border: 1px solid #e0e0e0; border-left: 5px solid var(--warning);">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-                        <span style="font-weight: bold; color: #555;">⚙️ Аморт. станка</span>
-                        <b style="font-size: 16px;">${machineAmortCost.toLocaleString('ru-RU')} ₽</b>
+                <div class="prod-cost-card prod-cost-card-mach">
+                    <div class="prod-cost-header">
+                        <span class="prod-cost-title">⚙️ Аморт. станка</span>
+                        <b class="prod-cost-val">${machineAmortCost.toLocaleString('ru-RU')} ₽</b>
                     </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 14px; background: #fffcf5; padding: 8px; border-radius: 6px; border: 1px solid #fff3d6;">
-                        <span style="color: #666;">На 1 единицу:</span>
+                    <div class="prod-cost-unit-mach">
+                        <span class="text-muted">На 1 единицу:</span>
                         <b style="color: #b37400;">${unitMachineAmortCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</b>
                     </div>
                 </div>
 
-                <div style="background: white; padding: 18px; border-radius: 12px; border: 1px solid #e0e0e0; border-left: 5px solid #007bff;">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-                        <span style="font-weight: bold; color: #555;">🧩 Аморт. матрицы</span>
-                        <b style="font-size: 16px;">${moldAmortCost.toLocaleString('ru-RU')} ₽</b>
+                <div class="prod-cost-card prod-cost-card-mold">
+                    <div class="prod-cost-header">
+                        <span class="prod-cost-title">🧩 Аморт. матрицы</span>
+                        <b class="prod-cost-val">${moldAmortCost.toLocaleString('ru-RU')} ₽</b>
                     </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 14px; background: #f0f7ff; padding: 8px; border-radius: 6px; border: 1px solid #d1e7ff;">
-                        <span style="color: #666;">На 1 единицу:</span>
+                    <div class="prod-cost-unit-mold">
+                        <span class="text-muted">На 1 единицу:</span>
                         <b style="color: #0056b3;">${unitMoldAmortCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</b>
                     </div>
                 </div>
             </div>
 
-            <div style="background: white; padding: 25px; border-radius: 12px; border: 1px solid #e0e0e0; box-shadow: 0 10px 30px rgba(0,0,0,0.03);">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <h4 style="margin: 0; font-size: 15px; text-transform: uppercase; letter-spacing: 0.5px; color: #666;">📋 Фактическое списание сырья</h4>
-                    <span style="background: #eee; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold;">Компонентов: ${materials.length}</span>
+            <div class="prod-mat-table-wrap">
+                <div class="prod-mat-header">
+                    <h4 class="prod-mat-title">📋 Фактическое списание сырья</h4>
+                    <span class="prod-mat-badge">Компонентов: ${materials.length}</span>
                 </div>
                 
-                <table style="width: 100%; border-collapse: collapse;">
-                    <thead>
-                        <tr style="text-align: left; background: #f8f9fa;">
-                            <th style="padding: 12px; border-bottom: 2px solid #eee; font-size: 11px; color: #888;">МАТЕРИАЛ</th>
-                            <th style="padding: 12px; border-bottom: 2px solid #eee; font-size: 11px; color: #888; text-align: right;">ОБЩИЙ РАСХОД</th>
-                            <th style="padding: 12px; border-bottom: 2px solid #eee; font-size: 11px; color: #888; text-align: right;">НА 1 ЕД.</th>
-                            <th style="padding: 12px; border-bottom: 2px solid #eee; font-size: 11px; color: #888; text-align: right;">ЦЕНА/КГ</th>
-                            <th style="padding: 12px; border-bottom: 2px solid #eee; font-size: 11px; color: #888; text-align: right;">СУММА (1 ЕД)</th>
-                            <th style="padding: 12px; border-bottom: 2px solid #eee; font-size: 11px; color: #888; text-align: right;">СУММА (ПАРТИЯ)</th>
+                <table class="prod-table-modern">
+                    <thead class="prod-th-styled">
+                        <tr>
+                            <th class="prod-th-styled" style="border-bottom: 2px solid #eee;">МАТЕРИАЛ</th>
+                            <th class="prod-th-styled prod-th-right" style="border-bottom: 2px solid #eee;">ОБЩИЙ РАСХОД</th>
+                            <th class="prod-th-styled prod-th-right" style="border-bottom: 2px solid #eee;">НА 1 ЕД.</th>
+                            <th class="prod-th-styled prod-th-right" style="border-bottom: 2px solid #eee;">ЦЕНА/КГ</th>
+                            <th class="prod-th-styled prod-th-right" style="border-bottom: 2px solid #eee;">СУММА (1 ЕД)</th>
+                            <th class="prod-th-styled prod-th-right" style="border-bottom: 2px solid #eee;">СУММА (ПАРТИЯ)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -909,24 +908,24 @@ async function toggleBatchDetails(batchId) {
             const pricePerKg = costBatch / qBatch;
 
             return `
-                            <tr style="border-bottom: 1px solid #f5f5f5;">
-                                <td style="padding: 12px; font-weight: 600; color: #333;">${m.name}</td>
-                                <td style="padding: 12px; text-align: right;">${qBatch.toFixed(2)} <small style="color:#999">${m.unit}</small></td>
-                                <td style="padding: 12px; text-align: right; color: var(--primary);">${qUnit.toFixed(3)} <small>${m.unit}</small></td>
-                                <td style="padding: 12px; text-align: right; color: #888; font-size: 12px;">${pricePerKg.toFixed(2)}</td>
-                                <td style="padding: 12px; text-align: right; font-weight: bold; color: #555;">${costUnit.toFixed(2)} ₽</td>
-                                <td style="padding: 12px; text-align: right; font-weight: bold; color: var(--danger);">${costBatch.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</td>
+                            <tr class="prod-tr-styled">
+                                <td class="prod-td-styled prod-mat-name">${m.name}</td>
+                                <td class="prod-td-styled prod-td-right">${qBatch.toFixed(2)} <small class="text-muted">${m.unit}</small></td>
+                                <td class="prod-td-styled prod-td-right text-primary">${qUnit.toFixed(3)} <small>${m.unit}</small></td>
+                                <td class="prod-td-styled prod-td-right text-muted font-12">${pricePerKg.toFixed(2)}</td>
+                                <td class="prod-td-styled prod-td-right font-bold text-muted">${costUnit.toFixed(2)} ₽</td>
+                                <td class="prod-td-styled prod-td-right font-bold text-danger">${costBatch.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</td>
                             </tr>`;
         }).join('')}
                     </tbody>
-                    <tfoot style="background: #fcfcfc; border-top: 2px solid #eee;">
-                        <tr style="font-weight: 900; color: var(--text-main);">
-                            <td style="padding: 15px 12px;">ИТОГО ПО СЫРЬЮ:</td>
-                            <td style="padding: 15px 12px; text-align: right;">${totalWeightBatch.toFixed(2)} <small>кг</small></td>
-                            <td style="padding: 15px 12px; text-align: right; color: var(--primary);">${totalWeightUnit.toFixed(3)} <small>кг</small></td>
-                            <td style="padding: 15px 12px;"></td>
-                            <td style="padding: 15px 12px; text-align: right;">${unitMatCost.toFixed(2)} ₽</td>
-                            <td style="padding: 15px 12px; text-align: right; color: var(--danger); font-size: 16px;">${matCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</td>
+                    <tfoot class="prod-tfoot-styled">
+                        <tr>
+                            <td class="prod-tfoot-td">ИТОГО ПО СЫРЬЮ:</td>
+                            <td class="prod-tfoot-td prod-td-right">${totalWeightBatch.toFixed(2)} <small>кг</small></td>
+                            <td class="prod-tfoot-td prod-td-right text-primary">${totalWeightUnit.toFixed(3)} <small>кг</small></td>
+                            <td class="prod-tfoot-td"></td>
+                            <td class="prod-tfoot-td prod-td-right">${unitMatCost.toFixed(2)} ₽</td>
+                            <td class="prod-tfoot-td prod-td-right text-danger font-16">${matCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</td>
                         </tr>
                     </tfoot>
                 </table>
@@ -946,7 +945,7 @@ async function toggleBatchDetails(batchId) {
 // === ОТМЕНА ФОРМОВКИ (КРАСИВОЕ ОКНО) ===
 window.deleteBatch = function (id, batchNumber) {
     // 🛡️ escapeHTML для номера партии
-    const html = `<div style="padding: 15px; text-align: center; font-size: 15px;">Точно отменить формовку <b>${escapeHTML(batchNumber)}</b> и вернуть списанное сырье на склад?</div>`;
+    const html = `<div class="text-center p-15 font-15">Точно отменить формовку <b>${escapeHTML(batchNumber)}</b> и вернуть списанное сырье на склад?</div>`;
 
     UI.showModal('⚠️ Отмена формовки', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>
@@ -1074,76 +1073,74 @@ window.openMrpDashboard = async function () {
 
         // 1. Генерируем левую таблицу: План производства (Что отлить)
         let planHtml = data.productionPlan.map((p, idx) => `
-            <tr style="border-bottom: 1px solid var(--border);">
-                <td style="padding: 10px;"><b>${idx + 1}. ${escapeHTML(p.item_name)}</b></td>
-                <td style="padding: 10px; text-align: right; color: var(--primary); font-weight: bold; font-size: 14px;">
-                    ${p.total_needed_qty} <span style="font-size: 11px; color: var(--text-muted);">${p.unit}</span>
+            <tr class="mrp-plan-row">
+                <td class="p-10"><b>${idx + 1}. ${escapeHTML(p.item_name)}</b></td>
+                <td class="p-10 mrp-plan-qty">
+                    ${p.total_needed_qty} <span class="font-11 text-muted">${p.unit}</span>
                 </td>
             </tr>
         `).join('');
 
         if (!planHtml) {
-            planHtml = '<tr><td colspan="2" style="text-align: center; padding: 20px; color: var(--text-muted);">🎉 Нет активных задач в производство. Всё сделано!</td></tr>';
+            planHtml = '<tr><td colspan="2" class="text-center p-20 text-muted">🎉 Нет активных задач в производство. Всё сделано!</td></tr>';
         }
 
         // 2. Генерируем правую таблицу: Потребность в сырье
         let deficitHtml = data.deficitReport.map(m => {
             const shortage = parseFloat(m.shortage);
-            // Если есть дефицит — подсвечиваем красным, если хватает — зеленым
-            const bgColor = shortage > 0 ? 'var(--danger-bg)' : 'var(--success-bg)';
-            const statusColor = shortage > 0 ? 'var(--danger)' : 'var(--success)';
+            const statusType = shortage > 0 ? 'err' : 'ok';
             const icon = shortage > 0 ? '⚠️' : '✅';
             const statusText = shortage > 0 ? `-${m.shortage}` : 'Хватает';
 
             return `
-                <tr style="border-bottom: 1px solid var(--border); background: ${bgColor};">
-                    <td style="padding: 10px;">${icon} <b>${escapeHTML(m.name)}</b></td>
-                    <td style="padding: 10px; text-align: center; font-weight: bold;">${m.needed}</td>
-                    <td style="padding: 10px; text-align: center; color: var(--text-muted);">${m.stock}</td>
-                    <td style="padding: 10px; text-align: center; color: ${statusColor}; font-weight: bold;">${statusText}</td>
+                <tr class="mrp-deficit-row" style="background: var(--${shortage > 0 ? 'danger-bg' : 'success-bg'});">
+                    <td class="p-10">${icon} <b>${escapeHTML(m.name)}</b></td>
+                    <td class="p-10 text-center font-bold">${m.needed}</td>
+                    <td class="p-10 text-center text-muted">${m.stock}</td>
+                    <td class="p-10 text-center font-bold" style="color: var(--${shortage > 0 ? 'danger' : 'success'});">${statusText}</td>
                 </tr>
             `;
         }).join('');
 
         if (!deficitHtml) {
-            deficitHtml = '<tr><td colspan="4" style="text-align: center; padding: 20px; color: var(--text-muted);">Сырье не требуется</td></tr>';
+            deficitHtml = '<tr><td colspan="4" class="text-center p-20 text-muted">Сырье не требуется</td></tr>';
         }
 
         // 3. Собираем всё в большое модальное окно
         const html = `
         <style>.modal-content { max-width: 1000px !important; width: 95% !important; }</style>
         
-        <div style="padding: 10px; display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; align-items: stretch;">
+        <div class="p-10 form-grid gap-20 align-stretch" style="grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));">
             
-            <div class="card flex-column" style="margin-bottom: 0; padding: 0; overflow: hidden; border: 1px solid var(--border);">
-                <div style="background: var(--surface-alt); padding: 12px 15px; border-bottom: 2px solid var(--info);">
-                    <h4 style="margin: 0; color: var(--text-main); display: flex; justify-content: space-between; align-items: center;">
+            <div class="card flex-column mrp-card-block">
+                <div class="mrp-card-header">
+                    <h4 class="mrp-card-title">
                         <span>🏭 Нужно произвести</span>
-                        <span style="background: var(--info); color: white; padding: 3px 10px; border-radius: 12px; font-size: 11px;">По всем заказам</span>
+                        <span class="mrp-title-badge">По всем заказам</span>
                     </h4>
                 </div>
-                <div style="flex-grow: 1;">
-                    <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                <div class="flex-grow-1">
+                    <table class="w-100 font-13 prod-table-modern">
                         <tbody>${planHtml}</tbody>
                     </table>
                 </div>
             </div>
 
-            <div class="card flex-column" style="margin-bottom: 0; padding: 0; overflow: hidden; border: 1px solid var(--border);">
-                <div style="background: var(--surface-alt); padding: 12px 15px; border-bottom: 2px solid var(--info);">
-                    <h4 style="margin: 0; color: var(--text-main); display: flex; justify-content: space-between; align-items: center;">
+            <div class="card flex-column mrp-card-block">
+                <div class="mrp-card-header">
+                    <h4 class="mrp-card-title">
                         <span>🧱 Потребность в сырье</span>
-                        <span style="background: var(--info); color: white; padding: 3px 10px; border-radius: 12px; font-size: 11px;">Склад №1</span>
+                        <span class="mrp-title-badge">Склад №1</span>
                     </h4>
                 </div>
-                <div style="flex-grow: 1;">
-                    <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
-                        <thead style="background: var(--surface-alt); color: var(--text-muted); font-size: 11px; text-transform: uppercase;">
-                            <tr style="text-align: left;">
-                                <th style="padding: 10px; border-bottom: 1px solid var(--border);">Материал</th>
-                                <th style="padding: 10px; text-align: center; border-bottom: 1px solid var(--border);" title="Сколько всего нужно на производство">План</th>
-                                <th style="padding: 10px; text-align: center; border-bottom: 1px solid var(--border);" title="Реальный остаток на складе сырья">Остаток</th>
-                                <th style="padding: 10px; text-align: center; border-bottom: 1px solid var(--border);">Статус</th>
+                <div class="flex-grow-1">
+                    <table class="w-100 font-13 prod-table-modern">
+                        <thead class="prod-th-styled" style="text-transform: uppercase;">
+                            <tr>
+                                <th class="p-10" style="border-bottom: 1px solid var(--border);">Материал</th>
+                                <th class="p-10 text-center" style="border-bottom: 1px solid var(--border);" title="Сколько всего нужно на производство">План</th>
+                                <th class="p-10 text-center" style="border-bottom: 1px solid var(--border);" title="Реальный остаток на складе сырья">Остаток</th>
+                                <th class="p-10 text-center" style="border-bottom: 1px solid var(--border);">Статус</th>
                             </tr>
                         </thead>
                         <tbody>${deficitHtml}</tbody>
@@ -1213,22 +1210,22 @@ window.renderProductionSearchResults = function () {
 
     tbody.innerHTML = currentProdSearchResults.map(b => {
         const isDraft = (b.status === 'draft');
-        const draftBadge = isDraft ? '<span style="background: var(--warning); color: #000; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: bold; margin-left: 6px;">📝 Черновик</span>' : '';
-        const rowStyle = isDraft ? 'border-left: 3px solid var(--warning);' : '';
+        const draftBadge = isDraft ? '<span class="prod-badge-draft">📝 Черновик</span>' : '';
+        const rowClass = isDraft ? 'prod-row-draft' : '';
         const costDisplay = isDraft ? '—' : `${parseFloat(b.mat_cost_total).toFixed(2)} ₽`;
         const safeDate = b.production_date.split('-').reverse().join('.');
 
         return `
-        <tr id="row-${b.id}" style="cursor: pointer; ${rowStyle}">
+        <tr id="row-${b.id}" class="cursor-pointer ${rowClass}">
             <td onclick="toggleBatchDetails(${b.id})"><strong>${b.batch_number}</strong>${draftBadge}</td>
             <td onclick="toggleBatchDetails(${b.id})">${b.product_name}</td>
-            <td style="color: var(--primary); font-weight: bold;">${safeDate}</td>
-            <td onclick="toggleBatchDetails(${b.id})" style="text-align: right;">${parseFloat(b.planned_quantity).toFixed(2)} <small>${b.unit || ''}</small></td>
-            <td onclick="toggleBatchDetails(${b.id})" style="text-align: right;">${costDisplay}</td>
-            <td style="text-align: right; white-space: nowrap;">
-                <button class="btn btn-outline" style="color: var(--primary); padding: 5px 10px; margin-right: 5px;" 
+            <td class="text-primary font-bold">${safeDate}</td>
+            <td onclick="toggleBatchDetails(${b.id})" class="text-right">${parseFloat(b.planned_quantity).toFixed(2)} <small>${b.unit || ''}</small></td>
+            <td onclick="toggleBatchDetails(${b.id})" class="text-right">${costDisplay}</td>
+            <td class="text-right whitespace-nowrap">
+                <button class="btn btn-outline text-primary p-5 mr-5" 
                         onclick="event.stopPropagation(); window.open('/print/passport?batchId=${b.id}', '_blank')">🖨️</button>
-                <button class="btn btn-outline" style="color: var(--danger); padding: 5px 10px;" 
+                <button class="btn btn-outline text-danger p-5" 
                         onclick="event.stopPropagation(); deleteBatch(${b.id}, '${b.batch_number}')">❌</button>
             </td>
         </tr>`;

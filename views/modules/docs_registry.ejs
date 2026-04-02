@@ -1,18 +1,18 @@
 <div id="docs-registry-mod" class="module">
-    <div class="flex-between mb-20" style="align-items: flex-end;">
+    <div class="flex-between mb-20 align-end">
         <div class="w-100">
             <h2 class="mt-0">📄 Реестр финансовых документов</h2>
-            <p class="text-muted" style="font-size: 13px; margin: 0;">Архив выписанных счетов на оплату и система
+            <p class="text-muted font-13 m-0">Архив выписанных счетов на оплату и система
                 подготовки файлов для 1С Бухгалтерии.</p>
         </div>
     </div>
 
-    <div class="flex-between mb-15 card-alt" style="padding: 10px; border-radius: 8px; flex-wrap: wrap; gap: 10px;">
+    <div class="flex-between mb-15 card-alt docs-filter-panel">
         <!-- Панель фильтров -->
-        <div class="toolbar-group d-flex align-items-center flex-wrap" style="gap: 10px; flex-grow: 1;">
+        <div class="toolbar-group d-flex align-items-center flex-wrap docs-filter-group">
             
             <!-- Фильтр по клиенту -->
-            <select id="clientFilter" class="input-modern" style="min-width: 250px;">
+            <select id="clientFilter" class="input-modern docs-client-select">
                 <option value="">Все контрагенты</option>
                 <!-- Опции будут добавлены через JS -->
             </select>
@@ -23,10 +23,10 @@
             <input type="date" id="dateEnd" class="input-modern" title="Конец периода">
             
             <!-- Кнопка обновления реестра с сервера -->
-            <button class="btn btn-blue" onclick="loadDocsRegistry()" style="padding: 8px 15px;">🔍 Применить</button>
+            <button class="btn btn-blue docs-apply-btn" onclick="loadDocsRegistry()">🔍 Применить</button>
 
-            <div class="form-group" style="display: inline-block; margin-left: 15px; margin-bottom: 0;">
-                <label style="cursor: pointer; font-size: 13px; color: var(--text-muted); display: flex; align-items: center; gap: 5px;">
+            <div class="form-group docs-option-wrap">
+                <label class="docs-option-label">
                     <input type="checkbox" id="toggle-cancelled-docs" onchange="renderRegistryTable(allRegistryDocs)"> 
                     👁️ Показывать аннулированные
                 </label>
@@ -43,16 +43,16 @@
         <table class="table">
             <thead>
                 <tr>
-                    <th style="width: 40px; text-align: center;">
+                    <th class="docs-col-check">
                         <input type="checkbox" id="reg-check-all" onchange="toggleAllRegistryChecks(this)">
                     </th>
-                    <th style="width: 130px;">Дата выписки</th>
-                    <th style="width: 140px;">Документ №</th>
+                    <th class="docs-col-date">Дата выписки</th>
+                    <th class="docs-col-docnum">Документ №</th>
                     <th>Контрагент</th>
-                    <th class="text-right" style="width: 150px;">Итого к оплате</th>
-                    <th style="width: 150px;">Автор (Менеджер)</th>
-                    <th class="text-center" style="width: 120px;">Статус 1С</th>
-                    <th style="width: 40px;"></th>
+                    <th class="text-right docs-col-total">Итого к оплате</th>
+                    <th class="docs-col-author">Автор (Менеджер)</th>
+                    <th class="text-center docs-col-status">Статус 1С</th>
+                    <th class="docs-col-actions"></th>
                 </tr>
             </thead>
             <tbody id="unique-registry-tbody">

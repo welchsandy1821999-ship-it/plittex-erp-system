@@ -9,11 +9,6 @@ const { sendNotify } = require('../utils/telegram');
 module.exports = function (pool, getWhId, withTransaction) {
     const { requireAdmin } = require('../middleware/auth');
 
-    // 🚀 АВТО-МИГРАЦИЯ: Удаление мёртвой legacy-таблицы inventory
-    pool.query("DROP TABLE IF EXISTS inventory CASCADE")
-        .then(() => console.log('Migrations: legacy inventory table removed.'))
-        .catch(e => console.log('Migrations: inventory drop check done.'));
-
     // ------------------------------------------------------------------
     // ПОЛУЧЕНИЕ ДАТ, В КОТОРЫЕ БЫЛИ ЗАКУПКИ (ДЛЯ КАЛЕНДАРЯ)
     // ------------------------------------------------------------------

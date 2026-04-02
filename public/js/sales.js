@@ -205,16 +205,16 @@ window.onClientChange = async function () {
         // Комментарий к блоку: Отрисовка шапки клиента (Имя + Статус прайса + Кнопка настроек)
         const priceLevel = client.price_level || 'basic';
         const badgeHtml = priceLevel === 'dealer'
-            ? `<span style="background: var(--info-bg); color: var(--info); padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; border: 1px solid #ddd6fe;">👑 ДИЛЕР</span>`
-            : `<span style="background: var(--surface-alt); color: var(--text-muted); padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; border: 1px solid #e2e8f0;">👤 Розница</span>`;
+            ? `<span class="badge bg-info-lt text-info border-info p-5 font-11 font-bold">👑 ДИЛЕР</span>`
+            : `<span class="badge bg-surface-alt text-muted border p-5 font-11 font-bold">👤 Розница</span>`;
 
         const headerHtml = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px dashed var(--primary);">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <span style="font-weight: bold; font-size: 14px; color: var(--primary);">${client.name}</span>
+            <div class="flex-between align-center mb-10 pb-10 border-bottom dashed" style="border-color: var(--primary);">
+                <div class="flex-row gap-10 align-center">
+                    <span class="font-bold font-14 text-primary">${client.name}</span>
                     ${badgeHtml}
                 </div>
-                <button class="btn btn-outline" style="padding: 4px 10px; font-size: 11px; border-color: var(--primary); color: var(--primary); background: var(--surface);" onclick="openClientEditor(${cpId})">
+                <button class="btn btn-outline p-5 font-11 text-primary bg-surface" style="border-color: var(--primary);" onclick="openClientEditor(${cpId})">
                     ⚙️ Карточка
                 </button>
             </div>
@@ -260,21 +260,21 @@ window.openClientEditor = async function (id) {
 
         const isDealer = c.price_level === 'dealer';
         const badgeHtml = isDealer
-            ? `<div style="background: var(--info-bg); color: var(--info); padding: 12px; border-radius: 6px; text-align: center; font-size: 14px; font-weight: bold; margin-bottom: 15px; border: 1px dashed #c4b5fd;">👑 ТЕКУЩИЙ СТАТУС: ДИЛЕР (Оптовые цены)</div>`
-            : `<div style="background: var(--surface-hover); color: var(--text-muted); padding: 12px; border-radius: 6px; text-align: center; font-size: 14px; font-weight: bold; margin-bottom: 15px; border: 1px dashed var(--border);">👤 ТЕКУЩИЙ СТАТУС: БАЗОВЫЙ ПРАЙС (Розница)</div>`;
+            ? `<div class="bg-info-lt text-info p-10 border-radius-6 text-center font-14 font-bold mb-15 border-info dashed">👑 ТЕКУЩИЙ СТАТУС: ДИЛЕР (Оптовые цены)</div>`
+            : `<div class="bg-surface-hover text-muted p-10 border-radius-6 text-center font-14 font-bold mb-15 border dashed">👤 ТЕКУЩИЙ СТАТУС: БАЗОВЫЙ ПРАЙС (Розница)</div>`;
 
         const html = `
-            <div style="padding: 10px; max-height: 70vh; overflow-y: auto;">
+            <div class="p-10 overflow-auto" style="max-height: 70vh;">
                 ${badgeHtml}
-                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
-                    <div class="form-group" style="grid-column: span 2;">
+                <div class="form-grid gap-15 sales-two-cols">
+                    <div class="form-group grid-span-2">
                         <label>Наименование клиента:</label>
                         <input type="tel" id="edit-cp-name" class="input-modern" value="${c.name || ''}">
                     </div>
                     
                     <div class="form-group">
                         <label>Уровень цен (Прайс):</label>
-                        <select id="edit-cp-level" class="input-modern" style="border-color: var(--info); color: #5b21b6; font-weight: bold;">
+                        <select id="edit-cp-level" class="input-modern text-info font-bold" style="border-color: var(--info);">
                             <option value="basic" ${!isDealer ? 'selected' : ''}>Основная (Розница)</option>
                             <option value="dealer" ${isDealer ? 'selected' : ''}>Дилерская (Опт)</option>
                         </select>
@@ -293,14 +293,14 @@ window.openClientEditor = async function (id) {
                     <div class="form-group"><label>Телефон:</label><input type="text" id="edit-cp-phone" class="input-modern" value="${c.phone || ''}"></div>
                     <div class="form-group"><label>Email:</label><input type="text" id="edit-cp-email" class="input-modern" value="${c.email || ''}"></div>
                     
-                    <div class="form-group" style="grid-column: span 2;"><label>Адрес (Юр. / Факт.):</label><input type="text" id="edit-cp-address" class="input-modern" value="${c.legal_address || ''}"></div>
-                    <div class="form-group" style="grid-column: span 2;"><label>Директор (ФИО):</label><input type="text" id="edit-cp-director" class="input-modern" value="${c.director_name || ''}"></div>
+                    <div class="form-group grid-span-2"><label>Адрес (Юр. / Факт.):</label><input type="text" id="edit-cp-address" class="input-modern" value="${c.legal_address || ''}"></div>
+                    <div class="form-group grid-span-2"><label>Директор (ФИО):</label><input type="text" id="edit-cp-director" class="input-modern" value="${c.director_name || ''}"></div>
                     
-                    <h4 style="grid-column: span 2; margin: 10px 0 0 0; color: var(--primary); border-bottom: 1px solid var(--border); padding-bottom: 5px;">💳 Реквизиты (Для счетов)</h4>
+                    <h4 class="grid-span-2 m-0 mt-10 text-primary border-bottom pb-5">💳 Реквизиты (Для счетов)</h4>
                     <div class="form-group"><label>ОГРН:</label><input type="text" id="edit-cp-ogrn" class="input-modern" value="${c.ogrn || ''}"></div>
                     <div class="form-group"><label>БИК Банка:</label><input type="text" id="edit-cp-bik" class="input-modern" value="${c.bik || ''}"></div>
-                    <div class="form-group" style="grid-column: span 2;"><label>Название банка:</label><input type="text" id="edit-cp-bank" class="input-modern" value="${c.bank_name || ''}"></div>
-                    <div class="form-group" style="grid-column: span 2;"><label>Расчетный счет:</label><input type="text" id="edit-cp-account" class="input-modern" value="${c.checking_account || ''}"></div>
+                    <div class="form-group grid-span-2"><label>Название банка:</label><input type="text" id="edit-cp-bank" class="input-modern" value="${c.bank_name || ''}"></div>
+                    <div class="form-group grid-span-2"><label>Расчетный счет:</label><input type="text" id="edit-cp-account" class="input-modern" value="${c.checking_account || ''}"></div>
                 </div>
             </div>
         `;
@@ -371,9 +371,9 @@ window.printClientAct = function () {
     const today = new Date().toISOString().split('T')[0];
 
     const html = `
-        <div style="padding: 10px;">
-            <p style="margin-top: 0; color: var(--text-muted); font-size: 13px;">Выберите период для формирования акта сверки.</p>
-            <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
+        <div class="p-10">
+            <p class="m-0 mt-0 text-muted font-13 mb-15">Выберите период для формирования акта сверки.</p>
+            <div class="form-grid gap-15 sales-two-cols">
                 <div class="form-group"><label>Начало периода:</label><input type="date" id="act-start" class="input-modern" value="${startOfMonth}"></div>
                 <div class="form-group"><label>Конец периода:</label><input type="date" id="act-end" class="input-modern" value="${today}"></div>
             </div>
@@ -426,12 +426,12 @@ window.openPoaManager = function () {
     if (!cpId) return UI.toast('Сначала выберите клиента!', 'warning');
 
     const html = `
-        <div style="padding: 15px;">
+        <div class="p-15">
             <div class="form-group"><label>ФИО Доверенного лица (Водителя):</label><input type="text" id="new-poa-driver" class="input-modern" placeholder="Иванов И.И."></div>
             <div class="form-group"><label>Номер доверенности:</label><input type="text" id="new-poa-num" class="input-modern" placeholder="Напр: 12-А"></div>
-            <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
-                <div class="form-group"><label>Дата выдачи:</label><input type="date" id="new-poa-issue" class="input-modern" value="${new Date().toISOString().split('T')[0]}"></div>
-                <div class="form-group"><label>Действительна до:</label><input type="date" id="new-poa-expiry" class="input-modern"></div>
+            <div class="form-grid gap-15 sales-two-cols">
+                <div class="form-group m-0"><label>Дата выдачи:</label><input type="date" id="new-poa-issue" class="input-modern" value="${new Date().toISOString().split('T')[0]}"></div>
+                <div class="form-group m-0"><label>Действительна до:</label><input type="date" id="new-poa-expiry" class="input-modern"></div>
             </div>
         </div>
     `;
@@ -975,22 +975,26 @@ window.processCheckout = async function () {
             // 🛡️ ЗАЩИТА: проверяем наличие отчета перед тем как запускать .map
             if (result.deficitReport && Array.isArray(result.deficitReport) && result.deficitReport.length > 0) {
                 let deficitHtml = `
-                    <div style="background: #fffbeb; border: 1px solid #fde68a; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
-                        <h4 style="color: #92400e; margin-top: 0;">⚠️ Внимание! Нехватка сырья</h4>
-                        <p style="font-size: 13px; color: #78350f;">Для производства заказа не хватает материалов на Складе №1:</p>
-                        <table style="width: 100%; font-size: 13px; border-collapse: collapse; margin-top: 10px;">
-                            <tr style="border-bottom: 1px solid #fde68a; text-align: left;">
-                                <th style="padding: 5px;">Материал</th>
-                                <th style="padding: 5px;">Нужно</th>
-                                <th style="padding: 5px;">Дефицит</th>
-                            </tr>
+                    <div class="bg-warning-lt border-warning p-15 border-radius-8 mb-15">
+                        <h4 class="text-warning mt-0">⚠️ Внимание! Нехватка сырья</h4>
+                        <p class="font-13 text-warning">Для производства заказа не хватает материалов на Складе №1:</p>
+                        <table class="table-modern w-100 font-13 mt-10">
+                            <thead>
+                                <tr class="text-left border-bottom">
+                                    <th class="p-5">Материал</th>
+                                    <th class="p-5">Нужно</th>
+                                    <th class="p-5">Дефицит</th>
+                                </tr>
+                            </thead>
+                            <tbody>
                             ${result.deficitReport.map(m => `
                                 <tr>
-                                    <td style="padding: 5px;"><b>${m.name || 'Материал'}</b></td>
-                                    <td style="padding: 5px;">${m.needed || 0}</td>
-                                    <td style="padding: 5px; color: #dc2626;"><b>-${m.shortage || 0}</b></td>
+                                    <td class="p-5"><b>${m.name || 'Материал'}</b></td>
+                                    <td class="p-5">${m.needed || 0}</td>
+                                    <td class="p-5 text-danger"><b>-${m.shortage || 0}</b></td>
                                 </tr>
                             `).join('')}
+                            </tbody>
                         </table>
                     </div>
                 `;
@@ -1345,29 +1349,32 @@ window.openPriceListModal = async function () {
         const products = await res.json();
 
         let tbody = products.map(p => `
-            <tr style="border-bottom: 1px solid var(--border);">
-                <td style="padding: 8px;">
-                    <span class="badge" style="background: var(--surface-alt); color: var(--text-muted); font-size: 11px; margin-right: 8px; font-family: monospace;">${p.article || 'НЕТ АРТИКУЛА'}</span>
-                    <b>${p.name}</b> <span style="font-size: 10px; color: var(--text-muted);">(${p.unit})</span>
+            <tr class="border-bottom">
+                <td class="p-8">
+                    <span class="badge bg-surface-alt text-muted font-11 mr-8 font-mono">${p.article || 'НЕТ АРТИКУЛА'}</span>
+                    <b>${p.name}</b> <span class="font-10 text-muted">(${p.unit})</span>
                 </td>
-                <td style="padding: 8px; text-align: center;">
-                    <input type="number" class="input-modern price-basic" data-id="${p.id}" value="${p.current_price}" style="width: 90px; text-align: center;">
+                <td class="p-8 text-center">
+                    <input type="number" class="input-modern price-basic text-center w-90" data-id="${p.id}" value="${p.current_price}">
                 </td>
-                <td style="padding: 8px; text-align: center;">
-                    <input type="number" class="input-modern price-dealer" data-id="${p.id}" value="${p.dealer_price || 0}" style="width: 90px; text-align: center; border-color: var(--info);">
+                <td class="p-8 text-center">
+                    <input type="number" class="input-modern price-dealer text-center w-90 border-info" data-id="${p.id}" value="${p.dealer_price || 0}">
                 </td>
             </tr>
         `).join('');
 
         const html = `
-            <style>.modal-content { max-width: 700px !important; }</style>
-            <div style="max-height: 60vh; overflow-y: auto; padding-right: 10px;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-                    <thead style="background: var(--surface-hover); position: sticky; top: 0;">
+            <style>
+                #app-modal .modal-content { max-width: 700px !important; }
+                .price-list-table thead { position: sticky; top: 0; z-index: 10; }
+            </style>
+            <div class="overflow-auto pr-10" style="max-height: 60vh;">
+                <table class="table-modern w-100 font-13 price-list-table">
+                    <thead class="bg-surface-hover">
                         <tr>
-                            <th style="padding: 10px; text-align: left;">Товар</th>
-                            <th style="padding: 10px; text-align: center; color: var(--text-main);">Основная (Розница)</th>
-                            <th style="padding: 10px; text-align: center; color: var(--info);">Дилерская (Опт)</th>
+                            <th class="p-10 text-left">Товар</th>
+                            <th class="p-10 text-center text-main">Основная (Розница)</th>
+                            <th class="p-10 text-center text-info">Дилерская (Опт)</th>
                         </tr>
                     </thead>
                     <tbody>${tbody}</tbody>
@@ -1375,17 +1382,16 @@ window.openPriceListModal = async function () {
             </div>
         `;
 
-        // Добавьте эту кнопку рядом с "Сохранить цены" в функции openPriceListModal
         UI.showModal('📋 Установка Прайс-листа', html, `
-            <div style="display: flex; gap: 10px; width: 100%; justify-content: space-between; flex-wrap: wrap;">
-                <div style="display: flex; gap: 10px;">
-                    <label class="btn btn-outline" style="cursor: pointer; border-color: var(--primary); color: var(--primary); font-size: 12px; padding: 6px 12px;">
+            <div class="flex-between flex-wrap gap-10 w-100">
+                <div class="flex-row gap-10">
+                    <label class="btn btn-outline border-primary text-primary font-12 p-6-12 cursor-pointer">
                         📥 Загрузить Базовый (Розница)
-                        <input type="file" accept=".csv" style="display: none;" onchange="handleBasicCsvImport(event)">
+                        <input type="file" accept=".csv" class="display-none" onchange="handleBasicCsvImport(event)">
                     </label>
-                    <label class="btn btn-outline" style="cursor: pointer; border-color: var(--info); color: var(--info); font-size: 12px; padding: 6px 12px;">
+                    <label class="btn btn-outline border-info text-info font-12 p-6-12 cursor-pointer">
                         📥 Загрузить Дилерский (Опт)
-                        <input type="file" accept=".csv" style="display: none;" onchange="handleDealerCsvImport(event)">
+                        <input type="file" accept=".csv" class="display-none" onchange="handleDealerCsvImport(event)">
                     </label>
                 </div>
                 <div>
@@ -1448,28 +1454,28 @@ window.openContractManager = async function () {
 
         let listHtml = '';
         if (contractsMap.size === 0) {
-            listHtml = '<div style="color: var(--text-muted); text-align: center; padding: 10px;">Нет заключенных договоров</div>';
+            listHtml = '<div class="text-center text-muted p-10 mt-10">Нет заключенных договоров</div>';
         } else {
             contractsMap.forEach(c => {
                 specCounts[c.id] = c.specs.length + 1; // Считаем следующий номер
 
                 listHtml += `
-                    <div style="border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 10px; background: var(--surface); padding: 10px; box-shadow: 0 1px 3px var(--shadow-sm);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #e2e8f0; padding-bottom: 8px; margin-bottom: 8px;">
-                            <strong style="color: #0f172a; font-size: 14px;">📄 Договор №${c.id ? `<span class="entity-link" onclick="window.app.openEntity('document_contract', ${c.id})">${c.number}</span>` : c.number} от ${c.date}</strong>
-                            <div style="display: flex; gap: 5px;">
-                                <button class="btn btn-outline" style="padding: 2px 8px; font-size: 11px; border-color: var(--info); color: var(--info);" onclick="window.open('/print/contract?id=${c.id}', '_blank')" title="Распечатать">🖨️</button>
-                                <button class="btn btn-outline" style="padding: 2px 8px; font-size: 11px; border-color: #ef4444; color: #ef4444;" onclick="deleteContract(${c.id})" title="Удалить">❌</button>
+                    <div class="card p-10 border mb-10 m-0">
+                        <div class="flex-between align-center border-bottom dashed pb-10 mb-10">
+                            <strong class="text-main font-14">📄 Договор №${c.id ? `<span class="entity-link" onclick="window.app.openEntity('document_contract', ${c.id})">${c.number}</span>` : c.number} от ${c.date}</strong>
+                            <div class="flex-row gap-5">
+                                <button class="btn btn-outline p-5 border-info text-info font-11" onclick="window.open('/print/contract?id=${c.id}', '_blank')" title="Распечатать">🖨️</button>
+                                <button class="btn btn-outline p-5 border-danger text-danger font-11" onclick="deleteContract(${c.id})" title="Удалить">❌</button>
                             </div>
                         </div>
-                        <div style="padding-left: 15px;">
-                            ${c.specs.length === 0 ? '<span style="font-size: 11px; color: #94a3b8;">Нет прикрепленных спецификаций</span>' : ''}
+                        <div class="pl-15">
+                            ${c.specs.length === 0 ? '<span class="text-muted font-11">Нет прикрепленных спецификаций</span>' : ''}
                             ${c.specs.map(s => `
-                                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; margin-bottom: 4px; color: var(--text-muted);">
+                                <div class="flex-between align-center font-12 text-muted mb-5">
                                     <span>↳ Спецификация №${s.number} от ${s.date}</span>
-                                    <div style="display: flex; gap: 5px;">
-                                        <button class="btn btn-outline" style="padding: 2px 6px; font-size: 10px; border-color: var(--info); color: var(--info); border: none;" onclick="window.open('/print/specification_doc?id=${s.id}', '_blank')" title="Печать спецификации">🖨️</button>
-                                        <button class="btn btn-outline" style="padding: 2px 6px; font-size: 10px; border-color: #ef4444; color: #ef4444; border: none;" onclick="deleteSpecification(${s.id})" title="Удалить спецификацию">❌</button>
+                                    <div class="flex-row gap-5">
+                                        <button class="btn btn-outline p-5 border-info text-info font-11" style="border:none;" onclick="window.open('/print/specification_doc?id=${s.id}', '_blank')" title="Печать спецификации">🖨️</button>
+                                        <button class="btn btn-outline p-5 border-danger text-danger font-11" style="border:none;" onclick="deleteSpecification(${s.id})" title="Удалить спецификацию">❌</button>
                                     </div>
                                 </div>
                             `).join('')}
@@ -1480,35 +1486,35 @@ window.openContractManager = async function () {
         }
 
         const html = `
-            <div style="max-height: 350px; overflow-y: auto; margin-bottom: 20px; padding-right: 5px; border-bottom: 2px solid var(--border); padding-bottom: 15px;">
-                <h4 style="margin: 0 0 10px 0; color: var(--text-muted);">Актуальные документы:</h4>
+            <div class="mb-20 pr-5 border-bottom pb-15 overflow-auto" style="max-height: 350px;">
+                <h4 class="m-0 mb-10 text-muted">Актуальные документы:</h4>
                 ${listHtml}
             </div>
 
-            <div style="margin-bottom: 15px; padding: 15px; background: var(--surface-hover); border: 1px solid var(--border); border-radius: 6px;">
-                <h4 style="margin: 0 0 10px 0; color: var(--primary);">📄 Создать новый договор</h4>
+            <div class="mb-15 p-15 bg-surface-hover border border-radius-6">
+                <h4 class="m-0 mb-10 text-primary">📄 Создать новый договор</h4>
                 <input type="text" style="display:none" autocomplete="username">
                 <input type="password" style="display:none" autocomplete="current-password">
-                <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
-                    <div class="form-group"><label>Номер договора:</label><input type="text" id="new-contract-num" class="input-modern" autocomplete="nope" placeholder="Напр: 45-А"></div>
-                    <div class="form-group"><label>Дата:</label><input type="date" id="new-contract-date" class="input-modern" value="${new Date().toISOString().split('T')[0]}"></div>
+                <div class="form-grid gap-15 sales-two-cols">
+                    <div class="form-group m-0"><label>Номер договора:</label><input type="text" id="new-contract-num" class="input-modern" autocomplete="nope" placeholder="Напр: 45-А"></div>
+                    <div class="form-group m-0"><label>Дата:</label><input type="date" id="new-contract-date" class="input-modern" value="${new Date().toISOString().split('T')[0]}"></div>
                 </div>
-                <button class="btn btn-blue" onclick="saveNewContract(${cpId})" style="width: 100%; padding: 8px;">➕ Сохранить договор</button>
+                <button class="btn btn-blue w-100 p-10 mt-10" onclick="saveNewContract(${cpId})">➕ Сохранить договор</button>
             </div>
 
-            <div style="padding: 15px; border: 1px solid var(--border); border-radius: 6px;">
-                <h4 style="margin: 0 0 10px 0; color: var(--warning-text);">📎 Добавить спецификацию</h4>
-                <div class="form-group">
+            <div class="p-15 border border-radius-6">
+                <h4 class="m-0 mb-10 text-warning">📎 Добавить спецификацию</h4>
+                <div class="form-group mb-10">
                     <label>К какому договору (Основание):</label>
                     <select id="new-spec-contract-id" class="input-modern">
                         ${Array.from(contractsMap.values()).map(c => `<option value="${c.id}">Договор №${c.number} от ${c.date}</option>`).join('')}
                     </select>
                 </div>
-                <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
-                    <div class="form-group"><label>№ Спецификации:</label><input type="text" id="new-spec-num" class="input-modern"></div>
-                    <div class="form-group"><label>Дата:</label><input type="date" id="new-spec-date" class="input-modern" value="${new Date().toISOString().split('T')[0]}"></div>
+                <div class="form-grid gap-15 sales-two-cols">
+                    <div class="form-group m-0"><label>№ Спецификации:</label><input type="text" id="new-spec-num" class="input-modern"></div>
+                    <div class="form-group m-0"><label>Дата:</label><input type="date" id="new-spec-date" class="input-modern" value="${new Date().toISOString().split('T')[0]}"></div>
                 </div>
-                <button class="btn btn-outline" onclick="saveNewSpecification()" style="width: 100%; padding: 8px; border-color: var(--warning-text); color: var(--warning-text);">➕ Сохранить спецификацию</button>
+                <button class="btn btn-outline w-100 p-10 mt-10 text-warning border-warning" onclick="saveNewSpecification()">➕ Сохранить спецификацию</button>
             </div>
         `;
 
@@ -1539,17 +1545,16 @@ window.openContractManager = async function () {
 // 1. ПОДГОТОВКА (Показ окна)
 window.deleteContract = function (id) {
     const html = `
-        <div style="padding: 10px; font-size: 15px; text-align: center;">
-            <div style="font-size: 40px; margin-bottom: 10px;">🗑️</div>
+        <div class="text-center p-10 font-15">
+            <div class="font-bold font-30 mb-10">🗑️</div>
             Вы уверены, что хотите удалить этот договор?<br>
-            <span style="color: var(--text-muted); font-size: 13px;">Отменить это действие будет невозможно.</span>
+            <span class="text-muted font-13">Отменить это действие будет невозможно.</span>
         </div>
     `;
 
     const buttons = `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-        <button class="btn btn-blue" style="background: var(--danger); border-color: var(--danger);" 
-                onclick="executeDeleteContract(${id})">Удалить</button>
+        <button class="btn btn-red" onclick="executeDeleteContract(${id})">Удалить</button>
     `;
 
     UI.showModal('Удаление договора', html, buttons);
@@ -1704,139 +1709,139 @@ window.openCostAnalysisModal = async function () {
             <style>
                 #app-modal .modal-content { max-width: 1050px !important; width: 95% !important; }
             </style>
-            <div style="padding: 10px; font-family: 'Inter', system-ui, sans-serif; color: var(--text-main);">
+            <div class="p-10 font-inter text-main">
                 
-                <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 25px; border-bottom: 2px solid var(--border); padding-bottom: 15px;">
+                <div class="flex-between align-end mb-25 pb-15 border-bottom border-2">
                     <div>
-                        <h3 style="margin: 0; font-size: 20px; color: var(--text-main);">📊 Экономика сделки: ${currentSelectedItem.name}</h3>
-                        <p style="margin: 5px 0 0; color: var(--text-muted); font-size: 14px;">Объем партии: <b style="color: var(--text-main);">${qty} ${currentSelectedItem.unit || 'шт.'}</b></p>
+                        <h3 class="m-0 font-20 text-main">📊 Экономика сделки: ${currentSelectedItem.name}</h3>
+                        <p class="m-0 mt-5 text-muted font-14">Объем партии: <b class="text-main">${qty} ${currentSelectedItem.unit || 'шт.'}</b></p>
                     </div>
-                    <div style="text-align: right;">
-                        <div style="font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Чистая прибыль (Партия)</div>
-                        <div id="res-batch-profit" style="font-size: 32px; font-weight: 900; color: var(--success); line-height: 1;">0.00 ₽</div>
+                    <div class="text-right">
+                        <div class="font-13 text-muted text-uppercase tracking-wider">Чистая прибыль (Партия)</div>
+                        <div id="res-batch-profit" class="font-32 font-black text-success line-height-1">0.00 ₽</div>
                     </div>
                 </div>
 
-                <div style="display: grid; grid-template-columns: 320px 1fr; gap: 30px;">
+                <div class="form-grid gap-30" style="grid-template-columns: 320px 1fr;">
                     
-                    <div style="display: flex; flex-direction: column; gap: 18px;">
-                        <div style="background: var(--card-bg); padding: 18px; border-radius: 12px; border: 1px solid var(--border); border-left: 5px solid var(--primary);">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-                                <span style="font-weight: bold; color: var(--text-muted);">📐 Идеал (Рецепт)</span>
-                                <b style="font-size: 16px; color: var(--text-main);">${data.theoretical} ₽</b>
+                    <div class="flex-col gap-18">
+                        <div class="card p-18 border-radius-12 border border-left-5 border-left-primary">
+                            <div class="flex-between mb-10">
+                                <span class="font-bold text-muted">📐 Идеал (Рецепт)</span>
+                                <b class="font-16 text-main">${data.theoretical} ₽</b>
                             </div>
-                            <div style="display: flex; justify-content: space-between; font-size: 14px; background: var(--surface-alt); padding: 8px; border-radius: 6px;">
-                                <span style="color: var(--text-muted);">🧪 Опыт (Факт):</span>
-                                <b style="color: var(--warning-text);">${parseFloat(data.empirical) > 0 ? data.empirical : data.theoretical} ₽</b>
-                            </div>
-                        </div>
-
-                        <div style="background: var(--card-bg); padding: 18px; border-radius: 12px; border: 1px solid var(--border); border-left: 5px solid var(--warning);">
-                            <h4 style="margin: 0 0 12px 0; font-size: 13px; color: var(--text-main); text-transform: uppercase;">🔨 Доп. расходы (на 1 ед)</h4>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px; align-items: center;">
-                                <span style="font-size: 12px; color: var(--text-muted);">Амортизация:</span>
-                                <span style="font-weight: bold; color: var(--text-main);">${data.amortization} ₽</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px; align-items: center; padding-bottom: 8px; border-bottom: 1px dashed var(--border);">
-                                <span style="font-size: 12px; color: var(--text-muted);">Оверхед (Завод):</span>
-                                <span style="font-weight: bold; color: var(--warning-text);" title="Распределенные косвенные затраты">${data.overhead} ₽</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px; align-items: center;">
-                                <span style="font-size: 12px; color: var(--text-muted);">Сдельная З/П:</span>
-                                <input type="number" id="calc-wage" class="input-modern" value="${currentSelectedItem.piece_rate || 0}" disabled title="Эта сумма автоматически подтягивается из Справочника продукции" style="width: 90px; padding: 4px 8px; text-align: right; height: 32px; background: var(--surface-hover); color: var(--success); font-weight: bold; border: 1px dashed var(--success);">
-                            </div>
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <span style="font-size: 12px; color: var(--text-muted);">Упаковка и лог.:</span>
-                                <input type="number" id="calc-pack" class="input-modern" value="0" step="1" onfocus="this.select()" oninput="recalcSalesMargin()" style="width: 90px; padding: 4px 8px; text-align: right; height: 32px;">
+                            <div class="flex-between font-14 bg-surface-alt p-8 border-radius-6">
+                                <span class="text-muted">🧪 Опыт (Факт):</span>
+                                <b class="text-warning">${parseFloat(data.empirical) > 0 ? data.empirical : data.theoretical} ₽</b>
                             </div>
                         </div>
 
-                        <div style="background: var(--card-bg); padding: 18px; border-radius: 12px; border: 1px solid var(--border); border-left: 5px solid var(--danger);">
-                            <h4 style="margin: 0 0 12px 0; font-size: 13px; color: var(--text-main); text-transform: uppercase;">💼 Коммерция и Налоги</h4>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px; align-items: center;">
-                                <span style="font-size: 12px; color: var(--text-muted);">Цена (1 ед):</span>
-                                <span style="font-weight: bold; color: var(--text-main);">${salePrice} ₽</span>
+                        <div class="card p-18 border-radius-12 border border-left-5 border-left-warning">
+                            <h4 class="m-0 mb-12 font-13 text-main text-uppercase">🔨 Доп. расходы (на 1 ед)</h4>
+                            <div class="flex-between mb-8 align-center">
+                                <span class="font-12 text-muted">Амортизация:</span>
+                                <span class="font-bold text-main">${data.amortization} ₽</span>
                             </div>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px; align-items: center;">
-                                <span style="font-size: 12px; color: var(--danger-text);">Налог (%):</span>
-                               <input type="number" id="calc-tax-pct" class="input-modern" value="${window.FINANCE_TAX_PERCENT || 6}" step="1" max="100" onfocus="this.select()" oninput="recalcSalesMargin()" style="width: 90px; padding: 4px 8px; text-align: right; border-color: var(--danger-border); height: 32px;">
+                            <div class="flex-between mb-8 align-center pb-8 border-bottom dashed">
+                                <span class="font-12 text-muted">Оверхед (Завод):</span>
+                                <span class="font-bold text-warning" title="Распределенные косвенные затраты">${data.overhead} ₽</span>
                             </div>
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <span style="font-size: 12px; color: var(--info);">Менеджер (%):</span>
-                                <input type="number" id="calc-bonus-pct" class="input-modern" value="0" step="0.5" max="100" onfocus="this.select()" oninput="recalcSalesMargin()" style="width: 90px; padding: 4px 8px; text-align: right; border-color: var(--info); height: 32px;">
+                            <div class="flex-between mb-8 align-center">
+                                <span class="font-12 text-muted">Сдельная З/П:</span>
+                                <input type="number" id="calc-wage" class="input-modern bg-surface-hover text-success font-bold border-success dashed text-right w-90 h-32 p-4-8" value="${currentSelectedItem.piece_rate || 0}" disabled title="Эта сумма автоматически подтягивается из Справочника продукции">
+                            </div>
+                            <div class="flex-between align-center">
+                                <span class="font-12 text-muted">Упаковка и лог.:</span>
+                                <input type="number" id="calc-pack" class="input-modern text-right w-90 h-32 p-4-8" value="0" step="1" onfocus="this.select()" oninput="recalcSalesMargin()">
+                            </div>
+                        </div>
+
+                        <div class="card p-18 border-radius-12 border border-left-5 border-left-danger">
+                            <h4 class="m-0 mb-12 font-13 text-main text-uppercase">💼 Коммерция и Налоги</h4>
+                            <div class="flex-between mb-8 align-center">
+                                <span class="font-12 text-muted">Цена (1 ед):</span>
+                                <span class="font-bold text-main">${salePrice} ₽</span>
+                            </div>
+                            <div class="flex-between mb-8 align-center">
+                                <span class="font-12 text-danger">Налог (%):</span>
+                               <input type="number" id="calc-tax-pct" class="input-modern text-right border-danger w-90 h-32 p-4-8" value="${window.FINANCE_TAX_PERCENT || 6}" step="1" max="100" onfocus="this.select()" oninput="recalcSalesMargin()">
+                            </div>
+                            <div class="flex-between align-center">
+                                <span class="font-12 text-info">Менеджер (%):</span>
+                                <input type="number" id="calc-bonus-pct" class="input-modern text-right border-info w-90 h-32 p-4-8" value="0" step="0.5" max="100" onfocus="this.select()" oninput="recalcSalesMargin()">
                             </div>
                         </div>
                     </div>
 
-                    <div style="display: flex; flex-direction: column; gap: 20px;">
+                    <div class="flex-col gap-20">
                         
-                        <div style="background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border); box-shadow: var(--shadow-sm); overflow: hidden;">
-                            <div style="padding: 15px 20px; background: var(--surface-alt); border-bottom: 1px solid var(--border);">
-                                <h4 style="margin: 0; font-size: 14px; text-transform: uppercase; color: var(--text-muted);">📦 Сравнительный расход сырья</h4>
+                        <div class="card border-radius-12 border shadow-sm overflow-hidden">
+                            <div class="p-15 pl-20 pr-20 bg-surface-alt border-bottom">
+                                <h4 class="m-0 font-14 text-uppercase text-muted">📦 Сравнительный расход сырья</h4>
                             </div>
-                            <div style="overflow-x: auto;">
-                                <table style="width: 100%; border-collapse: collapse; min-width: 600px;">
-                                    <thead style="background: var(--surface-alt);">
-                                        <tr style="text-align: left; border-bottom: 1px solid var(--border);">
-                                            <th rowspan="2" style="padding: 10px; border-right: 1px solid var(--border); font-size: 11px; color: var(--text-muted);">МАТЕРИАЛ</th>
-                                            <th colspan="2" style="padding: 10px; border-right: 1px solid var(--border); font-size: 11px; color: var(--text-muted); text-align: center;">РАСХОД (НА 1 ЕД)</th>
-                                            <th colspan="2" style="padding: 10px; border-right: 1px solid var(--border); font-size: 11px; color: var(--text-muted); text-align: center;">СУММА (1 ЕД)</th>
-                                            <th rowspan="2" style="padding: 10px; font-size: 11px; color: var(--text-muted); text-align: right;">ФАКТ (ПАРТИЯ)</th>
+                            <div class="overflow-auto">
+                                <table class="table-modern w-100" style="min-width: 600px;">
+                                    <thead class="bg-surface-alt">
+                                        <tr class="text-left border-bottom">
+                                            <th rowspan="2" class="p-10 border-right font-11 text-muted">МАТЕРИАЛ</th>
+                                            <th colspan="2" class="p-10 border-right font-11 text-muted text-center">РАСХОД (НА 1 ЕД)</th>
+                                            <th colspan="2" class="p-10 border-right font-11 text-muted text-center">СУММА (1 ЕД)</th>
+                                            <th rowspan="2" class="p-10 font-11 text-muted text-right">ФАКТ (ПАРТИЯ)</th>
                                         </tr>
-                                        <tr style="text-align: center; border-bottom: 2px solid var(--border);">
-                                            <th style="padding: 5px 10px; font-size: 10px; color: var(--primary); border-right: 1px dashed var(--border);">📐 Идеал</th>
-                                            <th style="padding: 5px 10px; font-size: 10px; color: var(--warning-text); border-right: 1px solid var(--border);">🧪 Опыт</th>
-                                            <th style="padding: 5px 10px; font-size: 10px; color: var(--primary); border-right: 1px dashed var(--border);">📐 Идеал</th>
-                                            <th style="padding: 5px 10px; font-size: 10px; color: var(--warning-text); border-right: 1px solid var(--border);">🧪 Опыт</th>
+                                        <tr class="text-center border-bottom border-2">
+                                            <th class="p-5 pl-10 pr-10 font-10 text-primary border-right dashed">📐 Идеал</th>
+                                            <th class="p-5 pl-10 pr-10 font-10 text-warning border-right">🧪 Опыт</th>
+                                            <th class="p-5 pl-10 pr-10 font-10 text-primary border-right dashed">📐 Идеал</th>
+                                            <th class="p-5 pl-10 pr-10 font-10 text-warning border-right">🧪 Опыт</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         ${data.materials.map(m => `
-                                            <tr style="border-bottom: 1px solid var(--surface-hover);">
-                                                <td style="padding: 10px; font-weight: 600; border-right: 1px solid var(--border); font-size: 12px; color: var(--text-main);">${m.name}</td>
+                                            <tr class="border-bottom border-surface-hover">
+                                                <td class="p-10 font-600 border-right font-12 text-main">${m.name}</td>
                                                 
-                                                <td style="padding: 10px; text-align: center; color: var(--primary); border-right: 1px dashed var(--border); font-size: 12px;">${m.theory_qty > 0 ? m.theory_qty.toFixed(3) : '-'} <small>${m.unit}</small></td>
-                                                <td style="padding: 10px; text-align: center; color: var(--warning-text); font-weight: bold; border-right: 1px solid var(--border); font-size: 12px;">
+                                                <td class="p-10 text-center text-primary border-right dashed font-12">${m.theory_qty > 0 ? m.theory_qty.toFixed(3) : '-'} <small>${m.unit}</small></td>
+                                                <td class="p-10 text-center text-warning font-bold border-right font-12">
                                                     ${m.fact_qty > 0 ? m.fact_qty.toFixed(3) : '-'} <small>${m.unit}</small>
                                                     ${m.is_hybrid ? '<span title="Нет факта. Автоматически взято из рецепта" style="cursor:help;">🪄</span>' : ''}
                                                 </td>
                                                 
-                                                <td style="padding: 10px; text-align: right; color: var(--primary); border-right: 1px dashed var(--border); font-size: 12px;">${m.theory_cost > 0 ? m.theory_cost.toFixed(2) + ' ₽' : '-'}</td>
-                                                <td style="padding: 10px; text-align: right; color: var(--warning-text); font-weight: bold; border-right: 1px solid var(--border); font-size: 12px;">${m.fact_cost > 0 ? m.fact_cost.toFixed(2) + ' ₽' : '-'}</td>
+                                                <td class="p-10 text-right text-primary border-right dashed font-12">${m.theory_cost > 0 ? m.theory_cost.toFixed(2) + ' ₽' : '-'}</td>
+                                                <td class="p-10 text-right text-warning font-bold border-right font-12">${m.fact_cost > 0 ? m.fact_cost.toFixed(2) + ' ₽' : '-'}</td>
                                                 
-                                                <td style="padding: 10px; text-align: right; font-weight: bold; color: var(--danger); font-size: 12px;">${m.fact_cost > 0 ? (m.fact_cost * qty).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽' : '-'}</td>
+                                                <td class="p-10 text-right font-bold text-danger font-12">${m.fact_cost > 0 ? (m.fact_cost * qty).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽' : '-'}</td>
                                             </tr>
                                         `).join('')}
                                     </tbody>
-                                    <tfoot style="background: var(--surface-alt); border-top: 2px solid var(--border);">
-                                        <tr style="font-weight: 900; color: var(--text-main);">
-                                            <td style="padding: 12px 10px; border-right: 1px solid var(--border);">ИТОГО (СЫРЬЕ):</td>
-                                            <td style="padding: 12px 10px; text-align: center; border-right: 1px dashed var(--border);"></td>
-                                            <td style="padding: 12px 10px; text-align: center; border-right: 1px solid var(--border);"></td>
-                                            <td style="padding: 12px 10px; text-align: right; color: var(--primary); border-right: 1px dashed var(--border);">${parseFloat(data.theoretical).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽</td>
-                                            <td style="padding: 12px 10px; text-align: right; color: var(--warning-text); border-right: 1px solid var(--border);">${totalFactCost > 0 ? totalFactCost.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽' : '-'}</td>
-                                            <td style="padding: 12px 10px; text-align: right; color: var(--danger); font-size: 14px;">${totalFactCost > 0 ? (totalFactCost * qty).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽' : '-'}</td>
+                                    <tfoot class="bg-surface-alt border-top border-2">
+                                        <tr class="font-black text-main">
+                                            <td class="p-12 pl-10 pr-10 border-right">ИТОГО (СЫРЬЕ):</td>
+                                            <td class="p-12 pl-10 pr-10 text-center border-right dashed"></td>
+                                            <td class="p-12 pl-10 pr-10 text-center border-right"></td>
+                                            <td class="p-12 pl-10 pr-10 text-right text-primary border-right dashed">${parseFloat(data.theoretical).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽</td>
+                                            <td class="p-12 pl-10 pr-10 text-right text-warning border-right">${totalFactCost > 0 ? totalFactCost.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽' : '-'}</td>
+                                            <td class="p-12 pl-10 pr-10 text-right text-danger font-14">${totalFactCost > 0 ? (totalFactCost * qty).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽' : '-'}</td>
                                         </tr>
                                     </tfoot>
                                 </table>
                             </div>
                         </div>
 
-                        <div style="background: var(--surface-alt); padding: 20px; border-radius: 12px; border: 1px solid var(--border);">
-                            <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 10px; color: var(--text-main); border-bottom: 1px dashed var(--border); padding-bottom: 10px;">
+                        <div class="bg-surface-alt p-20 border-radius-12 border">
+                            <div class="flex-between font-13 mb-10 text-main border-bottom dashed pb-10">
                                 <span>Производственная себестоимость (1 ед):</span>
-                                <strong id="res-prod-cost" style="color: var(--text-main);">0.00 ₽</strong>
+                                <strong id="res-prod-cost" class="text-main">0.00 ₽</strong>
                             </div>
-                            <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 15px; color: var(--text-main); border-bottom: 1px solid var(--border); padding-bottom: 15px;">
+                            <div class="flex-between font-13 mb-15 text-main border-bottom pb-15">
                                 <span>Налоги и комиссии (1 ед):</span>
-                                <strong id="res-taxes" style="color: var(--danger-text);">-0.00 ₽</strong>
+                                <strong id="res-taxes" class="text-danger">-0.00 ₽</strong>
                             </div>
                             
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <div style="font-size: 12px; text-transform: uppercase; color: var(--text-muted); font-weight: bold;">Очищенная прибыль (1 ед)</div>
-                                <div style="text-align: right;">
-                                    <div id="res-net-profit" style="font-size: 24px; font-weight: 900; color: var(--success); line-height: 1;">0.00 ₽</div>
-                                    <div id="res-margin-pct" style="font-size: 13px; font-weight: bold; color: var(--success-text); margin-top: 5px;">Рентабельность: 0%</div>
+                            <div class="flex-between align-center">
+                                <div class="font-12 text-uppercase text-muted font-bold">Очищенная прибыль (1 ед)</div>
+                                <div class="text-right">
+                                    <div id="res-net-profit" class="font-24 font-black text-success line-height-1">0.00 ₽</div>
+                                    <div id="res-margin-pct" class="font-13 font-bold text-success mt-5">Рентабельность: 0%</div>
                                 </div>
                             </div>
                         </div>
@@ -1937,32 +1942,32 @@ window.openOrderManager = async function (orderId) {
         }).join('');
 
         const html = `
-            <div style="padding: 10px;">
-                <div style="background: var(--surface-alt); padding: 12px; border-radius: 6px; margin-bottom: 15px;">
-                    <p style="margin: 0 0 5px 0;"><b>Клиент:</b> ${order.client_name}</p>
-                    <p style="margin: 0;"><b>Адрес доставки:</b> ${order.delivery_address || 'Самовывоз'}</p>
+            <div class="p-10">
+                <div class="bg-surface-alt p-15 border-radius-6 mb-15">
+                    <p class="m-0 mb-5"><b>Клиент:</b> ${order.client_name}</p>
+                    <p class="m-0"><b>Адрес доставки:</b> ${order.delivery_address || 'Самовывоз'}</p>
                 </div>
                 
-                <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
-                    <thead style="background: var(--info-bg);">
+                <table class="table-modern w-100 mb-15">
+                    <thead class="bg-info-lt">
                         <tr>
-                            <th style="padding: 8px; text-align: left;">Продукция</th>
-                            <th style="padding: 8px; text-align: center;">Заказано</th>
-                            <th style="padding: 8px; text-align: center;">Уже отгружено</th>
-                            <th style="padding: 8px; text-align: center; color: var(--primary);">Грузим сейчас</th>
+                            <th class="p-10 text-left">Продукция</th>
+                            <th class="p-10 text-center">Заказано</th>
+                            <th class="p-10 text-center">Уже отгружено</th>
+                            <th class="p-10 text-center text-primary">Грузим сейчас</th>
                         </tr>
                     </thead>
                     <tbody>${itemsHtml}</tbody>
                 </table>
 
-                <div style="background: var(--surface-hover); padding: 10px; border-radius: 6px; border: 1px dashed var(--border);">
-                    <h4 style="margin: 0 0 10px 0; color: var(--text-muted);">Данные для этой отгрузки (Машина)</h4>
-                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
-                        <div class="form-group" style="margin: 0;"><input type="text" id="ship-driver" class="input-modern" placeholder="ФИО Водителя"></div>
-                        <div class="form-group" style="margin: 0;"><input type="text" id="ship-auto" class="input-modern" placeholder="Гос. номер авто"></div>
-                        <div class="form-group" style="margin: 0; grid-column: span 2;"><input type="number" id="ship-pallets" class="input-modern" placeholder="Количество поддонов в этой машине (шт)" min="0"></div>
+                <div class="bg-surface-hover p-10 border-radius-6 border dashed">
+                    <h4 class="m-0 mb-10 text-muted">Данные для этой отгрузки (Машина)</h4>
+                    <div class="form-grid gap-10 sales-two-cols mb-10">
+                        <div class="form-group m-0"><input type="text" id="ship-driver" class="input-modern" placeholder="ФИО Водителя"></div>
+                        <div class="form-group m-0"><input type="text" id="ship-auto" class="input-modern" placeholder="Гос. номер авто"></div>
+                        <div class="form-group m-0 grid-span-2"><input type="number" id="ship-pallets" class="input-modern" placeholder="Количество поддонов (шт)" min="0"></div>
                     </div>
-                    <div class="form-group" style="margin: 0;">
+                    <div class="form-group m-0">
                         <input type="text" id="ship-poa" class="input-modern" placeholder="Номер доверенности или кто разрешил (если нужно)">
                     </div>
                 </div>
@@ -2057,43 +2062,43 @@ window.openReturnModal = async function () {
         let accountOptions = '<option value="">-- Выберите кассу --</option>' + accounts.map(a => `<option value="${a.id}">${a.name} (${a.balance} ₽)</option>`).join('');
 
         const html = `
-            <div style="padding: 10px;">
+            <div class="p-10">
                 <div class="form-group">
                     <label>От кого возврат (Клиент):</label>
                     <select id="ret-client" class="input-modern">${clientOptions}</select>
                 </div>
 
-                <div style="background: var(--surface-hover); padding: 10px; border-radius: 6px; border: 1px dashed var(--border); margin-bottom: 15px;">
-                    <h4 style="margin: 0 0 10px 0; color: var(--text-muted);">🧱 Возврат продукции (если есть)</h4>
-                    <div class="form-grid" style="grid-template-columns: 2fr 1fr 1fr; gap: 10px; align-items: end;">
-                        <div class="form-group" style="margin: 0;">
+                <div class="bg-surface-hover p-10 border-radius-6 border dashed mb-15">
+                    <h4 class="m-0 mb-10 text-muted">🧱 Возврат продукции (если есть)</h4>
+                    <div class="form-grid gap-10 align-end" style="grid-template-columns: 2fr 1fr 1fr;">
+                        <div class="form-group m-0">
                             <label>Товар:</label>
                             <select id="ret-item" class="input-modern">
                                 <option value="">-- Выберите товар --</option>
                                 ${Object.values(salesProductsInfo).map(p => `<option value="${p.id}" data-price="${p.price || p.current_price || p.base_price || 0}">${p.name}</option>`).join('')}
                             </select>
                         </div>
-                        <div class="form-group" style="margin: 0;"><label>Кол-во:</label><input type="number" id="ret-qty" class="input-modern" min="0"></div>
-                        <div class="form-group" style="margin: 0;"><label>На какой склад:</label>
+                        <div class="form-group m-0"><label>Кол-во:</label><input type="number" id="ret-qty" class="input-modern" min="0"></div>
+                        <div class="form-group m-0"><label>На какой склад:</label>
                             <select id="ret-wh" class="input-modern">
                                 <option value="4">🟢 №4 (Годная продукция)</option>
                                 <option value="5">🟡 №5 (Уценка/Брак)</option>
                             </select>
                         </div>
                     </div>
-                    <button class="btn btn-outline" onclick="addReturnItem()" style="margin-top: 10px; width: 100%; font-size: 12px;">➕ Добавить в список возврата</button>
+                    <button class="btn btn-outline w-100 mt-10 font-12" onclick="addReturnItem()">➕ Добавить в список возврата</button>
                     
-                    <table style="width: 100%; margin-top: 10px; font-size: 13px;">
+                    <table class="table-modern w-100 mt-10 font-13">
                         <tbody id="ret-items-table"></tbody>
                     </table>
                 </div>
 
-                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
-                    <div class="form-group" style="margin: 0;">
-                        <label style="color: var(--warning-text); font-weight: bold;">Возврат поддонов (шт):</label>
+                <div class="form-grid gap-10 sales-two-cols mb-15">
+                    <div class="form-group m-0">
+                        <label class="text-warning font-bold">Возврат поддонов (шт):</label>
                         <input type="number" id="ret-pallets" class="input-modern" placeholder="Сколько пустых вернули?">
                     </div>
-                    <div class="form-group" style="margin: 0;">
+                    <div class="form-group m-0">
                         <label>Сумма к возврату клиенту (₽):</label>
                         <input type="number" id="ret-amount" class="input-modern" placeholder="0">
                     </div>
@@ -2112,7 +2117,7 @@ window.openReturnModal = async function () {
                     <select id="ret-account" class="input-modern">${accountOptions}</select>
                 </div>
 
-                <div class="form-group" style="margin-bottom: 0;">
+                <div class="form-group m-0">
                     <label>Причина возврата (комментарий):</label>
                     <input type="text" id="ret-reason" class="input-modern" placeholder="Например: Остатки после стройки">
                 </div>
@@ -2353,12 +2358,12 @@ window.generateBlankOrder = function () {
 // === ВЫСТАВЛЕНИЕ СЧЕТА НА ОПЛАТУ (С РЕДАКТИРОВАНИЕМ СУММЫ) ===
 window.openInvoiceModal = function (docNum, debtAmt) {
     const html = `
-        <div style="padding: 10px;">
-            <p style="margin-top: 0; color: var(--text-muted); font-size: 13px;">Счет для заказа <b>${docNum}</b>.</p>
-            <div class="form-group" style="margin-bottom: 15px;">
-                <label style="font-weight: bold; color: var(--primary);">Сумма счета (₽):</label>
+        <div class="p-10">
+            <p class="m-0 mt-0 text-muted font-13 mb-15">Счет для заказа <b>${docNum}</b>.</p>
+            <div class="form-group mb-15">
+                <label class="font-bold text-primary">Сумма счета (₽):</label>
                 <input type="number" id="invoice-custom-amount" class="input-modern" placeholder="${debtAmt}" step="0.01">
-                <span style="font-size: 11px; color: var(--text-muted);">Оставьте поле пустым, чтобы выставить счет на весь остаток долга.</span>
+                <span class="font-11 text-muted">Оставьте поле пустым, чтобы выставить счет на весь остаток долга.</span>
             </div>
             <div class="form-group">
                 <label>Выберите наши реквизиты (Банк):</label>
@@ -2508,40 +2513,40 @@ window.openSalesDashboard = async function () {
 
         // Рисуем бары для товаров
         let itemsHtml = data.topItems.map((i, idx) => `
-            <div style="margin-bottom: 12px;">
-                <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
-                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 65%;"><b>${idx + 1}.</b> ${i.name} (${i.total_qty} шт)</span>
-                    <span style="font-weight: bold; color: #059669;">${formatSum(i.total_sum)}</span>
+            <div class="mb-12">
+                <div class="flex-between font-12 mb-5">
+                    <span class="text-truncate" style="max-width: 65%;"><b>${idx + 1}.</b> ${i.name} (${i.total_qty} шт)</span>
+                    <span class="font-bold text-success">${formatSum(i.total_sum)}</span>
                 </div>
-                <div style="background: #e2e8f0; height: 8px; border-radius: 4px; overflow: hidden;">
-                    <div style="background: linear-gradient(90deg, #38bdf8, #3b82f6); width: ${(parseFloat(i.total_sum) / maxItemSum) * 100}%; height: 100%; border-radius: 4px;"></div>
+                <div class="bg-surface-alt border-radius-4 overflow-hidden h-8">
+                    <div class="h-100 border-radius-4" style="background: linear-gradient(90deg, #38bdf8, #3b82f6); width: ${(parseFloat(i.total_sum) / maxItemSum) * 100}%;"></div>
                 </div>
             </div>
         `).join('');
 
         // Рисуем список клиентов
         let clientsHtml = data.topClients.map((c, idx) => `
-            <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--surface-alt); font-size: 13px;">
-                <span><b style="color: var(--text-muted);">${idx + 1}.</b> ${c.name}</span>
-                <strong style="color: var(--info);">${formatSum(c.total_sum)}</strong>
+            <div class="flex-between p-10-0 border-bottom border-surface-alt font-13">
+                <span><b class="text-muted">${idx + 1}.</b> ${c.name}</span>
+                <strong class="text-info">${formatSum(c.total_sum)}</strong>
             </div>
         `).join('');
 
         const html = `
-            <style>.modal-content { max-width: 800px !important; }</style>
-            <div style="padding: 10px;">
-                <div style="background: linear-gradient(135deg, #3b82f6, var(--info)); color: white; padding: 25px; border-radius: 12px; text-align: center; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                    <div style="font-size: 14px; opacity: 0.9; text-transform: uppercase; letter-spacing: 1px;">Выручка за текущий месяц</div>
-                    <div style="font-size: 42px; font-weight: 900; margin-top: 5px;">${formatSum(data.monthRevenue)}</div>
+            <style>#app-modal .modal-content { max-width: 800px !important; }</style>
+            <div class="p-10">
+                <div class="p-25 border-radius-12 text-center mb-20 shadow-sm text-white" style="background: linear-gradient(135deg, #3b82f6, var(--info));">
+                    <div class="font-14 opacity-90 text-uppercase tracking-wider">Выручка за текущий месяц</div>
+                    <div class="font-42 font-black mt-5">${formatSum(data.monthRevenue)}</div>
                 </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                    <div style="background: var(--surface-hover); border: 1px solid #e2e8f0; padding: 20px; border-radius: 12px;">
-                        <h4 style="margin-top: 0; color: #0f172a; margin-bottom: 20px;">🏆 Топ-5 товаров</h4>
-                        ${itemsHtml || '<div style="color: var(--text-muted); text-align: center;">Нет продаж в этом месяце</div>'}
+                <div class="form-grid gap-20 sales-two-cols">
+                    <div class="bg-surface-hover border p-20 border-radius-12">
+                        <h4 class="m-0 text-main mb-20">🏆 Топ-5 товаров</h4>
+                        ${itemsHtml || '<div class="text-muted text-center">Нет продаж в этом месяце</div>'}
                     </div>
-                    <div style="background: var(--surface-hover); border: 1px solid #e2e8f0; padding: 20px; border-radius: 12px;">
-                        <h4 style="margin-top: 0; color: #0f172a; margin-bottom: 10px;">🥇 Топ-5 клиентов</h4>
-                        ${clientsHtml || '<div style="color: var(--text-muted); text-align: center;">Нет продаж в этом месяце</div>'}
+                    <div class="bg-surface-hover border p-20 border-radius-12">
+                        <h4 class="m-0 text-main mb-10">🥇 Топ-5 клиентов</h4>
+                        ${clientsHtml || '<div class="text-muted text-center">Нет продаж в этом месяце</div>'}
                     </div>
                 </div>
             </div>
@@ -2570,31 +2575,32 @@ window.openLogisticsCalendar = function () {
     });
 
     // Генерируем колонки Kanban-доски
-    let html = '<style>.modal-content { max-width: 1200px !important; width: 95% !important; }</style>';
-    html += '<div style="padding: 10px; display: flex; gap: 15px; overflow-x: auto; padding-bottom: 20px;">';
+    let html = '<style>#app-modal .modal-content { max-width: 1200px !important; width: 95% !important; }</style>';
+    html += '<div class="p-10 flex-row gap-15 overflow-x-auto pb-20">';
 
     dates.forEach(date => {
         const isToday = date === new Date().toLocaleDateString('ru-RU');
         html += `
-            <div style="min-width: 320px; max-width: 320px; background: var(--surface-hover); border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; flex-shrink: 0;">
-                <h4 style="margin-top: 0; color: #0f172a; border-bottom: 3px solid ${isToday ? '#ef4444' : '#38bdf8'}; padding-bottom: 8px; margin-bottom: 15px;">
-                    ${isToday ? '🔥 СЕГОДНЯ' : '📅 ' + date} <span style="font-weight: normal; font-size: 12px; color: var(--text-muted); float: right;">${grouped[date].length} маш.</span>
+            <div class="bg-surface-hover border border-radius-8 p-15 flex-shrink-0" style="min-width: 320px; max-width: 320px;">
+                <h4 class="m-0 text-main border-bottom pb-8 mb-15" style="border-bottom-color: ${isToday ? '#ef4444' : '#38bdf8'} !important; border-bottom-style: solid; border-bottom-width: 3px;">
+                    ${isToday ? '🔥 СЕГОДНЯ' : '📅 ' + date} <span class="font-normal font-12 text-muted float-right">${grouped[date].length} маш.</span>
                 </h4>`;
 
         grouped[date].forEach(o => {
             const ordered = parseFloat(o.total_ordered) || 0;
             const shipped = parseFloat(o.total_shipped) || 0;
             const percent = ordered > 0 ? Math.round((shipped / ordered) * 100) : 0;
+            const statusClass = percent === 100 ? 'bg-success-lt text-success' : (percent > 0 ? 'bg-info-lt text-info' : 'bg-warning-lt text-warning');
 
             html += `
-                <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 10px; box-shadow: 0 2px 4px var(--shadow-sm); cursor: pointer;" onclick="openOrderManager(${o.id})">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                        <strong style="color: var(--info);">${o.doc_number}</strong>
-                        <span style="font-size: 10px; font-weight: bold; background: ${percent === 100 ? 'var(--success-bg)' : (percent > 0 ? 'var(--info-bg)' : 'var(--warning-bg)')}; color: ${percent === 100 ? 'var(--success-text)' : (percent > 0 ? 'var(--info)' : 'var(--warning-text)')}; padding: 3px 6px; border-radius: 4px;">Собрано: ${percent}%</span>
+                <div class="card p-12 mb-10 shadow-sm cursor-pointer border" onclick="openOrderManager(${o.id})">
+                    <div class="flex-between mb-8">
+                        <strong class="text-info">${o.doc_number}</strong>
+                        <span class="font-10 font-bold border-radius-4 p-3-6 ${statusClass}">Собрано: ${percent}%</span>
                     </div>
-                    <div style="font-size: 13px; font-weight: bold; margin-bottom: 5px;">${o.client_name || 'Неизвестно'}</div>
-                    <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px; background: var(--surface-alt); padding: 5px; border-radius: 4px;">📍 ${o.delivery_address || 'Самовывоз со склада'}</div>
-                    <div style="font-size: 11px; color: var(--text-muted); padding-top: 8px; border-top: 1px dashed #e2e8f0; line-height: 1.5;">📦 ${o.items_list}</div>
+                    <div class="font-13 font-bold mb-5">${o.client_name || 'Неизвестно'}</div>
+                    <div class="font-11 text-muted mb-8 bg-surface-alt p-5 border-radius-4">📍 ${o.delivery_address || 'Самовывоз со склада'}</div>
+                    <div class="font-11 text-muted pt-8 border-top dashed line-height-15">📦 ${o.items_list}</div>
                 </div>`;
         });
         html += `</div>`;
@@ -2611,12 +2617,12 @@ window.openExport1CModal = function () {
     const currentYear = today.getFullYear();
 
     const html = `
-        <div style="padding: 10px; text-align: center;">
-            <p style="color: var(--text-muted); font-size: 13px; margin-top: 0;">Выберите период для выгрузки реестра отгрузок. Файл скачается в формате CSV (Excel), оптимизированном для загрузки в 1С Бухгалтерию.</p>
-            <div style="display: flex; gap: 10px; justify-content: center; margin-top: 20px;">
-                <div class="form-group" style="margin: 0;">
+        <div class="p-10 text-center">
+            <p class="text-muted font-13 m-0 mt-0">Выберите период для выгрузки реестра отгрузок. Файл скачается в формате CSV (Excel), оптимизированном для загрузки в 1С Бухгалтерию.</p>
+            <div class="flex-row gap-10 justify-center mt-20">
+                <div class="form-group m-0 pl-10" style="text-align: left;">
                     <label>Месяц</label>
-                    <select id="export-month" class="input-modern" style="min-width: 150px;">
+                    <select id="export-month" class="input-modern w-150">
                         <option value="01" ${currentMonth === '01' ? 'selected' : ''}>Январь</option>
                         <option value="02" ${currentMonth === '02' ? 'selected' : ''}>Февраль</option>
                         <option value="03" ${currentMonth === '03' ? 'selected' : ''}>Март</option>
@@ -2631,9 +2637,9 @@ window.openExport1CModal = function () {
                         <option value="12" ${currentMonth === '12' ? 'selected' : ''}>Декабрь</option>
                     </select>
                 </div>
-                <div class="form-group" style="margin: 0;">
+                <div class="form-group m-0" style="text-align: left;">
                     <label>Год</label>
-                    <input type="number" id="export-year" class="input-modern" value="${currentYear}" style="max-width: 100px;">
+                    <input type="number" id="export-year" class="input-modern w-100" value="${currentYear}">
                 </div>
             </div>
         </div>
@@ -2641,7 +2647,7 @@ window.openExport1CModal = function () {
 
     UI.showModal('📥 Экспорт для 1С (Отгрузки)', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-        <button class="btn btn-blue" style="background: #10b981; border-color: #10b981;" onclick="executeExport1C()">Скачать Excel</button>
+        <button class="btn btn-blue bg-success-btn border-success" onclick="executeExport1C()">Скачать Excel</button>
     `);
 
     setTimeout(() => {
@@ -2957,12 +2963,12 @@ window.openOrderDetails = async function (orderId) {
 
         // Формируем таблицу с составом заказа
         let itemsHtml = `
-            <table style="width: 100%; margin-bottom: 15px; border-collapse: collapse; font-size: 13px;">
-                <thead style="background: var(--surface-hover); text-align: left;">
+            <table class="table-modern w-100 mb-15">
+                <thead class="bg-surface-hover text-left">
                     <tr>
-                        <th style="padding: 8px; border-bottom: 1px solid var(--border);">Товар</th>
-                        <th style="padding: 8px; border-bottom: 1px solid var(--border); text-align: center;">Заказано</th>
-                        <th style="padding: 8px; border-bottom: 1px solid var(--border); text-align: center;">Отгружено</th>
+                        <th class="p-8 border-bottom">Товар</th>
+                        <th class="p-8 border-bottom text-center">Заказано</th>
+                        <th class="p-8 border-bottom text-center">Отгружено</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -2972,15 +2978,15 @@ window.openOrderDetails = async function (orderId) {
             const ordered = parseFloat(item.qty_ordered);
             const shipped = parseFloat(item.qty_shipped || 0);
             // Подсветка статуса отгрузки: зеленый (полностью), желтый (частично), красный (не отгружалось)
-            const color = shipped >= ordered ? 'color: var(--success);' : (shipped > 0 ? 'color: #f59e0b;' : 'color: #ef4444;');
+            const colorClass = shipped >= ordered ? 'text-success' : (shipped > 0 ? 'text-warning' : 'text-danger');
 
             itemsHtml += `
                 <tr>
-                    <td style="padding: 8px; border-bottom: 1px solid var(--surface-alt);">
+                    <td class="p-8 border-bottom border-surface-alt">
                         ${item.product_id || item.id ? `<span class="entity-link" onclick="window.app.openEntity('nomenclature', ${item.product_id || item.id})">${escapeHTML(item.name)}</span>` : escapeHTML(item.name)}
                     </td>
-                    <td style="padding: 8px; border-bottom: 1px solid var(--surface-alt); text-align: center; font-weight: bold;">${ordered} ${item.unit}</td>
-                    <td style="padding: 8px; border-bottom: 1px solid var(--surface-alt); text-align: center; font-weight: bold; ${color}">${shipped}</td>
+                    <td class="p-8 border-bottom border-surface-alt text-center font-bold">${ordered} ${item.unit}</td>
+                    <td class="p-8 border-bottom border-surface-alt text-center font-bold ${colorClass}">${shipped}</td>
                 </tr>
             `;
         });
@@ -2988,15 +2994,15 @@ window.openOrderDetails = async function (orderId) {
 
         // Формируем тело модального окна
         const htmlBody = `
-            <div style="margin-bottom: 15px; background: var(--surface-hover); padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 14px;">
-                <div style="margin-bottom: 8px;"><strong>💼 Клиент:</strong> 
+            <div class="mb-15 bg-surface-hover p-15 border-radius-8 border font-14">
+                <div class="mb-8"><strong>💼 Клиент:</strong> 
                     ${order.client_id ? `<span class="entity-link" onclick="window.app.openEntity('client', ${order.client_id})">${escapeHTML(order.client_name)}</span>` : escapeHTML(order.client_name)}
                 </div>
-                <div style="margin-bottom: 8px;"><strong>📍 Адрес доставки:</strong> ${escapeHTML(order.delivery_address || 'Самовывоз')}</div>
-                <div style="margin-bottom: 8px;"><strong>💰 Сумма заказа:</strong> <span style="color: #0f172a; font-weight: bold;">${parseFloat(order.total_amount).toLocaleString()} ₽</span></div>
-                <div style="margin-bottom: 0;"><strong>📅 Плановая отгрузка:</strong> ${order.planned_shipment_date ? new Date(order.planned_shipment_date).toLocaleDateString() : 'Не указана'}</div>
+                <div class="mb-8"><strong>📍 Адрес доставки:</strong> ${escapeHTML(order.delivery_address || 'Самовывоз')}</div>
+                <div class="mb-8"><strong>💰 Сумма заказа:</strong> <span class="text-main font-bold">${parseFloat(order.total_amount).toLocaleString()} ₽</span></div>
+                <div class="m-0"><strong>📅 Плановая отгрузка:</strong> ${order.planned_shipment_date ? new Date(order.planned_shipment_date).toLocaleDateString() : 'Не указана'}</div>
             </div>
-            <h4 style="margin: 0 0 10px 0; color: var(--text-muted);">📦 Состав заказа:</h4>
+            <h4 class="m-0 mb-10 text-muted">📦 Состав заказа:</h4>
             ${itemsHtml}
         `;
 
@@ -3043,9 +3049,9 @@ window.openMiniContractModal = function () {
     if (!cpId) return UI.toast('Сначала выберите клиента!', 'warning');
 
     const html = `
-        <div style="padding: 10px;">
-            <input type="text" style="display:none" autocomplete="username">
-            <input type="password" style="display:none" autocomplete="current-password">
+        <div class="p-10">
+            <input type="text" class="display-none" autocomplete="username">
+            <input type="password" class="display-none" autocomplete="current-password">
 
             <div class="form-group">
                 <label>Номер договора:</label>

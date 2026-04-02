@@ -1,4 +1,4 @@
-let allRegistryDocs = [];
+﻿let allRegistryDocs = [];
 
 async function loadDocsRegistry() {
     try {
@@ -82,33 +82,32 @@ function renderRegistryTable(data) {
 
             const sum = Number(totalAmount).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽';
             const stHtml = isExported
-                ? '<span style="color: var(--success); font-weight: bold;">🟢 Выгружен</span>'
-                : '<span style="color: var(--text-muted);">⚪ Не выгружен</span>';
+                ? '<span class="text-success font-bold">🟢 Выгружен</span>'
+                : '<span class="text-muted">⚪ Не выгружен</span>';
 
             // Значение режима Нотариус
             const isLocked = doc.is_locked === true;
             
             // Если документ опечатан, добавляем замок и серый фон
             const lockIcon = isLocked 
-                ? '<span title="Документ защищён режимом Нотариус. Изменения невозможны" style="cursor: help; margin-right: 5px;">🔒</span>' 
+                ? '<span title="Документ защищён режимом Нотариус. Изменения невозможны" class="docs-locked-icon mr-5">🔒</span>' 
                 : '';
-            let rowStyle = isLocked ? 'background-color: #f7f7f7; color: #555;' : '';
-            if (doc.status === 'cancelled') {
-                rowStyle += ' color: #94a3b8; text-decoration: line-through; opacity: 0.7;';
-            }
+            let rowClasses = 'docs-tbl-row';
+            if (isLocked) rowClasses += ' docs-locked-row';
+            if (doc.status === 'cancelled') rowClasses += ' docs-cancelled-row';
 
             return `
-                <tr style="${rowStyle}">
+                <tr class="${rowClasses}">
                     <td class="text-center"><input type="checkbox" class="doc-check" value="${doc.id || ''}" onchange="checkExportButtonState()"></td>
-                    <td style="font-size: 13px;">${d}</td>
-                    <td style="font-weight: bold; color: var(--primary);">${lockIcon}${docNumber}</td>
+                    <td class="font-13">${d}</td>
+                    <td class="font-bold text-primary">${lockIcon}${docNumber}</td>
                     <td>${clientName}</td>
-                    <td class="text-right" style="font-weight: bold;">${sum}</td>
-                    <td style="font-size: 12px; color: var(--text-muted);">${authorName}</td>
+                    <td class="text-right font-bold">${sum}</td>
+                    <td class="font-12 text-muted">${authorName}</td>
                     <td class="text-center">${stHtml}</td>
-                    <td style="text-align: center;">
+                    <td class="text-center">
                         ${doc.status !== 'cancelled' ? `
-                            <button class="btn-icon" onclick="deleteRegistryInvoice(${doc.id})" title="Удалить/Аннулировать" style="color: var(--danger); cursor: pointer; background: none; border: none; font-size: 14px;">❌</button>
+                            <button class="btn-icon docs-delete-btn text-danger" onclick="deleteRegistryInvoice(${doc.id})" title="Удалить/Аннулировать">❌</button>
                         ` : ''}
                     </td>
                 </tr>
@@ -287,3 +286,4 @@ window.deleteRegistryInvoice = async function(id) {
         }
     });
 };
+

@@ -1,21 +1,21 @@
 <div id="salary-mod" class="module">
-    <div class="flex-between mb-20" style="align-items: flex-end;">
+    <div class="flex-between mb-20 align-end">
         <div class="w-100">
             <h2 class="mt-0">👷‍♂️ Кадры, Табель и Зарплата</h2>
             <div class="summary-grid" id="salary-summary-boxes"></div>
-            <p class="text-muted" style="font-size: 13px; margin: 0;">Управление сотрудниками, окладами и рабочим временем</p>
+            <p class="text-muted font-13 m-0">Управление сотрудниками, окладами и рабочим временем</p>
         </div>
     </div>
 
-    <div class="accordion-header" onclick="toggleAccordion('acc-employees', this)" style="border-left: 4px solid var(--success);">
+    <div class="accordion-header hr-accordion-success" onclick="toggleAccordion('acc-employees', this)">
         <div>👥 База сотрудников и оклады</div>
         <div class="icon">▼</div>
     </div>
     <div id="acc-employees" class="accordion-body">
-        <div class="flex-between mb-15 card-alt" style="padding: 10px; border-radius: 8px;">
-            <div class="toolbar-group flex-grow-1" style="max-width: 600px;">
+        <div class="flex-between mb-15 card-alt hr-toolbar-panel">
+            <div class="toolbar-group flex-grow-1 hr-toolbar-filters">
                 <input type="text" id="emp-search-input" class="input-modern flex-grow-1" placeholder="🔍 Поиск по ФИО..." oninput="filterEmployees()">
-                <select id="emp-dep-filter" class="input-modern" style="width: 180px;" onchange="filterEmployees()">
+                <select id="emp-dep-filter" class="input-modern hr-dep-select" onchange="filterEmployees()">
                     <option value="all">Все отделы</option>
                     <option value="Офис">Офис</option>
                     <option value="Цех">Цех</option>
@@ -36,18 +36,18 @@
                         <th class="text-right">Офиц. ЗП</th>
                         <th class="text-right">Налог</th>
                         <th class="text-right">Текущий остаток</th>
-                        <th class="text-center" style="width: 80px;">Действие</th>
+                        <th class="text-center hr-action-col">Действие</th>
                     </tr>
                 </thead>
                 <tbody id="employees-table-body"></tbody>
             </table>
         </div>
 
-        <div class="accordion-header mt-20" onclick="toggleAccordion('acc-fired-employees', this)" style="border-left: 4px solid var(--danger);">
+        <div class="accordion-header mt-20 hr-accordion-danger" onclick="toggleAccordion('acc-fired-employees', this)">
             <div>🗑️ Архив (Уволенные сотрудники)</div>
             <div class="icon">▼</div>
         </div>
-        <div id="acc-fired-employees" class="accordion-body" style="background: var(--danger-bg);">
+        <div id="acc-fired-employees" class="accordion-body hr-fired-section">
             <div class="table-container">
                 <table>
                     <thead>
@@ -56,7 +56,7 @@
                             <th>Должность</th>
                             <th>Последний отдел</th>
                             <th class="text-right">Финальный долг</th>
-                            <th class="text-center" style="width: 80px;">Действие</th>
+                            <th class="text-center hr-action-col">Действие</th>
                         </tr>
                     </thead>
                     <tbody id="fired-employees-table-body"></tbody>
@@ -65,16 +65,16 @@
         </div>
     </div>
 
-    <div class="accordion-header mt-20" onclick="toggleAccordion('acc-timesheet', this)" style="border-left: 4px solid var(--primary);">
+    <div class="accordion-header mt-20 hr-accordion-primary" onclick="toggleAccordion('acc-timesheet', this)">
         <div>📅 Электронный табель учета времени</div>
         <div class="icon">▼</div>
     </div>
     <div id="acc-timesheet" class="accordion-body">
-        <div class="flex-between mb-15 card-alt" style="padding: 10px; border-radius: 8px;">
+        <div class="flex-between mb-15 card-alt hr-toolbar-panel">
             <div class="toolbar-group flex-grow-1">
-                <input type="month" id="ts-month-picker" class="input-modern" style="width: 160px; font-weight: bold;" onchange="syncSalaryMonth(this.value)">
-                <input type="text" id="ts-search-input" class="input-modern flex-grow-1" style="max-width: 250px;" placeholder="🔍 Поиск в табеле..." oninput="reRenderTimesheet()">
-                <select id="ts-dep-filter" class="input-modern" style="width: 150px;" onchange="reRenderTimesheet()">
+                <input type="month" id="ts-month-picker" class="input-modern hr-month-picker" onchange="syncSalaryMonth(this.value)">
+                <input type="text" id="ts-search-input" class="input-modern flex-grow-1 hr-ts-search" placeholder="🔍 Поиск в табеле..." oninput="reRenderTimesheet()">
+                <select id="ts-dep-filter" class="input-modern hr-dep-select" onchange="reRenderTimesheet()">
                     <option value="all">Все отделы</option>
                     <option value="Офис">Офис</option>
                     <option value="Цех">Цех</option>
@@ -84,16 +84,16 @@
             </div>
 
             <div class="toolbar-group">
-                <span class="text-muted" style="font-size: 11px; max-width: 120px; line-height: 1.2;">* Клик на ячейку для смены статуса</span>
+                <span class="text-muted hr-hint-text">* Клик на ячейку для смены статуса</span>
                 <button class="btn btn-outline" onclick="printTimesheet()">🖨️ Печать</button>
             </div>
         </div>
-        <div id="timesheet-container" class="table-container timesheet-container" style="overflow-x: auto;">
-            <table style="min-width: 1200px;">
+        <div id="timesheet-container" class="table-container timesheet-container hr-timesheet-wrapper">
+            <table class="hr-timesheet-table">
                 <thead id="monthly-ts-head"></thead>
                 <tbody id="monthly-ts-body">
                     <tr>
-                        <td class="text-center text-muted" style="padding: 20px;">Загрузка табеля...</td>
+                        <td class="text-center text-muted hr-loading-cell">Загрузка табеля...</td>
                     </tr>
                 </tbody>
             </table>
@@ -101,7 +101,7 @@
     </div>
 
     <div class="admin-only">
-        <div class="accordion-header mt-20" onclick="toggleAccordion('acc-payouts', this)" style="border-left: 4px solid var(--warning);">
+        <div class="accordion-header mt-20 hr-accordion-warning" onclick="toggleAccordion('acc-payouts', this)">
             <div>💰 Расчет выплат и выдача ЗП</div>
             <div class="icon">▼</div>
         </div>
@@ -134,7 +134,7 @@
                 <table>
                     <thead>
                         <tr>
-                            <th width="20%">Сотрудник</th>
+                            <th class="hr-employee-col">Сотрудник</th>
                             <th class="text-right">Заработал</th>
                             <th class="text-right text-primary">± Остаток</th>
                             <th class="text-right text-danger">Налоги</th>
@@ -146,11 +146,12 @@
                     </thead>
                     <tbody id="payouts-table-body">
                         <tr>
-                            <td colspan="8" class="text-center text-muted" style="padding: 20px;">Загрузка расчетов...</td>
+                            <td colspan="8" class="text-center text-muted hr-loading-cell">Загрузка расчетов...</td>
                         </tr>
                     </tbody>
                 </table>
             </div>
         </div>
     </div>
+
 </div>

@@ -59,26 +59,26 @@ function debounceRefLoad() {
 function renderRefTable(items) {
     const tbody = document.getElementById('ref-table-body');
     if (items.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Ничего не найдено</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">Ничего не найдено</td></tr>';
         return;
     }
 
     tbody.innerHTML = items.map(item => `
-        <tr style="transition: 0.2s;">
-            <td style="color: var(--text-muted); font-size: 12px;">#${item.id}</td>
-            <td><span class="badge ${item.item_type === 'product' ? 'badge-prod' : 'badge-mat'}">${item.item_type === 'product' ? '📦 Продукция' : '🪨 Сырье'}</span></td>
-            <td><strong style="color: var(--text-muted);">${item.category || '-'}</strong></td>
+        <tr class="ref-table-row">
+            <td class="text-muted font-12">#${item.id}</td>
+            <td><span class="badge ${item.item_type === 'product' ? 'badge-product' : 'badge-material'}">${item.item_type === 'product' ? '📦 Продукция' : '🪨 Сырье'}</span></td>
+            <td><strong class="text-muted">${item.category || '-'}</strong></td>
             
-            <td style="font-family: monospace; font-size: 13px; font-weight: bold; color: var(--primary);">
-                ${item.article || '<span style="color: var(--border); font-weight: normal;">—</span>'}
+            <td class="dict-article-cell">
+                ${item.article || '<span class="text-border font-normal">—</span>'}
             </td>
 
-            <td style="font-weight: 600; color: var(--text-main); cursor: pointer;" onclick="editReference(${item.id})">${item.name}</td>
+            <td class="font-600 text-main cursor-pointer" onclick="editReference(${item.id})">${item.name}</td>
             <td>${item.unit}</td>
-            <td><span style="color: var(--primary); font-weight: bold;">${parseFloat(item.current_price).toFixed(2)} ₽</span></td>
-            <td style="text-align: right;">
-                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; margin-right: 5px;" onclick="editReference(${item.id})">✏️</button>
-                <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--danger); border-color: var(--danger);" onclick="deleteReference(${item.id}, '${item.name}')">❌</button>
+            <td><span class="text-primary font-bold">${parseFloat(item.current_price).toFixed(2)} ₽</span></td>
+            <td class="text-right">
+                <button class="btn btn-outline dict-row-btn mr-5" onclick="editReference(${item.id})">✏️</button>
+                <button class="btn btn-outline dict-row-btn border-danger text-danger" onclick="deleteReference(${item.id}, '${item.name}')">❌</button>
             </td>
         </tr>
     `).join('');
@@ -87,10 +87,11 @@ function renderRefTable(items) {
 // === УПРАВЛЕНИЕ ФОРМОЙ И МАТРИЦАМИ ===
 
 function openRefForm() {
+    document.getElementById('ref-form-container').classList.remove('inv-hidden');
     document.getElementById('ref-form-container').style.display = 'block';
     document.getElementById('ref-form-title').innerText = '✨ Добавление новой позиции';
     clearRefForm();
-    loadMoldsForRefs(); // Загружаем матрицы при открытии
+    loadMoldsForRefs();
     document.getElementById('ref-type').dispatchEvent(new Event('change'));
 }
 
@@ -224,7 +225,7 @@ async function saveReference() {
 window.deleteReference = function (id, name) {
     const html = `
         <p>Вы уверены, что хотите удалить <b>"${name}"</b>?</p>
-        <p style="font-size: 12px; color: var(--danger); margin-top: 10px;">
+        <p class="font-12 text-danger mt-10">
             ⚠️ База данных запретит удаление, если этот товар используется в рецептах или уже есть на складе.
         </p>
     `;
@@ -294,10 +295,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const groupGost = document.getElementById('group-gost');
             const groupMixTemplates = document.querySelector('.group-mix-templates');
 
-            if (groupQty) groupQty.style.display = isProd ? 'block' : 'none';
-            if (groupMold) groupMold.style.display = isProd ? 'block' : 'none';
-            if (groupGost) groupGost.style.display = isProd ? 'block' : 'none';
-            if (groupMixTemplates) groupMixTemplates.style.display = isProd ? 'block' : 'none';
+            if (groupQty) groupQty.classList.toggle('inv-hidden', !isProd);
+            if (groupMold) groupMold.classList.toggle('inv-hidden', !isProd);
+            if (groupGost) groupGost.classList.toggle('inv-hidden', !isProd);
+            if (groupMixTemplates) groupMixTemplates.classList.toggle('inv-hidden', !isProd);
         });
     }
 });

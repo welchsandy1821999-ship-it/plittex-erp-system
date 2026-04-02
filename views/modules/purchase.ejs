@@ -1,36 +1,34 @@
 <div id="purchase-mod" class="module">
     <div class="flex-between mb-20">
-        <h2 class="mt-0" style="margin-bottom: 0;">🚚 Закупки и приход сырья</h2>
+        <h2 class="m-0">🚚 Закупки и приход сырья</h2>
 
-        <div class="form-group" style="margin: 0;">
-            <label style="display: block; font-size: 11px; margin-bottom: 2px;">Дата закупки:</label>
-            <input type="text" id="purchase-date" class="input-modern" style="width: 140px; cursor: pointer;">
+        <div class="form-group m-0">
+            <label class="d-block font-11 mb-2">Дата закупки:</label>
+            <input type="text" id="purchase-date" class="input-modern pur-date-input">
         </div>
     </div>
 
-    <div class="card" style="border-left: 4px solid var(--primary);">
+    <div class="card pur-main-panel">
         <div class="form-grid">
             <div class="form-group col-span-2">
                 <label>Материал (Сырье):</label>
                 <select id="purchase-material-select" class="input-modern" placeholder="-- Выберите сырье --">
                     <option value="">-- Загрузка... --</option>
                 </select>
-                <div id="material-informer"
-                    style="display: none; margin-top: 6px; font-size: 12px; padding: 6px 10px; background: var(--surface-alt); border-radius: 6px; border: 1px dashed var(--border);">
+                <div id="material-informer" class="pur-material-infobox inv-hidden">
                 </div>
             </div>
 
             <div class="form-group col-span-2">
                 <label>Поставщик (Поиск по Имени или ИНН):</label>
-                <div style="display: flex; gap: 10px; align-items: stretch;">
-                    <div style="flex-grow: 1; min-width: 0;">
+                <div class="pur-supplier-flex">
+                    <div class="flex-1 min-w-0">
                         <select id="purchase-supplier-select" class="input-modern"
                             placeholder="-- Выберите поставщика --">
                             <option value="">-- Загрузка... --</option>
                         </select>
                     </div>
-                    <button class="btn btn-outline"
-                        style="padding: 0 18px; font-weight: bold; font-size: 16px; border-color: var(--border); color: var(--primary);"
+                    <button class="btn btn-outline pur-supplier-btn"
                         onclick="openAddSupplierModal()" title="Добавить нового поставщика">➕</button>
                 </div>
             </div>
@@ -54,23 +52,20 @@
                     placeholder="0.00">
             </div>
 
-            <div class="form-group col-span-2"
-                style="margin-top: 5px; padding-top: 15px; border-top: 1px dashed var(--border);">
-                <label
-                    style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: bold; color: var(--primary); margin: 0;">
+            <div class="form-group col-span-2 pur-delivery-toggle-wrap">
+                <label class="pur-delivery-label">
                     <input type="checkbox" id="purchase-has-delivery" onchange="toggleDeliveryFields()"
-                        style="width: 18px; height: 18px; cursor: pointer;">
+                        class="pur-delivery-checkbox">
                     🚚 Учесть расходы на доставку
                 </label>
             </div>
 
-            <div id="delivery-fields"
-                style="display: none; grid-column: span 2; background: var(--surface-alt); padding: 15px; border-radius: 8px; gap: 15px; grid-template-columns: 1fr 1fr; margin-bottom: 5px;">
-                <div class="form-group" style="margin: 0;">
+            <div id="delivery-fields" class="pur-delivery-fields-grid inv-hidden">
+                <div class="form-group m-0">
                     <label>Стоимость доставки (₽):</label>
                     <input type="number" id="purchase-delivery-cost" class="input-modern" placeholder="0.00">
                 </div>
-                <div class="form-group" style="margin: 0;">
+                <div class="form-group m-0">
                     <label>Счет оплаты доставки:</label>
                     <select id="purchase-delivery-account" class="input-modern" placeholder="-- В ДОЛГ --">
                         <option value="">-- Загрузка... --</option>
@@ -79,34 +74,30 @@
             </div>
         </div>
 
-        <div class="summary-box"
-            style="margin-top: 15px; margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; padding: 15px; background: var(--surface-alt); border-radius: 8px; border: 1px dashed var(--border);">
-            <span class="summary-label" style="font-size: 16px; font-weight: bold;">Итого за сырье:</span>
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <input type="text" id="purchase-total-cost" class="input-modern"
-                    style="width: 140px; margin: 0; text-align: right; font-size: 18px; font-weight: 900; color: var(--primary);"
+        <div class="pur-summary-box">
+            <span class="font-16 font-bold">Итого за сырье:</span>
+            <div class="flex-row gap-10 align-center">
+                <input type="text" id="purchase-total-cost" class="input-modern pur-total-input"
                     oninput="calculatePriceFromTotal()" onkeyup="calculatePriceFromTotal()" placeholder="0.00">
-                <span style="font-size: 18px; font-weight: bold;">₽</span>
+                <span class="font-18 font-bold">₽</span>
             </div>
         </div>
 
-        <div id="purchase-action-buttons" style="display: flex; gap: 10px; margin-top: 20px;">
-            <button id="btn-submit-purchase" class="btn btn-blue w-100" style="padding: 14px; font-weight: bold;"
+        <div id="purchase-action-buttons" class="pur-submit-flex">
+            <button id="btn-submit-purchase" class="btn btn-blue w-100 pur-btn-ok"
                 onclick="submitPurchase()">📥 Оформить приход</button>
-            <button id="btn-cancel-edit" class="btn btn-outline"
-                style="padding: 14px; display: none; border-color: var(--danger); color: var(--danger); font-weight: bold;"
+            <button id="btn-cancel-edit" class="btn btn-outline pur-btn-cancel inv-hidden"
                 onclick="cancelEditMode()">❌ Отменить ред.</button>
         </div>
     </div>
 
-    <div class="card" style="margin-top: 20px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-            <h3 style="margin: 0;">История приходов</h3>
+    <div class="card mt-20">
+        <div class="pur-history-header">
+            <h3 class="m-0">История приходов</h3>
 
-            <div style="position: relative; width: 350px;">
-                <span style="position: absolute; left: 12px; top: 10px; opacity: 0.5;">🔍</span>
-                <input type="text" id="purchase-search-input" class="input-modern"
-                    style="padding-left: 35px; margin: 0; border-radius: 20px;"
+            <div class="pur-search-wrap">
+                <span class="pur-search-icon">🔍</span>
+                <input type="text" id="purchase-search-input" class="input-modern pur-search-input"
                     placeholder="Поиск по сырью, поставщику, ИНН..." oninput="handlePurchaseSearch()">
             </div>
         </div>
@@ -115,20 +106,20 @@
             <table class="table-modern">
                 <thead>
                     <tr>
-                        <th style="cursor: pointer; width: 25%;" onclick="sortSearchResults('item_name')"
+                        <th class="cursor-pointer w-25" onclick="sortSearchResults('item_name')"
                             title="Сортировать">Наименование ТМЦ ↕️</th>
-                        <th style="cursor: pointer; width: 25%;" onclick="sortSearchResults('supplier_name')"
+                        <th class="cursor-pointer w-25" onclick="sortSearchResults('supplier_name')"
                             title="Сортировать">Поставщик ↕️</th>
-                        <th id="th-date" style="display: none; cursor: pointer; width: 10%; color: var(--primary);"
+                        <th id="th-date" class="cursor-pointer w-10 pur-th-date inv-hidden"
                             onclick="sortSearchResults('purchase_date')" title="Сортировать">Дата ↕️</th>
 
-                        <th style="cursor: pointer; text-align: right; width: 10%;"
+                        <th class="cursor-pointer text-right w-10"
                             onclick="sortSearchResults('quantity')" title="Сортировать">Кол-во ↕️</th>
-                        <th style="cursor: pointer; text-align: right; width: 10%;" onclick="sortSearchResults('price')"
+                        <th class="cursor-pointer text-right w-10" onclick="sortSearchResults('price')"
                             title="Сортировать">Цена ↕️</th>
-                        <th style="cursor: pointer; text-align: right; width: 10%;"
+                        <th class="cursor-pointer text-right w-10"
                             onclick="sortSearchResults('amount')" title="Сортировать">Сумма ↕️</th>
-                        <th style="text-align: right; width: 10%;">Действия</th>
+                        <th class="text-right w-10">Действия</th>
                     </tr>
                 </thead>
                 <tbody id="daily-purchases-table">
@@ -136,16 +127,14 @@
                         <td colspan="6" class="text-center text-muted">Выберите дату для просмотра истории...</td>
                     </tr>
                 </tbody>
-                <tfoot id="daily-purchases-summary"
-                    style="display: none; background: var(--surface-alt); box-shadow: 0 -2px 10px rgba(0,0,0,0.05);">
-                    <tr>
-                        <td colspan="2" style="text-align: right; font-weight: 900; padding: 15px 10px;">ИТОГО ЗА ДЕНЬ:
+                <tfoot id="daily-purchases-summary" class="pur-daily-summary-foot inv-hidden">
+                    <tr class="pur-daily-summary-row">
+                        <td colspan="2" class="text-right font-900">ИТОГО ЗА ДЕНЬ:
                         </td>
-                        <td id="daily-total-qty" style="text-align: right; font-weight: bold; padding: 15px 10px;">0.00
+                        <td id="daily-total-qty" class="text-right font-bold">0.00
                         </td>
                         <td></td>
-                        <td id="daily-total-amount"
-                            style="text-align: right; font-weight: 900; color: var(--danger); font-size: 16px; padding: 15px 10px;">
+                        <td id="daily-total-amount" class="text-right font-900 text-danger font-16">
                             0.00 ₽</td>
                         <td></td>
                     </tr>

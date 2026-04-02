@@ -269,11 +269,11 @@ window.loadCashflowForecast = async function () {
         if (gapDay) {
             const dateStr = new Date(gapDay.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
             container.innerHTML = `
-                <div style="background: var(--danger-bg); padding: 15px; border-radius: 8px; border: 1px solid var(--danger-border); border-left: 5px solid var(--danger); animation: fadeIn 0.5s;">
-                    <h4 style="margin: 0 0 5px 0; color: var(--danger-text); display: flex; align-items: center; gap: 8px;">
+                <div class="finance-alert-danger">
+                    <h4>
                         <span>⚠️</span> Угроза кассового разрыва!
                     </h4>
-                    <div style="font-size: 13px; color: var(--text-main); line-height: 1.5;">
+                    <div class="finance-alert-text">
                         По прогнозу <b>${dateStr}</b> ваш баланс уйдет в минус (<b>${gapDay.projected_balance.toLocaleString('ru-RU')} ₽</b>).<br>
                         Рекомендуем ускорить сбор оплат по выставленным счетам или перенести плановые расходы на более поздний срок.
                     </div>
@@ -282,11 +282,11 @@ window.loadCashflowForecast = async function () {
         } else {
             const minBalance = Math.min(...data.forecast.map(d => d.projected_balance));
             container.innerHTML = `
-                <div style="background: var(--success-bg); padding: 15px; border-radius: 8px; border: 1px solid var(--success-border); border-left: 5px solid var(--success); animation: fadeIn 0.5s;">
-                    <h4 style="margin: 0 0 5px 0; color: var(--success-text); display: flex; align-items: center; gap: 8px;">
+                <div class="finance-alert-success">
+                    <h4>
                         <span>🛡️</span> Финансы в безопасности
                     </h4>
-                    <div style="font-size: 13px; color: var(--text-main); line-height: 1.5;">
+                    <div class="finance-alert-text">
                         На ближайшие 30 дней кассовых разрывов не прогнозируется.<br>
                         Минимальный расчетный остаток в этом месяце составит: <b>${minBalance.toLocaleString('ru-RU')} ₽</b>.
                     </div>
@@ -333,18 +333,18 @@ window.renderOrderProfitability = async function () {
             return;
         }
 
-        let html = '<div style="display: grid; gap: 10px; margin-top: 10px;">';
+        let html = '<div class="finance-margin-grid">';
         orders.forEach(o => {
             const marginColor = o.margin > 30 ? 'var(--success)' : (o.margin > 15 ? 'var(--warning)' : 'var(--danger)');
             html += `
-                <div style="background: var(--surface); padding: 12px; border-radius: 8px; border: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
-                    <div style="flex: 1;">
-                        <div style="font-weight: bold; font-size: 13px;">Заказ №${o.doc_number}</div>
-                        <div style="font-size: 11px; color: var(--text-muted);">${o.client_name}</div>
+                <div class="finance-margin-card">
+                    <div class="flex-1">
+                        <div class="font-bold font-13">Заказ №${o.doc_number}</div>
+                        <div class="font-11 text-muted">${o.client_name}</div>
                     </div>
-                    <div style="text-align: right; flex: 1;">
-                        <div style="font-weight: 800; color: var(--text-main);">${parseFloat(o.profit).toLocaleString()} ₽</div>
-                        <div style="font-size: 11px; font-weight: bold; color: ${marginColor};">Рентабельность: ${o.margin}%</div>
+                    <div class="flex-1 text-right">
+                        <div class="font-bold text-main">${parseFloat(o.profit).toLocaleString()} ₽</div>
+                        <div class="font-11 font-bold" style="color: ${marginColor};">Рентабельность: ${o.margin}%</div>
                     </div>
                 </div>
             `;
@@ -496,7 +496,6 @@ window.addImprestRow = function() {
     const div = document.createElement('div');
     div.id = rowId;
     div.className = 'imprest-item-row';
-    div.style.cssText = "display: grid; grid-template-columns: 2fr 3fr 3fr auto; gap: 10px; align-items: start; background: var(--surface-alt); padding: 10px; border-radius: 8px; border: 1px solid var(--border);";
 
     // Универсальное извлечение категорий (защита от пустых массивов)
     const sourceCategories = (window.erpCategories && window.erpCategories.length > 0)
@@ -695,37 +694,36 @@ function renderTransactionsTable() {
 
         const systemCategories = ['Перевод', 'Техническая проводка', 'Возврат из подотчета'];
         const isSystem = systemCategories.includes(t.category);
-        const rowStyle = isSystem ? 'opacity: 0.6; background-color: #f9f9f9;' : '';
         const categoryIcon = isSystem ? '⚙️ ' : '';
 
         return `
-        <tr style="${rowStyle}">
-            <td style="text-align: center;">
+        <tr class="${isSystem ? 'tx-row-system' : ''}">
+            <td class="text-center">
                 ${isLocked ? '<span title="Период закрыт">🔒</span>' : `<input type="checkbox" class="trans-checkbox" value="${t.id}" onchange="toggleRowSelect(this)" ${isChecked}>`}
             </td>
-            <td style="font-weight: bold; color: var(--text-muted); font-size: 13px;">${safeDate}</td>
+            <td class="font-bold text-muted font-13">${safeDate}</td>
             <td><span class="badge" style="background: ${isIncome ? 'var(--success-bg)' : 'var(--danger-bg)'}; color: ${isIncome ? 'var(--success-text)' : 'var(--danger-text)'};">${isIncome ? 'Поступление' : 'Списание'}</span></td>
             
-            <td style="font-weight: 600;">
+            <td class="font-600">
                 ${htmlName}
-                <div style="font-size: 12px; color: var(--text-muted);">${t.category ? `${categoryIcon}<span class="entity-link" onclick="window.app.navigateCategory('${t.category.replace(/'/g, "\\'")}')">${escapeHTML(t.category)}</span>` : ''}</div>
+                <div class="font-12 text-muted">${t.category ? `${categoryIcon}<span class="entity-link" onclick="window.app.navigateCategory('${t.category.replace(/'/g, "\\'")}')">${escapeHTML(t.category)}</span>` : ''}</div>
             </td>
             
-            <td style="color: var(--text-muted); font-size: 13px;">
+            <td class="text-muted font-13">
                 ${escapeHTML(t.description || '-')}
-                <span style="font-size: 11px; color: ${t.account_name ? 'var(--primary)' : 'var(--text-muted)'}; font-weight: bold; display: block; margin-top: 3px;">
+                <span class="tx-account-label" style="color: ${t.account_name ? 'var(--primary)' : 'var(--text-muted)'}">
                     ${t.account_name ? `🏦 ${escapeHTML(t.account_name)}` : '⚖️ Без движения денег (Корректировка)'}
                 </span>
             </td>
-            <td style="font-size: 13px;">${t.payment_method}</td>
-            <td style="text-align: right; font-weight: bold; font-size: 15px; color: ${isIncome ? 'var(--success)' : 'var(--text-main)'};">${isIncome ? '+' : '-'}${parseFloat(t.amount).toLocaleString('ru-RU')} ₽</td>
-            <td style="text-align: center; display: flex; gap: 5px; justify-content: center; align-items: center;">
+            <td class="font-13">${t.payment_method}</td>
+            <td class="text-right font-bold font-15" style="color: ${isIncome ? 'var(--success)' : 'var(--text-main)'}">${isIncome ? '+' : '-'}${parseFloat(t.amount).toLocaleString('ru-RU')} ₽</td>
+            <td class="tx-actions-cell">
                 ${receiptHtml}
                 ${isLocked ?
-                `<span style="font-size: 11px; color: var(--text-muted); font-weight: bold; background: var(--surface-alt); padding: 4px 8px; border-radius: 4px;">Заблокировано</span>`
+                `<span class="tx-locked-badge">Заблокировано</span>`
                 :
-                `<button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; border-color: var(--primary); color: var(--primary);" onclick="openEditTransactionModal(${t.id})" title="Редактировать">✏️</button>
-            <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; border-color: var(--danger); color: var(--danger);" onclick="deleteTransaction(${t.id})" title="Удалить">❌</button>`
+                `<button class="btn btn-outline p-5 font-12" style="border-color: var(--primary); color: var(--primary);" onclick="openEditTransactionModal(${t.id})" title="Редактировать">✏️</button>
+            <button class="btn btn-outline p-5 font-12" style="border-color: var(--danger); color: var(--danger);" onclick="deleteTransaction(${t.id})" title="Удалить">❌</button>`
             }
             </td>
         </tr>`;
@@ -1603,9 +1601,9 @@ window.getCategoryBadge = function (category) {
 window.openCounterpartiesModal = function () {
     const html = `
         <style>.modal-content { max-width: 1000px !important; width: 95% !important; }</style>
-        <div style="display: flex; flex-direction: column; gap: 15px;">
-            <div style="background: var(--surface-alt); padding: 15px; border-radius: 12px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
-                <div style="flex: 1; min-width: 200px;">
+        <div class="flex-col gap-15">
+            <div class="cp-modal-filter-bar">
+                <div class="cp-modal-filter-flex">
                     <input type="text" id="cp-search" class="input-modern" placeholder="🔍 Поиск по имени или ИНН..." 
                            oninput="updateCPList()" style="margin:0; background: var(--surface);">
                 </div>
@@ -1626,7 +1624,7 @@ window.openCounterpartiesModal = function () {
                 <button class="btn btn-blue" onclick="openAdvancedCPCard(0, document.getElementById('cp-search')?.value?.trim() || '')">➕ Создать</button>
             </div>
 
-            <div id="cp-list-container" style="max-height: 550px; overflow-y: auto; padding-right: 5px; display: flex; flex-direction: column; gap: 8px;">
+            <div id="cp-list-container" class="cp-list-container">
             </div>
         </div>
     `;
@@ -1693,15 +1691,15 @@ function renderCPList() {
             : 'Нет операций';
 
         return `
-        <div class="cp-card" style="background: var(--surface); padding: 12px 15px; border-radius: 8px; border: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; transition: 0.2s;">  
+        <div class="cp-card-box">  
             <div style="flex: 2; min-width: 0; padding-right: 15px;">
-                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                    <span class="badge" style="font-size: 10px; background: ${c.type === 'Покупатель' ? 'var(--success-bg)' : 'var(--surface-alt)'}; color: ${c.type === 'Покупатель' ? 'var(--success)' : 'var(--primary)'};">
+                <div class="flex-row align-center gap-5 mb-5">
+                    <span class="cp-flag-badge" style="background: ${c.type === 'Покупатель' ? 'var(--success-bg)' : 'var(--surface-alt)'}; color: ${c.type === 'Покупатель' ? 'var(--success)' : 'var(--primary)'};">
                         ${c.type || 'Не задан'}
                     </span>
-                    ${c.is_employee ? `<span class="badge" style="font-size: 10px; background: var(--warning-bg, #fff3cd); color: var(--warning, #856404); border: 1px solid var(--warning, #856404);">👔 Сотрудник</span>` : ''}
-                    <div style="font-weight: bold; font-size: 15px; color: var(--text-main); display: flex; align-items: center; justify-content: space-between; width: 100%; overflow: hidden;">
-                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 8px;" title="${c.name}">
+                    ${c.is_employee ? `<span class="cp-flag-badge" style="background: var(--warning-bg, #fff3cd); color: var(--warning, #856404); border-color: var(--warning, #856404);">👔 Сотрудник</span>` : ''}
+                    <div class="font-bold font-15 text-main flex-between flex-1" style="overflow: hidden;">
+                        <span class="dash-text-ellipsis mr-10" title="${c.name}">
                         ${c.id ? `<span class="entity-link" onclick="window.app.openEntity('client', ${c.id})">${escapeHTML(c.name)}</span>` : escapeHTML(c.name || '')}
                         </span>
                         <span style="flex-shrink: 0;">
@@ -1709,24 +1707,24 @@ function renderCPList() {
                         </span>
                     </div>
                 </div>
-                <div style="font-size: 12px; color: var(--text-muted); display: flex; gap: 15px;">
+                <div class="font-12 text-muted flex-row gap-15">
                     <span>${c.inn ? `<b>ИНН:</b> ${c.inn}` : '<i>Без ИНН</i>'}</span>
                     <span>${c.phone ? `📞 ${c.phone}` : ''}</span>
                 </div>
             </div>
 
-            <div style="flex: 1.2; text-align: center; border-left: 1px solid var(--border); border-right: 1px solid var(--border); padding: 0 10px;">
-                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">Последняя операция:</div>
-                <div style="font-size: 13px; font-weight: bold; color: ${c.last_transaction_date ? 'var(--text-main)' : 'var(--text-muted)'};">${lastDate}</div>
+            <div class="cp-card-stat">
+                <div class="font-11 text-muted mb-5">Последняя операция:</div>
+                <div class="font-13 font-bold" style="color: ${c.last_transaction_date ? 'var(--text-main)' : 'var(--text-muted)'};">${lastDate}</div>
             </div>
 
-            <div style="flex: 1.2; padding-left: 15px; text-align: right;">
-                <div style="color: var(--success); font-size: 12px; font-weight: bold;">📈 +${parseFloat(c.total_paid_to_us || 0).toLocaleString()} ₽</div>
-                <div style="color: var(--danger); font-size: 12px; font-weight: bold;">📉 -${parseFloat(c.total_paid_by_us || 0).toLocaleString()} ₽</div>
+            <div class="cp-card-money">
+                <div class="font-12 font-bold text-success">📈 +${parseFloat(c.total_paid_to_us || 0).toLocaleString()} ₽</div>
+                <div class="font-12 font-bold text-danger">📉 -${parseFloat(c.total_paid_by_us || 0).toLocaleString()} ₽</div>
             </div>
 
-            <div style="padding-left: 15px; display: flex; gap: 5px;">
-                <button class="btn btn-blue" style="padding: 6px 12px; font-size: 13px;" onclick="openCounterpartyProfile(${c.id})" title="Открыть карточку">📂 Открыть</button>
+            <div class="pl-15 flex-row gap-5">
+                <button class="btn btn-blue p-5 font-13" onclick="openCounterpartyProfile(${c.id})" title="Открыть карточку">📂 Открыть</button>
             </div>
         </div>
     `;
@@ -2682,65 +2680,63 @@ window.openPnlReportModal = async function (customStart = '', customEnd = '') {
 
         const html = `
             <style>.modal-content { max-width: 800px !important; width: 90% !important; }</style>
-            <div style="background: var(--surface-alt); padding: 20px; border-radius: 8px; border: 1px solid var(--border);">
-                <h3 style="margin-top: 0; text-align: center; color: var(--text-main);">Отчет о прибылях и убытках (P&L)</h3>
+            <div class="finance-pnl-wrap">
+                <h3 class="finance-pnl-header">Отчет о прибылях и убытках (P&L)</h3>
                 
-                <div style="display: flex; justify-content: center; gap: 10px; margin-bottom: 20px; align-items: center; background: var(--surface); padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
-                    <span style="font-size: 13px; font-weight: bold;">Период расчета:</span>
+                <div class="finance-pnl-toolbar">
+                    <span class="font-13 font-bold">Период расчета:</span>
                     <input type="date" id="pnl-start" class="input-modern" value="${start}" style="margin: 0; padding: 4px 8px; width: 130px;">
                     <span>—</span>
                     <input type="date" id="pnl-end" class="input-modern" value="${end}" style="margin: 0; padding: 4px 8px; width: 130px;">
-                    <button class="btn btn-blue" style="padding: 4px 12px;" onclick="openPnlReportModal(document.getElementById('pnl-start').value, document.getElementById('pnl-end').value)">🔄 Рассчитать</button>
-                    <button class="btn btn-outline" style="padding: 4px 12px;" onclick="openPnlReportModal('', '')">За всё время</button>
+                    <button class="btn btn-blue p-5" onclick="openPnlReportModal(document.getElementById('pnl-start').value, document.getElementById('pnl-end').value)">🔄 Рассчитать</button>
+                    <button class="btn btn-outline p-5" onclick="openPnlReportModal('', '')">За всё время</button>
                 </div>
 
-                <div style="text-align: center; margin-bottom: 25px;">
-                    <span style="background: var(--surface-alt); color: var(--primary); padding: 6px 15px; border-radius: 20px; font-weight: bold; font-size: 13px; border: 1px solid var(--primary);">
-                        📅 ${periodText}
-                    </span>
+                <div class="finance-pnl-date-badge">
+                    <span>📅 ${periodText}</span>
                 </div>
 
                 <!-- БЛОК ДОХОДОВ -->
-                <h4 style="margin: 15px 0 10px; color: var(--text-main); font-size: 16px; border-bottom: 1px solid var(--border); padding-bottom: 5px;">ДОХОДЫ</h4>
-                <div style="display: flex; justify-content: space-between; padding: 10px 15px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 5px;">
-                    <span style="font-size: 15px;">Выручка (Оборот от продаж):</span>
-                    <span style="font-size: 16px; font-weight: bold; color: var(--success);">${fmt(data.revenue)} ₽</span>
+                <h4 class="mt-15 mb-10 text-main font-16 border-bottom pb-5">ДОХОДЫ</h4>
+                <div class="finance-pnl-row">
+                    <span class="font-15">Выручка (Оборот от продаж):</span>
+                    <span class="font-16 font-bold text-success">${fmt(data.revenue)} ₽</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; padding: 12px 15px; background: var(--surface-alt); border-right: 3px solid var(--success); margin-bottom: 20px; align-items: center;">
-                    <span style="font-size: 15px; font-weight: bold;">ИТОГО ДОХОДЫ (От основной деятельности):</span>
-                    <span style="font-size: 18px; font-weight: 900; color: ${data.totalIncome < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.totalIncome)} ₽</span>
+                <div class="finance-pnl-total-row" style="border-right-color: var(--success);">
+                    <span class="font-15 font-bold">ИТОГО ДОХОДЫ (От основной деятельности):</span>
+                    <span class="font-18 font-bold" style="color: ${data.totalIncome < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.totalIncome)} ₽</span>
                 </div>
 
                 <!-- БЛОК РАСХОДОВ -->
-                <h4 style="margin: 15px 0 10px; color: var(--text-main); font-size: 16px; border-bottom: 1px solid var(--border); padding-bottom: 5px;">РАСХОДЫ</h4>
-                <div style="display: flex; justify-content: space-between; padding: 10px 15px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 5px;">
-                    <span style="font-size: 15px;">🟢 Прямые затраты (COGS):</span>
-                    <span style="font-size: 16px; font-weight: bold; color: ${data.cogs < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.cogs)} ₽</span>
+                <h4 class="mt-15 mb-10 text-main font-16 border-bottom pb-5">РАСХОДЫ</h4>
+                <div class="finance-pnl-row">
+                    <span class="font-15">🟢 Прямые затраты (COGS):</span>
+                    <span class="font-16 font-bold" style="color: ${data.cogs < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.cogs)} ₽</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; padding: 10px 15px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 5px;">
-                    <span style="font-size: 15px;">🟠 Косвенные расходы (OPEX):</span>
-                    <span style="font-size: 16px; font-weight: bold; color: ${data.opex < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.opex)} ₽</span>
+                <div class="finance-pnl-row">
+                    <span class="font-15">🟠 Косвенные расходы (OPEX):</span>
+                    <span class="font-16 font-bold" style="color: ${data.opex < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.opex)} ₽</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; padding: 10px 15px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 5px;">
-                    <span style="font-size: 15px;">🔵 Капитальные затраты (CAPEX):</span>
-                    <span style="font-size: 16px; font-weight: bold; color: ${data.capex < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.capex)} ₽</span>
+                <div class="finance-pnl-row">
+                    <span class="font-15">🔵 Капитальные затраты (CAPEX):</span>
+                    <span class="font-16 font-bold" style="color: ${data.capex < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.capex)} ₽</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; padding: 8px 15px; background: var(--surface); border: 1px dashed var(--border); border-radius: 6px; margin-bottom: 10px; opacity: 0.7;">
-                    <span style="font-size: 13px; color: var(--text-muted);">📋 Справочно: ФОТ по начислению (Табель: оклады + сделка − штрафы):</span>
-                    <span style="font-size: 13px; font-weight: bold; color: var(--text-muted);">${fmt(data.laborCosts)} ₽</span>
+                <div class="finance-pnl-row" style="border-style: dashed; opacity: 0.7;">
+                    <span class="font-13 text-muted">📋 Справочно: ФОТ по начислению:</span>
+                    <span class="font-13 font-bold text-muted">${fmt(data.laborCosts)} ₽</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; padding: 12px 15px; background: var(--surface-alt); border-right: 3px solid var(--danger); margin-bottom: 20px; align-items: center;">
-                    <span style="font-size: 15px; font-weight: bold;">ИТОГО РАСХОДЫ (COGS + OPEX + CAPEX):</span>
-                    <span style="font-size: 18px; font-weight: 900; color: ${data.totalExpenses < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.totalExpenses)} ₽</span>
+                <div class="finance-pnl-total-row" style="border-right-color: var(--danger);">
+                    <span class="font-15 font-bold">ИТОГО РАСХОДЫ (COGS + OPEX + CAPEX):</span>
+                    <span class="font-18 font-bold" style="color: ${data.totalExpenses < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.totalExpenses)} ₽</span>
                 </div>
 
                 <!-- ФИНАЛЬНЫЙ РЕЗУЛЬТАТ -->
-                <div style="display: flex; justify-content: space-between; padding: 25px 20px; background: ${Number(data.netProfit) >= 0 ? 'var(--success-bg)' : 'var(--danger-bg)'}; border: 2px solid ${Number(data.netProfit) >= 0 ? 'var(--success)' : 'var(--danger)'}; border-radius: 8px; align-items: center;">
+                <div class="finance-pnl-result-row" style="background: ${Number(data.netProfit) >= 0 ? 'var(--success-bg)' : 'var(--danger-bg)'}; border-color: ${Number(data.netProfit) >= 0 ? 'var(--success)' : 'var(--danger)'};">
                     <div>
-                        <div style="font-size: 18px; font-weight: 900; color: ${Number(data.netProfit) >= 0 ? 'var(--success-text)' : 'var(--danger-text)'}; letter-spacing: 0.5px;">ЧИСТАЯ ПРИБЫЛЬ (Net Profit)</div>
-                        <div style="font-size: 14px; color: var(--text-muted); margin-top: 5px;">Рентабельность по чистой прибыли: <b style="font-size: 16px; color: ${Number(data.netProfit) >= 0 ? 'var(--success)' : 'var(--danger)'};">${data.margin}%</b></div>
+                        <div class="font-18 font-bold" style="color: ${Number(data.netProfit) >= 0 ? 'var(--success-text)' : 'var(--danger-text)'}; letter-spacing: 0.5px;">ЧИСТАЯ ПРИБЫЛЬ (Net Profit)</div>
+                        <div class="font-14 text-muted mt-5">Рентабельность: <b class="font-16" style="color: ${Number(data.netProfit) >= 0 ? 'var(--success)' : 'var(--danger)'};">${data.margin}%</b></div>
                     </div>
-                    <span style="font-size: 32px; font-weight: 900; color: ${Number(data.netProfit) >= 0 ? 'var(--success-text)' : 'var(--danger-text)'}; text-shadow: 0 1px 2px rgba(0,0,0,0.1);">${Number(data.netProfit) > 0 ? '+' : ''}${fmt(data.netProfit)} ₽</span>
+                    <span class="font-32 font-bold" style="color: ${Number(data.netProfit) >= 0 ? 'var(--success-text)' : 'var(--danger-text)'}; text-shadow: 0 1px 2px rgba(0,0,0,0.1);">${Number(data.netProfit) > 0 ? '+' : ''}${fmt(data.netProfit)} ₽</span>
                 </div>
             </div>
         `;
@@ -2807,52 +2803,52 @@ window.openCounterpartyProfile = async function (id) {
             let sign = isIncome ? '+' : '-';
 
             return `
-            <div style="display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px;">
+            <div class="crm-tx-row">
             <div>
-                <b style="color:var(--text-main);">${t.date}</b> ${icon}<br>
-                <span style="color: var(--text-muted); font-size: 11px;">${escapeHTML(t.category)}</span>
+                <b class="text-main">${t.date}</b> ${icon}<br>
+                <span class="text-muted font-11">${escapeHTML(t.category)}</span>
             </div>
-            <div style="text-align: right; width: 45%; padding-right: 10px;">
-                <div style="font-weight: 500;">${escapeHTML(t.description)}</div>
+            <div class="crm-tx-right">
+                <div>${escapeHTML(t.description)}</div>
             </div>
-            <div style="font-weight: bold; color: ${amountColor}; white-space: nowrap;">
+            <div class="crm-tx-amount" style="color: ${amountColor};">
                 ${sign}${parseFloat(t.amount).toLocaleString('ru-RU')} ₽
             </div>
             </div>
             `;
-        }).join('') || '<div style="padding:15px; text-align:center; color:var(--text-muted);">Операций нет</div>';
+        }).join('') || '<div class="p-15 text-center text-muted">Операций нет</div>';
         const invHtml = data.invoices.map(i => `
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px;">
-                <div><b>Счет №${i.id ? `<span class="entity-link" onclick="window.app.openEntity('document_invoice', ${i.id})">${i.invoice_number}</span>` : i.invoice_number}</b> от ${i.date}<br><span style="color: var(--text-muted);">${i.description}</span></div>
-                <div style="font-weight: bold;">${parseFloat(i.amount).toLocaleString('ru-RU')} ₽</div>
+            <div class="crm-inv-row">
+                <div><b>Счет №${i.id ? `<span class="entity-link" onclick="window.app.openEntity('document_invoice', ${i.id})">${i.invoice_number}</span>` : i.invoice_number}</b> от ${i.date}<br><span class="text-muted">${i.description}</span></div>
+                <div class="font-bold">${parseFloat(i.amount).toLocaleString('ru-RU')} ₽</div>
                 <div><span class="badge" style="background: ${i.status === 'paid' ? 'var(--success-bg)' : 'var(--warning-bg)'}; color: ${i.status === 'paid' ? 'var(--success)' : 'var(--warning-text)'};">${i.status === 'paid' ? 'Оплачен' : 'Ожидает'}</span></div>
             </div>
-        `).join('') || '<div style="padding:15px; text-align:center; color:var(--text-muted);">Счетов нет</div>';
+        `).join('') || '<div class="p-15 text-center text-muted">Счетов нет</div>';
 
         const contractsHtml = data.contracts.map(c => `
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px;">
+            <div class="crm-inv-row">
                 <div><b>Договор №${c.id ? `<span class="entity-link" onclick="window.app.openEntity('document_contract', ${c.id})">${c.number}</span>` : c.number}</b> от ${c.date}</div>
-                <div style="display: flex; gap: 5px;">
-                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--info); border-color: var(--info);" onclick="window.open('/print/contract?id=${c.id}', '_blank')" title="Распечатать">🖨️</button>
-                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--danger); border-color: var(--danger);" onclick="deleteContract(${c.id}, ${cp.id})" title="Удалить договор">❌</button>
+                <div class="flex-row gap-5">
+                    <button class="btn btn-outline p-5 font-12" style="color: var(--info); border-color: var(--info);" onclick="window.open('/print/contract?id=${c.id}', '_blank')" title="Распечатать">🖨️</button>
+                    <button class="btn btn-outline p-5 font-12" style="color: var(--danger); border-color: var(--danger);" onclick="deleteContract(${c.id}, ${cp.id})" title="Удалить договор">❌</button>
                 </div>
             </div>
-        `).join('') || '<div style="padding:15px; text-align:center; color:var(--text-muted);">Договоров нет</div>';
+        `).join('') || '<div class="p-15 text-center text-muted">Договоров нет</div>';
 
         const html = `
             <style>.modal-content { max-width: 1000px !important; width: 95% !important; }</style>
-            <div style="display: flex; gap: 20px; align-items: flex-start;">
-                <div style="flex: 1;">
-                    <div style="background: var(--surface-alt); padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 15px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div class="flex-row gap-20 align-start">
+                <div class="flex-1">
+                    <div class="crm-profile-card">
+                        <div class="crm-profile-header">
                             <span class="badge" style="background: var(--surface-alt); color: var(--primary);">${cp.role || cp.type || '—'}</span>
-                            <div style="display: flex; gap: 5px;">
-                                 <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px;" onclick="openAdvancedCPCard(${cp.id})">✏️ Изменить</button>
-                                 <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; color: var(--danger); border-color: var(--danger);" onclick="deleteCounterparty(${cp.id})">🗑️ Удалить</button>
+                            <div class="flex-row gap-5">
+                                 <button class="btn btn-outline p-5 font-12" onclick="openAdvancedCPCard(${cp.id})">✏️ Изменить</button>
+                                 <button class="btn btn-outline p-5 font-12 text-danger" style="border-color: var(--danger);" onclick="deleteCounterparty(${cp.id})">🗑️ Удалить</button>
                             </div>
                         </div>
-                        <h3 style="margin: 0 0 10px 0; display: flex; align-items: center;">${cp.name || '—'} ${window.getCategoryBadge(cp.client_category)}</h3>
-                        <div style="font-size: 12px; color: var(--text-muted); line-height: 1.6;">
+                        <h3 class="crm-profile-title">${cp.name || '—'} ${window.getCategoryBadge(cp.client_category)}</h3>
+                        <div class="crm-profile-info">
                             <b>ИНН:</b> ${cp.inn || '—'} | <b>КПП:</b> ${cp.kpp || '—'}<br>
                             <b>Телефон:</b> ${cp.phone || '—'}<br>
                             <b>Юр. адрес:</b> ${cp.legal_address || '—'}<br>
@@ -2860,33 +2856,32 @@ window.openCounterpartyProfile = async function (id) {
                         </div>
                     </div>
 
-                    <div style="margin-bottom: 15px;">
-                        <h4 style="margin: 0 0 5px 0; cursor: pointer; background: var(--surface-alt); padding: 10px; border-radius: 6px; border: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; transition: 0.2s;"
-                            onclick="const c = document.getElementById('cp-contracts-list'); const i = document.getElementById('cp-contracts-icon'); if(c.style.display==='none'){c.style.display='block'; i.innerText='▲ Свернуть';}else{c.style.display='none'; i.innerText='▼ Развернуть';}">
+                    <div class="mb-15">
+                        <h4 class="crm-toggle-header" onclick="const c = document.getElementById('cp-contracts-list'); const i = document.getElementById('cp-contracts-icon'); if(c.style.display==='none'){c.style.display='block'; i.innerText='▲ Свернуть';}else{c.style.display='none'; i.innerText='▼ Развернуть';}">
                             <span>📑 Договоры клиента</span>
-                            <span id="cp-contracts-icon" style="color: var(--primary); font-size: 12px; font-weight: normal;">▼ Развернуть</span>
+                            <span id="cp-contracts-icon" class="font-normal font-12 text-primary">▼ Развернуть</span>
                         </h4>
-                        <div id="cp-contracts-list" style="display: none; border: 1px solid var(--border); border-radius: 8px; max-height: 200px; overflow-y: auto; background: var(--surface);">
+                        <div id="cp-contracts-list" class="crm-toggle-content" style="display: none;">
                             ${contractsHtml}
                         </div>
                     </div>
                     
-                    <h4 style="margin: 0 0 10px 0;">🟡 Счета на оплату</h4>
-                    <div style="border: 1px solid var(--border); border-radius: 8px; max-height: 150px; overflow-y: auto; background: var(--surface); margin-bottom: 15px;">
+                    <h4 class="crm-block-header">🟡 Счета на оплату</h4>
+                    <div class="crm-list-box">
                         ${invHtml}
                     </div>
 
-                    <h4 style="margin: 0 0 10px 0;">📄 Документы и корректировки</h4>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 20px;">
-                        <button class="btn btn-outline" style="border-color: var(--warning); color: var(--warning-text); font-size: 13px; padding: 6px;" onclick="openFinanceInvoiceModal(${cp.id}, '${cp.name.replace(/'/g, "\\'").replace(/"/g, '&quot;')}')">🖨️ Выставить Счет</button>
-                        <button class="btn btn-outline" style="border-color: var(--primary); color: var(--primary); font-size: 13px; padding: 6px;" onclick="window.open('/print/act?cp_id=${cp.id}', '_blank')">📑 Акт сверки</button>
-                        <button class="btn btn-outline" style="border-color: var(--primary); color: var(--primary); font-size: 13px; padding: 6px; font-weight: bold;" onclick="openCorrectionModal(${cp.id})">⚖️ Коррекция</button>
+                    <h4 class="crm-block-header">📄 Документы и корректировки</h4>
+                    <div class="crm-actions-grid">
+                        <button class="btn btn-outline p-5 font-13 text-warning" style="border-color: var(--warning);" onclick="openFinanceInvoiceModal(${cp.id}, '${cp.name.replace(/'/g, "\\'").replace(/"/g, '&quot;')}')">🖨️ Выставить Счет</button>
+                        <button class="btn btn-outline p-5 font-13 text-primary" style="border-color: var(--primary);" onclick="window.open('/print/act?cp_id=${cp.id}', '_blank')">📑 Акт сверки</button>
+                        <button class="btn btn-outline p-5 font-13 font-bold text-primary" style="border-color: var(--primary);" onclick="openCorrectionModal(${cp.id})">⚖️ Коррекция</button>
                     </div>
                 </div>
 
-                <div style="flex: 1;">
-                    <h4 style="margin: 0 0 10px 0;">💸 Финансовая история</h4>
-                    <div style="border: 1px solid var(--border); border-radius: 8px; max-height: 600px; overflow-y: auto; background: var(--surface);">
+                <div class="flex-1">
+                    <h4 class="crm-block-header">💸 Финансовая история</h4>
+                    <div class="crm-history-box">
                         ${transHtml}
                     </div>
                 </div>
