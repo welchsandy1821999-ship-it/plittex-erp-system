@@ -141,6 +141,39 @@ function populateCategories() {
             options: options,
             placeholder: '— Выберите продукцию —',
             allowEmptyOption: true,
+            score: function(search) {
+                const query = search.toLowerCase();
+                const queryCondensed = query.replace(/[\.\s-]/g, '');
+                const tokens = query.split(/\s+/).filter(Boolean);
+                
+                return function(item) {
+                    const text = (item.text || '').toLowerCase();
+                    const textCondensed = text.replace(/[\.\s-]/g, '');
+                    
+                    let multiTargetMatch = true;
+                    for (let token of tokens) {
+                        let tokenCondensed = token.replace(/[\.\s-]/g, '');
+                        if (!text.includes(token) && (!tokenCondensed || !textCondensed.includes(tokenCondensed))) {
+                            multiTargetMatch = false;
+                            break;
+                        }
+                    }
+
+                    if (!multiTargetMatch) {
+                        if (queryCondensed.length < 2 || !textCondensed.includes(queryCondensed)) {
+                            return 0;
+                        }
+                    }
+                    
+                    let baseScore = 100 / (text.length + 1); 
+                    
+                    if (queryCondensed.length >= 2 && textCondensed.includes(queryCondensed)) {
+                        baseScore += 1000;
+                    }
+                    
+                    return baseScore; 
+                };
+            },
             onChange: function () {
                 handleProductSelection();
             }

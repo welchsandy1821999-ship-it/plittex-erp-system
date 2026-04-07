@@ -625,7 +625,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         try {
             const cpRes = await pool.query('SELECT * FROM counterparties WHERE id = $1', [cp_id]);
             if (cpRes.rows.length === 0) return res.status(404).send('Контрагент не найден');
-            const transRes = await pool.query(`SELECT amount, transaction_type, category, description, TO_CHAR(created_at, 'DD.MM.YYYY') as date FROM transactions WHERE counterparty_id = $1 ORDER BY created_at ASC`, [cp_id]);
+            const transRes = await pool.query(`SELECT amount, transaction_type, category, description, TO_CHAR(created_at, 'DD.MM.YYYY') as date FROM transactions WHERE counterparty_id = $1 AND COALESCE(is_deleted, false) = false ORDER BY created_at ASC`, [cp_id]);
             res.render('docs/act', { cp: cpRes.rows[0], transactions: transRes.rows });
         } catch (err) {
             console.error(err);

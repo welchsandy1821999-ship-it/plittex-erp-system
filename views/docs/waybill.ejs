@@ -23,7 +23,8 @@
         .btn-green { background: #10b981; } .btn-green:hover { background: #059669; }
         .btn-gray { background: #64748b; } .btn-gray:hover { background: #475569; }
         .btn-blue { background: #3b82f6; } .btn-blue:hover { background: #2563eb; }
-        @media print { .no-print { display: none !important; } body { padding: 0; background: var(--surface); } }
+        @page { margin: 0; size: A4 portrait; }
+        @media print { .no-print { display: none !important; } body { padding: 15mm; background: var(--surface); } }
     </style>
 </head>
 <body>

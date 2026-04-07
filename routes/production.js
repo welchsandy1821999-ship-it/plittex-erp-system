@@ -266,7 +266,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                                     INSERT INTO inventory_movements 
                                     (item_id, quantity, movement_type, description, warehouse_id, batch_id, unit_price) 
                                     VALUES ($1, $2, 'production_draft', $3, $4, $5, $6)
-                                `, [mat.id, mat.qty, `Черновик состава: ${mat.name || 'Сырье'}`, materialsWh, newBatchId, price]);
+                                `, [mat.id, new Big(mat.qty).times(-1).toFixed(4), `Черновик состава: ${mat.name || 'Сырье'}`, materialsWh, newBatchId, price]);
                             }
                         }
                     }

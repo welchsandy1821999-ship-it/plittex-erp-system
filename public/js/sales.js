@@ -12,37 +12,26 @@ let boSearch = '';
 let allSalesHistory = [];
 let historyPage = 1;
 let historySearch = '';
-let historyDateRange = { start: '', end: '' };
-let historyDatePicker = null;
+
+let histPeriodType = 'all'; // За всё время
+let histPeriodValue = new Date().getMonth() + 1;
+let histYear = new Date().getFullYear();
+let histSpecificDate = new Date().toISOString().split('T')[0];
+let histCustomStart = ''; 
+let histCustomEnd = '';   
+let historyDateRange = { start: '', end: '' }; 
 
 function initSales() {
 
     const whSelect = document.getElementById('sale-warehouse');
     if (whSelect) currentSalesWarehouse = whSelect.value;
+    
+    const orderDateEl = document.getElementById('sale-order-date');
+    if (orderDateEl) orderDateEl.value = new Date().toISOString().split('T')[0];
 
-    const dateInput = document.getElementById('hist-date-filter');
-    if (dateInput && typeof flatpickr !== 'undefined' && !dateInput._flatpickr) {
-        historyDatePicker = flatpickr(dateInput, {
-            mode: "range",
-            dateFormat: "Y-m-d",
-            altInput: true,
-            altFormat: "d.m.Y",
-            locale: "ru",
-            onChange: function (selectedDates, dateStr, instance) {
-                if (selectedDates.length === 1) {
-                    historyDateRange.start = instance.formatDate(selectedDates[0], "Y-m-d");
-                    historyDateRange.end = instance.formatDate(selectedDates[0], "Y-m-d");
-                } else if (selectedDates.length === 2) {
-                    historyDateRange.start = instance.formatDate(selectedDates[0], "Y-m-d");
-                    historyDateRange.end = instance.formatDate(selectedDates[1], "Y-m-d");
-                } else {
-                    historyDateRange = { start: '', end: '' };
-                }
-                applyHistoryFilters();
-            }
-        });
-    }
 
+
+    renderHistoryPeriodUI();
     loadSalesData(true);
     loadSalesHistory();
     if (typeof loadActiveOrders === 'function') loadActiveOrders();
@@ -250,11 +239,11 @@ window.onClientChange = async function () {
 
         // Показ блока выбора аванса в счет оплаты
         const offsetGroup = document.getElementById('sale-offset-group');
-        const offsetAvailEl = document.getElementById('sale-offset-available');
+        const offsetMaxEl = document.getElementById('sale-offset-max');
         if (offsetGroup) {
             if (availableAdvance > 0) {
                 offsetGroup.classList.remove('sales-hidden');
-                if (offsetAvailEl) offsetAvailEl.innerText = availableAdvance.toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽';
+                if (offsetMaxEl) offsetMaxEl.innerText = availableAdvance.toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽';
             } else {
                 offsetGroup.classList.add('sales-hidden');
             }
@@ -594,12 +583,14 @@ window.toggleDeliveryType = function () {
 };
 
 // 💰 Обработчик чекбокса "Зачесть аванс"
-window.onOffsetToggle = function () {
+window.toggleOffsetInput = function () {
     const check = document.getElementById('sale-offset-check');
     const amountEl = document.getElementById('sale-offset-amount');
-    if (!check || !amountEl) return;
+    const wrap = document.getElementById('sale-offset-input-wrap');
+    if (!check || !amountEl || !wrap) return;
 
     if (check.checked) {
+        wrap.classList.remove('sales-hidden');
         amountEl.disabled = false;
         const totalStr = document.getElementById('cart-total-sum')?.innerText || '0';
         const totalSum = parseFloat(totalStr.replace(/[^\d.,]/g, '').replace(',', '.')) || 0;
@@ -607,32 +598,12 @@ window.onOffsetToggle = function () {
         amountEl.value = maxOffset > 0 ? maxOffset.toFixed(2) : '';
         amountEl.max = maxOffset;
     } else {
+        wrap.classList.add('sales-hidden');
         amountEl.disabled = true;
         amountEl.value = '';
     }
-    renderCart();
-    toggleSalePayment();
-};
-
-// 💰 Обработчик изменения суммы зачёта
-window.onOffsetAmountChange = function () {
-    const amountEl = document.getElementById('sale-offset-amount');
-    if (!amountEl) return;
-    let val = parseFloat(amountEl.value) || 0;
-
-    const totalStr = document.getElementById('cart-total-sum')?.innerText || '0';
-    const totalSum = parseFloat(totalStr.replace(/[^\d.,]/g, '').replace(',', '.')) || 0;
-    const maxOffset = Math.min(window.CLIENT_AVAILABLE_ADVANCE, totalSum);
-
-    if (val > maxOffset) {
-        val = maxOffset;
-        amountEl.value = val.toFixed(2);
-        UI.toast(`Максимальная сумма зачёта: ${maxOffset.toFixed(2)} ₽`, 'warning');
-    }
-    if (val < 0) { val = 0; amountEl.value = '0'; }
-
     updateOffsetSummary();
-    if (typeof smartAccountToggle === 'function') smartAccountToggle();
+    renderCart(); // Will call smartAccountToggle internally
 };
 
 // 💰 Обновление блока "К оплате сейчас"
@@ -642,21 +613,76 @@ window.updateOffsetSummary = function () {
     const summaryEl = document.getElementById('cart-offset-summary');
     const offsetSumEl = document.getElementById('cart-offset-sum');
     const payNowEl = document.getElementById('cart-pay-now');
+    const remainderEl = document.getElementById('sale-offset-remainder');
+    const paymentMethodGroup = document.getElementById('sale-payment-method-group');
+    const paymentMethodSelect = document.getElementById('sale-payment-method');
 
     const totalStr = document.getElementById('cart-total-sum')?.innerText || '0';
     const totalSum = parseFloat(totalStr.replace(/[^\d.,]/g, '').replace(',', '.')) || 0;
 
-    if (check?.checked && amountEl && parseFloat(amountEl.value) > 0) {
-        const offsetVal = parseFloat(amountEl.value) || 0;
-        const payNow = Math.max(0, totalSum - offsetVal);
+    let offsetVal = 0;
+    let payNow = totalSum;
+    
+    if (check?.checked && amountEl) {
+        offsetVal = parseFloat(amountEl.value) || 0;
+        
+        // Корректировка, если ввели больше дозволенного
+        const maxOffset = Math.min(window.CLIENT_AVAILABLE_ADVANCE, totalSum);
+        if (offsetVal > maxOffset) {
+            offsetVal = maxOffset;
+            amountEl.value = offsetVal.toFixed(2);
+            UI.toast(`Максимальная сумма зачёта: ${maxOffset.toFixed(2)} ₽`, 'warning');
+        }
+        if (offsetVal < 0) { offsetVal = 0; amountEl.value = '0'; }
+        
+        payNow = Math.max(0, totalSum - offsetVal);
 
         if (summaryEl) summaryEl.classList.remove('sales-hidden');
         if (offsetSumEl) offsetSumEl.innerText = offsetVal.toLocaleString('ru-RU', { minimumFractionDigits: 2 });
         if (payNowEl) payNowEl.innerText = payNow.toLocaleString('ru-RU', { minimumFractionDigits: 2 });
+        if (remainderEl) remainderEl.innerText = payNow.toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽';
     } else {
         if (summaryEl) summaryEl.classList.add('sales-hidden');
+        if (remainderEl) remainderEl.innerText = '0 ₽';
+    }
+    
+    // Hide payment method if fully paid by offset
+    if (paymentMethodGroup) {
+        if (payNow === 0 && totalSum > 0) {
+            paymentMethodGroup.classList.add('sales-hidden');
+            if (paymentMethodSelect) paymentMethodSelect.value = 'paid';
+            if (window.toggleSalePayment) window.toggleSalePayment();
+        } else {
+            paymentMethodGroup.classList.remove('sales-hidden');
+            if (paymentMethodSelect && payNow > 0 && paymentMethodSelect.value === 'paid' && offsetVal > 0) {
+                 paymentMethodSelect.value = 'partial';
+            }
+            if (window.toggleSalePayment) window.toggleSalePayment();
+        }
+    }
+    
+    if (typeof smartAccountToggle === 'function') smartAccountToggle();
+};
+
+window.toggleSalePayment = function () {
+    const method = document.getElementById('sale-payment-method')?.value;
+    const advanceGroup = document.getElementById('sale-advance-group');
+    const accountGroup = document.getElementById('sale-account-group');
+    
+    if (!advanceGroup || !accountGroup) return;
+
+    if (method === 'debt') {
+        advanceGroup.classList.add('sales-hidden');
+        accountGroup.classList.add('sales-hidden');
+    } else if (method === 'paid') {
+        advanceGroup.classList.add('sales-hidden');
+        accountGroup.classList.remove('sales-hidden');
+    } else if (method === 'partial') {
+        advanceGroup.classList.remove('sales-hidden');
+        accountGroup.classList.remove('sales-hidden');
     }
 };
+
 
 window.togglePoaMode = function () {
     const isNoPoa = document.getElementById('sale-no-poa')?.checked;
@@ -861,6 +887,40 @@ window.updateProductSelectUI = function () {
             maxItems: 1,
             plugins: ['clear_button'],
             placeholder: 'Начните вводить название...',
+            score: function(search) {
+                const query = search.toLowerCase();
+                const queryCondensed = query.replace(/[\.\s-]/g, '');
+                const tokens = query.split(/\s+/).filter(Boolean);
+                
+                return function(item) {
+                    const text = (item.text || '').toLowerCase();
+                    const textCondensed = text.replace(/[\.\s-]/g, '');
+                    
+                    let multiTargetMatch = true;
+                    for (let token of tokens) {
+                        let tokenCondensed = token.replace(/[\.\s-]/g, '');
+                        if (!text.includes(token) && (!tokenCondensed || !textCondensed.includes(tokenCondensed))) {
+                            multiTargetMatch = false;
+                            break;
+                        }
+                    }
+
+                    if (!multiTargetMatch) {
+                        if (queryCondensed.length < 2 || !textCondensed.includes(queryCondensed)) {
+                            return 0;
+                        }
+                    }
+                    
+                    let baseScore = 100 / (text.length + 1); // Базовый скор: чем короче строка, тем выше
+                    
+                    // Если строка целиком содержит "2к6" без пробелов - приоритет сильно выше
+                    if (queryCondensed.length >= 2 && textCondensed.includes(queryCondensed)) {
+                        baseScore += 1000;
+                    }
+                    
+                    return baseScore; 
+                };
+            },
             render: {
                 option: function (data, escape) {
                     return `<div class="ts-option-product">
@@ -882,6 +942,7 @@ window.updateProductSelectUI = function () {
         ts.clearOptions();
         ts.addOptions(options);
         if (currentVal && stockMap[currentVal]) ts.setValue(currentVal, true);
+
     }
 };
 window.updateSaleMaxQty = function (selectedName) {
@@ -938,6 +999,76 @@ window.updateSaleMaxQty = function (selectedName) {
 // ==========================================
 // ⚙️ ГЛОБАЛЬНЫЕ ФИНАНСОВЫЕ КОНСТАНТЫ
 // ==========================================
+
+window.openProfitCalculator = async function() {
+    if (!currentSelectedItem) return UI.toast('Выберите товар из списка!', 'warning');
+    
+    const qty = parseFloat(document.getElementById('sale-qty').value) || 1;
+    const price = parseFloat(document.getElementById('sale-price').value) || 0;
+    
+    UI.toast('Ожидайте, загружаю данные себестоимости...', 'info');
+    
+    try {
+        const data = await API.get(`/api/sales/cost-analysis/${currentSelectedItem.id}`);
+        
+        const baseMatCost = parseFloat(data.empirical) > 0 ? parseFloat(data.empirical) : parseFloat(data.theoretical);
+        const pieceRate = parseFloat(currentSelectedItem.piece_rate) || 0;
+        const amortization = parseFloat(data.amortization) || 0;
+        const overhead = parseFloat(data.overhead) || 0;
+        
+        const unitCost = baseMatCost + amortization + overhead + pieceRate;
+        const totalCost = unitCost * qty;
+        const totalRevenue = price * qty;
+        const profit = totalRevenue - totalCost;
+        const marginPercent = totalRevenue > 0 ? (profit / totalRevenue * 100).toFixed(2) : 0;
+        
+        const html = `
+            <div class="p-10">
+                <h4 class="mt-0 mb-15">Товар: ${escapeHTML(currentSelectedItem.name)}</h4>
+                
+                <table class="table-modern w-100 mb-20 text-left">
+                    <thead class="bg-surface-alt">
+                        <tr>
+                            <th class="p-10 font-12 text-muted">Статья затрат (на 1 ${currentSelectedItem.unit})</th>
+                            <th class="p-10 text-right font-12 text-muted">Сумма (₽)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td class="p-10">Сырье и материалы</td><td class="p-10 text-right font-bold">${baseMatCost.toLocaleString('ru-RU')} ₽</td></tr>
+                        <tr><td class="p-10">Сдельная ЗП</td><td class="p-10 text-right font-bold">${pieceRate.toLocaleString('ru-RU')} ₽</td></tr>
+                        <tr><td class="p-10">Амортизация</td><td class="p-10 text-right font-bold">${amortization.toLocaleString('ru-RU')} ₽</td></tr>
+                        <tr><td class="p-10">Накладные расходы</td><td class="p-10 text-right font-bold">${overhead.toLocaleString('ru-RU')} ₽</td></tr>
+                        <tr class="bg-surface-alt font-bold">
+                            <td class="p-10 border-top">Итого полная себестоимость за ед.</td>
+                            <td class="p-10 text-right text-primary border-top">${unitCost.toLocaleString('ru-RU', {minimumFractionDigits: 2})} ₽</td>
+                        </tr>
+                    </tbody>
+                </table>
+                
+                <div class="card p-15 border m-0 mt-5">
+                    <div class="flex-between mb-10"><span class="text-muted">Продаваемое количество:</span> <strong>${qty} ${currentSelectedItem.unit}</strong></div>
+                    <div class="flex-between mb-10"><span class="text-muted">Цена продажи (за ед.):</span> <strong>${price.toLocaleString('ru-RU')} ₽</strong></div>
+                    <hr>
+                    <div class="flex-between mb-10"><span class="text-muted">Выручка (сумма):</span> <strong>${totalRevenue.toLocaleString('ru-RU')} ₽</strong></div>
+                    <div class="flex-between mb-10"><span class="text-muted">Общая себестоимость:</span> <strong>${totalCost.toLocaleString('ru-RU', {minimumFractionDigits:2})} ₽</strong></div>
+                    
+                    <div class="flex-between mt-15 pt-15 border-top">
+                        <span class="font-bold text-main">Прогноз маржинальности:</span> 
+                        <strong style="color: ${profit > 0 ? 'var(--success)' : 'var(--danger)'}; font-size: 18px;">
+                            ${profit > 0 ? '+' : ''}${profit.toLocaleString('ru-RU', {minimumFractionDigits:2})} ₽ (${marginPercent}%)
+                        </strong>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        UI.showModal('📊 Калькулятор себестоимости', html);
+        
+    } catch (e) {
+        console.error(e);
+        UI.toast('Не удалось получить себестоимость.', 'error');
+    }
+};
 window.addToCart = async function () {
     if (!currentSelectedItem) return UI.toast('Выберите товар из списка умного поиска!', 'warning');
 
@@ -1107,6 +1238,26 @@ window.renderCart = function () {
     }
 
     document.getElementById('cart-total-sum').innerText = finalTotal.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    
+    // ==================================================
+    // 🚀 БЛОК 4: ПРИБЫЛЬ В КОРЗИНЕ
+    // ==================================================
+    const taxCost = finalProductRevenue * (safeTaxPct / 100);
+    const netProfit = finalProductRevenue - totalProductionCost - taxCost;
+    
+    const costEl = document.getElementById('cart-total-cost');
+    if (costEl) costEl.innerText = totalProductionCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 });
+    
+    const profitEl = document.getElementById('cart-total-profit');
+    const profitPctEl = document.getElementById('cart-profit-percent');
+    if (profitEl && profitPctEl) {
+        let pct = finalProductRevenue > 0 ? (netProfit / finalProductRevenue * 100) : 0;
+        
+        profitEl.innerText = (netProfit > 0 ? '+' : '') + netProfit.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+        profitEl.style.color = netProfit >= 0 ? 'var(--success)' : 'var(--danger)';
+        
+        profitPctEl.innerText = pct.toFixed(1);
+    }
 
     const logSumEl = document.getElementById('cart-logistics-sum');
     if (logSumEl) logSumEl.innerText = logistics.toLocaleString('ru-RU') + ' ₽';
@@ -1114,11 +1265,6 @@ window.renderCart = function () {
     if (typeof updateOffsetSummary === 'function') updateOffsetSummary();
     if (typeof smartAccountToggle === 'function') smartAccountToggle();
 
-    // ==================================================
-    // 🚀 БЛОК 4: ПРИБЫЛЬ В КОРЗИНЕ
-    // ==================================================
-    const taxCost = finalProductRevenue * (safeTaxPct / 100);
-    const netProfit = finalProductRevenue - totalProductionCost - taxCost;
     const marginPct = finalProductRevenue > 0 ? ((netProfit / finalProductRevenue) * 100).toFixed(1) : 0;
 
     const profitSummary = document.getElementById('cart-profit-summary');
@@ -1225,6 +1371,9 @@ window.clearOrderForm = function () {
     const noPoa = document.getElementById('sale-no-poa');
     if (noPoa) { noPoa.checked = false; togglePoaMode(); }
 
+    const offsetCheck = document.getElementById('sale-offset-check');
+    if (offsetCheck) { offsetCheck.checked = false; toggleOffsetInput(); }
+
     const payMethod = document.getElementById('sale-payment-method');
     if (payMethod) { payMethod.value = 'debt'; toggleSalePayment(); }
 };
@@ -1293,11 +1442,18 @@ window.processCheckout = async function () {
         auto: document.getElementById('sale-auto')?.value || null,
         offset_amount: (document.getElementById('sale-offset-check')?.checked ? parseFloat(document.getElementById('sale-offset-amount')?.value) : 0) || 0,
         contract_id: document.getElementById('sale-contract').value || null,
-        delivery_address: document.getElementById('sale-delivery-address').value,
+        delivery_address: (() => {
+            const deliveryType = document.querySelector('input[name="sale_delivery_type"]:checked');
+            if (deliveryType && deliveryType.value === 'pickup') {
+                return 'Самовывоз';
+            }
+            return document.getElementById('sale-delivery-address').value;
+        })(),
         logistics_cost: logisticsCost,
         planned_shipment_date: plannedDateStr,
         pallets_qty: document.getElementById('sale-pallets').value || 0,
         poa_info: poa_info, // Передаем проверенную информацию
+        order_date: document.getElementById('sale-order-date')?.value || new Date().toISOString().split('T')[0],
         user_id: JSON.parse(localStorage.getItem('user'))?.id || null
     };
 
@@ -1377,6 +1533,17 @@ async function loadActiveOrders() {
     try {
         const res = await fetch(`/api/sales/orders?${query}`);
         allActiveOrders = await res.json();
+
+        // 🔧 Заполняем фильтр клиентов уникальными именами
+        const clientFilter = document.getElementById('bo-client-filter');
+        if (clientFilter) {
+            const currentVal = clientFilter.value;
+            const uniqueClients = [...new Set(allActiveOrders.map(o => o.client_name).filter(Boolean))].sort();
+            clientFilter.innerHTML = '<option value="">🌐 Все клиенты</option>' +
+                uniqueClients.map(name => `<option value="${escapeHTML(name)}">${escapeHTML(name)}</option>`).join('');
+            clientFilter.value = currentVal; // Восстанавливаем выбранное значение
+        }
+
         renderBlankOrdersTable();
     } catch (e) { console.error(e); }
 }
@@ -1440,27 +1607,52 @@ function renderBlankOrdersTable() {
     }
 
     tbody.innerHTML = paginated.map(o => {
-        // --- 1. СТАТУС ОТГРУЗКИ ---
+        // --- 1. ПРЕМИАЛЬНЫЙ ПРОГРЕСС-БАР ОТГРУЗКИ ---
         const ordered = parseFloat(o.total_ordered) || 0;
         const shipped = parseFloat(o.total_shipped) || 0;
-        let statusBadge = shipped > 0 && shipped < ordered
-            ? `<span class="sales-badge badge-shipping">🔵 Отгружается (${Math.round((shipped / ordered) * 100)}%)</span>`
-            : `<span class="sales-badge badge-queued">🟡 В очереди</span>`;
+        const shipPercent = ordered > 0 ? Math.round((shipped / ordered) * 100) : 0;
+        let shipText = shipPercent === 0 ? 'В очереди' : shipPercent >= 100 ? 'Завершено' : 'В процессе';
+        let shipColor = shipPercent === 0 ? '#94a3b8, #cbd5e1' : shipPercent >= 100 ? '#10b981, #34d399' : '#3b82f6, #60a5fa';
 
-        // --- 2. СТАТУС ОПЛАТЫ ---
+        // --- 2. ПРЕМИАЛЬНЫЙ ПРОГРЕСС-БАР ОПЛАТЫ ---
         const totalAmt = parseFloat(o.total_amount) || 0;
         const paidAmt = parseFloat(o.paid_amount) || 0;
         const debtAmt = parseFloat(o.pending_debt) || 0;
-        let finBadge = '';
-        if (paidAmt >= totalAmt) {
-            finBadge = `<span class="sales-badge badge-paid">🟢 Оплачен 100%</span>`;
-        } else if (debtAmt > 0) {
-            finBadge = `<span class="sales-badge badge-debt">🔴 Долг: ${debtAmt.toLocaleString('ru-RU')} ₽</span>`;
-        } else if (paidAmt > 0) {
-            finBadge = `<span class="sales-badge badge-advance">🟡 Аванс: ${paidAmt.toLocaleString('ru-RU')} ₽</span>`;
-        } else {
-            finBadge = `<span class="sales-badge badge-unpaid">⚪ Не оплачен</span>`;
+        const payPercent = totalAmt > 0 ? Math.min(Math.round((paidAmt / totalAmt) * 100), 100) : 0;
+        
+        let payText = payPercent === 0 ? 'Не оплачен' : payPercent >= 100 ? 'Оплачен' : 'Внесен аванс';
+        let payColor = payPercent === 0 ? '#94a3b8, #cbd5e1' : payPercent >= 100 ? '#10b981, #34d399' : '#f59e0b, #fbbf24';
+        
+        let debtLabel = '';
+        if (debtAmt > 0) {
+            debtLabel = `<div style="font-size: 11px; color: #ef4444; margin-top: 3px; font-weight: 500;">Долг: ${debtAmt.toLocaleString('ru-RU')} ₽</div>`;
+            payColor = '#ef4444, #f87171'; // Красный
         }
+
+        let statusHtml = `
+            <div style="text-align: left; margin-bottom: 12px; min-width: 140px;">
+                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
+                    <span style="font-size: 11px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: 0.5px;">📦 Отгрузка</span>
+                    <span style="font-size: 12px; font-weight: 700; color: ${shipPercent >= 100 ? '#10b981' : shipPercent === 0 ? '#94a3b8' : '#3b82f6'};">${shipPercent}%</span>
+                </div>
+                <div style="height: 6px; background-color: #e2e8f0; border-radius: 4px; overflow: hidden; margin-bottom: 3px;">
+                    <div style="height: 100%; width: ${shipPercent}%; background: linear-gradient(90deg, ${shipColor}); border-radius: 4px; transition: width 0.6s ease-out;"></div>
+                </div>
+                <div style="font-size: 10px; color: #64748b;">${shipText}</div>
+            </div>
+
+            <div style="text-align: left; min-width: 140px;">
+                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
+                    <span style="font-size: 11px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: 0.5px;">💳 Оплата</span>
+                    <span style="font-size: 12px; font-weight: 700; color: ${payPercent >= 100 ? '#10b981' : debtAmt > 0 ? '#ef4444' : payPercent === 0 ? '#94a3b8' : '#f59e0b'};">${payPercent}%</span>
+                </div>
+                <div style="height: 6px; background-color: #e2e8f0; border-radius: 4px; overflow: hidden; margin-bottom: 3px;">
+                    <div style="height: 100%; width: ${payPercent}%; background: linear-gradient(90deg, ${payColor}); border-radius: 4px; transition: width 0.6s ease-out;"></div>
+                </div>
+                <div style="font-size: 10px; color: #64748b;">${payText}</div>
+                ${debtLabel}
+            </div>
+        `;
 
         // --- 3. БАЛАНС КЛИЕНТА ---
         const clientBalance = parseFloat(o.client_balance) || 0;
@@ -1496,15 +1688,14 @@ function renderBlankOrdersTable() {
                 <span class="sales-order-amount">${totalAmt.toLocaleString('ru-RU')} ₽</span>
             </td>
             <td style="vertical-align: top;">
-                <span class="sales-order-client entity-link" onclick="window.app.openEntity('client', ${o.client_id})">${escapeHTML(o.client_name || 'Неизвестный клиент')}</span><br>
+                <span class="sales-order-client entity-link" onclick="window.app.openEntity('client', ${o.counterparty_id})">${escapeHTML(o.client_name || 'Неизвестный клиент')}</span><br>
                 <span class="sales-order-address">📍 ${escapeHTML(o.delivery_address || 'Самовывоз')}</span><br>
                 ${clientBalanceBadge}
                 ${projHtml}
             </td>
             <td class="sales-order-items">${escapeHTML(o.items_list || 'Пусто')}</td>
-            <td class="text-center" style="vertical-align: middle;">
-                ${statusBadge}<br>
-                ${finBadge}
+            <td class="text-center" style="vertical-align: middle; min-width: 180px; padding: 12px 16px;">
+                ${statusHtml}
             </td>
             <td class="sales-order-actions-cell">
                 <div class="sales-order-actions-row">
@@ -1549,6 +1740,177 @@ window.executeDeleteOrder = async function (orderId) {
 // ==========================================
 // === ИСТОРИЯ ОТГРУЗОК (АРХИВ) ===
 // ==========================================
+
+window.renderHistoryPeriodUI = function () {
+    let typeOptions = `
+        <option value="day" ${histPeriodType === 'day' ? 'selected' : ''}>Сегодня</option>
+        <option value="week" ${histPeriodType === 'week' ? 'selected' : ''}>Текущая неделя</option>
+        <option value="month" ${histPeriodType === 'month' ? 'selected' : ''}>Месяц</option>
+        <option value="quarter" ${histPeriodType === 'quarter' ? 'selected' : ''}>Квартал</option>
+        <option value="year" ${histPeriodType === 'year' ? 'selected' : ''}>Год</option>
+        <option value="custom" ${histPeriodType === 'custom' ? 'selected' : ''}>Произвольно 📅</option>
+        <option value="all" ${histPeriodType === 'all' ? 'selected' : ''}>Всё время</option>
+    `;
+
+    let valOptions = '';
+    if (histPeriodType === 'quarter') {
+        for (let i = 1; i <= 4; i++) valOptions += `<option value="${i}" ${histPeriodValue == i ? 'selected' : ''}>${i} Квартал</option>`;
+    } else if (histPeriodType === 'month') {
+        const months = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+        months.forEach((m, i) => valOptions += `<option value="${i + 1}" ${histPeriodValue == i + 1 ? 'selected' : ''}>${m}</option>`);
+    }
+
+    let yearOptions = '';
+    const currentY = new Date().getFullYear();
+    for (let y = currentY - 2; y <= currentY + 1; y++) yearOptions += `<option value="${y}" ${histYear == y ? 'selected' : ''}>${y} год</option>`;
+
+    let activeInputHtml = '';
+    if (histPeriodType === 'day') {
+        activeInputHtml = `<input type="date" class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px; width: 130px;" value="${histSpecificDate}" onchange="applyHistoryPeriod('date', this.value)">`;
+    } else if (histPeriodType === 'custom') {
+        activeInputHtml = `<input type="text" id="hist-custom-date" class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px; width: 190px;" placeholder="Выберите даты...">`;
+    } else if (histPeriodType !== 'all' && histPeriodType !== 'year' && histPeriodType !== 'week') {
+        activeInputHtml = `<select class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px;" onchange="applyHistoryPeriod('value', this.value)">${valOptions}</select>`;
+    }
+
+    let yearHtml = '';
+    if (histPeriodType !== 'all' && histPeriodType !== 'day' && histPeriodType !== 'week' && histPeriodType !== 'custom') {
+        yearHtml = `<select class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px;" onchange="applyHistoryPeriod('year', this.value)">${yearOptions}</select>`;
+    }
+
+    const html = `
+        <select class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px;" onchange="applyHistoryPeriod('type', this.value)">${typeOptions}</select>
+        ${activeInputHtml}
+        ${yearHtml}
+    `;
+
+    document.querySelectorAll('#hist-date-filter-container').forEach(container => {
+        container.innerHTML = html;
+    });
+
+    if (histPeriodType === 'custom') {
+        setTimeout(() => {
+            document.querySelectorAll('#hist-custom-date').forEach(el => {
+                if (window.flatpickr) {
+                    flatpickr(el, {
+                        mode: "range",
+                        dateFormat: "Y-m-d",
+                        altInput: true,
+                        altFormat: "d.m.Y",
+                        locale: "ru",
+                        defaultDate: histCustomStart && histCustomEnd ? [histCustomStart, histCustomEnd] : null,
+                        onChange: function (selectedDates, dateStr, instance) {
+                            if (selectedDates.length === 2) {
+                                histCustomStart = instance.formatDate(selectedDates[0], "Y-m-d");
+                                histCustomEnd = instance.formatDate(selectedDates[1], "Y-m-d");
+                                applyHistoryPeriod('custom_range', null);
+                            }
+                        }
+                    });
+                }
+            });
+        }, 50);
+    }
+};
+
+window.applyHistoryPeriod = function (field, value) {
+    if (field === 'type') {
+        histPeriodType = value;
+        if (value === 'quarter') histPeriodValue = Math.floor(new Date().getMonth() / 3) + 1;
+        else if (value === 'month') histPeriodValue = new Date().getMonth() + 1;
+    }
+    else if (field === 'date') histSpecificDate = value;
+    else if (field === 'value') histPeriodValue = parseInt(value);
+    else if (field === 'year') histYear = parseInt(value);
+
+    renderHistoryPeriodUI();
+    historyPage = 1;
+
+    let start = '', end = '';
+    if (histPeriodType === 'day') {
+        start = histSpecificDate; end = histSpecificDate;
+    } else if (histPeriodType === 'week') {
+        const now = new Date();
+        const dayOfWeek = now.getDay() || 7;
+        const monday = new Date(now);
+        monday.setDate(now.getDate() - dayOfWeek + 1);
+        start = monday.toISOString().split('T')[0];
+        end = now.toISOString().split('T')[0];
+    } else if (histPeriodType === 'year') {
+        start = `${histYear}-01-01`; end = `${histYear}-12-31`;
+    } else if (histPeriodType === 'quarter') {
+        const startMonth = (histPeriodValue - 1) * 3 + 1;
+        start = `${histYear}-${String(startMonth).padStart(2, '0')}-01`;
+        const endDay = new Date(histYear, startMonth + 2, 0).getDate();
+        end = `${histYear}-${String(startMonth + 2).padStart(2, '0')}-${endDay}`;
+    } else if (histPeriodType === 'month') {
+        start = `${histYear}-${String(histPeriodValue).padStart(2, '0')}-01`;
+        const endDay = new Date(histYear, histPeriodValue, 0).getDate();
+        end = `${histYear}-${String(histPeriodValue).padStart(2, '0')}-${endDay}`;
+    } else if (histPeriodType === 'custom') {
+        start = histCustomStart; end = histCustomEnd;
+    }
+    historyDateRange = { start, end };
+    
+    loadSalesHistory();
+};
+
+window.applyHistoryFilters = function() {
+    historyPage = 1;
+    renderHistoryTable();
+};
+
+window.resetHistoryFilters = function() {
+    const searchInput = document.getElementById('hist-search');
+    const clientSelect = document.getElementById('hist-client-filter');
+    if (searchInput) searchInput.value = '';
+    if (clientSelect) {
+        if (clientSelect.tomselect) clientSelect.tomselect.setValue('', true);
+        else clientSelect.value = '';
+    }
+    
+    applyHistoryPeriod('type', 'all');
+};
+
+function populateHistoryClientFilter(historyData) {
+    const select = document.getElementById('hist-client-filter');
+    if (!select) return;
+    
+    const currentVal = select.tomselect ? select.tomselect.getValue() : select.value;
+    const clients = new Set();
+    
+    historyData.forEach(h => {
+        if (h.client_name) clients.add(h.client_name);
+    });
+    
+    const sortedClients = Array.from(clients).sort();
+    
+    if (select.tomselect) {
+        select.tomselect.clear(true);
+        select.tomselect.clearOptions();
+        select.tomselect.addOption({value: '', text: '🌐 Все клиенты'});
+        sortedClients.forEach(c => {
+            select.tomselect.addOption({value: escapeHTML(c), text: escapeHTML(c)});
+        });
+        
+        if (currentVal && clients.has(currentVal)) {
+            select.tomselect.setValue(currentVal, true);
+        } else {
+            select.tomselect.setValue('', true);
+        }
+    } else {
+        let html = '<option value="">🌐 Все клиенты</option>';
+        sortedClients.forEach(c => {
+            html += `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`;
+        });
+        
+        select.innerHTML = html;
+        if (currentVal && clients.has(currentVal)) {
+            select.value = currentVal;
+        }
+    }
+}
+
 async function loadSalesHistory() {
     // 🚀 Задача №14: Привязка фильтров даты и страниц
     const query = new URLSearchParams({
@@ -1565,6 +1927,7 @@ async function loadSalesHistory() {
 
         // Предполагаем, что сервер возвращает { data: [], totalPages: X }
         allSalesHistory = data.data || data;
+        populateHistoryClientFilter(allSalesHistory); // Заполняем фильтр клиентов
         renderHistoryTable();
     } catch (e) { console.error(e); }
 }
@@ -1630,7 +1993,7 @@ function renderHistoryTable() {
         return `
         <tr class="sales-hist-row">
             <td class="sales-hist-date">${h.date_formatted}</td>
-            <td><strong class="sales-hist-doc entity-link" onclick="window.app.openEntity('document_shipment', '${h.doc_num}')">${h.doc_num}</strong></td>
+            <td><strong class="sales-hist-doc entity-link" onclick="window.app.openEntity('document_order', '${h.order_id}')">${h.doc_num}</strong></td>
             <td>
                 <b class="entity-link" onclick="window.app.openEntity('client', ${h.client_id || 0})">${escapeHTML(h.client_name || 'Неизвестный клиент')}</b><br>
                 <span class="profit-sub">${h.payment || ''}</span>
@@ -1659,7 +2022,7 @@ window.cancelShipment = function (docNum) {
 
 window.executeCancelShipment = async function (docNum) {
     try {
-        const res = await fetch(`/api/sales/shipment/${docNum}`, { method: 'DELETE' });
+        const res = await fetch(`/api/sales/shipments/${docNum}`, { method: 'DELETE' });
         if (res.ok) {
             UI.closeModal();
             UI.toast(`Отгрузка отменена`, 'success');
@@ -1691,32 +2054,38 @@ window.openPriceListModal = async function () {
         const products = await res.json();
 
         let tbody = products.map(p => `
-            <tr class="border-bottom">
+            <tr class="border-bottom price-list-row" data-name="${escapeHTML(p.name)}">
                 <td class="p-8">
                     <span class="badge bg-surface-alt text-muted font-11 mr-8 font-mono">${p.article || 'НЕТ АРТИКУЛА'}</span>
                     <b>${p.name}</b> <span class="font-10 text-muted">(${p.unit})</span>
                 </td>
                 <td class="p-8 text-center">
-                    <input type="number" class="input-modern price-basic text-center w-90" data-id="${p.id}" value="${p.current_price}">
+                    <input type="number" class="input-modern price-basic text-center w-90" data-id="${p.id}" value="${p.current_price}" onfocus="this.select()">
                 </td>
                 <td class="p-8 text-center">
-                    <input type="number" class="input-modern price-dealer text-center w-90 border-info" data-id="${p.id}" value="${p.dealer_price || 0}">
+                    <input type="number" class="input-modern price-dealer text-center w-90 border-info" data-id="${p.id}" value="${p.dealer_price || 0}" onfocus="this.select()">
                 </td>
             </tr>
         `).join('');
 
         const html = `
             <style>
-                #app-modal .modal-content { max-width: 700px !important; }
+                #app-modal .modal-content { max-width: 750px !important; }
                 .price-list-table thead { position: sticky; top: 0; z-index: 10; }
             </style>
+            
             <div class="overflow-auto pr-10" style="max-height: 60vh;">
                 <table class="table-modern w-100 font-13 price-list-table">
                     <thead class="bg-surface-hover">
                         <tr>
-                            <th class="p-10 text-left">Товар</th>
-                            <th class="p-10 text-center text-main">Основная (Розница)</th>
-                            <th class="p-10 text-center text-info">Дилерская (Опт)</th>
+                            <th class="p-10 text-left">
+                                <div class="d-flex align-items-center justify-content-between" style="gap: 15px;">
+                                    <span>Товар</span>
+                                    <input type="text" class="input-modern m-0 font-12" style="max-width: 250px; padding: 4px 10px;" placeholder="Умный поиск (2 к 6)..." oninput="filterPriceList(this.value)">
+                                </div>
+                            </th>
+                            <th class="p-10 text-center text-main" style="width: 130px;">Основная<br><small class="text-muted">(Розница)</small></th>
+                            <th class="p-10 text-center text-info" style="width: 130px;">Дилерская<br><small class="text-muted">(Опт)</small></th>
                         </tr>
                     </thead>
                     <tbody>${tbody}</tbody>
@@ -1726,23 +2095,56 @@ window.openPriceListModal = async function () {
 
         UI.showModal('📋 Установка Прайс-листа', html, `
             <div class="flex-between flex-wrap gap-10 w-100">
-                <div class="flex-row gap-10">
-                    <label class="btn btn-outline border-primary text-primary font-12 p-6-12 cursor-pointer">
+                <div class="flex-row gap-10" style="flex: 1; min-width: 250px;">
+                    <label class="btn btn-outline border-primary text-primary font-12 cursor-pointer m-0 px-10">
                         📥 Загрузить Базовый (Розница)
-                        <input type="file" accept=".csv" class="display-none" onchange="handleBasicCsvImport(event)">
+                        <input type="file" accept=".csv" style="display: none;" onchange="handleBasicCsvImport(event)">
                     </label>
-                    <label class="btn btn-outline border-info text-info font-12 p-6-12 cursor-pointer">
+                    <label class="btn btn-outline border-info text-info font-12 cursor-pointer m-0 px-10">
                         📥 Загрузить Дилерский (Опт)
-                        <input type="file" accept=".csv" class="display-none" onchange="handleDealerCsvImport(event)">
+                        <input type="file" accept=".csv" style="display: none;" onchange="handleDealerCsvImport(event)">
                     </label>
                 </div>
-                <div>
-                    <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-                    <button class="btn btn-blue" onclick="savePriceList()">💾 Сохранить</button>
+                <div class="flex-row gap-10">
+                    <button class="btn btn-outline m-0 px-15" onclick="UI.closeModal()">Отмена</button>
+                    <button class="btn btn-blue m-0 px-15" onclick="savePriceList()">💾 Сохранить</button>
                 </div>
             </div>
         `);
     } catch (e) { console.error(e); }
+};
+
+window.filterPriceList = function(query) {
+    const rows = document.querySelectorAll('.price-list-row');
+    if (!query) {
+        rows.forEach(r => r.style.display = '');
+        return;
+    }
+    
+    query = query.toLowerCase();
+    const queryCondensed = query.replace(/[\.\s-]/g, '');
+    const tokens = query.split(/\s+/).filter(Boolean);
+    
+    rows.forEach(row => {
+        const text = row.getAttribute('data-name').toLowerCase();
+        const textCondensed = text.replace(/[\.\s-]/g, '');
+        
+        let match = true;
+        for (let token of tokens) {
+            let tokenCondensed = token.replace(/[\.\s-]/g, '');
+            if (!text.includes(token) && (!tokenCondensed || !textCondensed.includes(tokenCondensed))) {
+                match = false; break;
+            }
+        }
+        if (!match) {
+            // Вторичная проверка для поиска точного соответствия без пробелов
+            if (queryCondensed.length >= 2 && textCondensed.includes(queryCondensed)) {
+                match = true;
+            }
+        }
+        
+        row.style.display = match ? '' : 'none';
+    });
 };
 
 window.savePriceList = async function () {
@@ -2315,15 +2717,38 @@ window.openOrderManager = async function (orderId) {
                     <tbody>${itemsHtml}</tbody>
                 </table>
 
-                <div class="bg-surface-hover p-10 border-radius-6 border dashed">
-                    <h4 class="m-0 mb-10 text-muted">Данные для этой отгрузки (Машина)</h4>
-                    <div class="form-grid gap-10 sales-two-cols mb-10">
-                        <div class="form-group m-0"><input type="text" id="ship-driver" class="input-modern" placeholder="ФИО Водителя"></div>
-                        <div class="form-group m-0"><input type="text" id="ship-auto" class="input-modern" placeholder="Гос. номер авто"></div>
-                        <div class="form-group m-0 grid-span-2"><input type="number" id="ship-pallets" class="input-modern" placeholder="Количество поддонов (шт)" min="0"></div>
+                <div class="bg-surface-hover p-15 border-radius-6 border dashed mt-10">
+                    <h4 class="m-0 mb-15 text-primary">🚚 Фактические данные отгрузки</h4>
+                    <div class="form-grid gap-15 sales-two-cols mb-10">
+                        <div class="form-group m-0">
+                            <label class="font-12 text-muted">Дата факта отгрузки:</label>
+                            <input type="date" id="ship-date" class="input-modern" value="${new Date().toISOString().split('T')[0]}">
+                        </div>
+                        <div class="form-group m-0">
+                            <label class="font-12 text-muted">Поддоны (шт):</label>
+                            <input type="number" id="ship-pallets" class="input-modern" placeholder="Количество" min="0">
+                        </div>
+                        <div class="form-group m-0">
+                            <label class="font-12 text-muted">ФИО Водителя:</label>
+                            <input type="text" id="ship-driver" class="input-modern" placeholder="Иванов И.И.">
+                        </div>
+                        <div class="form-group m-0">
+                            <label class="font-12 text-muted">Автомобиль:</label>
+                            <input type="text" id="ship-auto" class="input-modern" placeholder="Гос. номер (Е123КХ)">
+                        </div>
                     </div>
-                    <div class="form-group m-0">
-                        <input type="text" id="ship-poa" class="input-modern" placeholder="Номер доверенности или кто разрешил (если нужно)">
+                    <div class="form-group m-0" style="grid-column: 1 / -1;">
+                        <label class="font-12 text-muted mb-5">Основание (Доверенность) <span class="text-danger">*</span></label>
+                        <div class="flex-column gap-10">
+                            <select id="ship-poa-select" class="input-modern"></select>
+                            
+                            <label class="d-flex align-center cursor-pointer m-0 mt-5">
+                                <input type="checkbox" id="ship-no-poa" class="mr-10" onchange="toggleShipPoa()" style="width:16px; height:16px;"> 
+                                <span class="font-13">Без доверенности (Только по звонку / Особое распоряжение)</span>
+                            </label>
+
+                            <input type="text" id="ship-poa-comment" class="input-modern sales-hidden" placeholder="Кто разрешил отгрузку без доверенности? (Например: Звонок директора)">
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2334,7 +2759,35 @@ window.openOrderManager = async function (orderId) {
             <button class="btn btn-blue" id="btn-do-ship" onclick="executePartialShipment(${order.id}, this)">🚚 Отгрузить выбранное</button>
         `);
 
+        // Загрузка доверенностей
+        setTimeout(async () => {
+            try {
+                const res = await fetch(`/api/counterparties/${order.counterparty_id}/poas`);
+                const data = await res.json();
+                const sel = document.getElementById('ship-poa-select');
+                if (sel) {
+                    sel.innerHTML = '<option value="">-- Выберите доверенность --</option>';
+                    data.forEach(poa => sel.add(new Option(`${poa.driver_name} — №${poa.number} (до ${poa.expiry_date})`, `№${poa.number} (выдана: ${poa.driver_name})`)));
+                }
+            } catch(e) {}
+        }, 50);
+
     } catch (e) { console.error(e); UI.toast('Ошибка', 'error'); }
+};
+
+window.toggleShipPoa = function() {
+    const noPoa = document.getElementById('ship-no-poa');
+    const poaSelect = document.getElementById('ship-poa-select');
+    const poaComment = document.getElementById('ship-poa-comment');
+    if (!noPoa) return;
+    
+    if (noPoa.checked) {
+        if(poaSelect) { poaSelect.value = ''; poaSelect.classList.add('sales-hidden'); }
+        if(poaComment) poaComment.classList.remove('sales-hidden');
+    } else {
+        if(poaSelect) poaSelect.classList.remove('sales-hidden');
+        if(poaComment) { poaComment.value = ''; poaComment.classList.add('sales-hidden'); }
+    }
 };
 
 window.executePartialShipment = async function (orderId, btnElement) {
@@ -2366,16 +2819,35 @@ window.executePartialShipment = async function (orderId, btnElement) {
     // Блокируем кнопку, чтобы не нажали дважды
     if (btnElement) btnElement.disabled = true;
 
-    const driver = document.getElementById('ship-driver').value.trim();
-    const auto = document.getElementById('ship-auto').value.trim();
-    const poa_info = document.getElementById('ship-poa').value.trim();
-    const pallets = parseInt(document.getElementById('ship-pallets').value) || 0;
+    const driver = document.getElementById('ship-driver')?.value.trim() || '';
+    const auto = document.getElementById('ship-auto')?.value.trim() || '';
+    const pallets = parseInt(document.getElementById('ship-pallets')?.value) || 0;
+    const shipDate = document.getElementById('ship-date') ? document.getElementById('ship-date').value : new Date().toISOString().split('T')[0];
+
+    // Проверка доверенности
+    let poa_info = '';
+    const noPoa = document.getElementById('ship-no-poa');
+    if (noPoa && noPoa.checked) {
+        const comment = document.getElementById('ship-poa-comment')?.value.trim();
+        if (!comment) {
+            if (btnElement) btnElement.disabled = false;
+            return UI.toast('Укажите, кто разрешил отгрузку без доверенности!', 'error');
+        }
+        poa_info = `Без доверенности. Разрешил: ${comment}`;
+    } else {
+        const sel = document.getElementById('ship-poa-select');
+        if (!sel || !sel.value) {
+            if (btnElement) btnElement.disabled = false;
+            return UI.toast('Выберите доверенность из списка!', 'error');
+        }
+        poa_info = sel.value;
+    }
 
     try {
         const res = await fetch(`/api/sales/orders/${orderId}/ship`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ items_to_ship, driver, auto, poa_info, pallets })
+            body: JSON.stringify({ items_to_ship, driver, auto, poa_info, pallets, ship_date: shipDate })
         });
 
         if (res.ok) {
@@ -2649,13 +3121,14 @@ window.generateKP = function () {
 
     const discount = document.getElementById('sale-discount').value || 0;
     const logisticsCost = document.getElementById('sale-logistics-cost').value || 0;
+    const orderDate = document.getElementById('sale-order-date')?.value || new Date().toISOString().split('T')[0];
 
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = '/print/kp' + ('/print/kp'.includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || '');
     form.target = '_blank';
 
-    const data = { client_id: clientId, items: cart, discount: discount, logistics: logisticsCost };
+    const data = { client_id: clientId, items: cart, discount: discount, logistics: logisticsCost, orderDate: orderDate };
 
     const input = document.createElement('input');
     input.type = 'hidden';
@@ -2682,6 +3155,7 @@ window.generateBlankOrder = function () {
     const advanceAmount = document.getElementById('sale-advance-amount')?.value || 0;
     const pallets = document.getElementById('sale-pallets')?.value || 0;
     const deliveryAddress = document.getElementById('sale-delivery-address')?.value || '';
+    const orderDate = document.getElementById('sale-order-date')?.value || new Date().toISOString().split('T')[0];
 
     const form = document.createElement('form');
     form.method = 'POST';
@@ -2693,10 +3167,17 @@ window.generateBlankOrder = function () {
         items: cart,
         discount: discount,
         logistics: logisticsCost,
-        pallets: pallets,
         paymentMethod: paymentMethod,
         advanceAmount: advanceAmount,
-        delivery_address: deliveryAddress
+        pallets: pallets,
+        delivery_address: (() => {
+            const deliveryType = document.querySelector('input[name="sale_delivery_type"]:checked');
+            if (deliveryType && deliveryType.value === 'pickup') {
+                return 'Самовывоз';
+            }
+            return document.getElementById('sale-delivery-address')?.value || '';
+        })(),
+        orderDate: orderDate
     };
 
     const input = document.createElement('input');
@@ -3166,7 +3647,6 @@ function populateSalesFilters() {
 }
 
 window.applyOrderFilters = function () { boPage = 1; renderBlankOrdersTable(); };
-window.applyHistoryFilters = function () { historyPage = 1; renderHistoryTable(); };
 
 window.resetOrderFilters = function () {
     document.getElementById('bo-search').value = '';
@@ -3176,19 +3656,7 @@ window.resetOrderFilters = function () {
     applyOrderFilters();
 };
 
-window.resetHistoryFilters = function () {
-    document.getElementById('hist-search').value = '';
-    document.getElementById('hist-client-filter').value = '';
 
-    // Очищаем умный календарь и сбрасываем даты
-    historyDateRange = { start: '', end: '' };
-
-    if (historyDatePicker) {
-        historyDatePicker.clear(); // 👈 Автоматом вызовет applyHistoryFilters()
-    } else {
-        applyHistoryFilters();
-    }
-};
 
 // === CRM ВОРОНКА (КАНБАН) ===
 
@@ -3236,7 +3704,7 @@ window.renderKanbanBoard = function () {
                 <span title="Дедлайн">⏳ ${order.deadline || order.date_formatted}</span>
             </div>
             <div class="kanban-card-client">
-                ${order.client_id ? `<span class="entity-link" onclick="window.app.openEntity('client', ${order.client_id})">${escapeHTML(order.client_name)}</span>` : escapeHTML(order.client_name)}
+                ${order.counterparty_id ? `<span class="entity-link" onclick="window.app.openEntity('client', ${order.counterparty_id})">${escapeHTML(order.client_name)}</span>` : escapeHTML(order.client_name)}
             </div>
             <div class="kanban-card-items">
                 ${escapeHTML(order.items_list)}
@@ -3338,7 +3806,7 @@ window.openOrderDetails = async function (orderId) {
             itemsHtml += `
                 <tr>
                     <td class="p-8 border-bottom border-surface-alt">
-                        ${item.product_id || item.id ? `<span class="entity-link" onclick="window.app.openEntity('nomenclature', ${item.product_id || item.id})">${escapeHTML(item.name)}</span>` : escapeHTML(item.name)}
+                        ${item.item_id ? `<span class="entity-link" onclick="window.app.openEntity('nomenclature', ${item.item_id})">${escapeHTML(item.name)}</span>` : escapeHTML(item.name)}
                     </td>
                     <td class="p-8 border-bottom border-surface-alt text-center font-bold">${ordered} ${item.unit}</td>
                     <td class="p-8 border-bottom border-surface-alt text-center font-bold ${colorClass}">${shipped}</td>
@@ -3351,7 +3819,7 @@ window.openOrderDetails = async function (orderId) {
         const htmlBody = `
             <div class="mb-15 bg-surface-hover p-15 border-radius-8 border font-14">
                 <div class="mb-8"><strong>💼 Клиент:</strong> 
-                    ${order.client_id ? `<span class="entity-link" onclick="window.app.openEntity('client', ${order.client_id})">${escapeHTML(order.client_name)}</span>` : escapeHTML(order.client_name)}
+                    ${order.counterparty_id ? `<span class="entity-link" onclick="window.app.openEntity('client', ${order.counterparty_id})">${escapeHTML(order.client_name)}</span>` : escapeHTML(order.client_name)}
                 </div>
                 <div class="mb-8"><strong>📍 Адрес доставки:</strong> ${escapeHTML(order.delivery_address || 'Самовывоз')}</div>
                 <div class="mb-8"><strong>💰 Сумма заказа:</strong> <span class="text-main font-bold">${parseFloat(order.total_amount).toLocaleString()} ₽</span></div>
@@ -3485,11 +3953,7 @@ window.saveMiniContract = async function () {
     } catch (e) { UI.toast('Ошибка сети', 'error'); }
 };
 
-window.changeSalesHistoryPage = function (dir) {
-    historyPage += dir;
-    if (historyPage < 1) historyPage = 1;
-    loadSalesHistory();
-};
+
 
 window.triggerSalesSearch = function () {
     historySearch = document.getElementById('sales-history-search').value;
@@ -3554,5 +4018,17 @@ window.AppPrint = {
     passport: function (batchId) {
         if (!batchId) return UI.toast('ID партии не указан', 'error');
         window.open(`/print/passport?batchId=${batchId}` + (String(`/print/passport?batchId=${batchId}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
+    }
+};
+
+window.toggleSaleDelivery = function() {
+    const deliveryType = document.querySelector('input[name="sale_delivery_type"]:checked');
+    const addressGroup = document.getElementById('sale-delivery-address-group');
+    if (addressGroup) {
+        if (deliveryType && deliveryType.value === 'pickup') {
+            addressGroup.style.display = 'none';
+        } else {
+            addressGroup.style.display = 'block';
+        }
     }
 };

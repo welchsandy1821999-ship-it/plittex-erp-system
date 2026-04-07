@@ -194,21 +194,22 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     router.get('/print/waybill', authenticateToken, async (req, res) => {
         try {
             const { docNum } = req.query;
-            const orderRes = await pool.query(`
-                SELECT o.id, o.driver_name, o.auto_number, o.discount, o.contract_info, o.total_amount, c.name 
-                FROM client_orders o 
-                LEFT JOIN counterparties c ON o.counterparty_id = c.id 
-                WHERE doc_number = $1
-            `, [docNum]);
+            const isShipment = docNum && (docNum.startsWith('УТ') || docNum.startsWith('РН') || docNum.startsWith('PH'));
+            
+            const orderQuery = isShipment 
+                ? `SELECT o.id, o.driver_name, o.auto_number, o.discount, o.contract_info, o.total_amount, c.name FROM client_orders o LEFT JOIN counterparties c ON o.counterparty_id = c.id WHERE o.id = (SELECT coi.order_id FROM inventory_movements im JOIN client_order_items coi ON im.linked_order_item_id = coi.id WHERE im.description LIKE '%' || $1 || '%' AND im.movement_type = 'sales_shipment' LIMIT 1)`
+                : `SELECT o.id, o.driver_name, o.auto_number, o.discount, o.contract_info, o.total_amount, c.name FROM client_orders o LEFT JOIN counterparties c ON o.counterparty_id = c.id WHERE doc_number = $1`;
+                
+            const orderRes = await pool.query(orderQuery, [docNum]);
 
-            let data = orderRes.rows[0] || { name: 'Неизвестный клиент', total_amount: 0, id: null };
-            const itemsRes = await pool.query(`
-                SELECT i.name, i.unit, SUM(ABS(m.quantity)) as qty 
-                FROM inventory_movements m 
-                JOIN items i ON m.item_id = i.id 
-                WHERE m.movement_type = 'sales_shipment' AND m.order_id = $1 
-                GROUP BY i.name, i.unit
-            `, [data.id]);
+            let data = orderRes.rows[0];
+            if (!data) return res.status(404).send('Заказ не найден');
+
+            const itemsQuery = isShipment 
+                ? `SELECT i.name, i.unit, SUM(ABS(m.quantity)) as qty FROM inventory_movements m JOIN items i ON m.item_id = i.id WHERE m.movement_type = 'sales_shipment' AND m.linked_order_item_id IN (SELECT id FROM client_order_items WHERE order_id = $1) AND m.description LIKE '%' || $2 || '%' GROUP BY i.name, i.unit`
+                : `SELECT i.name, i.unit, SUM(ABS(m.quantity)) as qty FROM inventory_movements m JOIN items i ON m.item_id = i.id WHERE m.movement_type = 'sales_shipment' AND m.linked_order_item_id IN (SELECT id FROM client_order_items WHERE order_id = $1) GROUP BY i.name, i.unit`;
+                
+            const itemsRes = await pool.query(itemsQuery, isShipment ? [data.id, docNum] : [data.id]);
 
             res.render('docs/waybill', {
                 docNum,
@@ -228,24 +229,22 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     router.get('/print/upd', authenticateToken, async (req, res) => {
         try {
             const { docNum } = req.query;
-            const orderRes = await pool.query(`
-                SELECT o.id, c.name, c.inn, c.kpp, c.legal_address, o.driver_name, o.auto_number, o.pallets_qty
-                FROM client_orders o 
-                JOIN counterparties c ON o.counterparty_id = c.id 
-                WHERE o.doc_number = $1 LIMIT 1
-            `, [docNum]);
+            const isShipment = docNum && (docNum.startsWith('УТ') || docNum.startsWith('РН') || docNum.startsWith('PH'));
+
+            const orderQuery = isShipment
+                ? `SELECT o.id, c.name, c.inn, c.kpp, c.legal_address, o.driver_name, o.auto_number, o.pallets_qty FROM client_orders o JOIN counterparties c ON o.counterparty_id = c.id WHERE o.id = (SELECT coi.order_id FROM inventory_movements im JOIN client_order_items coi ON im.linked_order_item_id = coi.id WHERE im.description LIKE '%' || $1 || '%' AND im.movement_type = 'sales_shipment' LIMIT 1)`
+                : `SELECT o.id, c.name, c.inn, c.kpp, c.legal_address, o.driver_name, o.auto_number, o.pallets_qty FROM client_orders o JOIN counterparties c ON o.counterparty_id = c.id WHERE o.doc_number = $1 LIMIT 1`;
+
+            const orderRes = await pool.query(orderQuery, [docNum]);
 
             if (orderRes.rows.length === 0) return res.status(404).send('Заказ не найден');
             const o = orderRes.rows[0];
 
-            const itemsRes = await pool.query(`
-                SELECT i.name, i.unit, SUM(ABS(m.quantity)) as qty, coi.price 
-                FROM inventory_movements m 
-                JOIN items i ON m.item_id = i.id 
-                LEFT JOIN client_order_items coi ON m.linked_order_item_id = coi.id 
-                WHERE m.movement_type = 'sales_shipment' AND m.order_id = $1 
-                GROUP BY i.name, i.unit, coi.price
-            `, [o.id]);
+            const itemsQuery = isShipment
+                ? `SELECT i.name, i.unit, SUM(ABS(m.quantity)) as qty, coi.price FROM inventory_movements m JOIN items i ON m.item_id = i.id LEFT JOIN client_order_items coi ON m.linked_order_item_id = coi.id WHERE m.movement_type = 'sales_shipment' AND coi.order_id = $1 AND m.description LIKE '%' || $2 || '%' GROUP BY i.name, i.unit, coi.price`
+                : `SELECT i.name, i.unit, SUM(ABS(m.quantity)) as qty, coi.price FROM inventory_movements m JOIN items i ON m.item_id = i.id LEFT JOIN client_order_items coi ON m.linked_order_item_id = coi.id WHERE m.movement_type = 'sales_shipment' AND coi.order_id = $1 GROUP BY i.name, i.unit, coi.price`;
+
+            const itemsRes = await pool.query(itemsQuery, isShipment ? [o.id, docNum] : [o.id]);
 
             let totalSum = new Big(0);
             let items = itemsRes.rows.map(row => {
@@ -261,7 +260,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
             const totalVat = totalSum.times(ERP_CONFIG.vatRate).div(100 + ERP_CONFIG.vatRate).toFixed(2);
 
             res.render('docs/upd', {
-                docNum, cpInfo: o, totalAmount: totalSum.toFixed(2), totalVat,
+                docNum, cpInfo: o, clientName: o.name, totalAmount: totalSum.toFixed(2), totalVat,
                 items, vatRate: ERP_CONFIG.vatRate, company: COMPANY_CONFIG,
                 date: new Date().toLocaleDateString('ru-RU'),
                 time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
@@ -290,25 +289,22 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     router.get('/print/specification', authenticateToken, async (req, res) => {
         try {
             const { docNum } = req.query;
-            const orderRes = await pool.query(`
-                SELECT o.total_amount, c.name, con.number as c_num, TO_CHAR(con.date, 'DD.MM.YYYY') as c_date
-                FROM client_orders o 
-                JOIN counterparties c ON o.counterparty_id = c.id 
-                LEFT JOIN contracts con ON o.contract_id = con.id
-                WHERE o.doc_number = $1
-            `, [docNum]);
+            const isShipment = docNum && (docNum.startsWith('УТ') || docNum.startsWith('РН') || docNum.startsWith('PH'));
+
+            const orderQuery = isShipment
+                ? `SELECT o.id, o.total_amount, c.name, con.number as c_num, TO_CHAR(con.date, 'DD.MM.YYYY') as c_date FROM client_orders o JOIN counterparties c ON o.counterparty_id = c.id LEFT JOIN contracts con ON o.contract_id = con.id WHERE o.id = (SELECT coi.order_id FROM inventory_movements im JOIN client_order_items coi ON im.linked_order_item_id = coi.id WHERE im.description LIKE '%' || $1 || '%' AND im.movement_type = 'sales_shipment' LIMIT 1)`
+                : `SELECT o.id, o.total_amount, c.name, con.number as c_num, TO_CHAR(con.date, 'DD.MM.YYYY') as c_date FROM client_orders o JOIN counterparties c ON o.counterparty_id = c.id LEFT JOIN contracts con ON o.contract_id = con.id WHERE o.doc_number = $1`;
+
+            const orderRes = await pool.query(orderQuery, [docNum]);
 
             if (orderRes.rows.length === 0) return res.status(404).send('Заказ не найден');
             const o = orderRes.rows[0];
 
-            const itemsRes = await pool.query(`
-                SELECT i.name, i.unit, coi.price, SUM(ABS(m.quantity)) as qty 
-                FROM inventory_movements m 
-                JOIN items i ON m.item_id = i.id 
-                JOIN client_order_items coi ON m.linked_order_item_id = coi.id
-                WHERE m.description LIKE $1 
-                GROUP BY i.name, i.unit, coi.price
-            `, [`%${docNum}%`]);
+            const itemsQuery = isShipment
+                ? `SELECT i.name, i.unit, coi.price, SUM(ABS(m.quantity)) as qty FROM inventory_movements m JOIN items i ON m.item_id = i.id JOIN client_order_items coi ON m.linked_order_item_id = coi.id WHERE m.movement_type = 'sales_shipment' AND coi.order_id = $1 AND m.description LIKE '%' || $2 || '%' GROUP BY i.name, i.unit, coi.price`
+                : `SELECT i.name, i.unit, coi.price, SUM(ABS(m.quantity)) as qty FROM inventory_movements m JOIN items i ON m.item_id = i.id JOIN client_order_items coi ON m.linked_order_item_id = coi.id WHERE m.movement_type = 'sales_shipment' AND coi.order_id = $1 GROUP BY i.name, i.unit, coi.price`;
+
+            const itemsRes = await pool.query(itemsQuery, isShipment ? [o.id, docNum] : [o.id]);
 
             res.render('docs/specification', {
                 docNum, clientName: o.name, totalAmount: o.total_amount,
@@ -354,11 +350,22 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
         try {
             const { cpId, start, end } = req.query;
             const cpRes = await pool.query('SELECT name, inn FROM counterparties WHERE id = $1', [cpId]);
+            const queries = `
+                SELECT amount, transaction_type, category, description, 
+                       TO_CHAR(transaction_date, 'DD.MM.YYYY') as date, transaction_date as sort_date
+                FROM transactions WHERE counterparty_id = $1 AND transaction_date BETWEEN $2 AND $3 AND COALESCE(is_deleted, false) = false
+                UNION ALL
+                SELECT total_amount as amount, 'expense' as transaction_type, 'Отгрузка продукции' as category, 
+                       'Заказ №' || doc_number as description, TO_CHAR(created_at, 'DD.MM.YYYY') as date, created_at as sort_date
+                FROM client_orders WHERE counterparty_id = $1 AND created_at BETWEEN $2 AND $3 AND status != 'draft' AND status != 'cancelled'
+                UNION ALL
+                SELECT amount, 'income' as transaction_type, 'Поставка сырья' as category, 
+                       description, TO_CHAR(movement_date, 'DD.MM.YYYY') as date, movement_date as sort_date
+                FROM inventory_movements WHERE supplier_id = $1 AND movement_date BETWEEN $2 AND $3 AND movement_type = 'purchase'
+            `;
             const transactions = await pool.query(`
-                SELECT transaction_date, description, amount, transaction_type 
-                FROM transactions 
-                WHERE counterparty_id = $1 AND transaction_date BETWEEN $2 AND $3
-                ORDER BY transaction_date ASC
+                SELECT * FROM (${queries}) AS combined
+                ORDER BY sort_date ASC
             `, [cpId, start, end]);
 
             res.render('docs/act', {
@@ -414,7 +421,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
             }
 
             const order = {
-                doc_number: 'ПРОЕКТ', created_at: new Date(), client_name: c.name, delivery_address: data.delivery_address || c.legal_address, phone: c.phone, inn: c.inn, director_name: c.director_name, discount: data.discount, logistics_cost: data.logistics
+                doc_number: 'ПРОЕКТ', created_at: data.orderDate ? new Date(data.orderDate) : new Date(), client_name: c.name, delivery_address: data.delivery_address || c.legal_address, phone: c.phone, inn: c.inn, director_name: c.director_name, discount: data.discount, logistics_cost: data.logistics
             };
 
             res.render('docs/blank_order', {
@@ -509,7 +516,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
                 logistics: data.logistics,
                 finalTotal: finalTotal.toFixed(2),
                 totalWeight: totalWeight.toFixed(1),
-                date: new Date().toLocaleDateString('ru-RU'),
+                date: data.orderDate ? new Date(data.orderDate).toLocaleDateString('ru-RU') : new Date().toLocaleDateString('ru-RU'),
                 company: COMPANY_CONFIG
             });
         } catch (err) {

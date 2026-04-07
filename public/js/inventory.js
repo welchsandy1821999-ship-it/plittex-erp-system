@@ -46,9 +46,19 @@ function applyWarehouseFilter(id, btn) {
 }
 
 // === РЕЖИМ ИНВЕНТАРИЗАЦИИ ===
+let auditDatePicker = null;
+
 window.toggleAuditMode = function () {
     if (currentWarehouseFilter === 'all' && !isAuditMode) {
         return UI.toast('Для инвентаризации выберите конкретный склад (например, Склад №4)!', 'warning');
+    }
+
+    // Инициализация календаря если еще нет
+    const dateEl = document.getElementById('audit-date-filter');
+    if (dateEl && !auditDatePicker && typeof flatpickr !== 'undefined') {
+        auditDatePicker = flatpickr(dateEl, { 
+            dateFormat: "Y-m-d", altInput: true, altFormat: "d.m.Y", locale: "ru", defaultDate: new Date()
+        });
     }
 
     isAuditMode = !isAuditMode;
@@ -62,7 +72,7 @@ window.toggleAuditMode = function () {
         UI.toast('Режим инвентаризации включен. Введите фактические остатки.', 'info');
     } else {
         btnMode.classList.replace('btn-red', 'btn-outline');
-        btnMode.innerText = '📋 Инвентаризация';
+        btnMode.innerText = '📋 Ревизия';
         btnSave.classList.add('inv-hidden');
     }
     renderInventoryTable();
@@ -108,13 +118,16 @@ window.saveAudit = async function () {
         return UI.toast('Нет изменений. Остатки верны.', 'success');
     }
 
+    const auditDateStr = document.getElementById('audit-date-filter')?.value || '';
+
     try {
         await API.post('/api/inventory/audit', {
             warehouseId: currentWarehouseFilter,
-            adjustments: adjustments
+            adjustments: adjustments,
+            auditDate: auditDateStr
         });
 
-        UI.toast('✅ Инвентаризация успешно проведена!', 'success');
+        UI.toast('✅ Ревизия успешно проведена!', 'success');
         toggleAuditMode();
         loadTable();
     } catch (e) {

@@ -96,7 +96,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
     // ------------------------------------------------------------------
     // 2. Возврат от клиента с правильным НДС
     // ------------------------------------------------------------------
-    router.post('/api/sales/returns', async (req, res) => {
+    router.post('/api/sales/returns', requireAdmin, async (req, res) => {
         const { order_id, counterparty_id, items, pallets_returned, refund_method, refund_amount, account_id, reason, user_id } = req.body;
 
         try {
@@ -188,7 +188,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                                 FROM transactions t 
                                 WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
                             ), 0), 2)
-                        `);
+                            WHERE a.id = $1
+                        `, [account_id]);
                     } else if (refund_method === 'debt') {
                         if (order_id) {
                             await client.query(`
@@ -718,7 +719,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     o.*, 
                     c.name as client_name,
                     TO_CHAR(o.created_at, 'DD.MM.YYYY HH24:MI') as date_formatted,
-                    
+                    TO_CHAR(o.planned_shipment_date, 'DD.MM.YYYY') as deadline,
                     -- Склеиваем список товаров
                     COALESCE(
                         (SELECT STRING_AGG(i.name || ' (' || coi.qty_ordered || ' ' || i.unit || ')', ', ')
@@ -730,15 +731,24 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     (SELECT COALESCE(SUM(qty_ordered), 0) FROM client_order_items WHERE order_id = o.id) as total_ordered,
                     (SELECT COALESCE(SUM(qty_shipped), 0) FROM client_order_items WHERE order_id = o.id) as total_shipped,
                     
-                    -- 🚀 НОВОЕ: Считаем текущий долг по неоплаченным счетам (умножаем на -1 для красивого вывода)
-                    (SELECT COALESCE(SUM(pending_debt), 0) * -1 FROM client_orders WHERE counterparty_id = c.id AND (status = 'pending' OR status = 'processing')) as client_balance,
+                    -- 💰 Реальный баланс контрагента через транзакции
+                    (SELECT 
+                        COALESCE(SUM(CASE WHEN co2.status = 'completed' THEN co2.total_amount ELSE 0 END), 0) +
+                        COALESCE(SUM(CASE WHEN t2.transaction_type = 'expense' THEN t2.amount ELSE 0 END), 0) -
+                        COALESCE((SELECT COALESCE(SUM(amount), 0) FROM inventory_movements WHERE supplier_id = o.counterparty_id AND movement_type = 'purchase'), 0) -
+                        COALESCE(SUM(CASE WHEN t2.transaction_type = 'income' THEN t2.amount ELSE 0 END), 0)
+                    FROM counterparties cp2
+                    LEFT JOIN transactions t2 ON cp2.id = t2.counterparty_id AND COALESCE(t2.is_deleted, false) = false
+                    LEFT JOIN client_orders co2 ON cp2.id = co2.counterparty_id
+                    WHERE cp2.id = o.counterparty_id
+                    ) as client_balance,
                     
-                    -- 🚀 НОВОЕ: Считаем общий прогноз долга по всем текущим заказам
+                    -- Прогноз: сумма всех незакрытых долгов
                     (SELECT COALESCE(SUM(pending_debt), 0) * -1 FROM client_orders WHERE counterparty_id = c.id AND status != 'cancelled') as projected_balance
 
                 FROM client_orders o
                 LEFT JOIN counterparties c ON o.counterparty_id = c.id
-                WHERE 1=1
+                WHERE o.status IN ('pending', 'processing')
             `;
             const params = [];
 
@@ -798,16 +808,6 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             `, [orderId]);
 
             res.json({ order: orderRes.rows[0], items: itemsRes.rows });
-        } catch (err) {
-            console.error(err);
-            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
-        }
-    });
-
-    router.get('/api/sales/contracts/:clientId', async (req, res) => {
-        try {
-            const result = await pool.query(`SELECT id, number, date_formatted, name FROM contracts WHERE counterparty_id = $1 AND status = 'active' ORDER BY created_at DESC`, [req.params.clientId]);
-            res.json(result.rows);
         } catch (err) {
             console.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
@@ -1056,84 +1056,6 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
         }
     });
 
-
-    router.get('/api/sales/orders/:id', async (req, res) => {
-        try {
-            const orderRes = await pool.query('SELECT * FROM client_orders WHERE id = $1', [req.params.id]);
-            if (orderRes.rows.length === 0) return res.status(404).json({ error: "Заказ не найден" });
-            const itemsRes = await pool.query(`
-                SELECT coi.*, i.name as item_name, i.article, i.unit 
-                FROM client_order_items coi 
-                JOIN items i ON coi.item_id = i.id 
-                WHERE coi.order_id = $1`, [req.params.id]);
-            res.json({ order: orderRes.rows[0], items: itemsRes.rows });
-        } catch (err) {
-            console.error(err);
-            res.status(500).json({ error: err.message });
-        }
-    });
-
-    router.post('/api/sales/returns', requireAdmin, async (req, res) => {
-        try {
-            const { order_id, items, reason, refund_action, account_id } = req.body;
-            let returnId;
-
-            await withTransaction(pool, async (client) => {
-                const docRes = await client.query('SELECT COUNT(*) + 1 as num FROM customer_returns');
-                const docNumber = `ВЗ-${String(docRes.rows[0].num).padStart(5, '0')}`;
-
-                const orderRes = await client.query('SELECT counterparty_id, pending_debt FROM client_orders WHERE id = $1', [order_id]);
-                if (orderRes.rows.length === 0) throw new Error("Order not found");
-                const { counterparty_id, pending_debt } = orderRes.rows[0];
-
-                let totalReturnAmount = new Big(0);
-
-                const result = await client.query(`
-                    INSERT INTO customer_returns (doc_number, counterparty_id, reason, user_id, total_amount) 
-                    VALUES ($1, $2, $3, $4, 0) RETURNING id`,
-                    [docNumber, counterparty_id, reason, req.user ? req.user.id : null]);
-                returnId = result.rows[0].id;
-
-                for (const item of items) {
-                    const itemTotal = new Big(item.quantity).times(item.return_price);
-                    totalReturnAmount = totalReturnAmount.plus(itemTotal);
-
-                    await client.query(`
-                        INSERT INTO customer_return_items (return_id, item_id, quantity, price, warehouse_id) 
-                        VALUES ($1, $2, $3, $4, $5)`,
-                        [returnId, item.item_id, item.quantity, item.return_price, item.warehouse_id || 1]);
-
-                    await client.query(`
-                        INSERT INTO inventory_movements (item_id, warehouse_id, quantity, movement_type, movement_date, description, linked_order_item_id) 
-                        VALUES ($1, $2, $3, 'customer_return', NOW(), $4, null)`,
-                        [item.item_id, item.warehouse_id || 1, Math.abs(item.quantity), `Возврат по ${docNumber} (Заказ ID: ${order_id})`]);
-                }
-
-                const finalAmountNum = Number(totalReturnAmount.toFixed(2));
-                await client.query('UPDATE customer_returns SET total_amount = $1 WHERE id = $2', [finalAmountNum, returnId]);
-
-                if (refund_action === 'cash') {
-                    if (!account_id) throw new Error("Не выбран счет для возврата средств");
-                    await client.query(`
-                        INSERT INTO transactions (account_id, counterparty_id, amount, transaction_type, category, description, payment_method, linked_order_id, transaction_date) 
-                        VALUES ($1, $2, $3, 'expense', 'Возврат клиенту', $4, 'Возврат', $5, NOW())`,
-                        [account_id, counterparty_id, finalAmountNum, `Возврат денег за заказ. ${docNumber}`, order_id]);
-
-                } else if (refund_action === 'balance') {
-                    await client.query('UPDATE client_orders SET pending_debt = pending_debt - $1 WHERE id = $2', [finalAmountNum, order_id]);
-                    await client.query(`
-                        INSERT INTO transactions (counterparty_id, amount, transaction_type, category, description, payment_method, linked_order_id, transaction_date) 
-                        VALUES ($1, $2, 'expense', 'Корректировка при возврате', $3, 'Без движения', $4, NOW())`,
-                        [counterparty_id, finalAmountNum, `Корректировка долга при возврате товара. ${docNumber}`, order_id]);
-                }
-            });
-
-            res.json({ success: true, return_id: returnId });
-        } catch (err) {
-            console.error(err);
-            res.status(500).json({ error: err.message });
-        }
-    });
 
     return router;
 };

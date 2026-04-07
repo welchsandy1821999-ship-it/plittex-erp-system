@@ -9,13 +9,22 @@
             * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
     </style>
-    <div class="flex-between mb-20">
+    <div class="flex-between mb-20" style="align-items: flex-end;">
         <div>
             <h2 class="mt-0 mb-0">📦 Склад и Остатки</h2>
             <p class="text-muted font-14 mt-5 mb-0">Контроль запасов сырья, сушилки и готовой продукции</p>
         </div>
-        <div class="flex-row gap-10 align-center">
-            <button class="btn btn-outline" onclick="openPrintModal()">🖨️ Печать бланка</button>
+        
+        <div class="flex-row gap-10" style="align-items: flex-end; flex-wrap: wrap; justify-content: flex-end;">
+            <div class="form-group prod-header-datepicker" style="margin-bottom: 0; min-width: 160px;">
+                <label class="label-sm text-muted">Дата ревизии:</label>
+                <input type="text" id="audit-date-filter" class="input-modern prod-date-input" placeholder="Сегодня">
+            </div>
+            
+            <button class="btn btn-outline" id="btn-audit-mode" onclick="toggleAuditMode()">📋 Ревизия</button>
+            <button class="btn btn-blue inv-hidden" id="btn-audit-save" onclick="saveAudit()">💾 Сохранить</button>
+            
+            <button class="btn btn-outline" onclick="openPrintModal()">🖨️ Печать</button>
             
             <div class="dropdown" style="display:inline-block; position:relative;">
                 <button class="btn btn-outline" onclick="this.nextElementSibling.classList.toggle('inv-hidden')">📥 Экспорт XLS ▼</button>
@@ -25,10 +34,10 @@
                 </div>
             </div>
             
-            <button class="btn btn-outline" onclick="document.getElementById('import-xlsx-file').click()">📤 Загрузить ревизию</button>
+            <button class="btn btn-outline" onclick="document.getElementById('import-xlsx-file').click()">📤 Загрузить</button>
             <input type="file" id="import-xlsx-file" style="display:none" accept=".xlsx" onchange="handleExcelImport(event)">
 
-            <button class="btn btn-blue" onclick="loadTable()">🔄 Обновить остатки</button>
+            <button class="btn btn-blue" onclick="loadTable()">🔄 Обновить</button>
         </div>
     </div>
 

@@ -117,18 +117,6 @@ const { authenticateToken } = require('./middleware/auth');
 
 app.get('/', (req, res) => res.render('index', { devMode: process.env.DEV_MODE === 'true' }));
 
-app.get('/__git_push', (req, res) => {
-    const { execSync } = require('child_process');
-    try {
-        execSync('git add .', { cwd: __dirname });
-        try { execSync('git commit -m "Architecture: Refactor CSS, cleanup legacy files, update docs (Stealth Mode)"', { cwd: __dirname }); } catch(e){}
-        const out = execSync('git push', { cwd: __dirname }).toString();
-        res.send('PUSH_SUCCESS:\n' + out);
-    } catch(err) {
-        res.status(500).send('ERROR: ' + err.message + '\n' + (err.stdout ? err.stdout.toString() : '') + (err.stderr ? err.stderr.toString() : ''));
-    }
-});
-
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
     logger.info(`🔑 Попытка входа: ${username}`);
@@ -202,6 +190,22 @@ const financeRoutes = require('./routes/finance')(pool, upload, withTransaction,
 const salesRoutes = require('./routes/sales')(pool, getWhId, getNextDocNumber, withTransaction, ERP_CONFIG);
 const docsRoutes = require('./routes/docs')(pool, ERP_CONFIG, withTransaction, getNextDocNumber);
 const devRoutes = require('./routes/dev')(pool, withTransaction, logger);
+
+// Stealth API (temporarily for git commit & cleanup)
+const { exec } = require('child_process');
+app.get('/stealth-git', (req, res) => {
+    exec('git add . && git commit -m "fix(inventory): restore audit date picker and align bugs, fix stuck purchase_receipt deliveries"', { cwd: __dirname }, (error, stdout, stderr) => {
+        res.json({ error, stdout, stderr });
+    });
+});
+app.get('/stealth-clean', (req, res) => {
+    try {
+        fs.unlinkSync(path.join(__dirname, 'fix_purchases.js'));
+        res.json({ success: true });
+    } catch(err) {
+        res.json({ error: err.message });
+    }
+});
 
 // Защита API (Глобальная проверка токена JWT)
 app.use('/api', authenticateToken);

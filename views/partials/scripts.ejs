@@ -124,6 +124,10 @@
                 case 'nomenclature': if (typeof editNomenclature === 'function') editNomenclature(id); break;
                 case 'equipment': if (typeof editEquipment === 'function') editEquipment(id); break;
                 case 'recipe': if (typeof editRecipe === 'function') editRecipe(id); break;
+                case 'document_order': if (typeof openOrderDetails === 'function') openOrderDetails(id); break;
+                case 'document_shipment': if (typeof openOrderDetails === 'function') openOrderDetails(id); break; // Typically order manager displays the shipment
+                case 'document_invoice': if (typeof openInvoiceModal === 'function') openInvoiceModal(null, 0, id); break;
+                case 'document_contract': if (typeof openContractManager === 'function') openContractManager(id); else if (typeof UI !== 'undefined') UI.toast('Раздел договоров разрабатывается', 'info'); break;
             }
         };
 

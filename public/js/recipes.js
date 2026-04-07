@@ -48,6 +48,7 @@ function initStaticRecipeSelects() {
     if (prodEl) {
         if (!prodEl.tomselect) {
             new TomSelect(prodEl, {
+                score: function(search) { const query = search.toLowerCase(); const qC = query.replace(/[\.\s-]/g, ''); const tkns = query.split(/\s+/).filter(Boolean); return function(item) { const txt = (item.text || '').toLowerCase(); const txtC = txt.replace(/[\.\s-]/g, ''); let mm = true; for (let t of tkns) { let tC = t.replace(/[\.\s-]/g, ''); if (!txt.includes(t) && (!tC || !txtC.includes(tC))) { mm = false; break; } } if (!mm) { if (qC.length < 2 || !txtC.includes(qC)) return 0; } let bs = 100 / (txt.length + 1); if (qC.length >= 2 && txtC.includes(qC)) bs += 1000; return bs; }; },
                 plugins: ['clear_button'],
                 dropdownParent: 'body',
                 onChange: function(value) {
@@ -63,6 +64,7 @@ function initStaticRecipeSelects() {
     if (matEl) {
         if (!matEl.tomselect) {
             new TomSelect(matEl, {
+                score: function(search) { const query = search.toLowerCase(); const qC = query.replace(/[\.\s-]/g, ''); const tkns = query.split(/\s+/).filter(Boolean); return function(item) { const txt = (item.text || '').toLowerCase(); const txtC = txt.replace(/[\.\s-]/g, ''); let mm = true; for (let t of tkns) { let tC = t.replace(/[\.\s-]/g, ''); if (!txt.includes(t) && (!tC || !txtC.includes(tC))) { mm = false; break; } } if (!mm) { if (qC.length < 2 || !txtC.includes(qC)) return 0; } let bs = 100 / (txt.length + 1); if (qC.length >= 2 && txtC.includes(qC)) bs += 1000; return bs; }; },
                 plugins: ['clear_button'],
                 dropdownParent: 'body'
             });

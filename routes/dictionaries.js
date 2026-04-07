@@ -26,9 +26,27 @@ module.exports = function (pool, withTransaction) {
         let paramIndex = 1;
 
         if (search) {
-            whereClause += ` AND (name ILIKE $${paramIndex} OR category ILIKE $${paramIndex})`;
-            params.push(`%${search}%`);
-            paramIndex++;
+            const tokens = search.toLowerCase().split(/\s+/).filter(Boolean);
+            if (tokens.length > 0) {
+                let tokenConditions = [];
+                for (let token of tokens) {
+                    const tokenCondensed = token.replace(/[\.\s-]/g, '');
+                    if (tokenCondensed) {
+                        tokenConditions.push(`(
+                            name ILIKE $${paramIndex} 
+                            OR category ILIKE $${paramIndex} 
+                            OR REPLACE(REPLACE(REPLACE(LOWER(name), '.', ''), ' ', ''), '-', '') LIKE $${paramIndex + 1}
+                            OR REPLACE(REPLACE(REPLACE(LOWER(category), '.', ''), ' ', ''), '-', '') LIKE $${paramIndex + 1}
+                        )`);
+                        params.push(`%${token}%`);
+                        params.push(`%${tokenCondensed}%`);
+                        paramIndex += 2;
+                    }
+                }
+                if (tokenConditions.length > 0) {
+                    whereClause += ` AND (${tokenConditions.join(' AND ')})`;
+                }
+            }
         }
         if (item_type) {
             whereClause += ` AND item_type = $${paramIndex}`;

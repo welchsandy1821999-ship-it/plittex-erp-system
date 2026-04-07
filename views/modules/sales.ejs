@@ -38,7 +38,13 @@
 
         <!-- ════ БЛОК 1: КЛИЕНТ + ПОИСК ТОВАРА ════ -->
         <div class="card p-20 m-0 mb-15">
-            <h3 class="font-18 mt-0 mb-15 text-main">1. Клиент и подбор товара</h3>
+            <div class="flex-between m-0 mb-15">
+                <h3 class="font-18 mt-0 mb-0 text-main">1. Клиент и подбор товара</h3>
+                <div class="flex-row gap-5 align-center">
+                    <label class="font-12 text-muted m-0">Дата заказа:</label>
+                    <input type="date" id="sale-order-date" class="input-modern" style="width: 130px; height: 32px; padding: 4px 6px;">
+                </div>
+            </div>
 
             <!-- Выбор клиента -->
             <div class="form-group mb-10">
@@ -108,8 +114,8 @@
 
                     <div class="sales-qty-actions">
                         <button type="button" class="btn btn-outline sales-btn-calc sales-hidden"
-                            onclick="openProfitCalculator()" id="btn-calc-sales-cost">
-                            📊 Калькулятор
+                            onclick="openCostAnalysisModal()" id="btn-calc-sales-cost">
+                            📊 Калькулятор себестоимости
                         </button>
                         <button type="button" class="btn btn-blue sales-btn-add" onclick="addToCart()">
                             ➕ В заказ
@@ -166,16 +172,34 @@
                         <strong class="text-primary"><span id="cart-total-sum">0</span> ₽</strong>
                     </div>
                 </div>
+                <!-- 🚀 Блок себестоимости -->
+                <div class="mt-15 pt-15 border-top" id="top-cart-cost-block">
+                    <div class="flex-between font-14 text-muted mb-0">
+                        <span>Общая себестоимость продукции:</span>
+                        <strong><span id="cart-total-cost">0</span> ₽</strong>
+                    </div>
+                </div>
             </div>
         </div>
 
         <!-- ════ БЛОК 3: ЛОГИСТИКА ════ -->
         <div class="card p-0 m-0 mb-15 overflow-hidden">
             <div class="p-15 border-bottom bg-surface-alt">
-                <h3 class="font-16 m-0 text-main">🚚 Логистика</h3>
+                <h3 class="font-16 m-0 text-main">3. 🚚 Логистика</h3>
             </div>
             <div class="p-20">
                 <div class="form-group mb-15">
+                    <label>Способ получения:</label>
+                    <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 15px; margin-top: 5px;">
+                        <label style="cursor: pointer; display: flex; align-items: center; font-size: 14px;">
+                            <input type="radio" name="sale_delivery_type" value="pickup" onchange="toggleSaleDelivery()" style="margin-right: 8px;"> Самовывоз
+                        </label>
+                        <label style="cursor: pointer; display: flex; align-items: center; font-size: 14px;">
+                            <input type="radio" name="sale_delivery_type" value="delivery" onchange="toggleSaleDelivery()" checked style="margin-right: 8px;"> Доставка (Наш/наемный транспорт)
+                        </label>
+                    </div>
+                </div>
+                <div class="form-group mb-15" id="sale-delivery-address-group">
                     <label>Адрес объекта (доставки):</label>
                     <input type="text" id="sale-delivery-address" class="input-modern" placeholder="г. Армавир, ул. Ленина 1">
                 </div>
@@ -189,42 +213,36 @@
                         <input type="number" id="sale-pallets" class="input-modern" placeholder="Количество" min="0">
                     </div>
                 </div>
-                <div class="flex-row gap-15 flex-wrap mt-15">
-                    <div class="form-group m-0 flex-grow-1">
-                        <label>ФИО Водителя:</label>
-                        <input type="text" id="sale-driver" class="input-modern" placeholder="Иванов И.И.">
-                    </div>
-                    <div class="form-group m-0 flex-grow-1">
-                        <label>Автомобиль:</label>
-                        <input type="text" id="sale-auto" class="input-modern" placeholder="Гос. номер (Е123КХ)">
-                    </div>
-                </div>
-                <div class="bg-surface-alt p-15 border-radius-8 border mt-15">
-                    <div class="flex-between mb-10">
-                        <label class="font-bold text-main m-0">Основание (Доверенность):</label>
-                        <label class="font-12 d-flex align-center cursor-pointer m-0">
-                            <input type="checkbox" id="sale-no-poa" onchange="togglePoaMode()" class="mr-5"> Без доверенности
-                        </label>
-                    </div>
-                    <div id="poa-select-group" class="flex-row gap-10 align-stretch mb-0">
-                        <select id="sale-poa" class="input-modern flex-grow-1 m-0"></select>
-                        <button class="btn btn-outline p-10" onclick="openPoaManager()" title="Добавить доверенность">➕</button>
-                    </div>
-                    <div id="poa-comment-group" class="sales-hidden mt-10">
-                        <input type="text" id="sale-poa-comment" class="input-modern m-0"
-                            placeholder="Укажите, кто разрешил отгрузку без доверенности">
-                    </div>
-                </div>
             </div>
         </div>
 
         <!-- ════ БЛОК 4: ОПЛАТА ════ -->
         <div class="card p-0 m-0 mb-15 overflow-hidden">
             <div class="p-15 border-bottom bg-surface-alt">
-                <h3 class="font-16 m-0 text-main">💳 Оплата</h3>
+                <h3 class="font-16 m-0 text-main">4. 💳 Оплата</h3>
             </div>
             <div class="p-20">
-                <div class="form-group mb-15">
+                <!-- 🚀 ВЗАИМОЗАЧЕТ (появляется если есть аванс) -->
+                <div class="bg-success-lt border-success p-15 border-radius-8 mb-15 sales-hidden" id="sale-offset-group">
+                    <div class="flex-between mb-10">
+                        <div>
+                            <h4 class="m-0 text-success">💰 Доступен аванс (Переплата)</h4>
+                            <div class="font-12 text-success mt-5">На балансе клиента: <b id="sale-offset-max" class="font-14">0 ₽</b></div>
+                        </div>
+                        <label class="font-14 d-flex align-center cursor-pointer m-0">
+                            <input type="checkbox" id="sale-offset-check" onchange="toggleOffsetInput()" class="mr-10" style="width:18px; height:18px;"> 
+                            <b class="text-success">Использовать в зачет</b>
+                        </label>
+                    </div>
+                    <div id="sale-offset-input-wrap" class="sales-hidden mt-10">
+                        <label class="font-12 text-success mb-5 d-block">Сумма к зачету из баланса:</label>
+                        <input type="number" id="sale-offset-amount" class="input-modern border-success font-16 font-bold text-success" 
+                               placeholder="Сумма" max="0" min="0" oninput="updateOffsetSummary()">
+                        <div class="font-12 text-muted mt-5">Остаток к доплате после зачета: <b id="sale-offset-remainder">0 ₽</b></div>
+                    </div>
+                </div>
+
+                <div class="form-group mb-15" id="sale-payment-method-group">
                     <label>Метод оплаты:</label>
                     <select id="sale-payment-method" class="input-modern" onchange="toggleSalePayment()">
                         <option value="debt">⏳ В долг (Счет на оплату / Ожидаем)</option>
@@ -323,7 +341,7 @@
                 </div>
             </div>
 
-            <div id="sales-kanban-board" class="sales-kanban-board">
+            <div id="sales-kanban-board" class="sales-kanban-board" style="display: none;">
                 <div class="kanban-column" data-status="pending">
                     <h3 class="kanban-column-title">
                         <span>🆕 Новые заказы</span>
@@ -362,15 +380,8 @@
                     <div class="form-group m-0">
                         <div class="flex-between mb-5">
                             <label class="font-12 text-muted m-0">📅 Период отгрузки:</label>
-                            <span class="font-11 text-primary">
-                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('today')" class="text-decoration-none">Сегодня</a> |
-                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('week')" class="text-decoration-none">Неделя</a> |
-                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('month')" class="text-decoration-none">Месяц</a> |
-                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('quarter')" class="text-decoration-none">Квартал</a> |
-                                <a href="#" onclick="event.preventDefault(); setHistoryDateRange('year')" class="text-decoration-none">Год</a>
-                            </span>
                         </div>
-                        <input type="text" id="hist-date-filter" class="input-modern m-0 text-center" placeholder="Выберите 1 день или период...">
+                        <div id="hist-date-filter-container" class="history-period-selector flex-row gap-10"></div>
                     </div>
                     <button class="btn btn-outline p-10 h-100" onclick="resetHistoryFilters()" title="Сбросить фильтры">🔄</button>
                 </div>

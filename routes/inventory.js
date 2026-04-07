@@ -31,14 +31,17 @@ module.exports = function (pool, getWhId, withTransaction) {
                 SELECT 
                     m.item_id, i.name as item_name, i.unit,
                     m.warehouse_id, w.name as warehouse_name, 
-                    m.batch_id, b.batch_number,
+                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE m.batch_id END as batch_id, 
+                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE b.batch_number END as batch_number,
                     SUM(m.quantity) as total 
                 FROM inventory_movements m
                 JOIN items i ON m.item_id = i.id
                 JOIN warehouses w ON m.warehouse_id = w.id
                 LEFT JOIN production_batches b ON m.batch_id = b.id
                 ${queryOptions}
-                GROUP BY m.item_id, i.name, i.unit, m.warehouse_id, w.name, m.batch_id, b.batch_number
+                GROUP BY m.item_id, i.name, i.unit, m.warehouse_id, w.name, 
+                         CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE m.batch_id END, 
+                         CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE b.batch_number END
                 HAVING SUM(m.quantity) <> 0
                 ORDER BY m.warehouse_id, i.name
             `, params);
@@ -151,14 +154,17 @@ module.exports = function (pool, getWhId, withTransaction) {
                 SELECT 
                     m.item_id, i.name as item_name, i.unit,
                     m.warehouse_id, w.name as warehouse_name, 
-                    m.batch_id, b.batch_number,
+                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE m.batch_id END as batch_id, 
+                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE b.batch_number END as batch_number,
                     SUM(m.quantity) as total 
                 FROM inventory_movements m
                 JOIN items i ON m.item_id = i.id
                 JOIN warehouses w ON m.warehouse_id = w.id
                 LEFT JOIN production_batches b ON m.batch_id = b.id
                 ${queryOptions}
-                GROUP BY m.item_id, i.name, i.unit, m.warehouse_id, w.name, m.batch_id, b.batch_number
+                GROUP BY m.item_id, i.name, i.unit, m.warehouse_id, w.name, 
+                         CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE m.batch_id END, 
+                         CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE b.batch_number END
                 HAVING SUM(m.quantity) <> 0 OR m.item_id > 0
                 ORDER BY m.warehouse_id, i.name
             `, params);
@@ -316,7 +322,7 @@ module.exports = function (pool, getWhId, withTransaction) {
     router.get('/api/inventory/purchase-dates', async (req, res) => {
         try {
             const result = await pool.query(`
-                SELECT DISTINCT to_char(created_at, 'YYYY-MM-DD') as date
+                SELECT DISTINCT to_char(movement_date, 'YYYY-MM-DD') as date
                 FROM inventory_movements
                 WHERE movement_type = 'purchase'
                 ORDER BY date DESC
@@ -347,8 +353,8 @@ module.exports = function (pool, getWhId, withTransaction) {
                 JOIN items i ON m.item_id = i.id
                 LEFT JOIN counterparties c ON m.supplier_id = c.id
                 WHERE m.movement_type = 'purchase' 
-                  AND to_char(m.created_at, 'YYYY-MM-DD') = $1
-                ORDER BY m.created_at DESC
+                  AND to_char(m.movement_date, 'YYYY-MM-DD') = $1
+                ORDER BY m.movement_date DESC
             `, [date]);
             res.json(result.rows);
         } catch (err) {
@@ -454,8 +460,8 @@ module.exports = function (pool, getWhId, withTransaction) {
                 SELECT 
                     m.item_id, i.name as item_name, i.unit, 
                     m.warehouse_id, w.name as warehouse_name, w.type as warehouse_type,
-                    CASE WHEN w.type = 'materials' THEN NULL ELSE m.batch_id END as batch_id, 
-                    CASE WHEN w.type = 'materials' THEN NULL ELSE b.batch_number END as batch_number, 
+                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE m.batch_id END as batch_id, 
+                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE b.batch_number END as batch_number, 
                     CASE WHEN w.type = 'reserve' THEN m.linked_order_item_id ELSE NULL END as linked_order_item_id,
                     CASE WHEN w.type = 'reserve' THEN co.doc_number ELSE NULL END as order_doc_number,
                     CASE WHEN w.type = 'reserve' THEN co.id ELSE NULL END as order_id,
@@ -469,8 +475,8 @@ module.exports = function (pool, getWhId, withTransaction) {
                 GROUP BY 
                     m.item_id, i.name, i.unit, 
                     m.warehouse_id, w.name, w.type,
-                    CASE WHEN w.type = 'materials' THEN NULL ELSE m.batch_id END, 
-                    CASE WHEN w.type = 'materials' THEN NULL ELSE b.batch_number END,
+                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE m.batch_id END, 
+                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE b.batch_number END,
                     CASE WHEN w.type = 'reserve' THEN m.linked_order_item_id ELSE NULL END,
                     CASE WHEN w.type = 'reserve' THEN co.doc_number ELSE NULL END,
                     CASE WHEN w.type = 'reserve' THEN co.id ELSE NULL END
@@ -533,7 +539,7 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ИНВЕНТАРИЗАЦИЯ: КОРРЕКТИРОВКА ОСТАТКОВ (ИСПРАВЛЕННЫЙ БЕЗОПАСНЫЙ МЕТОД)
     // ------------------------------------------------------------------
     router.post('/api/inventory/audit', requireAdmin, async (req, res) => {
-        const { warehouseId, adjustments } = req.body;
+        const { warehouseId, adjustments, auditDate } = req.body;
         const userId = req.user ? req.user.id : null;
 
         try {
@@ -577,13 +583,14 @@ module.exports = function (pool, getWhId, withTransaction) {
 
                     // 4. Записываем корректировку, если есть разница
                     if (diffQtyBig.abs().gt(0.0001)) {
-                        const desc = `Инвентаризация: факт ${actualQty}, было ${currentBalance}`;
+                        const dateStrPart = auditDate ? ` от ${auditDate}` : '';
+                        const desc = `Инвентаризация${dateStrPart}: факт ${actualQty}, было ${currentBalance}`;
 
                         await client.query(`
                             INSERT INTO inventory_movements 
-                            (item_id, warehouse_id, batch_id, quantity, movement_type, description, user_id) 
-                            VALUES ($1, $2, $3, $4, 'audit_adjustment', $5, $6)
-                        `, [itemId, wh_id, batchId, diffQty, desc, userId]);
+                            (item_id, warehouse_id, batch_id, quantity, movement_type, description, user_id, movement_date, created_at) 
+                            VALUES ($1, $2, $3, $4, 'audit_adjustment', $5, $6, COALESCE($7::timestamp, CURRENT_TIMESTAMP), COALESCE($7::timestamp, CURRENT_TIMESTAMP))
+                        `, [itemId, wh_id, batchId, diffQty, desc, userId, auditDate || null]);
                     }
                 }
             });
@@ -627,10 +634,52 @@ module.exports = function (pool, getWhId, withTransaction) {
                 `, [tileId, -totalRemoved, dryingWh, batchId, userId]);
 
                 if (goodQty > 0) {
-                    await client.query(`
-                        INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id)
-                        VALUES ($1, $2, 'finished_receipt', 'Распалубка: 1-й сорт', $3, $4, $5)
-                    `, [tileId, goodQty, finishedWh, batchId, userId]);
+                    let remainingGood = Number(new Big(goodQty));
+                    const reserveWhId = await getWhId(client, 'reserve');
+
+                    const pendingOrders = await client.query(`
+                        SELECT coi.id, coi.qty_production, co.doc_number 
+                        FROM client_order_items coi 
+                        JOIN client_orders co ON coi.order_id = co.id 
+                        WHERE coi.item_id = $1 
+                          AND coi.qty_production > 0 
+                          AND co.status IN ('pending', 'processing')
+                        ORDER BY co.id ASC
+                    `, [tileId]);
+
+                    for (let order of pendingOrders.rows) {
+                        if (remainingGood <= 0) break;
+                        const orderNeeds = Number(new Big(order.qty_production));
+                        const allocate = Math.min(remainingGood, orderNeeds);
+                        remainingGood -= allocate;
+
+                        await client.query(`
+                            INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id)
+                            VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6, $7)
+                        `, [tileId, allocate, `Распалубка: сразу в Резерв по ${order.doc_number}`, reserveWhId, batchId, userId, order.id]);
+
+                        await client.query(`
+                            UPDATE client_order_items 
+                            SET qty_reserved = COALESCE(qty_reserved, 0) + $1,
+                                qty_production = GREATEST(COALESCE(qty_production, 0) - $1, 0)
+                            WHERE id = $2
+                        `, [allocate, order.id]);
+
+                        await client.query(`
+                            UPDATE planned_production 
+                            SET quantity = GREATEST(COALESCE(quantity, 0) - $1, 0)
+                            WHERE order_item_id = $2
+                        `, [allocate, order.id]);
+                        
+                        await client.query(`DELETE FROM planned_production WHERE order_item_id = $1 AND quantity <= 0`, [order.id]);
+                    }
+
+                    if (remainingGood > 0) {
+                        await client.query(`
+                            INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id)
+                            VALUES ($1, $2, 'finished_receipt', 'Распалубка: 1-й сорт', $3, $4, $5)
+                        `, [tileId, remainingGood, finishedWh, batchId, userId]);
+                    }
                 }
 
                 if (grade2Qty > 0) {
@@ -936,7 +985,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
                 const moveRes = await client.query(`
                     INSERT INTO inventory_movements 
-                    (item_id, quantity, movement_type, warehouse_id, supplier_id, amount, delivery_cost, description, created_at)
+                    (item_id, quantity, movement_type, warehouse_id, supplier_id, amount, delivery_cost, description, movement_date)
                     VALUES ($1, $2, 'purchase', $3, $4, $5, $6, $7, COALESCE($8::timestamp, CURRENT_TIMESTAMP)) RETURNING id
                 `, [itemId, qtyNum, materialsWh, counterparty_id, totalAmount, delCostNum, `Закупка сырья (Мат: ${materialCost}, Дост: ${delCostNum})`, purchaseDate || null]);
 
