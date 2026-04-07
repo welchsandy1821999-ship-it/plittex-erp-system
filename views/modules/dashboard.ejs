@@ -42,10 +42,12 @@
 
     <!-- Капитализация склада (Активы) - Аккордеон -->
     <div class="card mb-20 dash-stock-card">
-        <div class="p-15 cursor-pointer flex-between align-center" onclick="const body = document.getElementById('stock-val-body'); body.style.display = body.style.display === 'none' ? 'block' : 'none';">
+        <div class="p-15 cursor-pointer flex-between align-center"
+            onclick="const body = document.getElementById('stock-val-body'); body.style.display = body.style.display === 'none' ? 'block' : 'none';">
             <div>
                 <h3 class="dash-stock-title">📦 Капитализация склада (Активы)</h3>
-                <p class="text-muted m-0 mt-5 font-12">Общая стоимость остатков сырья и готовой продукции: <span id="stock-val-total" class="font-bold text-main">0 ₽</span></p>
+                <p class="text-muted m-0 mt-5 font-12">Общая стоимость остатков сырья и готовой продукции: <span
+                        id="stock-val-total" class="font-bold text-main">0 ₽</span></p>
             </div>
             <div class="text-muted font-11">▼ РАСКРЫТЬ</div>
         </div>
@@ -56,17 +58,63 @@
         </div>
     </div>
 
+    <!-- Виджеты: Дебиторка и Min Stock -->
+    <div class="form-grid mb-20 gap-20 align-start" style="grid-template-columns: 1fr 1fr;">
+
+        <div class="card p-0 border-left-warning overflow-hidden">
+            <div class="p-15 cursor-pointer flex-between align-center"
+                onclick="var b=this.nextElementSibling; var i=this.querySelector('.acc-icon'); if(b.style.display==='none'){b.style.display='block';i.innerText='▲';}else{b.style.display='none';i.innerText='▼';}">
+                <div>
+                    <h3 class="m-0 font-15">💰 Ожидаемые поступления</h3>
+                </div>
+                <div class="flex-row align-center gap-10">
+                    <div class="text-warning font-18 font-bold" id="dash-widget-ar-total">0 ₽</div>
+                    <div class="text-muted font-12 acc-icon" style="user-select: none;">▼</div>
+                </div>
+            </div>
+
+            <div id="dash-ar-body"
+                style="display: none; padding: 0 15px 15px 15px; border-top: 1px dashed var(--border);">
+                <div id="dash-widget-ar-list" style="font-size: 13px; color: var(--text-muted);">
+                    <div style="padding: 10px;">Загрузка...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card p-0 border-left-danger overflow-hidden">
+            <div class="p-15 cursor-pointer flex-between align-center"
+                onclick="var b=this.nextElementSibling; var i=this.querySelector('.acc-icon'); if(b.style.display==='none'){b.style.display='block';i.innerText='▲';}else{b.style.display='none';i.innerText='▼';}">
+                <div>
+                    <h3 class="m-0 font-15">🚨 Заканчиваются материалы</h3>
+                </div>
+                <div class="flex-row align-center gap-10">
+                    <span id="dash-widget-stock-badge" class="text-danger font-16 font-bold"></span>
+                    <div class="text-muted font-12 acc-icon" style="user-select: none;">▼</div>
+                </div>
+            </div>
+
+            <div id="dash-stock-body"
+                style="display: none; padding: 0 15px 15px 15px; border-top: 1px dashed var(--border);">
+                <div id="dash-widget-stock-list" style="font-size: 13px; color: var(--text-muted); min-height: 50px;">
+                    <div style="padding: 10px;">Загрузка...</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
     <!-- Умный поиск -->
     <div class="mb-20">
-        <input type="text" id="cc-search-input" class="input-modern w-100 dash-main-search" 
-            placeholder="🔍 Умный поиск транзакций (по платежу, категории, контрагенту или сумме)..." 
+        <input type="text" id="cc-search-input" class="input-modern w-100 dash-main-search"
+            placeholder="🔍 Умный поиск транзакций (по платежу, категории, контрагенту или сумме)..."
             oninput="handleCostSearch(this.value)">
-        
+
         <!-- Контейнер для результатов глобального поиска -->
         <div id="cc-global-search-container" class="card mt-15 dash-search-container" style="display: none;">
             <div class="flex-between dash-panel-header mb-15">
                 <h3 class="m-0 font-16">🔍 Результаты глобального поиска</h3>
-                <button class="btn btn-outline btn-sm" onclick="document.getElementById('cc-search-input').value=''; handleCostSearch('');">❌ Очистить</button>
+                <button class="btn btn-outline btn-sm"
+                    onclick="document.getElementById('cc-search-input').value=''; handleCostSearch('');">❌
+                    Очистить</button>
             </div>
             <div id="cc-global-search-content"></div>
         </div>
@@ -99,36 +147,11 @@
         </div>
     </div>
 
-    <!-- Контейнер панелей (Sliding Tabs) -->
-    <style>
-        .dashboard-tabs-content { max-height: 1500px; opacity: 1; }
-        .collapsed-panel { max-height: 0 !important; opacity: 0 !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; }
-        
-        .dash-triad-grid { --active-border-color: transparent; }
-        .dashboard-tabs-nav .cost-card {
-            background-color: #e8f0f2;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
-            border-left: 1px solid transparent !important;
-            border-right: 1px solid transparent !important;
-            border-bottom: 1px solid transparent !important;
-            transition: all 0.3s ease;
-            position: relative;
-            z-index: 1;
-        }
-        
-        .dashboard-tabs-nav .cost-card.tab-active {
-            background-color: #ffffff;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
-            z-index: 10;
-            border: 1.5px solid var(--active-border-color) !important;
-        }
-    </style>
-    
-    <div id="drilldown-container" style="overflow: hidden; width: 100%; margin-bottom: 20px; border-radius: 12px; background-color: #ffffff; transition: all 0.3s ease;">
-        <div id="dashboard-tabs-content" class="dashboard-tabs-content collapsed-panel" style="display: flex; width: 300%; transition: transform 0.4s ease-in-out, max-height 0.4s ease-in-out, opacity 0.4s ease-in-out; align-items: flex-start; transform: translateX(0%); overflow: hidden;">
-            
+    <div id="drilldown-container" class="dash-drill-container"
+        style="overflow: hidden; width: 100%; margin-bottom: 20px; border-radius: 12px; transition: all 0.3s ease;">
+        <div id="dashboard-tabs-content" class="dashboard-tabs-content collapsed-panel"
+            style="display: flex; width: 300%; transition: transform 0.4s ease-in-out, max-height 0.4s ease-in-out, opacity 0.4s ease-in-out; align-items: flex-start; transform: translateX(0%); overflow: hidden;">
+
             <div class="tab-panel" style="width: 33.333%; padding-right: 20px; box-sizing: border-box;">
                 <div class="card mb-0 dash-panel-success">
                     <div class="flex-between mb-15 dash-panel-header">
@@ -136,20 +159,23 @@
                             <button class="btn btn-outline btn-sm-pad" onclick="closeCostCategory()">⬅ Назад</button>
                             <h3 id="drill-title-direct" class="m-0 font-16">🟢 COGS</h3>
                         </div>
-                        <button class="btn btn-outline btn-sm-pad" onclick="switchCostTab('direct', 0)">❌ Закрыть панель</button>
+                        <button class="btn btn-outline btn-sm-pad" onclick="switchCostTab('direct', 0)">❌ Закрыть
+                            панель</button>
                     </div>
                     <div id="cc-panel-direct" class="dash-drill-panel"></div>
                 </div>
             </div>
 
-            <div class="tab-panel" style="width: 33.333%; padding-right: 10px; padding-left: 10px; box-sizing: border-box;">
+            <div class="tab-panel"
+                style="width: 33.333%; padding-right: 10px; padding-left: 10px; box-sizing: border-box;">
                 <div class="card mb-0 dash-panel-warning">
                     <div class="flex-between mb-15 dash-panel-header">
                         <div class="flex-row gap-10 align-center">
                             <button class="btn btn-outline btn-sm-pad" onclick="closeCostCategory()">⬅ Назад</button>
                             <h3 id="drill-title-opex" class="m-0 font-16">🟠 OPEX</h3>
                         </div>
-                        <button class="btn btn-outline btn-sm-pad" onclick="switchCostTab('opex', 1)">❌ Закрыть панель</button>
+                        <button class="btn btn-outline btn-sm-pad" onclick="switchCostTab('opex', 1)">❌ Закрыть
+                            панель</button>
                     </div>
                     <div id="cc-panel-opex" class="dash-drill-panel"></div>
                 </div>
@@ -162,7 +188,8 @@
                             <button class="btn btn-outline btn-sm-pad" onclick="closeCostCategory()">⬅ Назад</button>
                             <h3 id="drill-title-capex" class="m-0 font-16">🔵 CAPEX</h3>
                         </div>
-                        <button class="btn btn-outline btn-sm-pad" onclick="switchCostTab('capex', 2)">❌ Закрыть панель</button>
+                        <button class="btn btn-outline btn-sm-pad" onclick="switchCostTab('capex', 2)">❌ Закрыть
+                            панель</button>
                     </div>
                     <div id="cc-panel-capex" class="dash-drill-panel"></div>
                 </div>
@@ -176,12 +203,14 @@
         <div class="flex-between mb-15">
             <div>
                 <h3 class="m-0 mt-0 mb-5 font-16">⚙️ Финансовая модель (Оверхед и Налоги)</h3>
-                <p class="text-muted m-0 font-12">Распределение косвенных затрат (аренда, офис, ЗП ИТР) на 1 цикл работы пресса.</p>
+                <p class="text-muted m-0 font-12">Распределение косвенных затрат (аренда, офис, ЗП ИТР) на 1 цикл работы
+                    пресса.</p>
             </div>
             <div class="dash-finance-tax-box">
                 <div class="font-11 text-muted font-bold" style="text-transform: uppercase;">Налог со сделки</div>
                 <div class="dash-tax-input-wrap">
-                    <input type="number" id="set-sales-tax" class="input-modern dash-tax-input" step="1" min="0" value="6">
+                    <input type="number" id="set-sales-tax" class="input-modern dash-tax-input" step="1" min="0"
+                        value="6">
                     <span class="font-bold text-primary">%</span>
                 </div>
             </div>
@@ -190,21 +219,25 @@
         <div class="dash-finance-input-box">
             <div class="flex-between align-center mb-10">
                 <strong class="font-13 text-primary">1. Исходные данные месяца (План):</strong>
-                <span class="font-11 text-info p-5" style="background: var(--info-bg); border-radius: 4px;">В будущем автоматизируем из модуля Финансы 🔄</span>
+                <span class="font-11 text-info p-5" style="background: var(--info-bg); border-radius: 4px;">В будущем
+                    автоматизируем из модуля Финансы 🔄</span>
             </div>
 
             <div class="dash-finance-grid">
                 <div class="form-group m-0">
                     <label class="font-11">Косвенные траты (₽/мес):</label>
-                    <input type="number" id="set-monthly-exp" class="input-modern" step="1000" min="0" value="1500000" oninput="recalcOverheadUI()">
+                    <input type="number" id="set-monthly-exp" class="input-modern" step="1000" min="0" value="1500000"
+                        oninput="recalcOverheadUI()">
                 </div>
                 <div class="form-group m-0">
                     <label class="font-11">Рабочих дней в мес:</label>
-                    <input type="number" id="set-month-days" class="input-modern" step="1" min="1" max="31" value="22" oninput="recalcOverheadUI()">
+                    <input type="number" id="set-month-days" class="input-modern" step="1" min="1" max="31" value="22"
+                        oninput="recalcOverheadUI()">
                 </div>
                 <div class="form-group m-0">
                     <label class="font-11">Норма циклов/смену:</label>
-                    <input type="number" id="set-shift-cycles" class="input-modern" step="10" min="1" value="500" oninput="recalcOverheadUI()">
+                    <input type="number" id="set-shift-cycles" class="input-modern" step="10" min="1" value="500"
+                        oninput="recalcOverheadUI()">
                 </div>
             </div>
         </div>
@@ -217,7 +250,8 @@
                 </div>
             </div>
             <div class="text-right">
-                <div id="res-overhead-cycle" class="font-24 text-warning" style="font-weight: 900; line-height: 1;">136.36 ₽</div>
+                <div id="res-overhead-cycle" class="font-24 text-warning" style="font-weight: 900; line-height: 1;">
+                    136.36 ₽</div>
                 <div class="font-11 font-bold text-muted mt-5">ложится на 1 поддон продукции</div>
             </div>
         </div>

@@ -83,7 +83,14 @@ plittex-erp/
 │   │
 │   └── saved_docs/                 # 📂 PDF-хранилище (ротация 500 файлов)
 │
-└── erp_*.md                        # 📋 Документация аудита
+├── .antigravity/                   # 🤖 ИИ-Инструкции и протоколы (Zero-Terminal, DB Rules)
+├── .agent/workflows/               # 📜 Автоматизированные рабочие процессы ИИ (main, refactor_ui)
+├── _import_data/                   # 📥 Исходники данных (Прайсы Excel, PDF, TXT)
+│
+├── project_glossary.md             # 📖 Словарь терминов проекта (Warehouse ID, Big.js)
+├── erp_architecture_tree.md        # 📐 Дерево архитектуры и схемы БД
+├── erp_master_audit_list.md        # 🛡️ Сводный лог аудита уязвимостей
+└── erp_technical_docs.md           # 📘 Техническая документация модулей
 ```
 
 ---
@@ -171,7 +178,6 @@ erDiagram
 | Таблица | Колонок | Размер | Soft Delete | Индексы |
 |---|---|---|---|---|
 | `inventory_movements` | 16 | 144 kB | ❌ Hard | PK, idx_item(×2), idx_warehouse, idx_order |
-| `item_reservations` | 5 | 8 kB | — | PK only (⚠️ ORPHAN) |
 
 #### 💼 Продажи
 | Таблица | Колонок | Размер | Soft Delete | Индексы |

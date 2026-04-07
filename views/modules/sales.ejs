@@ -34,209 +34,230 @@
         <div class="sales-tab-btn" onclick="switchSalesTab('tab-history', this)">📜 Архив отгрузок</div>
     </div>
 
-    <!-- === ВКЛАДКА 1: НОВЫЙ ЗАКАЗ === -->
     <div id="tab-new-order" class="sales-tab-content active">
-        <div class="sales-checkout-grid">
 
-            <div class="card p-20 m-0">
-                <h3 class="font-18 mt-0 mb-20 text-main">1. Контрагент и продукция</h3>
+        <!-- ════ БЛОК 1: КЛИЕНТ + ПОИСК ТОВАРА ════ -->
+        <div class="card p-20 m-0 mb-15">
+            <h3 class="font-18 mt-0 mb-15 text-main">1. Клиент и подбор товара</h3>
 
-                <div class="form-group">
-                    <label>Клиент (Контрагент):</label>
-                    <div class="flex-row gap-10 align-stretch">
-                        <select id="sale-client" class="input-modern flex-grow-1" onchange="onClientChange()"></select>
-                        <button type="button" class="btn btn-outline p-10" onclick="openMiniClientModal()">➕</button>
+            <!-- Выбор клиента -->
+            <div class="form-group mb-10">
+                <label>Клиент (Контрагент):</label>
+                <div class="flex-row gap-10 align-stretch">
+                    <select id="sale-client" class="input-modern flex-grow-1" onchange="onClientChange()"></select>
+                    <button type="button" class="btn btn-outline p-10" onclick="openMiniClientModal()">➕</button>
+                </div>
+                <div id="sale-client-info" class="sales-hidden mt-10 w-100"></div>
+            </div>
+
+            <!-- Договор -->
+            <div class="form-group mb-10 sales-hidden" id="sale-contract-group">
+                <label class="font-12 text-muted">Основание (Договор / Спецификация):</label>
+                <div class="flex-row gap-10 align-center w-100">
+                    <select id="sale-contract" class="input-modern flex-grow-1"></select>
+                    <button type="button" class="btn btn-outline p-10" onclick="openMiniContractModal()" title="Новый договор">➕</button>
+                    <button type="button" class="btn btn-outline p-10" onclick="printSelectedContract()" title="Распечатать договор">🖨️</button>
+                    <button type="button" class="btn btn-outline p-10 text-muted" onclick="openContractManager()" title="Управление договорами">⚙️</button>
+                </div>
+            </div>
+
+            <!-- Режим склада -->
+            <div class="form-group mb-10">
+                <label class="font-12 text-warning font-bold">Режим поиска и распределения:</label>
+                <select id="sale-warehouse" class="input-modern" onchange="changeSaleWarehouse()">
+                    <option value="all" selected>🌐 Авто: Резерв + Производство</option>
+                    <option value="4">🟢 Склад №4 (1-й сорт)</option>
+                    <option value="5">🟡 Склад №5 (Уценка)</option>
+                </select>
+            </div>
+
+            <!-- Поиск товара -->
+            <div class="form-group mb-0">
+                <label class="font-12 font-bold text-main">Поиск продукции:</label>
+                <select id="sale-product-select" class="input-modern w-100" placeholder="Начните вводить название..."></select>
+            </div>
+
+            <!-- Кол-во / Цена / В заказ (появляется после выбора товара) -->
+            <div id="sale-spec-actions" class="sales-hidden mt-15 pt-15 border-top">
+                <div class="sales-qty-bar">
+                    <div class="sales-qty-fields">
+                        <div class="sales-qty-group">
+                            <label class="sales-qty-label">Кол-во:</label>
+                            <input type="number" id="sale-qty" class="sales-qty-input"
+                                placeholder="1" min="0.1" step="0.1"
+                                onfocus="this.select()" oninput="updateLivePreview()">
+                            <div class="sales-qty-meta">
+                                <span id="sale-unit-label" class="sales-qty-unit"></span>
+                                <small id="sale-max-qty" class="sales-qty-stock">Ост: 0</small>
+                            </div>
+                        </div>
+
+                        <div class="sales-qty-group">
+                            <label class="sales-qty-label">Цена:</label>
+                            <input type="number" id="sale-price" class="sales-price-input"
+                                placeholder="0" onfocus="this.select()" oninput="updateLivePreview()">
+                            <span class="sales-qty-currency">₽</span>
+                        </div>
+
+                        <div id="sale-live-preview" class="sales-live-preview-pill">
+                            <span id="sale-live-cost" class="sales-live-cost">0 ₽</span>
+                        </div>
                     </div>
-                    <div id="sale-client-info" class="sales-hidden mt-10"> <!-- sales-client-info removed -->
-                        <div class="flex-between mb-5">
-                            <span class="text-danger font-13">Текущий долг:</span>
-                            <strong id="sale-client-debt" class="font-16 text-danger">0 ₽</strong>
-                        </div>
-                        <div class="flex-between mb-10">
-                            <span class="text-danger font-13">Долг по поддонам:</span>
-                            <strong id="sale-client-pallets" class="font-16 text-danger">0 шт.</strong>
-                        </div>
-                        <button class="btn btn-outline w-100" onclick="printClientAct()">
-                            🖨️ Распечатать Акт сверки
+
+                    <div class="sales-qty-separator"></div>
+
+                    <div class="sales-qty-actions">
+                        <button type="button" class="btn btn-outline sales-btn-calc sales-hidden"
+                            onclick="openProfitCalculator()" id="btn-calc-sales-cost">
+                            📊 Калькулятор
+                        </button>
+                        <button type="button" class="btn btn-blue sales-btn-add" onclick="addToCart()">
+                            ➕ В заказ
                         </button>
                     </div>
                 </div>
+            </div>
+        </div>
 
-                <div class="form-group" id="sale-contract-group">
-                    <label class="text-muted font-13">Основание (Договор / Спецификация):</label>
-                    <div class="flex-row gap-10 align-stretch">
-                        <select id="sale-contract" class="input-modern flex-grow-1"></select>
-                        <button type="button" class="btn btn-outline p-10" onclick="openMiniContractModal()">➕</button>
-                        <button class="btn btn-outline p-10" onclick="printSelectedContract()" title="Распечатать этот договор">🖨️</button>
-                        <button class="btn btn-outline p-10" onclick="openContractManager()" title="Управление договорами">⚙️</button>
-                    </div>
-                </div>
-
-                <div class="form-group border-top pt-15">
-                    <label class="text-warning font-bold">Режим поиска и распределения:</label>
-                    <select id="sale-warehouse" class="input-modern" onchange="changeSaleWarehouse()">
-                        <option value="all" selected>🌐 Весь справочник (Авто: Резерв + Производство)</option>
-                        <option value="4">🟢 Склад №4 (Строго из наличия 1-го сорта)</option>
-                        <option value="5">🟡 Склад №5 (Строго из наличия Уценки)</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label>Поиск продукции:</label>
-                    <select id="sale-product-select" class="input-modern" placeholder="Начните вводить название..."></select>
-                </div>
-
-                <div class="form-grid sales-two-cols gap-15">
-                    <div class="form-group m-0 relative">
-                        <label>Кол-во <span id="sale-unit-label" class="text-muted font-11"></span>:</label>
-                        <input type="number" id="sale-qty" class="input-modern" placeholder="1" min="0.1" step="0.1">
-                        <div class="mt-5">
-                            <small id="sale-max-qty" class="text-muted font-12 bg-surface-alt p-5 border-radius-4 d-inline-block">Остаток: 0</small>
-                        </div>
-                    </div>
-                    <div class="form-group m-0">
-                        <label>Цена за ед (₽):</label>
-                        <input type="number" id="sale-price" class="input-modern" placeholder="0" onfocus="this.select()">
-                    </div>
-                </div>
-                <div class="mt-20 mb-10">
-                    <button type="button" class="btn btn-outline w-100" id="btn-calc-sales-cost" onclick="openCostAnalysisModal()">
-                        📊 Рассчитать себестоимость
-                    </button>
-                </div>
-                <button class="btn btn-outline w-100 font-bold" onclick="addToCart()">
-                    ⬇️ Добавить в спецификацию заказа
-                </button>
+        <!-- ════ БЛОК 2: КОРЗИНА ════ -->
+        <div class="card p-0 m-0 mb-15 overflow-hidden">
+            <div class="p-15 border-bottom bg-surface-alt flex-between align-center">
+                <h3 class="font-16 m-0 text-main">2. Состав заказа (Корзина)</h3>
+            </div>
+            <div class="overflow-auto">
+                <table class="table-modern w-100">
+                    <thead class="bg-surface-alt">
+                        <tr>
+                            <th class="p-10 text-left font-12 text-muted">Сорт</th>
+                            <th class="p-10 text-left font-12 text-muted">Наименование</th>
+                            <th class="p-10 text-center font-12 text-muted">Кол-во</th>
+                            <th class="p-10 text-center font-12 text-muted">Цена (₽)</th>
+                            <th class="p-10 text-center font-12 text-muted" style="width:80px;">Скидка (%)</th>
+                            <th class="p-10 text-right font-12 text-muted">Сумма</th>
+                            <th class="p-10 text-center font-12 text-muted">✖</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cart-table">
+                        <tr><td colspan="7" class="text-center p-30 text-muted" style="font-style:italic;">Корзина пуста. Добавьте товары через поиск выше.</td></tr>
+                    </tbody>
+                </table>
             </div>
 
-            <div class="card p-0 m-0 overflow-hidden flex-column">
-                <div class="p-20 border-bottom">
-                    <h3 class="font-18 m-0 text-main">2. Состав заказа</h3>
-                </div>
-                
-                <div class="flex-grow-1 overflow-auto" style="min-height: 250px;">
-                    <table class="table-modern w-100">
-                        <thead class="bg-surface-alt">
-                            <tr>
-                                <th class="p-10 text-left font-12 text-muted">Сорт</th>
-                                <th class="p-10 text-left font-12 text-muted">Наименование</th>
-                                <th class="p-10 text-center font-12 text-muted">Кол-во</th>
-                                <th class="p-10 text-center font-12 text-muted">Цена (₽)</th>
-                                <th class="p-10 text-center font-12 text-muted" style="width: 80px;">Скидка (%)</th>
-                                <th class="p-10 text-right font-12 text-muted">Сумма</th>
-                                <th class="p-10 text-center font-12 text-muted">✖</th>
-                            </tr>
-                        </thead>
-                        <tbody id="cart-table">
-                            <tr><td colspan="7" class="text-center p-20 text-muted" style="font-style: italic;">Корзина пуста</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="bg-surface-alt p-20 border-top">
-                    <div class="form-grid sales-two-cols gap-15 mb-15">
-                        <div class="form-group m-0">
-                            <span class="font-13 font-bold text-muted d-block mb-5">Скидка на чек (%):</span>
-                            <input type="number" id="sale-discount" class="input-modern m-0" placeholder="0" min="0" max="100" oninput="renderCart()">
-                        </div>
-                        <div class="form-group m-0">
-                            <span class="font-13 font-bold text-muted d-block mb-5">Стоимость доставки (₽):</span>
-                            <input type="number" id="sale-logistics-cost" class="input-modern m-0" value="0" min="0" oninput="renderCart()">
-                        </div>
+            <div class="bg-surface-alt p-20 border-top">
+                <div class="flex-row gap-20 flex-wrap mb-15">
+                    <div class="form-group m-0 flex-grow-1">
+                        <span class="font-13 font-bold text-muted d-block mb-5">Скидка на весь чек (%):</span>
+                        <input type="number" id="sale-discount" class="input-modern m-0" placeholder="0" min="0" max="100" oninput="renderCart()">
                     </div>
-
-                    <div class="flex-between mb-5 font-14">
-                        <span>Общий вес продукции:</span>
-                        <strong><span id="cart-total-weight">0</span> кг</strong>
-                    </div>
-                    <div class="flex-between font-18 mt-10">
-                        <span>Итого к оплате (с доставкой):</span>
-                        <div class="text-right">
-                            <s id="cart-original-sum" class="text-muted font-14 mr-10">0 ₽</s>
-                            <strong class="text-primary"><span id="cart-total-sum">0</span> ₽</strong>
-                        </div>
+                    <div class="form-group m-0 flex-grow-1">
+                        <span class="font-13 font-bold text-muted d-block mb-5">Стоимость доставки (₽):</span>
+                        <input type="number" id="sale-logistics-cost" class="input-modern m-0" value="0" min="0" oninput="renderCart()">
                     </div>
                 </div>
-
-                <div class="p-20 border-top dashed bg-surface">
-                    <h4 class="mt-0 mb-15 font-15 text-main">📍 Детали доставки и тара</h4>
-                    <div class="form-group mb-15">
-                        <label>Адрес объекта (доставки):</label>
-                        <input type="text" id="sale-delivery-address" class="input-modern" placeholder="г. Армавир, ул. Ленина 1">
-                    </div>
-                    <div class="form-grid sales-two-cols gap-15">
-                        <div class="form-group m-0">
-                            <label>Желаемая дата отгрузки:</label>
-                            <input type="date" id="sale-planned-date" class="input-modern">
-                        </div>
-                        <div class="form-group m-0">
-                            <label>Поддоны (в долг), шт:</label>
-                            <input type="number" id="sale-pallets" class="input-modern" placeholder="Количество" min="0">
-                        </div>
-                    </div>
+                <p class="font-12 text-muted m-0 mb-5">💡 Индивидуальная скидка на каждую позицию задаётся в колонке «Скидка (%)» таблицы корзины. Глобальная скидка применяется поверх позиционных.</p>
+                <div class="flex-between mb-5 font-14 mt-10">
+                    <span>Общий вес продукции:</span>
+                    <strong><span id="cart-total-weight">0</span> кг</strong>
                 </div>
-
-                <div class="p-20 border-top dashed bg-surface">
-                    <div class="form-grid sales-two-cols gap-15 mb-15">
-                        <div class="form-group m-0">
-                            <label>ФИО Водителя:</label>
-                            <input type="text" id="sale-driver" class="input-modern" placeholder="Иванов И.И.">
-                        </div>
-                        <div class="form-group m-0">
-                            <label>Автомобиль:</label>
-                            <input type="text" id="sale-auto" class="input-modern" placeholder="Гос. номер (Е123КХ)">
-                        </div>
+                <div class="flex-between font-18">
+                    <span>Итого к оплате (с доставкой):</span>
+                    <div class="text-right">
+                        <s id="cart-original-sum" class="text-muted font-14 mr-10">0 ₽</s>
+                        <strong class="text-primary"><span id="cart-total-sum">0</span> ₽</strong>
                     </div>
-
-                    <div class="bg-surface-alt p-15 border-radius-8 border">
-                        <div class="flex-between mb-10">
-                            <label class="font-bold text-main m-0">Основание (Доверенность):</label>
-                            <label class="font-12 d-flex align-center cursor-pointer m-0">
-                                <input type="checkbox" id="sale-no-poa" onchange="togglePoaMode()" class="mr-5"> Без доверенности
-                            </label>
-                        </div>
-                        <div id="poa-select-group" class="flex-row gap-10 align-stretch mb-0">
-                            <select id="sale-poa" class="input-modern flex-grow-1 m-0"></select>
-                            <button class="btn btn-outline p-10" onclick="openPoaManager()" title="Добавить доверенность">➕</button>
-                        </div>
-                        <div id="poa-comment-group" class="sales-hidden mt-10">
-                            <input type="text" id="sale-poa-comment" class="input-modern m-0"
-                                placeholder="Укажите, кто разрешил отгрузку без доверенности">
-                        </div>
-                    </div>
-                </div>
-
-                <div class="p-20 border-top bg-surface-alt">
-                    <div class="form-group mb-15">
-                        <label>Оплата:</label>
-                        <select id="sale-payment-method" class="input-modern" onchange="toggleSalePayment()">
-                            <option value="debt">⏳ В долг (Счет на оплату / Ожидаем)</option>
-                            <option value="paid">💰 Оплачено полностью</option>
-                            <option value="partial">🌗 Частичная оплата (Аванс)</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group mb-15 sales-hidden" id="sale-advance-group">
-                        <label class="text-warning font-bold">Сумма внесенного аванса (₽):</label>
-                        <input type="number" id="sale-advance-amount" class="input-modern font-18 font-bold text-main" placeholder="Например: 50000">
-                    </div>
-
-                    <div class="form-group m-0 sales-hidden" id="sale-account-group">
-                        <label>В какую кассу/счет поступили деньги?</label>
-                        <select id="sale-account" class="input-modern"></select>
-                    </div>
-                </div>
-
-                <div class="p-20 bg-surface border-top flex-row gap-10 flex-wrap">
-                    <button class="btn btn-outline flex-grow-1" onclick="generateKP()">📄 Печать КП</button>
-                    <button class="btn btn-outline flex-grow-1" onclick="generateBlankOrder()">🖨️ Печать Бланк-заказа</button>
-                    <button class="btn btn-blue font-bold font-15 w-100 mt-10" onclick="processCheckout()">
-                        💾 Оформить заказ
-                    </button>
                 </div>
             </div>
         </div>
+
+        <!-- ════ БЛОК 3: ЛОГИСТИКА ════ -->
+        <div class="card p-0 m-0 mb-15 overflow-hidden">
+            <div class="p-15 border-bottom bg-surface-alt">
+                <h3 class="font-16 m-0 text-main">🚚 Логистика</h3>
+            </div>
+            <div class="p-20">
+                <div class="form-group mb-15">
+                    <label>Адрес объекта (доставки):</label>
+                    <input type="text" id="sale-delivery-address" class="input-modern" placeholder="г. Армавир, ул. Ленина 1">
+                </div>
+                <div class="flex-row gap-15 flex-wrap">
+                    <div class="form-group m-0 flex-grow-1">
+                        <label>Желаемая дата отгрузки:</label>
+                        <input type="date" id="sale-planned-date" class="input-modern">
+                    </div>
+                    <div class="form-group m-0 flex-grow-1">
+                        <label>Поддоны (в долг), шт:</label>
+                        <input type="number" id="sale-pallets" class="input-modern" placeholder="Количество" min="0">
+                    </div>
+                </div>
+                <div class="flex-row gap-15 flex-wrap mt-15">
+                    <div class="form-group m-0 flex-grow-1">
+                        <label>ФИО Водителя:</label>
+                        <input type="text" id="sale-driver" class="input-modern" placeholder="Иванов И.И.">
+                    </div>
+                    <div class="form-group m-0 flex-grow-1">
+                        <label>Автомобиль:</label>
+                        <input type="text" id="sale-auto" class="input-modern" placeholder="Гос. номер (Е123КХ)">
+                    </div>
+                </div>
+                <div class="bg-surface-alt p-15 border-radius-8 border mt-15">
+                    <div class="flex-between mb-10">
+                        <label class="font-bold text-main m-0">Основание (Доверенность):</label>
+                        <label class="font-12 d-flex align-center cursor-pointer m-0">
+                            <input type="checkbox" id="sale-no-poa" onchange="togglePoaMode()" class="mr-5"> Без доверенности
+                        </label>
+                    </div>
+                    <div id="poa-select-group" class="flex-row gap-10 align-stretch mb-0">
+                        <select id="sale-poa" class="input-modern flex-grow-1 m-0"></select>
+                        <button class="btn btn-outline p-10" onclick="openPoaManager()" title="Добавить доверенность">➕</button>
+                    </div>
+                    <div id="poa-comment-group" class="sales-hidden mt-10">
+                        <input type="text" id="sale-poa-comment" class="input-modern m-0"
+                            placeholder="Укажите, кто разрешил отгрузку без доверенности">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ════ БЛОК 4: ОПЛАТА ════ -->
+        <div class="card p-0 m-0 mb-15 overflow-hidden">
+            <div class="p-15 border-bottom bg-surface-alt">
+                <h3 class="font-16 m-0 text-main">💳 Оплата</h3>
+            </div>
+            <div class="p-20">
+                <div class="form-group mb-15">
+                    <label>Метод оплаты:</label>
+                    <select id="sale-payment-method" class="input-modern" onchange="toggleSalePayment()">
+                        <option value="debt">⏳ В долг (Счет на оплату / Ожидаем)</option>
+                        <option value="paid">💰 Оплачено полностью</option>
+                        <option value="partial">🌗 Частичная оплата (Аванс)</option>
+                    </select>
+                </div>
+                <div class="form-group mb-15 sales-hidden" id="sale-advance-group">
+                    <label class="text-warning font-bold">Сумма внесенного аванса (₽):</label>
+                    <input type="number" id="sale-advance-amount" class="input-modern font-18 font-bold text-main" placeholder="Например: 50000">
+                </div>
+                <div class="form-group m-0 sales-hidden" id="sale-account-group">
+                    <label>В какую кассу/счет поступили деньги?</label>
+                    <select id="sale-account" class="input-modern"></select>
+                </div>
+            </div>
+        </div>
+
+        <!-- ════ БЛОК 5: ДЕЙСТВИЯ ════ -->
+        <div class="card p-20 m-0 mb-15">
+            <div class="flex-row gap-10 flex-wrap">
+                <button class="btn btn-outline flex-grow-1" onclick="generateKP()">📄 Печать КП</button>
+                <button class="btn btn-outline flex-grow-1" onclick="generateBlankOrder()">🖨️ Печать Бланк-заказа</button>
+            </div>
+            <button class="btn btn-blue font-bold font-15 w-100 mt-10" onclick="processCheckout()">
+                💾 Оформить заказ
+            </button>
+        </div>
+
     </div>
+
+
+
 
     <!-- === ВКЛАДКА 2: УПРАВЛЕНИЕ ЗАКАЗАМИ === -->
     <div id="tab-active-orders" class="sales-tab-content">

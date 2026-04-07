@@ -4,14 +4,315 @@ const express = require('express');
 const router = express.Router();
 const Big = require('big.js');
 const { sendNotify } = require('../utils/telegram');
+const ExcelJS = require('exceljs');
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage() });
 
 // 👈 Добавили withTransaction третьим аргументом
 module.exports = function (pool, getWhId, withTransaction) {
     const { requireAdmin } = require('../middleware/auth');
 
     // ------------------------------------------------------------------
+    // ИНВЕНТАРИЗАЦИЯ: ПЕЧАТЬ БЛАНКА (HTML)
+    // ------------------------------------------------------------------
+    router.get('/api/inventory/print', requireAdmin, async (req, res) => {
+        try {
+            const { mode, wh } = req.query; // mode: 'blind' / 'full', wh: 'all' / '4' / etc
+            
+            let queryOptions = "WHERE w.type IN ('materials', 'drying', 'finished', 'defect', 'markdown')";
+            const params = [];
+            
+            if (wh && wh !== 'all') {
+                queryOptions += " AND w.id = $1";
+                params.push(wh);
+            }
+
+            const result = await pool.query(`
+                SELECT 
+                    m.item_id, i.name as item_name, i.unit,
+                    m.warehouse_id, w.name as warehouse_name, 
+                    m.batch_id, b.batch_number,
+                    SUM(m.quantity) as total 
+                FROM inventory_movements m
+                JOIN items i ON m.item_id = i.id
+                JOIN warehouses w ON m.warehouse_id = w.id
+                LEFT JOIN production_batches b ON m.batch_id = b.id
+                ${queryOptions}
+                GROUP BY m.item_id, i.name, i.unit, m.warehouse_id, w.name, m.batch_id, b.batch_number
+                HAVING SUM(m.quantity) <> 0
+                ORDER BY m.warehouse_id, i.name
+            `, params);
+
+            let dataMap = new Map();
+            result.rows.forEach(r => dataMap.set(`${r.item_id}_${r.warehouse_id}_${r.batch_id || 'null'}`, r));
+
+            if (mode === 'blind') {
+                // В слепом бланке добираем пустые/нулевые позиции (если склад не указан или = сырье/готовая)
+                // Но проще всего добавить все товары
+                const allItems = await pool.query("SELECT id, name, unit FROM items");
+                // TODO: Если выбран склад №4, добавим все готовые товары с нулевым остатком
+            }
+
+            const sortedData = Array.from(dataMap.values()).sort((a,b) => a.warehouse_id - b.warehouse_id || a.item_name.localeCompare(b.item_name));
+
+            let html = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <title>Бланк Ревизии ${wh && wh !== 'all' ? 'Склад №' + wh : ''}</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; font-size: 12px; margin: 20px; }
+                        h1 { text-align: center; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+                        th, td { border: 1px solid #000; padding: 6px; text-align: left; }
+                        th { background-color: #f2f2f2; }
+                        .empty-cell { min-width: 80px; }
+                        @media print {
+                            body { margin: 0; padding: 20px; }
+                            button { display: none; }
+                            table { page-break-inside: auto }
+                            tr { page-break-inside: avoid; page-break-after: auto }
+                            thead { display: table-header-group }
+                            tfoot { display: table-footer-group }
+                        }
+                    </style>
+                </head>
+                <body>
+                    <button onclick="window.print()" style="padding: 10px 20px; font-size: 16px; margin-bottom: 20px; cursor: pointer;">🖨️ Печать</button>
+                    <h1>Бланк Инвентаризации ${mode === 'blind' ? '(Слепой)' : '(Полный)'}</h1>
+                    <p>Дата печати: ${new Date().toLocaleString('ru-RU')}</p>
+                    
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Товар</th>
+                                <th>Партия</th>
+                                <th>Склад</th>
+                                ${mode === 'full' ? '<th>Расчет (в БД)</th>' : ''}
+                                <th>ФАКТ (Заполнить)</th>
+                                <th>Примечание</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            let i = 1;
+            for (const row of sortedData) {
+                html += `
+                    <tr>
+                        <td>${i++}</td>
+                        <td>${row.item_id} - ${row.item_name}</td>
+                        <td>${row.batch_number || '-'}</td>
+                        <td>${row.warehouse_name}</td>
+                        ${mode === 'full' ? `<td>${parseFloat(row.total || 0)}</td>` : ''}
+                        <td class="empty-cell"></td>
+                        <td class="empty-cell"></td>
+                    </tr>
+                `;
+            }
+
+            html += `
+                        </tbody>
+                    </table>
+                    <div style="margin-top: 40px; display: flex; justify-content: space-between; font-size: 14px;">
+                        <div>Подпись ревизора: ___________________ / ___________________</div>
+                        <div>Подпись кладовщика: ___________________ / ___________________</div>
+                    </div>
+                    <script>window.onload = function() { window.print(); }</script>
+                </body>
+                </html>
+            `;
+
+            res.send(html);
+        } catch (err) {
+            console.error(err);
+            res.status(500).send('Внутренняя ошибка сервера при формировании бланка.');
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // ИНВЕНТАРИЗАЦИЯ: ЭКСПОРТ В EXCEL
+    // ------------------------------------------------------------------
+    router.get('/api/inventory/export', requireAdmin, async (req, res) => {
+        try {
+            const { mode, wh } = req.query; // 'blind' или 'full'
+            
+            let queryOptions = "WHERE w.type IN ('materials', 'drying', 'finished', 'defect', 'markdown')";
+            const params = [];
+            
+            if (wh && wh !== 'all') {
+                queryOptions += " AND w.id = $1";
+                params.push(wh);
+            }
+
+            const result = await pool.query(`
+                SELECT 
+                    m.item_id, i.name as item_name, i.unit,
+                    m.warehouse_id, w.name as warehouse_name, 
+                    m.batch_id, b.batch_number,
+                    SUM(m.quantity) as total 
+                FROM inventory_movements m
+                JOIN items i ON m.item_id = i.id
+                JOIN warehouses w ON m.warehouse_id = w.id
+                LEFT JOIN production_batches b ON m.batch_id = b.id
+                ${queryOptions}
+                GROUP BY m.item_id, i.name, i.unit, m.warehouse_id, w.name, m.batch_id, b.batch_number
+                HAVING SUM(m.quantity) <> 0 OR m.item_id > 0
+                ORDER BY m.warehouse_id, i.name
+            `, params);
+
+            // Добираем все позиции из базы (вписываем их как 0 остаток для 4 и 5 склада)
+            const allItems = await pool.query("SELECT id, name, unit FROM items");
+            let dataMap = new Map();
+            
+            result.rows.forEach(r => {
+                if(parseFloat(r.total) !== 0) {
+                    dataMap.set(`${r.item_id}_${r.warehouse_id}_${r.batch_id || 'null'}`, r);
+                }
+            });
+
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Инвентаризация');
+
+            worksheet.columns = [
+                { header: 'ID ТОВАРА', key: 'item_id', width: 15 },
+                { header: 'ID СКЛАДА', key: 'wh_id', width: 15 },
+                { header: 'ID ПАРТИИ', key: 'batch_id', width: 15 },
+                { header: 'СКЛАД', key: 'wh_name', width: 25 },
+                { header: '№ ПАРТИИ (если есть)', key: 'batch_num', width: 25 },
+                { header: 'НАИМЕНОВАНИЕ', key: 'item_name', width: 50 },
+                { header: 'РАСЧЕТНЫЙ ОСТАТОК', key: 'erp_qty', width: 25 },
+                { header: 'ФАКТИЧЕСКИЙ ОСТАТОК', key: 'fact_qty', width: 25 }
+            ];
+
+            // Заголовок - стили
+            worksheet.getRow(1).font = { bold: true };
+            worksheet.getRow(1).fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor:{ argb:'FFD3D3D3' }
+            };
+
+            const sortedData = Array.from(dataMap.values()).sort((a,b) => a.warehouse_id - b.warehouse_id || a.item_name.localeCompare(b.item_name));
+
+            for (const row of sortedData) {
+                const isBlind = mode === 'blind';
+                worksheet.addRow({
+                    item_id: row.item_id,
+                    wh_id: row.warehouse_id,
+                    batch_id: row.batch_id || '',
+                    wh_name: row.warehouse_name,
+                    batch_num: row.batch_number || '',
+                    item_name: row.item_name,
+                    erp_qty: isBlind ? '' : parseFloat(row.total || 0),
+                    fact_qty: ''
+                });
+            }
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', 'attachment; filename=Inventory_Export.xlsx');
+
+            await workbook.xlsx.write(res);
+            res.end();
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера.' });
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // ИНВЕНТАРИЗАЦИЯ: ПРЕДВАРИТЕЛЬНЫЙ ПАРСИНГ EXCEL
+    // ------------------------------------------------------------------
+    router.post('/api/inventory/import-preview', requireAdmin, upload.single('excelFile'), async (req, res) => {
+        try {
+            if (!req.file) return res.status(400).json({ error: 'Необходимо загрузить файл .xlsx' });
+
+            const workbook = new ExcelJS.Workbook();
+            await workbook.xlsx.load(req.file.buffer);
+            const worksheet = workbook.getWorksheet(1);
+            if (!worksheet) return res.status(400).json({ error: 'Файл не содержит листов' });
+
+            const dataRows = [];
+            worksheet.eachRow((row, rowNumber) => {
+                if (rowNumber === 1) return; // Пропускаем заголовок
+
+                const item_id = row.getCell(1).value;
+                const wh_id = row.getCell(2).value;
+                let batch_id = row.getCell(3).value;
+                if (!batch_id || String(batch_id).trim() === '') batch_id = null;
+                const wh_name = row.getCell(4).value;
+                const batch_num = row.getCell(5).value;
+                const item_name = row.getCell(6).value;
+                const erp_qty = row.getCell(7).value || 0;
+                let fact_qty = row.getCell(8).value;
+                
+                // Если факт не заполнили, считаем, что сошлось с расчетом (если он был), иначе пусто = 0
+                if (fact_qty === null || fact_qty === undefined || String(fact_qty).trim() === '') {
+                    fact_qty = erp_qty || 0;
+                }
+
+                dataRows.push({
+                    item_id: parseInt(item_id),
+                    wh_id: parseInt(wh_id),
+                    batch_id: batch_id ? parseInt(batch_id) : null,
+                    wh_name: String(wh_name || ''),
+                    batch_num: String(batch_num || ''),
+                    item_name: String(item_name || ''),
+                    erp_qty: parseFloat(erp_qty || 0),
+                    fact_qty: parseFloat(fact_qty)
+                });
+            });
+
+            // Сейчас нам нужно сравнить это с БД напрямую, чтобы найти реальные отклонения
+            const dbStock = await pool.query(`
+                SELECT item_id, warehouse_id, batch_id, COALESCE(SUM(quantity), 0) as total
+                FROM inventory_movements
+                GROUP BY item_id, warehouse_id, batch_id
+            `);
+
+            const dbMap = new Map();
+            dbStock.rows.forEach(r => {
+                dbMap.set(`${r.item_id}_${r.warehouse_id}_${r.batch_id || 'null'}`, parseFloat(r.total || 0));
+            });
+
+            const results = {
+                matches: [],
+                differences: [],
+                errors: []
+            };
+
+            for (const r of dataRows) {
+                if (isNaN(r.item_id) || isNaN(r.wh_id)) {
+                    results.errors.push({ ...r, error_msg: "Неверный формат ID в строке" });
+                    continue;
+                }
+                if (isNaN(r.fact_qty) || r.fact_qty < 0) {
+                    results.errors.push({ ...r, error_msg: "Факт. количество не может быть отрицательным или пустым" });
+                    continue;
+                }
+
+                const currentErp = dbMap.get(`${r.item_id}_${r.wh_id}_${r.batch_id || 'null'}`) || 0;
+                
+                if (Math.abs(currentErp - r.fact_qty) < 0.01) {
+                    results.matches.push({ ...r, db_qty: currentErp });
+                } else {
+                    results.differences.push({ ...r, db_qty: currentErp, delta: (r.fact_qty - currentErp) });
+                }
+            }
+
+            res.json(results);
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Ошибка обработки файла' });
+        }
+    });
+
+    // ------------------------------------------------------------------
     // ПОЛУЧЕНИЕ ДАТ, В КОТОРЫЕ БЫЛИ ЗАКУПКИ (ДЛЯ КАЛЕНДАРЯ)
     // ------------------------------------------------------------------
+
     router.get('/api/inventory/purchase-dates', async (req, res) => {
         try {
             const result = await pool.query(`
@@ -239,13 +540,14 @@ module.exports = function (pool, getWhId, withTransaction) {
             await withTransaction(pool, async (client) => {
                 for (const adj of adjustments) {
                     const { itemId, batchId, actualQty } = adj;
+                    const wh_id = adj.warehouseId || warehouseId;
 
                     // 1. Сначала блокируем строки (FOR UPDATE), чтобы никто не вставил новое движение
                     let lockQuery = `
                         SELECT id FROM inventory_movements 
                         WHERE item_id = $1 AND warehouse_id = $2
                     `;
-                    const params = [itemId, warehouseId];
+                    const params = [itemId, wh_id];
                     if (batchId) {
                         lockQuery += ` AND batch_id = $3`;
                         params.push(batchId);
@@ -281,7 +583,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                             INSERT INTO inventory_movements 
                             (item_id, warehouse_id, batch_id, quantity, movement_type, description, user_id) 
                             VALUES ($1, $2, $3, $4, 'audit_adjustment', $5, $6)
-                        `, [itemId, warehouseId, batchId, diffQty, desc, userId]);
+                        `, [itemId, wh_id, batchId, diffQty, desc, userId]);
                     }
                 }
             });
@@ -892,7 +1194,8 @@ module.exports = function (pool, getWhId, withTransaction) {
                 empirical: empiricalMatCost.toFixed(2),
                 amortization: avgAmort.toFixed(2),
                 overhead: overheadPerUnit.toFixed(2),
-                materials: Object.values(materialsMap)
+                materials: Object.values(materialsMap),
+                batchCount: historyRes.rows.length
             });
         } catch (err) {
             console.error(err);

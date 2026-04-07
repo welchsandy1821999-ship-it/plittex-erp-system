@@ -21,8 +21,7 @@ const eqStatuses = {
 // Загрузка данных
 async function loadEquipment() {
     try {
-        const res = await fetch('/api/equipment');
-        equipmentList = await res.json();
+        equipmentList = await API.get('/api/equipment');
         renderEquipmentTable();
         initStaticEquipmentSelects();
     } catch (e) {
@@ -84,13 +83,13 @@ window.renderEquipmentTable = function () {
             if (percent >= 90) {
                 alertsHtml += `
                 <div style="background: var(--danger-bg); border: 1px solid var(--danger-border); color: var(--danger-text); padding: 12px 15px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; box-shadow: var(--shadow-sm);">
-                    <div>⚠️ <b>Критический износ (${percent.toFixed(1)}%):</b> «${escapeHTML(eq.name)}» требует немедленного ТО!</div>
-                    <button class="btn btn-red" style="padding: 6px 12px; font-size: 12px;" onclick="openMaintenanceModal(${eq.id}, '${escapeHTML(eq.name)}')">🛠️ Ремонт</button>
+                    <div>⚠️ <b>Критический износ (${percent.toFixed(1)}%):</b> «${Utils.escapeHtml(eq.name)}» требует немедленного ТО!</div>
+                    <button class="btn btn-red" style="padding: 6px 12px; font-size: 12px;" onclick="openMaintenanceModal(${eq.id}, '${Utils.escapeHtml(eq.name)}')">🛠️ Ремонт</button>
                 </div>`;
             } else if (percent >= 75) {
                 alertsHtml += `
                 <div style="background: var(--warning-bg); border: 1px solid var(--warning-border); color: var(--warning-text); padding: 12px 15px; border-radius: 8px; box-shadow: var(--shadow-sm);">
-                    <div>⚡ <b>Предупреждение (${percent.toFixed(1)}%):</b> «${escapeHTML(eq.name)}» подходит к концу ресурса.</div>
+                    <div>⚡ <b>Предупреждение (${percent.toFixed(1)}%):</b> «${Utils.escapeHtml(eq.name)}» подходит к концу ресурса.</div>
                 </div>`;
             }
         });
@@ -122,15 +121,15 @@ window.renderEquipmentTable = function () {
             <tr>
                 <td class="text-muted">#${eq.id}</td>
                 <td>
-                    <div style="font-weight: bold; color: var(--text-main);">${escapeHTML(eq.name)}</div>
+                    <div style="font-weight: bold; color: var(--text-main);">${Utils.escapeHtml(eq.name)}</div>
                     <div style="font-size: 11px; color: var(--text-muted);">${eqTypes[eq.equipment_type] || eq.equipment_type}</div>
                 </td>
-                <td class="text-right" style="font-weight: 500;">${cost.toLocaleString('ru-RU')} ₽</td>
+                <td class="text-right" style="font-weight: 500;">${Utils.formatMoney(cost)}</td>
                 <td class="text-right" style="background: var(--warning-bg); font-size: 13px;">${amortText}</td>
                 <td style="width: 220px; padding: 10px 15px;">
                     <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px;">
-                        <span>Факт: <b style="color: ${progressColor}">${fact.toLocaleString('ru-RU')}</b></span>
-                        <span class="text-muted">План: ${planned.toLocaleString('ru-RU')}</span>
+                        <span>Факт: <b style="color: ${progressColor}">${Utils.formatMoney(fact).replace(" ₽","")}</b></span>
+                        <span class="text-muted">План: ${Utils.formatMoney(planned).replace(" ₽","")}</span>
                     </div>
                     <div class="progress-container" style="margin-top: 0; height: 6px;">
                         <div class="progress-fill" style="width: ${percent}%; background-color: ${progressColor};"></div>
@@ -138,9 +137,9 @@ window.renderEquipmentTable = function () {
                 </td>
                 <td class="text-center">${eqStatuses[eq.status] || eq.status}</td>
                 <td class="text-right" style="white-space: nowrap;">
-                    <button class="btn btn-outline" style="padding: 4px 8px; color: var(--primary); border-color: var(--primary);" onclick="openMaintenanceModal(${eq.id}, '${escapeHTML(eq.name)}')" title="ТО">🛠️ ТО</button>
+                    <button class="btn btn-outline" style="padding: 4px 8px; color: var(--primary); border-color: var(--primary);" onclick="openMaintenanceModal(${eq.id}, '${Utils.escapeHtml(eq.name)}')" title="ТО">🛠️ ТО</button>
                     <button class="btn btn-outline" style="padding: 4px 8px;" onclick="openEquipmentModal(${eq.id})" title="Правка">✏️</button>
-                    <button class="btn btn-outline text-danger" style="padding: 4px 8px;" onclick="deleteEquipment(${eq.id}, '${escapeHTML(eq.name)}')" title="Удалить">❌</button>
+                    <button class="btn btn-outline text-danger" style="padding: 4px 8px;" onclick="deleteEquipment(${eq.id}, '${Utils.escapeHtml(eq.name)}')" title="Удалить">❌</button>
                 </td>
             </tr>
         `;
@@ -220,13 +219,13 @@ window.saveEquipment = async function () {
     if (!payload.name) return UI.toast('Введите название!', 'warning');
 
     try {
-        const res = await fetch(id ? `/api/equipment/${id}` : '/api/equipment', {
+        const res = await API.post(id ? `/api/equipment/${id}` : '/api/equipment', {
             method: id ? 'PUT' : 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
 
-        if (res.ok) {
+        if (true) {
             UI.toast('Оборудование успешно сохранено!', 'success');
             UI.closeModal('equipment-modal'); // Закрываем именно это окно
             loadEquipment();
@@ -249,8 +248,8 @@ window.deleteEquipment = function (id, name) {
 
 window.confirmDeleteEquipment = async function (id) {
     try {
-        const res = await fetch(`/api/equipment/${id}`, { method: 'DELETE' });
-        if (res.ok) {
+        await API.delete(`/api/equipment/${id}`);
+        if (true) {
             UI.closeModal();
             UI.toast('Удалено', 'success');
             loadEquipment();
@@ -273,11 +272,10 @@ window.openMaintenanceModal = async function (id, name) {
 
     // Загрузка актуальных счетов для оплаты ТО
     try {
-        const res = await fetch('/api/accounts');
-        const accounts = await res.json();
+        const accounts = await API.get('/api/accounts');
         const sel = document.getElementById('maint-account');
         sel.innerHTML = '<option value="">-- Бесплатно --</option>';
-        accounts.forEach(a => sel.add(new Option(`${a.name} (${parseFloat(a.balance).toLocaleString()} ₽)`, a.id)));
+        accounts.forEach(a => sel.add(new Option(`${a.name} (${Utils.formatMoney(a.balance)})`, a.id)));
 
         setTimeout(() => {
             const el = document.getElementById('maint-account');
@@ -311,13 +309,8 @@ window.saveEquipmentMaintenance = async function () {
     if (!desc && (cost > 0 || reset)) return UI.toast('Опишите работы!', 'warning');
 
     try {
-        const res = await fetch(`/api/equipment/${eqId}/maintenance`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ amount: cost, description: desc, account_id: accId, reset_cycles: reset })
-        });
-
-        if (res.ok) {
+        await API.post(`/api/equipment/${eqId}/maintenance`, { amount: cost, description: desc, account_id: accId, reset_cycles: reset });
+        if (true) {
             UI.toast('ТО успешно зафиксировано!', 'success');
             UI.closeModal('maintenance-modal'); // Закрываем окно ТО
             loadEquipment();

@@ -1,4 +1,5 @@
-﻿let currentEmployees = [];
+;(function() {
+let currentEmployees = [];
 let currentMonthRecords = [];
 let currentMonthPayments = [];
 let currentMonthStats = [];
@@ -19,7 +20,7 @@ function initSalary() {
     loadEmployees().then(() => {
         loadMonthlyTimesheet();
         // ПРАВИЛЬНЫЙ ПУТЬ: /api/accounts [как в finance.js]
-        fetch('/api/accounts').then(res => res.json()).then(data => {
+        API.get('/api/accounts').then(data => {
             window.currentAccounts = data;
             initStaticHRSelects();
         }).catch(e => console.error("Ошибка предзагрузки счетов:", e));
@@ -64,8 +65,7 @@ function toggleAccordion(bodyId, headerEl) {
 // === БАЗА СОТРУДНИКОВ ===
 async function loadEmployees() {
     try {
-        const res = await fetch('/api/employees');
-        currentEmployees = await res.json();
+        currentEmployees = await API.get('/api/employees');
         renderEmployeesTable();
     } catch (e) { console.error(e); }
 }
@@ -110,14 +110,14 @@ function renderEmployeesTable() {
                     activeHtml += `
                         <tr>
                             <td class="font-600">
-                                <span class="entity-link" title="Открыть профиль" onclick="window.app.openEntity('employee', ${emp.id})">${escapeHTML(emp.full_name)}</span>
+                                <span class="entity-link" title="Открыть профиль" onclick="window.app.openEntity('employee', ${emp.id})">${Utils.escapeHtml(emp.full_name)}</span>
                             </td>
-                            <td class="text-muted">${escapeHTML(emp.position)}</td>
+                            <td class="text-muted">${Utils.escapeHtml(emp.position)}</td>
                             <td><span class="badge hr-dept-badge">${emp.department}</span> <b>${emp.schedule_type}</b></td>
-                            <td class="text-right text-success font-bold">${parseFloat(emp.salary_cash).toLocaleString('ru-RU')} ₽</td>
-                            <td class="text-right text-muted">${parseFloat(emp.salary_official).toLocaleString('ru-RU')} ₽</td>
-                            <td class="text-right text-danger">-${parseFloat(emp.tax_withheld || 0).toLocaleString('ru-RU')} ₽</td>
-                            <td class="text-right font-bold ${balance >= 0 ? 'text-primary' : 'text-danger'}">${balSign}${balance.toLocaleString('ru-RU')} ₽</td>
+                            <td class="text-right text-success font-bold">${Utils.formatMoney(emp.salary_cash).replace(" ₽","")} ₽</td>
+                            <td class="text-right text-muted">${Utils.formatMoney(emp.salary_official).replace(" ₽","")} ₽</td>
+                            <td class="text-right text-danger">-${Utils.formatMoney(emp.tax_withheld || 0).replace(" ₽","")} ₽</td>
+                            <td class="text-right font-bold ${balance >= 0 ? 'text-primary' : 'text-danger'}">${balSign}${Utils.formatMoney(balance).replace(" ₽","")} ₽</td>
                             <td class="text-center align-middle">
                                 <button class="btn btn-outline hr-row-btn" onclick="editEmployee(${emp.id})" title="Редактировать">✏️</button>
                             </td>
@@ -134,14 +134,14 @@ function renderEmployeesTable() {
             activeHtml += `
                 <tr>
                     <td class="font-600">
-                        <span class="entity-link" title="Открыть профиль" onclick="window.app.openEntity('employee', ${emp.id})">${escapeHTML(emp.full_name)}</span>
+                        <span class="entity-link" title="Открыть профиль" onclick="window.app.openEntity('employee', ${emp.id})">${Utils.escapeHtml(emp.full_name)}</span>
                     </td>
-                    <td class="text-muted">${escapeHTML(emp.position)}</td>
+                    <td class="text-muted">${Utils.escapeHtml(emp.position)}</td>
                     <td><span class="badge hr-dept-badge">${emp.department}</span> <b>${emp.schedule_type}</b></td>
-                    <td class="text-right text-success font-bold">${parseFloat(emp.salary_cash).toLocaleString('ru-RU')} ₽</td>
-                    <td class="text-right text-muted">${parseFloat(emp.salary_official).toLocaleString('ru-RU')} ₽</td>
-                    <td class="text-right text-danger">-${parseFloat(emp.tax_withheld || 0).toLocaleString('ru-RU')} ₽</td>
-                    <td class="text-right font-bold ${balance >= 0 ? 'text-primary' : 'text-danger'}">${balSign}${balance.toLocaleString('ru-RU')} ₽</td>
+                    <td class="text-right text-success font-bold">${Utils.formatMoney(emp.salary_cash).replace(" ₽","")} ₽</td>
+                    <td class="text-right text-muted">${Utils.formatMoney(emp.salary_official).replace(" ₽","")} ₽</td>
+                    <td class="text-right text-danger">-${Utils.formatMoney(emp.tax_withheld || 0).replace(" ₽","")} ₽</td>
+                    <td class="text-right font-bold ${balance >= 0 ? 'text-primary' : 'text-danger'}">${balSign}${Utils.formatMoney(balance).replace(" ₽","")} ₽</td>
                     <td class="text-center align-middle">
                         <button class="btn btn-outline hr-row-btn" onclick="editEmployee(${emp.id})" title="Редактировать">✏️</button>
                     </td>
@@ -158,13 +158,13 @@ function renderEmployeesTable() {
         firedHtml += `
             <tr class="hr-fired-row">
                 <td class="font-600">
-                    <span class="entity-link" title="Открыть профиль" onclick="window.app.openEntity('employee', ${emp.id})">${escapeHTML(emp.full_name)}</span>
+                    <span class="entity-link" title="Открыть профиль" onclick="window.app.openEntity('employee', ${emp.id})">${Utils.escapeHtml(emp.full_name)}</span>
                 </td>
-                <td class="text-muted">${escapeHTML(emp.position)}</td>
+                <td class="text-muted">${Utils.escapeHtml(emp.position)}</td>
                 <td>${emp.department}</td>
-                <td class="text-right font-bold ${balance >= 0 ? 'text-muted' : 'text-danger'}">${balance.toLocaleString('ru-RU')} ₽</td>
+                <td class="text-right font-bold ${balance >= 0 ? 'text-muted' : 'text-danger'}">${Utils.formatMoney(balance).replace(" ₽","")} ₽</td>
                 <td class="text-center align-middle">
-                    <button class="btn btn-outline hr-row-btn border-danger text-danger" onclick="hardDeleteEmployee(${emp.id}, '${escapeHTML(emp.full_name)}')" title="Удалить навсегда">❌</button>
+                    <button class="btn btn-outline hr-row-btn border-danger text-danger" onclick="hardDeleteEmployee(${emp.id}, '${Utils.escapeHtml(emp.full_name)}')" title="Удалить навсегда">❌</button>
                 </td>
             </tr>`;
     });
@@ -180,8 +180,7 @@ function renderEmployeesTable() {
 window.editEmployee = async function (id) {
     try {
         // Запрашиваем свежие данные с сервера
-        const res = await fetch('/api/employees');
-        currentEmployees = await res.json();
+        currentEmployees = await API.get('/api/employees');
 
         // Открываем форму
         openEmployeeForm(id);
@@ -211,7 +210,7 @@ window.openEmployeeForm = async function (empId = null) {
         liveBalanceHtml = `
             <div class="hr-form-live-balance">
                 Текущий расчетный остаток (с учетом табеля): 
-                <b class="font-15 ${liveBalance >= 0 ? 'text-primary' : 'text-danger'}">${balSign}${liveBalance.toLocaleString('ru-RU')} ₽</b>
+                <b class="font-15 ${liveBalance >= 0 ? 'text-primary' : 'text-danger'}">${balSign}${Utils.formatMoney(liveBalance).replace(" ₽","")} ₽</b>
             </div>
         `;
     }
@@ -220,11 +219,11 @@ window.openEmployeeForm = async function (empId = null) {
         <div class="form-grid form-grid-2col">
             <div class="form-group">
                 <label>ФИО сотрудника:</label>
-                <input type="text" id="emp-name" class="input-modern" value="${isEdit ? escapeHTML(emp.full_name) : ''}">
+                <input type="text" id="emp-name" class="input-modern" value="${isEdit ? Utils.escapeHtml(emp.full_name) : ''}">
             </div>
             <div class="form-group">
                 <label>Должность:</label>
-                <input type="text" id="emp-pos" class="input-modern" value="${isEdit ? escapeHTML(emp.position) : ''}" placeholder="Например: Разнорабочий">
+                <input type="text" id="emp-pos" class="input-modern" value="${isEdit ? Utils.escapeHtml(emp.position) : ''}" placeholder="Например: Разнорабочий">
             </div>
             <div class="form-group">
                 <label>Отдел:</label>
@@ -311,17 +310,15 @@ async function saveEmployee(id) {
     if (!payload.full_name) return UI.toast('Введите ФИО!', 'error');
 
     try {
-        const res = await fetch(id ? `/api/employees/${id}` : '/api/employees', {
-            method: id ? 'PUT' : 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        if (res.ok) {
-            UI.toast('Успешно сохранено!', 'success');
-            UI.closeModal();
-            loadEmployees();
-            loadMonthlyTimesheet();
+        if (id) {
+            await API.put(`/api/employees/${id}`, payload);
+        } else {
+            await API.post('/api/employees', payload);
         }
+        UI.toast('Успешно сохранено!', 'success');
+        UI.closeModal();
+        loadEmployees();
+        loadMonthlyTimesheet();
     } catch (e) { console.error(e); }
 }
 
@@ -333,7 +330,7 @@ async function saveEmployee(id) {
 window.hardDeleteEmployee = function (id, name) {
     const html = `
         <div class="p-15 text-center font-15">
-            Вы уверены, что хотите <b>НАВСЕГДА</b> удалить карточку <br><b class="text-danger font-18">${escapeHTML(name)}</b>?<br><br>
+            Вы уверены, что хотите <b>НАВСЕГДА</b> удалить карточку <br><b class="text-danger font-18">${Utils.escapeHtml(name)}</b>?<br><br>
             <small class="text-muted">Удаляйте только в том случае, если сотрудник был добавлен по ошибке и по нему еще нет табелей. Иначе старые расчеты могут сломаться.</small>
         </div>`;
 
@@ -346,31 +343,23 @@ window.hardDeleteEmployee = function (id, name) {
 window.executeHardDelete = async function (id) {
     UI.toast('⏳ Удаление...', 'info');
     try {
-        const res = await fetch(`/api/employees/${id}`, { method: 'DELETE' });
-        if (res.ok) {
-            UI.closeModal();
-            UI.toast('✅ Сотрудник полностью удален из базы', 'success');
-            loadEmployees(); // Обновляем таблицы
-        } else {
-            const err = await res.json();
-            UI.toast(err.error || 'Ошибка при удалении (возможно есть привязанные табели)', 'error');
-        }
-    } catch (e) {
-        console.error(e);
-        UI.toast('Ошибка сети', 'error');
-    }
+        await API.delete(`/api/employees/${id}`);
+        UI.closeModal();
+        UI.toast('✅ Сотрудник полностью удален из базы', 'success');
+        loadEmployees(); // Обновляем таблицы
+    } catch (e) { console.error(e); }
 };
 
 // === СИНХРОНИЗАЦИЯ СЕЛЕКТОВ МЕСЯЦА ===
-window.syncSalaryMonth = function(val) {
+window.syncSalaryMonth = function (val) {
     if (!val) return;
     const tsPicker = document.getElementById('ts-month-picker');
     const payPicker = document.getElementById('payroll-period-select');
-    
+
     // Предотвращение infinite loop: проверка текущего значения перед установкой
     if (tsPicker && tsPicker.value !== val) tsPicker.value = val;
     if (payPicker && payPicker.value !== val) payPicker.value = val;
-    
+
     // Единый вызов загрузки данных
     if (typeof loadMonthlyTimesheet === 'function') {
         loadMonthlyTimesheet();
@@ -378,24 +367,19 @@ window.syncSalaryMonth = function(val) {
 };
 
 // === ЗАГРУЗКА МЕСЯЧНЫХ ДАННЫХ (УСКОРЕННАЯ) ===
-window.loadMonthlyTimesheet = async function() {
+window.loadMonthlyTimesheet = async function () {
     const monthPicker = document.getElementById('ts-month-picker').value;
     if (!monthPicker) return;
     const [year, month] = monthPicker.split('-');
 
     try {
         // Запускаем все 5 запросов к серверу ОДНОВРЕМЕННО
-        const [resClosed, resTs, resPay, resStats, resAdj] = await Promise.all([
-            fetch(`/api/salary/is-closed?monthStr=${year}-${month}`),
-            fetch(`/api/timesheet/month?year=${year}&month=${month}`),
-            fetch(`/api/salary/payments?year=${year}&month=${month}`),
-            fetch(`/api/salary/stats?year=${year}&month=${month}`),
-            fetch(`/api/salary/adjustments?monthStr=${year}-${month}`)
-        ]);
-
-        // Ждем конвертации JSON тоже параллельно
         const [closedData, tsData, payData, statsData, adjData] = await Promise.all([
-            resClosed.json(), resTs.json(), resPay.json(), resStats.json(), resAdj.json()
+            API.get(`/api/salary/is-closed?monthStr=${year}-${month}`),
+            API.get(`/api/timesheet/month?year=${year}&month=${month}`),
+            API.get(`/api/salary/payments?year=${year}&month=${month}`),
+            API.get(`/api/salary/stats?year=${year}&month=${month}`),
+            API.get(`/api/salary/adjustments?monthStr=${year}-${month}`)
         ]);
 
         window.currentMonthStatus = closedData;
@@ -487,7 +471,7 @@ window.renderTimesheetMatrix = function (year, month) {
             bodyHtml += `<tr>
                 <td class="hr-ts-sticky-cell">
                     <div class="font-600">${emp.full_name} ${emp.status === 'fired' ? '<span class="badge bg-danger text-white font-10 p-2-6">Уволен</span>' : ''}</div>
-                    <div class="font-11 text-muted">${emp.position} | Оклад: ${baseSalary.toLocaleString()} ₽ | График: <b>${emp.schedule_type}</b></div>
+                    <div class="font-11 text-muted">${emp.position} | Оклад: ${Utils.formatMoney(baseSalary).replace(" ₽","")} ₽ | График: <b>${emp.schedule_type}</b></div>
                 </td>`;
 
             let worked = 0, sick = 0, vacation = 0, absent = 0;
@@ -551,10 +535,10 @@ window.renderTimesheetMatrix = function (year, month) {
                 // 🌟 БЕЗОПАСНЫЙ ДВИЖОК СОБЫТИЙ С ЧТЕНИЕМ ЧЕРЕЗ DATA-*
                 const isFired = emp.status === 'fired';
                 const isMonthClosedForEdit = window.currentMonthStatus?.isClosed === true;
-                
+
                 let actionEvents = '';
                 let cellCursor = '';
-                
+
                 if (isMonthClosedForEdit) {
                     actionEvents = `onclick="UI.toast('Месяц закрыт. Редактирование запрещено.', 'warning')"`;
                     cellCursor = 'cursor: not-allowed; opacity: 0.8;';
@@ -563,15 +547,15 @@ window.renderTimesheetMatrix = function (year, month) {
                     cellCursor = 'cursor: not-allowed;';
                 } else {
                     actionEvents = `data-emp-id="${emp.id}"
-                       data-emp-name="${escapeHTML(emp.full_name)}"
+                       data-emp-name="${Utils.escapeHtml(emp.full_name)}"
                        data-date="${dateStr}"
                        data-status="${status}"
                        data-bonus="${cellBonus}"
                        data-penalty="${cellPenalty}"
                        data-cost="${dailyCost}"
                        data-multiplier="${cellMultiplier}"
-                       data-b-comment="${escapeHTML(cellBonusComment)}"
-                       data-p-comment="${escapeHTML(cellPenaltyComment)}"
+                       data-b-comment="${Utils.escapeHtml(cellBonusComment)}"
+                       data-p-comment="${Utils.escapeHtml(cellPenaltyComment)}"
                        onmousedown="startCellPress(event, this)" 
                        onmouseup="endCellPress(event, this)" 
                        onmouseleave="cancelCellPress()"
@@ -602,11 +586,11 @@ window.renderTimesheetMatrix = function (year, month) {
             const isNormMet = emp.schedule_type === '5/2' ? worked >= normDays52 : worked >= normShifts13;
 
             summaryHtml += `<div class="font-12 font-600 ${isNormMet ? 'text-success' : 'text-main'}">${normText}</div>`;
-            summaryHtml += `<div class="text-primary font-bold font-15 mt-4">${totalEarned.toLocaleString('ru-RU')} ₽</div>`;
+            summaryHtml += `<div class="text-primary font-bold font-15 mt-4">${Utils.formatMoney(totalEarned).replace(" ₽","")} ₽</div>`;
 
             let moneyStats = [];
-            if (totalBonus > 0) moneyStats.push(`<span class="text-success">+${totalBonus.toLocaleString()}₽</span>`);
-            if (totalPenalty > 0) moneyStats.push(`<span class="text-danger">-${totalPenalty.toLocaleString()}₽</span>`);
+            if (totalBonus > 0) moneyStats.push(`<span class="text-success">+${Utils.formatMoney(totalBonus).replace(" ₽","")}₽</span>`);
+            if (totalPenalty > 0) moneyStats.push(`<span class="text-danger">-${Utils.formatMoney(totalPenalty).replace(" ₽","")}₽</span>`);
             if (moneyStats.length > 0) summaryHtml += `<div class="font-11 mt-4 flex-row gap-6 justify-end font-bold">${moneyStats.join(' ')}</div>`;
 
             summaryHtml += `</td>`;
@@ -695,24 +679,24 @@ window.renderTimesheetMatrix = function (year, month) {
 
         if (matchDep && matchSearch) {
             let advancesHtml = `<span class="text-muted">0 ₽</span>`;
-            if (advances > 0) advancesHtml = `<span class="text-primary text-underline cursor-pointer font-bold" onclick="openAdvancesDetails(${emp.id}, '${escapeHTML(emp.full_name)}')">-${advances.toLocaleString()} ₽</span>`;
+            if (advances > 0) advancesHtml = `<span class="text-primary text-underline cursor-pointer font-bold" onclick="openAdvancesDetails(${emp.id}, '${Utils.escapeHtml(emp.full_name)}')">-${Utils.formatMoney(advances).replace(" ₽","")} ₽</span>`;
 
             let adjHtml = `<span class="text-muted">0 ₽</span>`;
-            if (adjSum !== 0) adjHtml = `<span class="font-bold ${adjSum > 0 ? 'text-success' : 'text-danger'}">${adjSum > 0 ? '+' : ''}${adjSum.toLocaleString()} ₽</span>`;
+            if (adjSum !== 0) adjHtml = `<span class="font-bold ${adjSum > 0 ? 'text-success' : 'text-danger'}">${adjSum > 0 ? '+' : ''}${Utils.formatMoney(adjSum).replace(" ₽","")} ₽</span>`;
 
             payoutsHtml += `
                 <tr>
-                    <td><strong class="font-14">${escapeHTML(emp.full_name)}</strong><br><span class="font-11 ${emp.status === 'fired' ? 'text-danger' : 'text-muted'}">${emp.status === 'fired' ? 'УВОЛЕН' : escapeHTML(emp.position)}</span></td>
-                    <td class="text-right font-bold font-15">${earnedToday.toLocaleString()} ₽</td>
-                    <td class="text-right font-bold ${prevBalance >= 0 ? 'text-primary' : 'text-danger'}">${prevBalance > 0 ? '+' : ''}${prevBalance.toLocaleString()} ₽</td>
-                    <td class="text-right text-danger">-${finalTax.toLocaleString()} ₽</td>
+                    <td><strong class="font-14">${Utils.escapeHtml(emp.full_name)}</strong><br><span class="font-11 ${emp.status === 'fired' ? 'text-danger' : 'text-muted'}">${emp.status === 'fired' ? 'УВОЛЕН' : Utils.escapeHtml(emp.position)}</span></td>
+                    <td class="text-right font-bold font-15">${Utils.formatMoney(earnedToday).replace(" ₽","")} ₽</td>
+                    <td class="text-right font-bold ${prevBalance >= 0 ? 'text-primary' : 'text-danger'}">${prevBalance > 0 ? '+' : ''}${Utils.formatMoney(prevBalance).replace(" ₽","")} ₽</td>
+                    <td class="text-right text-danger">-${Utils.formatMoney(finalTax).replace(" ₽","")} ₽</td>
                     <td class="text-right">${advancesHtml}</td>
-                    <td class="text-right hr-adj-cell cursor-pointer" onclick="openAdjustmentsModal(${emp.id}, '${escapeHTML(emp.full_name)}', '${year}-${String(month).padStart(2, '0')}')">‌${adjHtml}</td>
-                    <td class="text-right font-bold font-16 ${availableToPay >= 0 ? 'hr-payout-positive' : 'hr-payout-negative'}">${availableToPay.toLocaleString()} ₽</td>
+                    <td class="text-right hr-adj-cell cursor-pointer" onclick="openAdjustmentsModal(${emp.id}, '${Utils.escapeHtml(emp.full_name)}', '${year}-${String(month).padStart(2, '0')}')">‌${adjHtml}</td>
+                    <td class="text-right font-bold font-16 ${availableToPay >= 0 ? 'hr-payout-positive' : 'hr-payout-negative'}">${Utils.formatMoney(availableToPay).replace(" ₽","")} ₽</td>
                     <td class="text-center">
                         <div class="flex-row gap-5 justify-center">
-                            <button class="btn btn-outline hr-adj-btn border-warning text-warning" onclick="openAdjustmentsModal(${emp.id}, '${escapeHTML(emp.full_name)}', '${year}-${String(month).padStart(2, '0')}')">⚙️</button>
-                            <button class="btn btn-blue hr-pay-btn" onclick="openPayoutModal(${emp.id}, '${escapeHTML(emp.full_name)}', ${availableToPay})">💳</button>
+                            <button class="btn btn-outline hr-adj-btn border-warning text-warning" onclick="openAdjustmentsModal(${emp.id}, '${Utils.escapeHtml(emp.full_name)}', '${year}-${String(month).padStart(2, '0')}')">⚙️</button>
+                            <button class="btn btn-blue hr-pay-btn" onclick="openPayoutModal(${emp.id}, '${Utils.escapeHtml(emp.full_name)}', ${availableToPay})">💳</button>
                         </div>
                     </td>
                 </tr>
@@ -742,7 +726,7 @@ window.renderTimesheetMatrix = function (year, month) {
             <td colspan="8" class="payouts-footer">
                 <span class="tax-control-group">
                     Управленческие Налоги (13%): 
-                    <input type="number" id="final-month-taxes" class="input-modern hr-taxes-input text-right" value="${displayTaxes}" ${isClosed ? 'disabled' : '}> ₽
+                    <input type="number" id="final-month-taxes" class="input-modern hr-taxes-input text-right" value="${displayTaxes}" ${isClosed ? 'disabled' : ''}> ₽
                 </span>
                 
                 ${isClosed
@@ -777,19 +761,19 @@ window.renderTimesheetMatrix = function (year, month) {
         summaryBoxes.innerHTML = `
             <div class="summary-card office">
                 <div class="summary-title">ОФИС (К выдаче)</div>
-                <div class="summary-value">${sumTotal['Офис'].toLocaleString()} ₽</div>
+                <div class="summary-value">${Utils.formatMoney(sumTotal['Офис']).replace(" ₽","")} ₽</div>
             </div>
             <div class="summary-card shop">
                 <div class="summary-title">ЦЕХ (К выдаче)</div>
-                <div class="summary-value">${sumTotal['Цех'].toLocaleString()} ₽</div>
+                <div class="summary-value">${Utils.formatMoney(sumTotal['Цех']).replace(" ₽","")} ₽</div>
             </div>
             <div class="summary-card security">
                 <div class="summary-title">ОХРАНА (К выдаче)</div>
-                <div class="summary-value">${sumTotal['Охрана'].toLocaleString()} ₽</div>
+                <div class="summary-value">${Utils.formatMoney(sumTotal['Охрана']).replace(" ₽","")} ₽</div>
             </div>
             <div class="summary-card total">
                 <div class="summary-title">ОБЩИЙ ФОТ (К выдаче)</div>
-                <div class="summary-value">${sumTotal['Всего'].toLocaleString()} ₽</div>
+                <div class="summary-value">${Utils.formatMoney(sumTotal['Всего']).replace(" ₽","")} ₽</div>
             </div>
         `;
     }
@@ -812,7 +796,7 @@ window.openAdvancesDetails = function (empId, empName) {
                     ${empPayments.map(p => `
                         <tr>
                             <td class="font-600">${p.payment_date}</td>
-                            <td class="text-right font-bold text-danger">${parseFloat(p.amount).toLocaleString()} ₽</td>
+                            <td class="text-right font-bold text-danger">${Utils.formatMoney(p.amount).replace(" ₽","")} ₽</td>
                             <td class="text-muted font-13">${p.description}</td>
                             <td class="text-center"><button class="btn btn-outline border-danger text-danger p-2-6" onclick="deleteSalaryPayment(${p.id})">🗑️</button></td>
                         </tr>
@@ -830,14 +814,13 @@ window.openPayoutModal = async function (empId, empName, availableAmount) {
 
     // Если счета еще не загружены - грузим по правильному адресу
     if (!window.currentAccounts || window.currentAccounts.length === 0) {
-        const res = await fetch('/api/accounts');
-        if (res.ok) window.currentAccounts = await res.json();
+        window.currentAccounts = await API.get('/api/accounts');
     }
 
     // Автовыбор кассы по названию
     const options = (window.currentAccounts || []).map(acc => {
         const isDefault = acc.name.toLowerCase().includes('касса') || acc.name.toLowerCase().includes('наличные');
-        return `<option value="${acc.id}" ${isDefault ? 'selected' : ''}>${escapeHTML(acc.name)} (${parseFloat(acc.balance).toLocaleString()} ₽)</option>`;
+        return `<option value="${acc.id}" ${isDefault ? 'selected' : ''}>${Utils.escapeHtml(acc.name)} (${Utils.formatMoney(acc.balance).replace(" ₽","")} ₽)</option>`;
     }).join('');
 
     const emp = currentEmployees.find(e => e.id === empId);
@@ -847,8 +830,8 @@ window.openPayoutModal = async function (empId, empName, availableAmount) {
     const html = `
         <div class="hr-payout-hero">
             <div class="hr-payout-hero-label">Доступно к выдаче</div>
-            <div id="payout-display-amount" class="hr-payout-hero-amount">${(hasDebt ? (availableAmount - debt) : availableAmount).toLocaleString()} ₽</div>
-            <div class="font-14 text-main">Сотрудник: <span class="entity-link font-bold" title="Открыть профиль" onclick="window.app.openEntity('employee', ${empId})">${escapeHTML(empName)}</span></div>
+            <div id="payout-display-amount" class="hr-payout-hero-amount">${Utils.formatMoney(hasDebt ? (availableAmount - debt) : availableAmount)}</div>
+            <div class="font-14 text-main">Сотрудник: <span class="entity-link font-bold" title="Открыть профиль" onclick="window.app.openEntity('employee', ${empId})">${Utils.escapeHtml(empName)}</span></div>
         </div>
 
         ${hasDebt ? `
@@ -856,7 +839,7 @@ window.openPayoutModal = async function (empId, empName, availableAmount) {
             <div class="flex-between align-center">
                 <div>
                     <div class="font-12 text-warning font-bold">ДОЛГ ПО ПОДОТЧЕТУ</div>
-                    <div class="font-18 font-bold text-danger">${debt.toLocaleString()} ₽</div>
+                    <div class="font-18 font-bold text-danger">${Utils.formatMoney(debt).replace(" ₽","")} ₽</div>
                 </div>
                 <div class="flex-row align-center gap-8 cursor-pointer">
                     <input type="checkbox" id="hold-imprest-debt" class="hr-checkbox" 
@@ -893,12 +876,12 @@ window.openPayoutModal = async function (empId, empName, availableAmount) {
         const hold = document.getElementById('hold-imprest-debt').checked;
         const final = hold ? (base - debtValue) : base;
         document.getElementById('payout-amount').value = final;
-        document.getElementById('payout-display-amount').innerText = final.toLocaleString() + ' ₽';
+        document.getElementById('payout-display-amount').innerText = Utils.formatMoney(final);
     };
 
     UI.showModal('💳 Оформление выплаты', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-        <button class="btn btn-blue" onclick="executePayout(${empId}, '${escapeHTML(empName)}')">💸 Подтвердить выдачу</button>
+        <button class="btn btn-blue" onclick="executePayout(${empId}, '${Utils.escapeHtml(empName)}')">💸 Подтвердить выдачу</button>
     `);
 
     setTimeout(() => {
@@ -921,34 +904,21 @@ window.executePayout = async function (empId, empName) {
 
     try {
         // Роут из твоего hr.js: /api/salary/pay
-        const res = await fetch('/api/salary/pay', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                employee_id: empId,
-                amount,
-                date,
-                description: `${empName}: ${desc}` + (holdDebt ? ` (Удержано подотчета ${debtAmount} ₽)` : ''),
-                account_id,
-                imprest_deduction: holdDebt ? debtAmount : 0
-            })
+        await API.post('/api/salary/pay', {
+            employee_id: empId,
+            amount,
+            date,
+            description: `${empName}: ${holdDebt ? `(Удержано подотчета ${debtAmount} ₽)` : ''}`,
+            account_id,
+            imprest_deduction: holdDebt ? debtAmount : 0
         });
 
-        if (res.ok) {
-            UI.closeModal();
-            UI.toast('✅ Выплата проведена!', 'success');
-            loadMonthlyTimesheet(); // Обновляем табель и суммы
-            if (typeof loadFinanceData === 'function') loadFinanceData(); // Обновляем баланс в кассе
-        } else {
-            const err = await res.json();
-            UI.toast(err.error || 'Ошибка сервера', 'error');
-        }
-    } catch (e) {
-        console.error(e);
-        UI.toast('Ошибка сети', 'error');
-    }
+        UI.closeModal();
+        UI.toast('✅ Выплата проведена!', 'success');
+        loadMonthlyTimesheet();
+        if (typeof loadFinanceData === 'function') loadFinanceData();
+    } catch (e) { console.error(e); }
 };
-
 // ==========================================
 // 1. ОПЛАТА ОФИЦИАЛЬНЫХ НАЛОГОВ
 // ==========================================
@@ -958,7 +928,7 @@ window.payOfficialTaxes = function (monthStr, amount) {
     const html = `
         <div class="p-10 font-15 text-center">
             <div class="font-40 mb-10">🏦</div>
-            Списать <b class="text-primary font-18">${amount.toLocaleString()} ₽</b><br>
+            Списать <b class="text-primary font-18">${Utils.formatMoney(amount).replace(" ₽","")} ₽</b><br>
             с расчетного счета на уплату налогов за <b>${monthStr}</b>?
         </div>
     `;
@@ -977,22 +947,9 @@ window.executePayOfficialTaxes = async function (monthStr, amount) {
     UI.toast('⏳ Проведение платежа...', 'info');
 
     try {
-        const res = await fetch('/api/salary/pay-taxes', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ monthStr, amount })
-        });
-
-        if (res.ok) {
-            UI.toast('✅ Налоги успешно оплачены (Безнал)!', 'success');
-            // Если нужно, тут можно добавить обновление интерфейса, например: loadTable()
-        } else {
-            UI.toast('Ошибка при оплате налогов', 'error');
-        }
-    } catch (e) {
-        console.error(e);
-        UI.toast('Критическая ошибка связи с сервером', 'error');
-    }
+        await API.post('/api/salary/pay-taxes', { monthStr, amount });
+        UI.toast('✅ Налоги успешно оплачены (Безнал)!', 'success');
+    } catch (e) { console.error(e); }
 };
 
 
@@ -1013,7 +970,7 @@ window.closeSalaryMonth = function () {
             </div>
             <ul class="text-muted font-14 bg-surface-alt p-10-10-10-30 border-radius-6">
                 <li>Заработанные суммы будут перенесены в архив.</li>
-                <li>Налог (<b class="text-main">${totalTaxes.toLocaleString()} ₽</b>) будет зафиксирован.</li>
+                <li>Налог (<b class="text-main">${Utils.formatMoney(totalTaxes).replace(" ₽","")} ₽</b>) будет зафиксирован.</li>
                 <li>Текущие балансы "К ВЫДАЧЕ" станут начальным долгом/переплатой на следующий месяц.</li>
             </ul>
         </div>
@@ -1034,23 +991,8 @@ window.executeCloseSalaryMonth = async function (monthStr, totalTaxes) {
     UI.toast(`⏳ Закрытие периода ${monthStr}...`, 'info');
 
     try {
-        const res = await fetch('/api/salary/close-month', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ monthStr, balances: currentMonthBalances, totalTaxes })
-        });
-
-        if (res.ok) {
-            UI.toast('✅ Месяц успешно закрыт! Балансы зафиксированы.', 'success');
-            setTimeout(() => location.reload(), 1500);
-        } else {
-            const err = await res.json();
-            UI.toast(err.error || 'Ошибка при закрытии месяца', 'error');
-        }
-    } catch (e) {
-        console.error(e);
-        UI.toast('Критическая ошибка связи с сервером', 'error');
-    }
+        await API.post('/api/salary/close-month', { monthStr, balances: currentMonthBalances, totalTaxes }); UI.toast('✅ Месяц успешно закрыт! Балансы зафиксированы.', 'success'); setTimeout(() => location.reload(), 1500);
+    } catch (e) { console.error(e); }
 };
 
 // ==========================================
@@ -1090,23 +1032,8 @@ window.executeReopenSalaryMonth = async function (monthStr) {
 
     try {
         // Отправляем текущие посчитанные балансы (diff_to_subtract)
-        const res = await fetch('/api/salary/reopen-month', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ monthStr, balances: currentMonthBalances })
-        });
-
-        if (res.ok) {
-            UI.toast('✅ Месяц успешно открыт! Балансы и транзакции откачены.', 'success');
-            setTimeout(() => location.reload(), 2000);
-        } else {
-            const err = await res.json();
-            UI.toast(err.error || 'Ошибка при отмене закрытия', 'error');
-        }
-    } catch (e) {
-        console.error(e);
-        UI.toast('Критическая ошибка связи с сервером', 'error');
-    }
+        await API.post('/api/salary/reopen-month', { monthStr, balances: currentMonthBalances }); UI.toast('✅ Месяц успешно открыт! Балансы и транзакции откачены.', 'success'); setTimeout(() => location.reload(), 2000);
+    } catch (e) { console.error(e); }
 };
 
 // === ДОП ОПЕРАЦИИ (ГСМ, ЗАЙМЫ) ===
@@ -1118,7 +1045,7 @@ window.openAdjustmentsModal = function (empId, empName, monthStr) {
             ${adjs.map(a => `
                 <tr class="border-bottom">
                     <td class="p-5-0">${a.description}</td>
-                    <td class="text-right font-bold ${parseFloat(a.amount) > 0 ? 'text-success' : 'text-danger'}">${parseFloat(a.amount) > 0 ? '+' : ''}${parseFloat(a.amount).toLocaleString()} ₽</td>
+                    <td class="text-right font-bold ${parseFloat(a.amount) > 0 ? 'text-success' : 'text-danger'}">${parseFloat(a.amount) > 0 ? '+' : ''}${Utils.formatMoney(a.amount).replace(" ₽","")} ₽</td>
                     <td class="text-right"><button class="btn btn-outline" class="border-danger text-danger p-2-6" onclick="deleteAdjustment(${a.id})">❌</button></td>
                 </tr>
             `).join('')}
@@ -1143,13 +1070,14 @@ window.saveAdjustment = async function (empId, monthStr) {
     const desc = document.getElementById('adj-desc').value.trim();
     if (!amount || !desc) return UI.toast('Заполните сумму и комментарий!', 'error');
     try {
-        if ((await fetch('/api/salary/adjustments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ employee_id: empId, month_str: monthStr, amount, description: desc }) })).ok) {
+        await API.post('/api/salary/adjustments', { employee_id: empId, month_str: monthStr, amount, description: desc });
+        if (true) {
             UI.closeModal(); UI.toast('Операция сохранена', 'success'); loadMonthlyTimesheet();
         }
     } catch (e) { }
 };
 window.deleteAdjustment = async function (id) {
-    try { await fetch(`/api/salary/adjustments/${id}`, { method: 'DELETE' }); UI.closeModal(); loadMonthlyTimesheet(); } catch (e) { }
+    try { await API.delete(`/api/salary/adjustments/${id}`); UI.closeModal(); loadMonthlyTimesheet(); } catch (e) { }
 };
 window.deleteSalaryPayment = function (paymentId) {
     UI.showModal('⚠️ Подтверждение удаления', '<div class="text-center"><p class="font-16 mb-10">Аннулировать эту выплату?</p></div>', `
@@ -1159,7 +1087,8 @@ window.deleteSalaryPayment = function (paymentId) {
 };
 window.executeDeleteSalaryPayment = async function (paymentId) {
     try {
-        if ((await fetch(`/api/salary/payment/${paymentId}`, { method: 'DELETE' })).ok) {
+        await API.delete(`/api/salary/payment/${paymentId}`);
+        if (true) {
             UI.closeModal(); UI.toast('✅ Выплата аннулирована', 'success'); loadMonthlyTimesheet(); if (typeof loadFinanceData === 'function') loadFinanceData();
         }
     } catch (e) { }
@@ -1189,8 +1118,7 @@ window.loadPieceRateData = async function () {
 
     document.getElementById('piece-rate-content').innerHTML = '<p class="text-center text-muted">Загрузка данных...</p>';
     try {
-        const resStats = await fetch(`/api/production/daily-stats?date=${date}`);
-        const stats = await resStats.json();
+        const stats = await API.get(`/api/production/daily-stats?date=${date}`);
 
         const totalProduced = parseFloat(stats.total) || 0;
         const totalFund = parseFloat(stats.fund) || 0; // 🚀 НОВОЕ: Забираем готовый фонд с бэкенда
@@ -1235,7 +1163,7 @@ window.loadPieceRateData = async function () {
                     <div class="text-right">
                         <div class="hr-piece-fund-label">Сдельный фонд смены:</div>
                         <input type="hidden" id="piece-fund-value" value="${totalFund}">
-                        <b id="piece-fund" class="hr-piece-fund-value">${totalFund.toLocaleString()} ₽</b>
+                        <b id="piece-fund" class="hr-piece-fund-value">${Utils.formatMoney(totalFund).replace(" ₽","")} ₽</b>
                     </div>
                 </div>
                 <div class="font-11 text-muted mt-10 pt-10 border-top dashed">
@@ -1271,8 +1199,8 @@ window.recalcPieceRate = function () {
         const ktu = parseFloat(document.getElementById(`ktu-${id}`).value) || 0;
         const rate = parseFloat(document.getElementById(`rate-${id}`).value) || 0;
         const bonus = ktu * fundPerKtu;
-        document.getElementById(`bonus-${id}`).innerText = '+' + Math.round(bonus).toLocaleString() + ' ₽';
-        document.getElementById(`total-${id}`).innerText = Math.round(rate + bonus).toLocaleString() + ' ₽';
+        document.getElementById(`bonus-${id}`).innerText = '+' + Utils.formatMoney(Math.round(bonus)).replace(" ₽","") + ' ₽';
+        document.getElementById(`total-${id}`).innerText = Utils.formatMoney(Math.round(rate + bonus)).replace(" ₽","") + ' ₽';
     });
 
     // Блокируем кнопку сохранения, если фонд равен нулю или никто не выбран
@@ -1299,24 +1227,15 @@ window.savePieceRate = async function (date) {
     UI.toast('⏳ Расчет и сохранение...', 'info');
 
     try {
-        const res = await fetch('/api/timesheet/mass-bonus', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ date, workersData }) // 🚀 Убрали отправку pieceRate, бэкенд сам всё знает
-        });
-
-        if (res.ok) {
+        await API.post('/api/timesheet/mass-bonus', { date, workersData });
+        if (true) {
             UI.closeModal();
             UI.toast('Сдельная премия безопасно зафиксирована!', 'success');
             loadMonthlyTimesheet();
         } else {
-            const err = await res.json();
             UI.toast(err.error || 'Ошибка при расчете сделки', 'error');
         }
-    } catch (e) {
-        console.error(e);
-        UI.toast('Критическая ошибка связи с сервером', 'error');
-    }
+    } catch (e) { console.error(e); }
 };
 
 window.fillTodayBySchedule = async function () {
@@ -1328,13 +1247,12 @@ window.fillTodayBySchedule = async function () {
     if (records.length === 0) return UI.toast('Нет сотрудников для заполнения', 'info');
 
     try {
-        if ((await fetch('/api/timesheet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: dateStr, records }) })).ok) {
-            UI.toast(`Табель за СЕГОДНЯ заполнен!`, 'success');
-            const currentPickerValue = document.getElementById('ts-month-picker').value;
-            const todayMonthValue = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-            if (currentPickerValue !== todayMonthValue) document.getElementById('ts-month-picker').value = todayMonthValue;
-            loadMonthlyTimesheet();
-        }
+        await API.post('/api/timesheet', { date: dateStr, records });
+        UI.toast(`Табель за СЕГОДНЯ заполнен!`, 'success');
+        const currentPickerValue = document.getElementById('ts-month-picker').value;
+        const todayMonthValue = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+        if (currentPickerValue !== todayMonthValue) document.getElementById('ts-month-picker').value = todayMonthValue;
+        loadMonthlyTimesheet();
     } catch (e) { console.error(e); }
 };
 
@@ -1450,11 +1368,11 @@ window.printSalarySheet = function () {
         html += `<tr><td colspan="9" class="dep-row">${dep.toUpperCase()}</td></tr>`;
 
         emps.forEach(emp => {
-            html += `<tr><td style="text-align:center;">${counter++}</td><td><b>${emp.name}</b><br><span style="font-size:10px;color:var(--text-muted);">${emp.position}</span></td><td class="num">${emp.earned.toLocaleString()} ₽</td><td class="num">${emp.prevBalance.toLocaleString()} ₽</td><td class="num">-${emp.tax.toLocaleString()} ₽</td><td class="num">-${emp.advances.toLocaleString()} ₽</td><td class="num">${emp.adjustments.toLocaleString()} ₽</td><td class="num"><b>${emp.amount.toLocaleString()} ₽</b></td><td></td></tr>`;
+            html += `<tr><td style="text-align:center;">${counter++}</td><td><b>${emp.name}</b><br><span style="font-size:10px;color:var(--text-muted);">${emp.position}</span></td><td class="num">${Utils.formatMoney(emp.earned).replace(" ₽","")} ₽</td><td class="num">${Utils.formatMoney(emp.prevBalance).replace(" ₽","")} ₽</td><td class="num">-${Utils.formatMoney(emp.tax).replace(" ₽","")} ₽</td><td class="num">-${Utils.formatMoney(emp.advances).replace(" ₽","")} ₽</td><td class="num">${Utils.formatMoney(emp.adjustments).replace(" ₽","")} ₽</td><td class="num"><b>${Utils.formatMoney(emp.amount).replace(" ₽","")} ₽</b></td><td></td></tr>`;
             grandTotal += emp.amount;
         });
     });
-    html += `</tbody></table><h3 style="text-align:right;">Общая сумма к выдаче: <u>${grandTotal.toLocaleString()} ₽</u></h3><div style="margin-top:50px;display:flex;justify-content:space-between;"><div>Выдал: ____________</div><div>Утвердил: ____________</div></div></body></html>`;
+    html += `</tbody></table><h3 style="text-align:right;">Общая сумма к выдаче: <u>${Utils.formatMoney(grandTotal).replace(" ₽","")} ₽</u></h3><div style="margin-top:50px;display:flex;justify-content:space-between;"><div>Выдал: ____________</div><div>Утвердил: ____________</div></div></body></html>`;
     printWin.document.write(html); printWin.document.close();
 };
 
@@ -1517,12 +1435,12 @@ window.printAdvancesSheet = function () {
         html += `<tr><td colspan="5" class="dep-row">${dep.toUpperCase()}</td></tr>`;
         let depTotal = 0;
         emps.forEach(emp => {
-            html += `<tr><td class="text-center">${counter++}</td><td><b>${emp.name}</b></td><td>${emp.position}</td><td class="text-right"><b>${emp.amount.toLocaleString()} ₽</b></td><td></td></tr>`;
+            html += `<tr><td class="text-center">${counter++}</td><td><b>${emp.name}</b></td><td>${emp.position}</td><td class="text-right"><b>${Utils.formatMoney(emp.amount).replace(" ₽","")} ₽</b></td><td></td></tr>`;
             depTotal += emp.amount; grandTotal += emp.amount;
         });
-        html += `<tr><td colspan="3" class="text-right">Итого по отделу:</td><td class="text-right"><b>${depTotal.toLocaleString()} ₽</b></td><td></td></tr>`;
+        html += `<tr><td colspan="3" class="text-right">Итого по отделу:</td><td class="text-right"><b>${Utils.formatMoney(depTotal).replace(" ₽","")} ₽</b></td><td></td></tr>`;
     });
-    html += `</tbody></table><h3 class="text-right">Общая сумма: <u>${grandTotal.toLocaleString()} ₽</u></h3><div style="margin-top:50px;display:flex;justify-content:space-between;"><div>Выдал: ____________</div><div>Утвердил: ____________</div></div></body></html>`;
+    html += `</tbody></table><h3 class="text-right">Общая сумма: <u>${Utils.formatMoney(grandTotal).replace(" ₽","")} ₽</u></h3><div style="margin-top:50px;display:flex;justify-content:space-between;"><div>Выдал: ____________</div><div>Утвердил: ____________</div></div></body></html>`;
     printWin.document.write(html); printWin.document.close();
 };
 
@@ -1600,10 +1518,7 @@ window.endCellPress = async function (e, el) {
 
         // === 2. ФОНОВАЯ ОТПРАВКА НА СЕРВЕР ===
         try {
-            const res = await fetch('/api/timesheet/cell', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+                    await API.post('/api/timesheet/cell', {
                     employee_id: empId,
                     date: dateStr,
                     status: newStatus,
@@ -1612,22 +1527,9 @@ window.endCellPress = async function (e, el) {
                     penalty: currentPenalty,
                     bonus_comment: currentBComment,
                     penalty_comment: currentPComment
-                })
-            });
-
-            if (!res.ok) {
-                // Если сервер выдал ошибку связи - делаем откат изменений
-                const errData = await res.json();
-                UI.toast(errData.error || 'Ошибка сохранения ячейки', 'error');
-
-                el.setAttribute('data-status', currentStatus);
-                if (localRecord) localRecord.status = currentStatus;
-                if (typeof reRenderTimesheet === 'function') reRenderTimesheet();
-            }
+                });
         } catch (err) {
             console.error('Ошибка клика:', err);
-            UI.toast('Ошибка сети при сохранении', 'error');
-            // Делаем откат при пропаже интернета
             el.setAttribute('data-status', currentStatus);
             if (localRecord) localRecord.status = currentStatus;
             if (typeof reRenderTimesheet === 'function') reRenderTimesheet();
@@ -1645,8 +1547,8 @@ window.openCellEditModal = function (empId, empName, dateStr, currentStatus, cur
     const initialMultiplier = (parseFloat(currentMultiplier) === 0.25 || parseFloat(currentMultiplier) === 0.75) ? parseFloat(currentMultiplier) : 0.5;
 
     const html = `
-        <p class="mt-0 mb-20">Отметка для <b>${escapeHTML(empName)}</b><br>
-        <span class="text-muted font-13">Дата: ${dateStr} | <b>Ставка: ${costNum.toLocaleString()} ₽</b></span></p>
+        <p class="mt-0 mb-20">Отметка для <b>${Utils.escapeHtml(empName)}</b><br>
+        <span class="text-muted font-13">Дата: ${dateStr} | <b>Ставка: ${Utils.formatMoney(costNum).replace(" ₽","")} ₽</b></span></p>
         
         <div class="form-group">
             <label>Статус:</label>
@@ -1674,7 +1576,7 @@ window.openCellEditModal = function (empId, empName, dateStr, currentStatus, cur
                 </label>
             </div>
             <div class="modal-day-result-row">
-                Итого за день: <span id="modal-day-result" class="modal-day-result-value">${(costNum * initialMultiplier).toLocaleString('ru-RU')} ₽</span>
+                Итого за день: <span id="modal-day-result" class="modal-day-result-value">${Utils.formatMoney(costNum * initialMultiplier)}</span>
             </div>
         </div>
 
@@ -1687,12 +1589,12 @@ window.openCellEditModal = function (empId, empName, dateStr, currentStatus, cur
             <div class="bg-success-bg p-10 border-radius-6 border-success dashed">
                 <label class="text-success font-bold">Премия (₽):</label>
                 <input type="number" id="cell-bonus" class="input-modern" value="${parseFloat(currentBonus) || ''}" placeholder="0">
-                <input type="text" id="cell-bonus-comment" class="input-modern mt-5 font-12" value="${escapeHTML(bonusComment)}" placeholder="За что...">
+                <input type="text" id="cell-bonus-comment" class="input-modern mt-5 font-12" value="${Utils.escapeHtml(bonusComment)}" placeholder="За что...">
             </div>
             <div class="bg-danger-bg p-10 border-radius-6 border-danger dashed">
                 <label class="text-danger font-bold">Штраф (₽):</label>
                 <input type="number" id="cell-penalty" class="input-modern" value="${parseFloat(currentPenalty) || ''}" placeholder="0">
-                <input type="text" id="cell-penalty-comment" class="input-modern mt-5 font-12" value="${escapeHTML(penaltyComment)}" placeholder="Причина...">
+                <input type="text" id="cell-penalty-comment" class="input-modern mt-5 font-12" value="${Utils.escapeHtml(penaltyComment)}" placeholder="Причина...">
             </div>
         </div>
     `;
@@ -1721,7 +1623,7 @@ window.toggleCellStatusDeps = function (dailyCost) {
             if (penCheck) penCheck.checked = false;
         }
     }
-    
+
     if (multContainer) {
         multContainer.style.display = (status === 'partial') ? 'flex' : 'none';
         if (status === 'partial') {
@@ -1735,7 +1637,7 @@ window.updateModalDayResult = function (dailyCost) {
     const resultEl = document.getElementById('modal-day-result');
     if (checkedMulti && resultEl) {
         const mult = parseFloat(checkedMulti.value);
-        resultEl.innerText = (dailyCost * mult).toLocaleString('ru-RU') + ' ₽';
+        resultEl.innerText = Utils.formatMoney(dailyCost * mult);
     }
 };
 
@@ -1770,12 +1672,7 @@ window.saveCellStatus = async function (empId, dateStr) {
     };
 
     try {
-        const res = await fetch('/api/timesheet/cell', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        if (res.ok) {
+        await API.post('/api/timesheet/cell', payload);
             UI.closeModal();
 
             // Мгновенное локальное обновление вместо долгого скачивания с сервера
@@ -1801,10 +1698,7 @@ window.saveCellStatus = async function (empId, dateStr) {
             }
 
             if (typeof reRenderTimesheet === 'function') reRenderTimesheet();
-        } else {
-            const err = await res.json();
-            UI.toast(err.error || 'Ошибка', 'error');
-        }
+        
     } catch (e) { console.error(e); }
 };
 
@@ -1834,3 +1728,14 @@ window.reRenderTimesheet = function () {
 
 
 
+
+
+    // === ГЛОБАЛЬНЫЙ ЭКСПОРТ ===
+    if (typeof initSalary === 'function') window.initSalary = initSalary;
+    if (typeof initStaticHRSelects === 'function') window.initStaticHRSelects = initStaticHRSelects;
+    if (typeof toggleAccordion === 'function') window.toggleAccordion = toggleAccordion;
+    if (typeof loadEmployees === 'function') window.loadEmployees = loadEmployees;
+    if (typeof getLiveBalance === 'function') window.getLiveBalance = getLiveBalance;
+    if (typeof renderEmployeesTable === 'function') window.renderEmployeesTable = renderEmployeesTable;
+    if (typeof saveEmployee === 'function') window.saveEmployee = saveEmployee;
+})();

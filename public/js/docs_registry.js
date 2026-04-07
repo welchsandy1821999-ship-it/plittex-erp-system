@@ -1,3 +1,4 @@
+;(function() {
 ﻿let allRegistryDocs = [];
 
 async function loadDocsRegistry() {
@@ -21,10 +22,7 @@ async function loadDocsRegistry() {
         const queryString = params.toString();
         const url = '/api/docs/registry' + (queryString ? `?${queryString}` : '');
 
-        const res = await fetch(url);
-        if (!res.ok) throw new Error('Ошибка загрузки реестра документов');
-
-        allRegistryDocs = await res.json();
+        allRegistryDocs = await API.get(url);
         renderRegistryTable(allRegistryDocs);
     } catch (err) {
         console.error(err);
@@ -72,7 +70,7 @@ function renderRegistryTable(data) {
             const authorName = doc.author_name || doc.author || doc.authorName || 'Автогенерация';
             const isExported = doc.is_exported_1c || doc.isExported || false;
 
-            const d = new Date(createdAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+            const d = Utils.formatDate(createdAt);
 
             let clientName = 'Неизвестный контрагент';
             try {
@@ -80,7 +78,7 @@ function renderRegistryTable(data) {
                 if (snap) clientName = snap.name || snap.clientName || snap.client_name || clientName;
             } catch (e) { }
 
-            const sum = Number(totalAmount).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽';
+            const sum = Utils.formatMoney(Number(totalAmount));
             const stHtml = isExported
                 ? '<span class="text-success font-bold">🟢 Выгружен</span>'
                 : '<span class="text-muted">⚪ Не выгружен</span>';
@@ -161,24 +159,25 @@ async function exportTo1C() {
         btn.innerText = '⏳ Генерация XML...';
         btn.disabled = true;
 
-        const res = await fetch('/api/docs/export-1c', {
+        // Используем нативный fetch для получения Blob (API.post возвращает JSON, не Blob)
+        const rawRes = await fetch('/api/docs/export-1c', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ invoiceIds })
         });
 
-        if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
+        if (!rawRes.ok) {
+            const errData = await rawRes.json().catch(() => ({}));
             throw new Error(errData.error || 'Ошибка сервера при генерации файла');
         }
 
         // Скачивание файла (Blob)
-        const blob = await res.blob();
+        const blob = await rawRes.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         
         // Достаем имя файла из заголовков, если есть
-        const contentDisposition = res.headers.get('Content-Disposition');
+        const contentDisposition = rawRes.headers.get('Content-Disposition');
         let filename = 'export_1c.xml';
         if (contentDisposition && contentDisposition.includes('filename=')) {
             filename = contentDisposition.split('filename=')[1];
@@ -216,10 +215,8 @@ async function exportTo1C() {
 async function initRegistry() {
     try {
         // Загружаем список контрагентов для фильтра
-        const res = await fetch('/api/counterparties');
-        
-        if (res.ok) {
-            const counterparties = await res.json();
+        const counterparties = await API.get('/api/counterparties');
+        if (true) {
             const clientSelect = document.getElementById('clientFilter');
             
             if (clientSelect) {
@@ -272,9 +269,8 @@ document.addEventListener('DOMContentLoaded', initRegistry);
 window.deleteRegistryInvoice = async function(id) {
     UI.confirm('Вы уверены? Если это последний счет, он будет удален физически с откатом номера. Если нет — он будет аннулирован.', async () => {
         try {
-            const res = await fetch(`/api/invoices/${id}`, { method: 'DELETE' });
-            const data = await res.json();
-            if (res.ok) {
+            const data = await API.delete(`/api/invoices/${id}`);
+            if (true) {
                 UI.toast(data.action === 'deleted' ? 'Счет удален, номер откатан' : 'Счет аннулирован');
                 // Вызываем обновление данных реестра
                 if (typeof loadDocsRegistry === 'function') loadDocsRegistry();
@@ -282,8 +278,19 @@ window.deleteRegistryInvoice = async function(id) {
                 UI.toast(data.error || 'Ошибка удаления', 'error');
             }
         } catch (e) {
-            UI.toast('Ошибка сети', 'error');
+            
         }
     });
 };
 
+
+
+    // === ГЛОБАЛЬНЫЙ ЭКСПОРТ ===
+    if (typeof loadDocsRegistry === 'function') window.loadDocsRegistry = loadDocsRegistry;
+    if (typeof renderRegistryTable === 'function') window.renderRegistryTable = renderRegistryTable;
+    if (typeof toggleAllRegistryChecks === 'function') window.toggleAllRegistryChecks = toggleAllRegistryChecks;
+    if (typeof checkExportButtonState === 'function') window.checkExportButtonState = checkExportButtonState;
+    if (typeof exportTo1C === 'function') window.exportTo1C = exportTo1C;
+    if (typeof initRegistry === 'function') window.initRegistry = initRegistry;
+    if (typeof initStaticRegistrySelects === 'function') window.initStaticRegistrySelects = initStaticRegistrySelects;
+})();

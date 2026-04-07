@@ -47,10 +47,53 @@ function initSales() {
     loadSalesHistory();
     if (typeof loadActiveOrders === 'function') loadActiveOrders();
     initStaticSalesSelects();
+    loadSalesAccounts();
+    loadFinanceTaxPercent();
+}
+
+// === ПЕРЕКЛЮЧЕНИЕ ВКЛАДОК ===
+window.switchSalesTab = function (tabId, btn) {
+    document.querySelectorAll('.sales-tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.sales-tab-btn').forEach(b => b.classList.remove('active'));
+    const tab = document.getElementById(tabId);
+    if (tab) tab.classList.add('active');
+    if (btn) btn.classList.add('active');
+
+    // Подгружаем данные при переходе на вкладку
+    if (tabId === 'tab-active-orders' && typeof loadActiveOrders === 'function') loadActiveOrders();
+    if (tabId === 'tab-history' && typeof loadSalesHistory === 'function') loadSalesHistory();
+};
+
+// === ЗАГРУЗКА КАСС/БАНКОВ ===
+async function loadSalesAccounts() {
+    try {
+        const res = await fetch('/api/accounts');
+        const accounts = await res.json();
+        const sel = document.getElementById('sale-account');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">-- Выберите кассу --</option>';
+        accounts.filter(a => a.type !== 'imprest').forEach(a => {
+            sel.innerHTML += `<option value="${a.id}">${a.name} (${parseFloat(a.balance || 0).toLocaleString('ru-RU')} ₽)</option>`;
+        });
+    } catch (e) { console.error('Ошибка загрузки касс:', e); }
+}
+
+// === ЗАГРУЗКА НАЛОГОВОЙ СТАВКИ ===
+async function loadFinanceTaxPercent() {
+    if (window.FINANCE_TAX_PERCENT) return; // Уже установлена из dashboard
+    try {
+        const res = await fetch('/api/settings/finance');
+        if (res.ok) {
+            const data = await res.json();
+            window.FINANCE_TAX_PERCENT = parseFloat(data.sales_tax) || 6;
+        } else {
+            window.FINANCE_TAX_PERCENT = 6;
+        }
+    } catch (e) { window.FINANCE_TAX_PERCENT = 6; }
 }
 
 function initStaticSalesSelects() {
-    ['sale-warehouse', 'sale-poa', 'sale-payment-method', 'sale-account', 'bo-client-filter', 'bo-status-filter', 'hist-client-filter'].forEach(id => {
+    ['sale-warehouse', 'sale-payment-method', 'sale-account', 'bo-client-filter', 'bo-status-filter', 'hist-client-filter'].forEach(id => {
         const el = document.getElementById(id);
         if (el && !el.tomselect) {
             new TomSelect(el, {
@@ -154,7 +197,7 @@ window.onClientChange = async function () {
     // Если поле клиента очистили (нажали на крестик или стерли текст), 
     // просто прячем розовую карточку и блок договоров.
     if (!cpId) {
-        if (infoBox) infoBox.style.display = 'none';
+        if (infoBox) infoBox.classList.add('sales-hidden');
         if (contractGroup) contractGroup.style.display = 'none';
         return;
     }
@@ -163,8 +206,6 @@ window.onClientChange = async function () {
     await loadClientContracts(cpId);
     if (typeof loadClientPoas === 'function') await loadClientPoas();
 
-    // Обновляем UI-элементы ввода
-    if (typeof updateDatalistUI === 'function') updateDatalistUI();
     if (typeof updateSaleMaxQty === 'function') updateSaleMaxQty();
 
     try {
@@ -196,56 +237,101 @@ window.onClientChange = async function () {
         const data = await res.json();
         const client = data.info;
 
-        // Комментарий к блоку: Подсчет общей суммы долгов клиента
-        let totalDebt = 0;
+        // ЗАГРУЗКА АВАНСА КЛИЕНТА ПЕРЕД ОТРИСОВКОЙ (Для расчета Net Debt)
+        let availableAdvance = 0;
+        try {
+            const balRes = await fetch(`/api/counterparties/${cpId}/balance`);
+            if (balRes.ok) {
+                const balData = await balRes.json();
+                availableAdvance = parseFloat(balData.availableAdvance) || 0;
+            }
+        } catch (e) { console.error('Ошибка загрузки аванса клиента:', e); }
+        window.CLIENT_AVAILABLE_ADVANCE = availableAdvance;
+
+        // Показ блока выбора аванса в счет оплаты
+        const offsetGroup = document.getElementById('sale-offset-group');
+        const offsetAvailEl = document.getElementById('sale-offset-available');
+        if (offsetGroup) {
+            if (availableAdvance > 0) {
+                offsetGroup.classList.remove('sales-hidden');
+                if (offsetAvailEl) offsetAvailEl.innerText = availableAdvance.toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽';
+            } else {
+                offsetGroup.classList.add('sales-hidden');
+            }
+        }
+
+        // Подсчет общей суммы долгов по документам
+        let grossDebt = 0;
         (data.invoices || []).forEach(inv => {
-            if (inv.status === 'pending') totalDebt += parseFloat(inv.amount);
+            if (inv.status === 'pending') grossDebt += parseFloat(inv.amount);
         });
 
-        // Комментарий к блоку: Отрисовка шапки клиента (Имя + Статус прайса + Кнопка настроек)
+        // Подсчет Нетто-Долга
+        const netDebt = grossDebt - availableAdvance;
+        let debtText = '';
+        let debtColor = '';
+        
+        if (netDebt > 0) {
+            debtText = `${netDebt.toLocaleString('ru-RU', {minimumFractionDigits: 2})} ₽`;
+            debtColor = 'var(--danger)';
+        } else if (netDebt < 0) {
+            debtText = `Переплата: ${Math.abs(netDebt).toLocaleString('ru-RU', {minimumFractionDigits: 2})} ₽`;
+            debtColor = 'var(--success)';
+        } else {
+            debtText = 'Нет долгов 🟢';
+            debtColor = 'var(--success)';
+        }
+
+        // Подстановка дилерской цены
         const priceLevel = client.price_level || 'basic';
+        window.CLIENT_PRICE_LEVEL = priceLevel;
+        if (typeof updateProductSelectUI === 'function') updateProductSelectUI();
+
         const badgeHtml = priceLevel === 'dealer'
             ? `<span class="badge bg-info-lt text-info border-info p-5 font-11 font-bold">👑 ДИЛЕР</span>`
             : `<span class="badge bg-surface-alt text-muted border p-5 font-11 font-bold">👤 Розница</span>`;
 
+        // Долг по поддонам
+        const pallets = parseInt(client.pallets_balance) || 0;
+        const palletsText = pallets > 0 ? `${pallets} шт.` : '0 шт.';
+        const palletsColor = pallets > 0 ? 'var(--warning-text)' : 'inherit';
+
+        // Формирование стилизованной карточки
         const headerHtml = `
-            <div class="flex-between align-center mb-10 pb-10 border-bottom dashed" style="border-color: var(--primary);">
-                <div class="flex-row gap-10 align-center">
-                    <span class="font-bold font-14 text-primary">${client.name}</span>
-                    ${badgeHtml}
+            <div class="sales-client-card bg-surface border-radius-8 p-15 shadow-sm mb-10 border w-100">
+                <div class="flex-between align-start gap-10 mb-10 pb-10 border-bottom dashed flex-wrap" style="border-color: var(--border-color);">
+                    <div class="flex-row gap-10 align-start flex-grow-1" style="min-width: 0;">
+                        <i class="fas fa-building text-primary font-18 mt-3"></i>
+                        <div class="flex-column" style="min-width: 0;">
+                            <span class="font-bold font-13 text-primary d-block" style="word-break: break-word; line-height: 1.2;">${client.name}</span>
+                            <div class="mt-5">${badgeHtml}</div>
+                        </div>
+                    </div>
+                    <button class="btn btn-outline p-5 px-10 font-11 text-primary bg-surface flex-shrink-0" style="border-color: var(--primary);" onclick="openClientEditor(${cpId})">
+                        ⚙️ Карточка
+                    </button>
                 </div>
-                <button class="btn btn-outline p-5 font-11 text-primary bg-surface" style="border-color: var(--primary);" onclick="openClientEditor(${cpId})">
-                    ⚙️ Карточка
-                </button>
+                <div class="flex-row justify-between align-start gap-15 flex-wrap mt-10">
+                    <div class="client-stat-box flex-grow-1" style="min-width: 100px;">
+                        <span class="text-muted font-11 block mb-3">Баланс контрагента:</span>
+                        <strong class="font-14 d-block" style="color: ${debtColor}; line-height: 1.2;">${debtText}</strong>
+                    </div>
+                    <div class="client-stat-box flex-grow-1" style="min-width: 80px;">
+                        <span class="text-muted font-11 block mb-3">Долг по поддонам:</span>
+                        <strong class="font-14 d-block" style="color: ${palletsColor}; line-height: 1.2;">${palletsText}</strong>
+                    </div>
+                    <div class="client-stat-box w-100 mt-5">
+                        <button class="btn btn-outline btn-sm font-12 w-100" onclick="printClientAct()">🖨️ Акт сверки</button>
+                    </div>
+                </div>
             </div>
         `;
 
-        // Вставляем шапку в розовый блок
-        let statusDiv = document.getElementById('sale-client-status');
-        if (!statusDiv) {
-            statusDiv = document.createElement('div');
-            statusDiv.id = 'sale-client-status';
-            infoBox.insertBefore(statusDiv, infoBox.firstChild);
-        }
-        statusDiv.innerHTML = headerHtml;
-
-        // Комментарий к блоку: Обновление информации по долгам (зеленый/красный текст)
-        const debtEl = document.getElementById('sale-client-debt');
-        if (debtEl) {
-            debtEl.innerText = totalDebt > 0 ? `${totalDebt.toLocaleString('ru-RU')} ₽` : 'Нет долгов 🟢';
-            debtEl.style.color = totalDebt > 0 ? 'var(--danger)' : 'var(--success)';
+        if (infoBox) {
+            infoBox.innerHTML = headerHtml;
+            infoBox.classList.remove('sales-hidden');
         }
 
-        // Комментарий к блоку: Обновление баланса поддонов
-        const palletsEl = document.getElementById('sale-client-pallets');
-        if (palletsEl) {
-            const pallets = parseInt(client.pallets_balance) || 0;
-            palletsEl.innerText = pallets > 0 ? `${pallets} шт.` : '0 шт.';
-            palletsEl.style.color = pallets > 0 ? 'var(--warning-text)' : 'var(--success)';
-        }
-
-        // Показываем розовый блок
-        if (infoBox) infoBox.style.display = 'block';
     } catch (e) {
         console.error('Ошибка загрузки профиля:', e);
     }
@@ -392,14 +478,15 @@ window.executePrintAct = function (cpId) {
     if (!start || !end) return UI.toast('Укажите даты', 'error');
 
     // Отправляем правильный запрос с датами и правильным параметром (cpId)
-    window.open(`/print/act?cpId=${cpId}&start=${start}&end=${end}`, '_blank');
+    window.open(`/print/act?cpId=${cpId}&start=${start}&end=${end}` + (String(`/print/act?cpId=${cpId}&start=${start}&end=${end}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
     UI.closeModal();
 };
 
 window.loadClientPoas = async function () {
     const cpId = document.getElementById('sale-client').value;
     const poaSelect = document.getElementById('sale-poa');
-    if (!cpId) return poaSelect.innerHTML = '<option value="">-- Выберите клиента --</option>';
+    if (!cpId) { if (poaSelect) poaSelect.innerHTML = '<option value="">-- Выберите клиента --</option>'; return; }
+    if (!poaSelect) return;
 
     try {
         const res = await fetch(`/api/counterparties/${cpId}/poas`);
@@ -410,15 +497,180 @@ window.loadClientPoas = async function () {
 };
 
 window.toggleSalePayment = function () {
-    const method = document.getElementById('sale-payment-method').value;
-    document.getElementById('sale-account-group').style.display = (method === 'paid' || method === 'partial') ? 'block' : 'none';
-    document.getElementById('sale-advance-group').style.display = method === 'partial' ? 'block' : 'none';
+    const method = document.getElementById('sale-payment-method');
+    if (!method) return;
+    const methodVal = method.value;
+    const accountGroup = document.getElementById('sale-account-group');
+    const advanceGroup = document.getElementById('sale-advance-group');
+    if (!accountGroup || !advanceGroup) return;
+
+    // Кассу показываем ТОЛЬКО если есть реальная оплата (100% или аванс)
+    if (methodVal === 'paid' || methodVal === 'partial') {
+        accountGroup.classList.remove('sales-hidden');
+    } else {
+        accountGroup.classList.add('sales-hidden');
+    }
+
+    // Поле ввода аванса показываем ТОЛЬКО при частичной оплате
+    if (methodVal === 'partial') {
+        advanceGroup.classList.remove('sales-hidden');
+    } else {
+        advanceGroup.classList.add('sales-hidden');
+    }
+
+    // 💳 Применяем умную логику disabled
+    if (typeof smartAccountToggle === 'function') smartAccountToggle();
+};
+
+// 💳 УМНАЯ ЛОГИКА КАССЫ: hide если зачёт покрывает всю сумму
+window.smartAccountToggle = function () {
+    const methodEl = document.getElementById('sale-payment-method');
+    const accountGroup = document.getElementById('sale-account-group');
+    const offsetCheck = document.getElementById('sale-offset-check');
+    const offsetAmountEl = document.getElementById('sale-offset-amount');
+
+    if (!methodEl || !accountGroup) return;
+    const methodVal = methodEl.value;
+
+    // Если способ оплаты = "В долг" и нет зачёта → касса не нужна
+    if (methodVal === 'debt' && !(offsetCheck?.checked)) {
+        accountGroup.classList.add('sales-hidden');
+        accountGroup.style.opacity = '1';
+        accountGroup.style.pointerEvents = 'auto';
+        return;
+    }
+
+    // Вычисляем "К оплате сейчас" (живые деньги)
+    const totalStr = document.getElementById('cart-total-sum')?.innerText || '0';
+    const totalSum = parseFloat(totalStr.replace(/[^\d.,]/g, '').replace(',', '.')) || 0;
+    const offsetVal = (offsetCheck?.checked && offsetAmountEl) ? (parseFloat(offsetAmountEl.value) || 0) : 0;
+    const payNow = totalSum - offsetVal;
+
+    if (offsetCheck?.checked && payNow <= 0.01) {
+        // Зачёт полностью покрывает → касса НЕ НУЖНА, полностью скрываем
+        accountGroup.classList.add('sales-hidden');
+        accountGroup.style.opacity = '1';
+        accountGroup.style.pointerEvents = 'auto';
+    } else if (methodVal === 'paid' || methodVal === 'partial' || (offsetCheck?.checked && payNow > 0.01)) {
+        // Есть живые деньги → касса обязательна
+        accountGroup.classList.remove('sales-hidden');
+        accountGroup.style.opacity = '1';
+        accountGroup.style.pointerEvents = 'auto';
+        const lbl = accountGroup.querySelector('label');
+        if (lbl) lbl.innerHTML = 'Касса / Банк:';
+    } else {
+        accountGroup.classList.add('sales-hidden');
+    }
+};
+
+// 💰 Живой предпросмотр стоимости при добавлении товара
+window.updateLivePreview = function () {
+    const qty = parseFloat(document.getElementById('sale-qty')?.value) || 0;
+    const price = parseFloat(document.getElementById('sale-price')?.value) || 0;
+    const costEl = document.getElementById('sale-live-cost');
+    if (costEl) {
+        const total = qty * price;
+        costEl.innerText = total.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' ₽';
+        costEl.style.color = total > 0 ? 'var(--primary)' : 'var(--text-muted)';
+    }
+};
+
+// 🚚 Переключатель Доставка / Самовывоз
+window.toggleDeliveryType = function () {
+    const selected = document.querySelector('input[name="sale-delivery-type"]:checked')?.value;
+    const addressGroup = document.getElementById('sale-address-group');
+    const costGroup = document.getElementById('sale-logistics-cost-group');
+    const costInput = document.getElementById('sale-logistics-cost');
+
+    if (selected === 'pickup') {
+        if (addressGroup) addressGroup.style.display = 'none';
+        if (costGroup) costGroup.style.display = 'none';
+        if (costInput) { costInput.value = '0'; }
+        renderCart();
+    } else {
+        if (addressGroup) addressGroup.style.display = '';
+        if (costGroup) costGroup.style.display = '';
+    }
+};
+
+// 💰 Обработчик чекбокса "Зачесть аванс"
+window.onOffsetToggle = function () {
+    const check = document.getElementById('sale-offset-check');
+    const amountEl = document.getElementById('sale-offset-amount');
+    if (!check || !amountEl) return;
+
+    if (check.checked) {
+        amountEl.disabled = false;
+        const totalStr = document.getElementById('cart-total-sum')?.innerText || '0';
+        const totalSum = parseFloat(totalStr.replace(/[^\d.,]/g, '').replace(',', '.')) || 0;
+        const maxOffset = Math.min(window.CLIENT_AVAILABLE_ADVANCE, totalSum);
+        amountEl.value = maxOffset > 0 ? maxOffset.toFixed(2) : '';
+        amountEl.max = maxOffset;
+    } else {
+        amountEl.disabled = true;
+        amountEl.value = '';
+    }
+    renderCart();
+    toggleSalePayment();
+};
+
+// 💰 Обработчик изменения суммы зачёта
+window.onOffsetAmountChange = function () {
+    const amountEl = document.getElementById('sale-offset-amount');
+    if (!amountEl) return;
+    let val = parseFloat(amountEl.value) || 0;
+
+    const totalStr = document.getElementById('cart-total-sum')?.innerText || '0';
+    const totalSum = parseFloat(totalStr.replace(/[^\d.,]/g, '').replace(',', '.')) || 0;
+    const maxOffset = Math.min(window.CLIENT_AVAILABLE_ADVANCE, totalSum);
+
+    if (val > maxOffset) {
+        val = maxOffset;
+        amountEl.value = val.toFixed(2);
+        UI.toast(`Максимальная сумма зачёта: ${maxOffset.toFixed(2)} ₽`, 'warning');
+    }
+    if (val < 0) { val = 0; amountEl.value = '0'; }
+
+    updateOffsetSummary();
+    if (typeof smartAccountToggle === 'function') smartAccountToggle();
+};
+
+// 💰 Обновление блока "К оплате сейчас"
+window.updateOffsetSummary = function () {
+    const check = document.getElementById('sale-offset-check');
+    const amountEl = document.getElementById('sale-offset-amount');
+    const summaryEl = document.getElementById('cart-offset-summary');
+    const offsetSumEl = document.getElementById('cart-offset-sum');
+    const payNowEl = document.getElementById('cart-pay-now');
+
+    const totalStr = document.getElementById('cart-total-sum')?.innerText || '0';
+    const totalSum = parseFloat(totalStr.replace(/[^\d.,]/g, '').replace(',', '.')) || 0;
+
+    if (check?.checked && amountEl && parseFloat(amountEl.value) > 0) {
+        const offsetVal = parseFloat(amountEl.value) || 0;
+        const payNow = Math.max(0, totalSum - offsetVal);
+
+        if (summaryEl) summaryEl.classList.remove('sales-hidden');
+        if (offsetSumEl) offsetSumEl.innerText = offsetVal.toLocaleString('ru-RU', { minimumFractionDigits: 2 });
+        if (payNowEl) payNowEl.innerText = payNow.toLocaleString('ru-RU', { minimumFractionDigits: 2 });
+    } else {
+        if (summaryEl) summaryEl.classList.add('sales-hidden');
+    }
 };
 
 window.togglePoaMode = function () {
-    const isNoPoa = document.getElementById('sale-no-poa').checked;
-    document.getElementById('poa-select-group').style.display = isNoPoa ? 'none' : 'flex';
-    document.getElementById('poa-comment-group').style.display = isNoPoa ? 'block' : 'none';
+    const isNoPoa = document.getElementById('sale-no-poa')?.checked;
+    const poaSelectGroup = document.getElementById('poa-select-group');
+    const poaCommentGroup = document.getElementById('poa-comment-group');
+    if (!poaSelectGroup || !poaCommentGroup) return;
+
+    if (isNoPoa) {
+        poaSelectGroup.classList.add('sales-hidden');
+        poaCommentGroup.classList.remove('sales-hidden');
+    } else {
+        poaSelectGroup.classList.remove('sales-hidden');
+        poaCommentGroup.classList.add('sales-hidden');
+    }
 };
 
 window.openPoaManager = function () {
@@ -466,7 +718,7 @@ window.printSelectedContract = function () {
     if (!select || select.selectedIndex < 0) return UI.toast('Выберите договор!', 'warning');
     const cid = select.options[select.selectedIndex].getAttribute('data-cid');
     if (!cid) return UI.toast('Этот пункт нельзя распечатать', 'warning');
-    window.open(`/print/contract?id=${cid}`, '_blank');
+    window.open(`/print/contract?id=${cid}` + (String(`/print/contract?id=${cid}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
 };
 
 // === НОВЫЙ МОДУЛЬ: УМНАЯ СИНХРОНИЗАЦИЯ КЛИЕНТОВ ===
@@ -526,15 +778,33 @@ async function loadSalesData(fullLoad = true) {
         const inventory = await invRes.json();
         stockMap = {};
 
+        // DEBUG: показать какие типы складов пришли из API
+        const uniqueTypes = [...new Set(inventory.map(r => r.warehouse_type))];
+        console.log('[Sales] Типы складов из API:', uniqueTypes);
+        console.log('[Sales] Первые 5 строк inventory:', inventory.slice(0, 5));
+
         const inventoryMap = {};
         inventory.forEach(row => {
-            if (!inventoryMap[row.item_name]) inventoryMap[row.item_name] = { '4': 0, '5': 0, '7': 0 };
-            if (row.warehouse_id === 4 || row.warehouse_id === 5) {
-                inventoryMap[row.item_name][row.warehouse_id] = (inventoryMap[row.item_name][row.warehouse_id] || 0) + parseFloat(row.total);
+            if (!inventoryMap[row.item_name]) inventoryMap[row.item_name] = { finished: 0, markdown: 0, reserve: 0 };
+            // Готовая продукция (1-й сорт) — тип finished
+            if (row.warehouse_type === 'finished') {
+                inventoryMap[row.item_name].finished = (inventoryMap[row.item_name].finished || 0) + parseFloat(row.total);
             }
-            // Считаем резерв (Склад №7)
-            if (row.warehouse_id === 7) {
-                inventoryMap[row.item_name]['7'] = (inventoryMap[row.item_name]['7'] || 0) + parseFloat(row.total);
+            // Уценка — тип markdown
+            if (row.warehouse_type === 'markdown') {
+                inventoryMap[row.item_name].markdown = (inventoryMap[row.item_name].markdown || 0) + parseFloat(row.total);
+            }
+            // Резерв — тип reserve
+            if (row.warehouse_type === 'reserve') {
+                inventoryMap[row.item_name].reserve = (inventoryMap[row.item_name].reserve || 0) + parseFloat(row.total);
+            }
+        });
+
+        // Кэшируем warehouse IDs для использования при оформлении заказа
+        window.WAREHOUSE_IDS = {};
+        inventory.forEach(row => {
+            if (!window.WAREHOUSE_IDS[row.warehouse_type]) {
+                window.WAREHOUSE_IDS[row.warehouse_type] = row.warehouse_id;
             }
         });
 
@@ -543,16 +813,19 @@ async function loadSalesData(fullLoad = true) {
             const dealerPrice = parseFloat(p.dealer_price || 0);
             const pieceRate = parseFloat(p.piece_rate || 0);
 
-            const stock4 = inventoryMap[p.name] ? inventoryMap[p.name]['4'] : 0;
-            const stock5 = inventoryMap[p.name] ? inventoryMap[p.name]['5'] : 0;
-            const reserved = inventoryMap[p.name] ? inventoryMap[p.name]['7'] : 0;
+            const stockFinished = inventoryMap[p.name] ? (inventoryMap[p.name].finished || 0) : 0;
+            const stockMarkdown = inventoryMap[p.name] ? (inventoryMap[p.name].markdown || 0) : 0;
+            const reserved = inventoryMap[p.name] ? (inventoryMap[p.name].reserve || 0) : 0;
+
+            const whFinished = window.WAREHOUSE_IDS['finished'] || 4;
+            const whMarkdown = window.WAREHOUSE_IDS['markdown'] || 5;
 
             if (currentSalesWarehouse === 'all') {
-                stockMap[p.name] = { id: p.id, warehouseId: 4, name: p.name, unit: p.unit, qty: stock4, reserved, price, dealer_price: dealerPrice, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Авто', allowProduction: true };
-            } else if (currentSalesWarehouse === '4' && stock4 > 0) {
-                stockMap[p.name] = { id: p.id, warehouseId: 4, name: p.name, unit: p.unit, qty: stock4, reserved, price, dealer_price: dealerPrice, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: '1 сорт', allowProduction: false };
-            } else if (currentSalesWarehouse === '5' && stock5 > 0) {
-                stockMap[p.name] = { id: p.id, warehouseId: 5, name: p.name, unit: p.unit, qty: stock5, reserved: 0, price: Math.floor(price * 0.7), dealer_price: Math.floor(dealerPrice * 0.7), piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Уценка', allowProduction: false };
+                stockMap[p.name] = { id: p.id, warehouseId: whFinished, name: p.name, unit: p.unit, qty: stockFinished, reserved, price, dealer_price: dealerPrice, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Авто', allowProduction: true };
+            } else if (currentSalesWarehouse === '4' && stockFinished > 0) {
+                stockMap[p.name] = { id: p.id, warehouseId: whFinished, name: p.name, unit: p.unit, qty: stockFinished, reserved, price, dealer_price: dealerPrice, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: '1 сорт', allowProduction: false };
+            } else if (currentSalesWarehouse === '5' && stockMarkdown > 0) {
+                stockMap[p.name] = { id: p.id, warehouseId: whMarkdown, name: p.name, unit: p.unit, qty: stockMarkdown, reserved: 0, price: Math.floor(price * 0.7), dealer_price: Math.floor(dealerPrice * 0.7), piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Уценка', allowProduction: false };
             }
         });
 
@@ -565,18 +838,18 @@ window.updateProductSelectUI = function () {
     const selectEl = document.getElementById('sale-product-select');
     if (!selectEl) return;
 
-    // Определяем уровень цен выбранного клиента
-    const clientSelect = document.getElementById('sale-client');
-    const selectedOption = clientSelect && clientSelect.selectedIndex >= 0 ? clientSelect.options[clientSelect.selectedIndex] : null;
-    const priceLevel = selectedOption ? selectedOption.getAttribute('data-level') : 'basic';
+    // Исключаем зависимость от TomSelect: берем прайс из глобальной переменной,
+    // которую мы 100% достоверно обновляем при запросе профиля в onClientChange
+    const priceLevel = window.CLIENT_PRICE_LEVEL || 'basic';
 
     // Формируем опции
     const options = Object.values(stockMap).map(item => {
         let displayPrice = item.price;
         if (priceLevel === 'dealer' && item.dealer_price > 0) displayPrice = item.dealer_price;
-        const free = Math.max(0, item.qty - (item.reserved || 0));
-        const reservedLabel = item.reserved > 0 ? ` | Резерв: ${item.reserved}` : '';
-        return { value: item.name, text: item.name, free, reserved: item.reserved || 0, price: displayPrice, unit: item.unit, reservedLabel };
+        const free = parseFloat(Math.max(0, item.qty - (item.reserved || 0)).toFixed(2));
+        const reservedFmt = parseFloat((item.reserved || 0)).toFixed(2);
+        const reservedLabel = item.reserved > 0 ? ` | Резерв: ${reservedFmt}` : '';
+        return { value: item.name, text: item.name, free: free.toFixed(2), reserved: reservedFmt, price: displayPrice, unit: item.unit, reservedLabel };
     });
 
     if (!selectEl.tomselect) {
@@ -617,7 +890,18 @@ window.updateSaleMaxQty = function (selectedName) {
 
     const btnCalc = document.getElementById('btn-calc-sales-cost');
     if (btnCalc) {
-        btnCalc.style.display = currentSelectedItem ? 'block' : 'none';
+        if (currentSelectedItem) btnCalc.classList.remove('sales-hidden');
+        else btnCalc.classList.add('sales-hidden');
+    }
+
+    // 🎯 Показываем/скрываем блок ввода Кол-во, Цена, кнопки
+    const specActions = document.getElementById('sale-spec-actions');
+    if (specActions) {
+        if (currentSelectedItem) {
+            specActions.classList.remove('sales-hidden');
+        } else {
+            specActions.classList.add('sales-hidden');
+        }
     }
 
     if (!currentSelectedItem) {
@@ -629,19 +913,18 @@ window.updateSaleMaxQty = function (selectedName) {
 
     document.getElementById('sale-unit-label').innerText = `(${currentSelectedItem.unit})`;
 
-    // === ШАГ 3: Показываем Свободно / В резерве / Цену ===
+    // === ШАГ 3: Показываем На складе / В резерве / Цену ===
+    // qty из finished-склада уже НЕ включает зарезервированный товар (он перемещён на reserve-склад)
+    const onStock = currentSelectedItem.qty || 0;
     const reserved = currentSelectedItem.reserved || 0;
-    const free = Math.max(0, currentSelectedItem.qty - reserved);
-    let hintHtml = `Свободно: <span class="sales-stock-free">${free} ${currentSelectedItem.unit}</span>`;
+    let hintHtml = `На складе: <span class="sales-stock-free">${onStock.toFixed(2)} ${currentSelectedItem.unit}</span>`;
     if (reserved > 0) {
-        hintHtml += ` | В резерве: <span class="sales-stock-reserved">${reserved} ${currentSelectedItem.unit}</span>`;
+        hintHtml += ` | В резерве: <span class="sales-stock-reserved">${parseFloat(reserved).toFixed(2)} ${currentSelectedItem.unit}</span>`;
     }
     document.getElementById('sale-max-qty').innerHTML = hintHtml;
 
-    // Подстановка дилерской или базовой цены
-    const clientSelect = document.getElementById('sale-client');
-    const selectedOption = clientSelect && clientSelect.selectedIndex >= 0 ? clientSelect.options[clientSelect.selectedIndex] : null;
-    const priceLevel = selectedOption ? selectedOption.getAttribute('data-level') : 'basic';
+    // Подстановка дилерской или базовой цены через глобальную переменную
+    const priceLevel = window.CLIENT_PRICE_LEVEL || 'basic';
 
     let finalPrice = parseFloat(currentSelectedItem.price || currentSelectedItem.current_price) || 0;
     if (priceLevel === 'dealer' && currentSelectedItem.dealer_price && parseFloat(currentSelectedItem.dealer_price) > 0) {
@@ -649,6 +932,7 @@ window.updateSaleMaxQty = function (selectedName) {
     }
 
     document.getElementById('sale-price').value = finalPrice;
+    if (typeof updateLivePreview === 'function') updateLivePreview();
 };
 
 // ==========================================
@@ -670,19 +954,17 @@ window.addToCart = async function () {
         }
     }
 
-    // 🚀 МАГИЯ: ЗАПРАШИВАЕМ ФАКТИЧЕСКУЮ СЕБЕСТОИМОСТЬ ПЕРЕД ДОБАВЛЕНИЕМ
+    // 🚀 ЗАПРАШИВАЕМ ФАКТИЧЕСКУЮ СЕБЕСТОИМОСТЬ ПЕРЕД ДОБАВЛЕНИЕМ
     UI.toast('⏳ Фиксация себестоимости...', 'info');
     const btn = document.querySelector('button[onclick="addToCart()"]');
     if (btn) btn.disabled = true;
 
     let unitCost = 0;
     try {
-        const res = await fetch(`/api/sales/cost-analysis/${currentSelectedItem.id}`);
-        const data = await res.json();
+        const data = await API.get(`/api/sales/cost-analysis/${currentSelectedItem.id}`);
 
-        // 🚀 МАГИЯ: Берем Факт сырья + Аморт. + Оверхед + СДЕЛЬНУЮ З/П ИЗ КАРТОЧКИ
         const baseMatCost = parseFloat(data.empirical) > 0 ? parseFloat(data.empirical) : parseFloat(data.theoretical);
-        const pieceRate = parseFloat(currentSelectedItem.piece_rate) || 0; // Наша новая константа
+        const pieceRate = parseFloat(currentSelectedItem.piece_rate) || 0;
 
         unitCost = baseMatCost + parseFloat(data.amortization) + parseFloat(data.overhead || 0) + pieceRate;
     } catch (e) {
@@ -703,7 +985,7 @@ window.addToCart = async function () {
         weight: currentSelectedItem.weight || 0,
         allowProduction: currentSelectedItem.allowProduction,
         stockAvailable: currentSelectedItem.qty,
-        unitCost: unitCost // 🚀 СОХРАНЯЕМ СЕБЕСТОИМОСТЬ В КОРЗИНУ НАВСЕГДА
+        unitCost: unitCost
     });
 
     const productSel = document.getElementById('sale-product-select');
@@ -713,6 +995,12 @@ window.addToCart = async function () {
     document.getElementById('sale-max-qty').innerHTML = `Остаток: 0`;
     document.getElementById('sale-price').value = '';
     document.getElementById('sale-qty').value = '';
+    // Очистка live preview
+    const liveCostEl = document.getElementById('sale-live-cost');
+    if (liveCostEl) { liveCostEl.innerText = '0 ₽'; liveCostEl.style.color = 'var(--text-muted)'; }
+    // Скрываем блок ввода до выбора нового товара
+    const specAct = document.getElementById('sale-spec-actions');
+    if (specAct) specAct.classList.add('sales-hidden');
     renderCart();
 };
 
@@ -730,41 +1018,67 @@ window.renderCart = function () {
         // Прячем финансовый контроллер
         const profitInfo = document.getElementById('cart-profit-info');
         if (profitInfo) profitInfo.style.display = 'none';
+        const profitSummary = document.getElementById('cart-profit-summary');
+        if (profitSummary) profitSummary.classList.add('sales-hidden');
 
         return;
     }
 
     let subtotal = 0;
     let totalWeight = 0;
-    let totalProductionCost = 0; // 🚀 Сумма себестоимостей всего чека
+    let totalProductionCost = 0;
+    const safeTaxPct = parseFloat(window.FINANCE_TAX_PERCENT) || 0;
+
+    // Структура для попродуктовой разбивки
+    const productProfitMap = {};
 
     // БЛОК 2: ОТРИСОВКА СТРОК ТАБЛИЦЫ
     tbody.innerHTML = cart.map((item, index) => {
         const qty = parseFloat(item.qty) || 0;
         const basePrice = parseFloat(item.price) || 0;
         const discount = parseFloat(item.discount) || 0;
-        const unitCost = parseFloat(item.unitCost) || 0; // Достаем зафиксированную себестоимость
+        const unitCost = parseFloat(item.unitCost) || 0;
 
         const finalPrice = basePrice * (1 - discount / 100);
         const sum = qty * finalPrice;
         const costSum = qty * unitCost;
 
+        // Чистая прибыль по позиции (ПОСЛЕ налога)
+        const lineTax = sum * (safeTaxPct / 100);
+        const lineNetProfit = sum - costSum - lineTax;
+
         subtotal += sum;
         totalWeight += qty * (item.weight || 0);
         totalProductionCost += costSum;
+
+        // Агрегация по продукту
+        const pKey = item.name;
+        if (!productProfitMap[pKey]) productProfitMap[pKey] = { revenue: 0, cost: 0, tax: 0, profit: 0 };
+        productProfitMap[pKey].revenue += sum;
+        productProfitMap[pKey].cost += costSum;
+        productProfitMap[pKey].tax += lineTax;
+        productProfitMap[pKey].profit += lineNetProfit;
 
         return `
             <tr class="sales-cart-row">
                 <td>${item.sortLabel || '1 Сорт'}</td>
                 <td><b>${item.name}</b></td>
-                <td class="text-center">${qty} ${item.unit}</td>
                 <td class="text-center">
-                    <input type="number" class="input-modern sales-cart-price-input" value="${basePrice}" onchange="updateCartItem(${index}, 'price', this.value)">
+                    <input type="number" class="input-modern sales-cart-qty-input" value="${qty}" min="0.01" step="0.01"
+                           style="width:80px; text-align:center;"
+                           oninput="updateCartItem(${index}, 'qty', this.value)">
+                    <span class="font-12 text-muted">${item.unit}</span>
                 </td>
                 <td class="text-center">
-                    <input type="number" class="input-modern sales-cart-discount-input" value="${discount}" min="0" max="100" onchange="updateCartItem(${index}, 'discount', this.value)">
+                    <input type="number" class="input-modern sales-cart-price-input" value="${basePrice}" oninput="updateCartItem(${index}, 'price', this.value)">
                 </td>
-                <td class="sales-cart-sum">${sum.toFixed(2)} ₽</td>
+                <td class="text-center">
+                    <input type="number" class="input-modern sales-cart-discount-input" value="${discount}" min="0" max="100" oninput="updateCartItem(${index}, 'discount', this.value)">
+                </td>
+                <td class="sales-cart-sum" style="white-space:nowrap;">
+                    ${sum.toFixed(2)} ₽
+                    ${unitCost > 0 ? `<div class="font-10 ${lineNetProfit >= 0 ? 'text-success' : 'text-danger'}" title="Чистая прибыль (после налога ${safeTaxPct}%)">= ${lineNetProfit >= 0 ? '+' : ''}${lineNetProfit.toFixed(0)} ₽</div>` : ''}
+                </td>
                 <td class="text-center"><button class="sales-cart-remove" onclick="removeFromCart(${index})">✖</button></td>
             </tr>
         `;
@@ -778,49 +1092,89 @@ window.renderCart = function () {
     const finalTotal = finalProductRevenue + logistics;
 
     document.getElementById('cart-total-weight').innerText = totalWeight.toFixed(1);
-    document.getElementById('cart-total-sum').innerText = finalTotal.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-    // ==================================================
-    // 🚀 БЛОК 4: ФИНАНСОВЫЙ КОНТРОЛЛЕР СДЕЛКИ
-    // ==================================================
-    // БЕЗОПАСНОЕ ЧТЕНИЕ: Если настройки еще грузятся, берем 0, чтобы не сломать математику
-    const safeTaxPct = parseFloat(window.FINANCE_TAX_PERCENT) || 0;
+    const goodsSumEl = document.getElementById('cart-goods-sum');
+    if (goodsSumEl) goodsSumEl.innerText = subtotal.toLocaleString('ru-RU') + ' ₽';
 
-    // Налог платится с общей суммы поступлений
-    const taxCost = finalTotal * (safeTaxPct / 100);
-
-    // 🚀 Чистая прибыль: Выручка - Себестоимость (Сырье+Аморт+Оверхед) - Налог
-    const netProfit = finalProductRevenue - totalProductionCost - taxCost;
-    const marginPct = finalTotal > 0 ? ((netProfit / finalTotal) * 100).toFixed(1) : 0;
-
-    // Динамически создаем или находим контейнер для вывода прибыли
-    let profitContainer = document.getElementById('cart-profit-info');
-    if (!profitContainer) {
-        const totalSumContainer = document.getElementById('cart-total-sum').closest('div').parentNode;
-        profitContainer = document.createElement('div');
-        profitContainer.id = 'cart-profit-info';
-        profitContainer.className = 'sales-profit-block';
-        totalSumContainer.parentNode.appendChild(profitContainer);
+    const originalSumEl = document.getElementById('cart-original-sum');
+    if (originalSumEl) {
+        if (globalDiscount > 0) {
+            originalSumEl.innerText = subtotal.toLocaleString('ru-RU') + ' ₽';
+            originalSumEl.style.display = 'inline';
+        } else {
+            originalSumEl.style.display = 'none';
+        }
     }
 
-    const isProfitable = netProfit > 0;
-    profitContainer.className = `sales-profit-block ${isProfitable ? 'profit-positive' : 'profit-negative'}`;
+    document.getElementById('cart-total-sum').innerText = finalTotal.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
-    profitContainer.innerHTML = `
-        <div>
-            <div class="${isProfitable ? 'profit-title-positive' : 'profit-title-negative'}">Очищенная прибыль сделки:</div>
-            <div class="profit-sub">Удержан налог (${safeTaxPct}%). Оверхед уже учтен в себестоимости.</div>
-        </div>
-        <div style="text-align: right;">
-            <div class="profit-value ${isProfitable ? 'profit-value-positive' : 'profit-value-negative'}">
-                ${netProfit.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽
-            </div>
-            <div class="profit-badge ${isProfitable ? 'profit-badge-positive' : 'profit-badge-negative'}">
-                Рентабельность: ${marginPct}%
-            </div>
-        </div>
-    `;
-    profitContainer.style.display = 'flex';
+    const logSumEl = document.getElementById('cart-logistics-sum');
+    if (logSumEl) logSumEl.innerText = logistics.toLocaleString('ru-RU') + ' ₽';
+
+    if (typeof updateOffsetSummary === 'function') updateOffsetSummary();
+    if (typeof smartAccountToggle === 'function') smartAccountToggle();
+
+    // ==================================================
+    // 🚀 БЛОК 4: ПРИБЫЛЬ В КОРЗИНЕ
+    // ==================================================
+    const taxCost = finalProductRevenue * (safeTaxPct / 100);
+    const netProfit = finalProductRevenue - totalProductionCost - taxCost;
+    const marginPct = finalProductRevenue > 0 ? ((netProfit / finalProductRevenue) * 100).toFixed(1) : 0;
+
+    const profitSummary = document.getElementById('cart-profit-summary');
+    if (profitSummary) {
+        if (totalProductionCost > 0) {
+            profitSummary.classList.remove('sales-hidden');
+            const isProfitable = netProfit >= 0;
+
+            // Стили заголовка
+            const header = document.getElementById('cart-profit-header');
+            if (header) {
+                header.style.background = isProfitable
+                    ? 'linear-gradient(135deg, #e8f5e9, #c8e6c9)'
+                    : 'linear-gradient(135deg, #ffebee, #ffcdd2)';
+                header.style.borderTopColor = isProfitable ? '#66bb6a' : '#ef5350';
+            }
+
+            document.getElementById('cart-profit-tax-pct').innerText = safeTaxPct;
+
+            const profitTotalEl = document.getElementById('cart-profit-total');
+            profitTotalEl.innerText = (isProfitable ? '+' : '') + netProfit.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽';
+            profitTotalEl.style.color = isProfitable ? '#1b5e20' : '#b71c1c';
+
+            const marginEl = document.getElementById('cart-profit-margin');
+            marginEl.innerText = `${marginPct}%`;
+            marginEl.style.background = isProfitable ? '#1b5e20' : '#b71c1c';
+            marginEl.style.color = '#fff';
+
+            // Разбивка по продуктам
+            const breakdownEl = document.getElementById('cart-profit-breakdown');
+            const productKeys = Object.keys(productProfitMap);
+            if (breakdownEl) {
+                if (productKeys.length > 1) {
+                    breakdownEl.innerHTML = productKeys.map(name => {
+                        const p = productProfitMap[name];
+                        const ok = p.profit >= 0;
+                        return `<div style="display:flex; justify-content:space-between; padding: 3px 0; border-bottom: 1px dotted ${isProfitable ? '#a5d6a7' : '#ef9a9a'};">
+                            <span style="color: ${isProfitable ? '#2e7d32' : '#c62828'};">${name}</span>
+                            <span style="font-weight:700; color: ${ok ? '#1b5e20' : '#b71c1c'};">${ok ? '+' : ''}${p.profit.toFixed(2)} ₽</span>
+                        </div>`;
+                    }).join('');
+                    breakdownEl.style.display = 'block';
+                    breakdownEl.style.background = isProfitable ? '#e8f5e960' : '#ffebee60';
+                    breakdownEl.style.padding = '6px 18px 10px';
+                } else {
+                    breakdownEl.innerHTML = '';
+                    breakdownEl.style.display = 'none';
+                }
+            }
+        } else {
+            profitSummary.classList.add('sales-hidden');
+        }
+    }
+
+    const oldProfit = document.getElementById('cart-profit-info');
+    if (oldProfit) oldProfit.style.display = 'none';
 };
 
 
@@ -883,22 +1237,9 @@ window.processCheckout = async function () {
     if (!client_id) return UI.toast('Выберите клиента', 'error');
 
     // ==========================================
-    // 1. ЖЕСТКАЯ ПРОВЕРКА ДОВЕРЕННОСТИ
+    // 1. ПРОВЕРКА ДОВЕРЕННОСТИ (опционально — поля появятся в Управлении заказами при отгрузке)
     // ==========================================
-    const noPoa = document.getElementById('sale-no-poa').checked;
-    const poaSelectVal = document.getElementById('sale-poa').value;
-    const poaComment = document.getElementById('sale-poa-comment').value.trim();
-
-    if (noPoa) {
-        // Если галочка стоит, требуем причину
-        if (!poaComment) return UI.toast('Укажите причину отгрузки без доверенности!', 'error');
-    } else {
-        // Если галочки нет, ТРЕБУЕМ выбрать доверенность из списка
-        if (!poaSelectVal) return UI.toast('Выберите доверенность из списка или поставьте галочку "Без доверенности"!', 'error');
-    }
-
-    // Формируем итоговую строку для базы
-    const poa_info = noPoa ? `Без доверенности: ${poaComment}` : poaSelectVal;
+    const poa_info = null; // Доверенность заполняется при отгрузке, не при оформлении
 
     // ==========================================
     // 2. ЖЕСТКАЯ ПРОВЕРКА АВАНСА
@@ -948,8 +1289,9 @@ window.processCheckout = async function () {
         account_id: document.getElementById('sale-account')?.value,
         advance_amount: advanceAmount,
         discount: document.getElementById('sale-discount').value || 0,
-        driver: document.getElementById('sale-driver').value,
-        auto: document.getElementById('sale-auto').value,
+        driver: document.getElementById('sale-driver')?.value || null,
+        auto: document.getElementById('sale-auto')?.value || null,
+        offset_amount: (document.getElementById('sale-offset-check')?.checked ? parseFloat(document.getElementById('sale-offset-amount')?.value) : 0) || 0,
         contract_id: document.getElementById('sale-contract').value || null,
         delivery_address: document.getElementById('sale-delivery-address').value,
         logistics_cost: logisticsCost,
@@ -1297,9 +1639,9 @@ function renderHistoryTable() {
             <td class="sales-hist-sum">${sumText}</td>
             <td class="sales-hist-actions">
             <div class="sales-order-actions-row">
-                <button class="btn btn-outline sales-btn-sm sales-btn-sm-info" onclick="window.open('/print/upd?docNum=${h.doc_num}', '_blank')" title="УПД и Пропуск на выезд">🖨️ УПД + Пропуск</button>
-                <button class="btn btn-outline sales-btn-sm" style="color: var(--warning-text); border-color: var(--warning-text);" onclick="window.open('/print/specification?docNum=${h.doc_num}', '_blank')" title="Спецификация">🖨️ Спец.</button>
-                <button class="btn btn-outline sales-btn-sm" style="color: var(--primary); border-color: var(--primary);" onclick="window.open('/print/waybill?docNum=${h.doc_num}', '_blank')" title="Накладная">🖨️ Накладная</button>
+                <button class="btn btn-outline sales-btn-sm sales-btn-sm-info" onclick="window.open('/print/upd?docNum=${h.doc_num}' + (String('/print/upd?docNum=${h.doc_num}').includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank')" title="УПД и Пропуск на выезд">🖨️ УПД + Пропуск</button>
+                <button class="btn btn-outline sales-btn-sm" style="color: var(--warning-text); border-color: var(--warning-text);" onclick="window.open('/print/specification?docNum=${h.doc_num}' + (String('/print/specification?docNum=${h.doc_num}').includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank')" title="Спецификация">🖨️ Спец.</button>
+                <button class="btn btn-outline sales-btn-sm" style="color: var(--primary); border-color: var(--primary);" onclick="window.open('/print/waybill?docNum=${h.doc_num}' + (String('/print/waybill?docNum=${h.doc_num}').includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank')" title="Накладная">🖨️ Накладная</button>
                 <button class="btn btn-outline sales-btn-sm sales-btn-sm-danger" onclick="cancelShipment('${h.doc_num}')" title="Отменить">❌</button>
             </div>
             </td>
@@ -1464,7 +1806,7 @@ window.openContractManager = async function () {
                         <div class="flex-between align-center border-bottom dashed pb-10 mb-10">
                             <strong class="text-main font-14">📄 Договор №${c.id ? `<span class="entity-link" onclick="window.app.openEntity('document_contract', ${c.id})">${c.number}</span>` : c.number} от ${c.date}</strong>
                             <div class="flex-row gap-5">
-                                <button class="btn btn-outline p-5 border-info text-info font-11" onclick="window.open('/print/contract?id=${c.id}', '_blank')" title="Распечатать">🖨️</button>
+                                <button class="btn btn-outline p-5 border-info text-info font-11" onclick="window.open('/print/contract?id=${c.id}' + (String('/print/contract?id=${c.id}').includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank')" title="Распечатать">🖨️</button>
                                 <button class="btn btn-outline p-5 border-danger text-danger font-11" onclick="deleteContract(${c.id})" title="Удалить">❌</button>
                             </div>
                         </div>
@@ -1474,7 +1816,7 @@ window.openContractManager = async function () {
                                 <div class="flex-between align-center font-12 text-muted mb-5">
                                     <span>↳ Спецификация №${s.number} от ${s.date}</span>
                                     <div class="flex-row gap-5">
-                                        <button class="btn btn-outline p-5 border-info text-info font-11" style="border:none;" onclick="window.open('/print/specification_doc?id=${s.id}', '_blank')" title="Печать спецификации">🖨️</button>
+                                        <button class="btn btn-outline p-5 border-info text-info font-11" style="border:none;" onclick="window.open('/print/specification_doc?id=${s.id}' + (String('/print/specification_doc?id=${s.id}').includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank')" title="Печать спецификации">🖨️</button>
                                         <button class="btn btn-outline p-5 border-danger text-danger font-11" style="border:none;" onclick="deleteSpecification(${s.id})" title="Удалить спецификацию">❌</button>
                                     </div>
                                 </div>
@@ -1695,153 +2037,171 @@ window.openCostAnalysisModal = async function () {
     UI.toast('⏳ Загрузка аналитики...', 'info');
 
     try {
-        const res = await fetch(`/api/sales/cost-analysis/${currentSelectedItem.id}`);
-        const data = await res.json();
+        const data = await API.get(`/api/sales/cost-analysis/${currentSelectedItem.id}`);
 
-        // Динамический подсчет итогов для футера
-        const totalTheoryQty = data.materials.reduce((sum, m) => sum + m.theory_qty, 0);
-        const totalFactQty = data.materials.reduce((sum, m) => sum + m.fact_qty, 0);
         const totalFactCost = data.materials.reduce((sum, m) => sum + m.fact_cost, 0);
-
         window.currentCalcData = { ...data, qty, salePrice };
+
+        const batchCount = data.batchCount || 0;
+        const methodNote = batchCount > 0
+            ? `Средний расход сырья по <b>${batchCount}</b> последним завершённым формовкам.${data.materials.some(m => m.is_hybrid) ? ' Материалы без факта подставлены из рецепта (🪄).' : ''}`
+            : 'Нет данных по формовкам. Используется <b>теоретический</b> расход из рецептуры.';
 
         const html = `
             <style>
-                #app-modal .modal-content { max-width: 1050px !important; width: 95% !important; }
+                #app-modal .modal-content { max-width: 1120px !important; width: 96% !important; }
+                .calc-grid { display: grid; grid-template-columns: 1fr 320px; gap: 24px; }
+                .calc-card { border: 1px solid var(--border-color); border-radius: 10px; padding: 14px 16px; }
+                .calc-card-header { font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 10px; letter-spacing: 0.5px; }
+                .calc-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 13px; }
+                .calc-row:last-child { margin-bottom: 0; }
+                .calc-input { width: 85px; height: 30px; text-align: right; padding: 2px 6px; border: 1px dashed var(--border-color); border-radius: 6px; font-weight: 700; font-size: 13px; background: var(--bg-surface-alt); }
+                .calc-sep { border-bottom: 1px dashed var(--border-color); margin: 6px 0; }
+                .calc-method { background: #e3f2fd; border: 1px solid #90caf9; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #1565c0; margin-top: 12px; line-height: 1.6; }
+                @media (max-width: 800px) { .calc-grid { grid-template-columns: 1fr; } }
             </style>
-            <div class="p-10 font-inter text-main">
+            <div style="padding: 8px 4px;">
                 
-                <div class="flex-between align-end mb-25 pb-15 border-bottom border-2">
+                <!-- Шапка: Партия + Прибыль -->
+                <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 2px solid var(--border-color);">
                     <div>
-                        <h3 class="m-0 font-20 text-main">📊 Экономика сделки: ${currentSelectedItem.name}</h3>
-                        <p class="m-0 mt-5 text-muted font-14">Объем партии: <b class="text-main">${qty} ${currentSelectedItem.unit || 'шт.'}</b></p>
+                        <div class="font-13 text-muted">Объем партии: <b class="text-main">${qty} ${currentSelectedItem.unit || 'шт.'}</b> × <b class="text-main">${salePrice} ₽</b></div>
                     </div>
-                    <div class="text-right">
-                        <div class="font-13 text-muted text-uppercase tracking-wider">Чистая прибыль (Партия)</div>
-                        <div id="res-batch-profit" class="font-32 font-black text-success line-height-1">0.00 ₽</div>
+                    <div style="text-align: right;">
+                        <div class="font-11 text-muted text-uppercase" style="letter-spacing: 0.5px;">Чистая прибыль (Партия)</div>
+                        <div id="res-batch-profit" style="font-size: 28px; font-weight: 900; line-height: 1; color: var(--success);">0.00 ₽</div>
                     </div>
                 </div>
 
-                <div class="form-grid gap-30" style="grid-template-columns: 320px 1fr;">
+                <div class="calc-grid">
                     
-                    <div class="flex-col gap-18">
-                        <div class="card p-18 border-radius-12 border border-left-5 border-left-primary">
-                            <div class="flex-between mb-10">
-                                <span class="font-bold text-muted">📐 Идеал (Рецепт)</span>
-                                <b class="font-16 text-main">${data.theoretical} ₽</b>
+                    <!-- ======== ЛЕВАЯ КОЛОНКА: Таблица сырья ======== -->
+                    <div>
+                        <div class="calc-card" style="padding: 0; overflow: hidden;">
+                            <div style="padding: 10px 16px; background: var(--bg-surface-alt); border-bottom: 1px solid var(--border-color);">
+                                <span class="font-13 font-bold text-main">📦 Сравнительный расход сырья</span>
                             </div>
-                            <div class="flex-between font-14 bg-surface-alt p-8 border-radius-6">
-                                <span class="text-muted">🧪 Опыт (Факт):</span>
-                                <b class="text-warning">${parseFloat(data.empirical) > 0 ? data.empirical : data.theoretical} ₽</b>
-                            </div>
-                        </div>
-
-                        <div class="card p-18 border-radius-12 border border-left-5 border-left-warning">
-                            <h4 class="m-0 mb-12 font-13 text-main text-uppercase">🔨 Доп. расходы (на 1 ед)</h4>
-                            <div class="flex-between mb-8 align-center">
-                                <span class="font-12 text-muted">Амортизация:</span>
-                                <span class="font-bold text-main">${data.amortization} ₽</span>
-                            </div>
-                            <div class="flex-between mb-8 align-center pb-8 border-bottom dashed">
-                                <span class="font-12 text-muted">Оверхед (Завод):</span>
-                                <span class="font-bold text-warning" title="Распределенные косвенные затраты">${data.overhead} ₽</span>
-                            </div>
-                            <div class="flex-between mb-8 align-center">
-                                <span class="font-12 text-muted">Сдельная З/П:</span>
-                                <input type="number" id="calc-wage" class="input-modern bg-surface-hover text-success font-bold border-success dashed text-right w-90 h-32 p-4-8" value="${currentSelectedItem.piece_rate || 0}" disabled title="Эта сумма автоматически подтягивается из Справочника продукции">
-                            </div>
-                            <div class="flex-between align-center">
-                                <span class="font-12 text-muted">Упаковка и лог.:</span>
-                                <input type="number" id="calc-pack" class="input-modern text-right w-90 h-32 p-4-8" value="0" step="1" onfocus="this.select()" oninput="recalcSalesMargin()">
-                            </div>
-                        </div>
-
-                        <div class="card p-18 border-radius-12 border border-left-5 border-left-danger">
-                            <h4 class="m-0 mb-12 font-13 text-main text-uppercase">💼 Коммерция и Налоги</h4>
-                            <div class="flex-between mb-8 align-center">
-                                <span class="font-12 text-muted">Цена (1 ед):</span>
-                                <span class="font-bold text-main">${salePrice} ₽</span>
-                            </div>
-                            <div class="flex-between mb-8 align-center">
-                                <span class="font-12 text-danger">Налог (%):</span>
-                               <input type="number" id="calc-tax-pct" class="input-modern text-right border-danger w-90 h-32 p-4-8" value="${window.FINANCE_TAX_PERCENT || 6}" step="1" max="100" onfocus="this.select()" oninput="recalcSalesMargin()">
-                            </div>
-                            <div class="flex-between align-center">
-                                <span class="font-12 text-info">Менеджер (%):</span>
-                                <input type="number" id="calc-bonus-pct" class="input-modern text-right border-info w-90 h-32 p-4-8" value="0" step="0.5" max="100" onfocus="this.select()" oninput="recalcSalesMargin()">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="flex-col gap-20">
-                        
-                        <div class="card border-radius-12 border shadow-sm overflow-hidden">
-                            <div class="p-15 pl-20 pr-20 bg-surface-alt border-bottom">
-                                <h4 class="m-0 font-14 text-uppercase text-muted">📦 Сравнительный расход сырья</h4>
-                            </div>
-                            <div class="overflow-auto">
-                                <table class="table-modern w-100" style="min-width: 600px;">
-                                    <thead class="bg-surface-alt">
-                                        <tr class="text-left border-bottom">
-                                            <th rowspan="2" class="p-10 border-right font-11 text-muted">МАТЕРИАЛ</th>
-                                            <th colspan="2" class="p-10 border-right font-11 text-muted text-center">РАСХОД (НА 1 ЕД)</th>
-                                            <th colspan="2" class="p-10 border-right font-11 text-muted text-center">СУММА (1 ЕД)</th>
-                                            <th rowspan="2" class="p-10 font-11 text-muted text-right">ФАКТ (ПАРТИЯ)</th>
+                            <div style="overflow-x: auto;">
+                                <table class="table-modern w-100" style="min-width: 520px; font-size: 12px;">
+                                    <thead style="background: var(--bg-surface-alt);">
+                                        <tr style="border-bottom: 1px solid var(--border-color);">
+                                            <th rowspan="2" style="padding: 8px 10px; border-right: 1px solid var(--border-color); font-size:11px; color:var(--text-muted);">МАТЕРИАЛ</th>
+                                            <th colspan="2" style="padding: 6px; border-right: 1px solid var(--border-color); font-size:11px; color:var(--text-muted); text-align:center;">РАСХОД (1 ЕД)</th>
+                                            <th colspan="2" style="padding: 6px; border-right: 1px solid var(--border-color); font-size:11px; color:var(--text-muted); text-align:center;">СУММА (1 ЕД)</th>
+                                            <th rowspan="2" style="padding: 6px; font-size:11px; color:var(--text-muted); text-align:right;">ФАКТ<br>(ПАРТИЯ)</th>
                                         </tr>
-                                        <tr class="text-center border-bottom border-2">
-                                            <th class="p-5 pl-10 pr-10 font-10 text-primary border-right dashed">📐 Идеал</th>
-                                            <th class="p-5 pl-10 pr-10 font-10 text-warning border-right">🧪 Опыт</th>
-                                            <th class="p-5 pl-10 pr-10 font-10 text-primary border-right dashed">📐 Идеал</th>
-                                            <th class="p-5 pl-10 pr-10 font-10 text-warning border-right">🧪 Опыт</th>
+                                        <tr style="border-bottom: 2px solid var(--border-color);">
+                                            <th style="padding:4px 8px; font-size:10px; color:var(--primary); text-align:center; border-right:1px dashed var(--border-color);">📐 Идеал</th>
+                                            <th style="padding:4px 8px; font-size:10px; color:#e65100; text-align:center; border-right:1px solid var(--border-color);">🧪 Опыт</th>
+                                            <th style="padding:4px 8px; font-size:10px; color:var(--primary); text-align:center; border-right:1px dashed var(--border-color);">📐 Идеал</th>
+                                            <th style="padding:4px 8px; font-size:10px; color:#e65100; text-align:center; border-right:1px solid var(--border-color);">🧪 Опыт</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         ${data.materials.map(m => `
-                                            <tr class="border-bottom border-surface-hover">
-                                                <td class="p-10 font-600 border-right font-12 text-main">${m.name}</td>
-                                                
-                                                <td class="p-10 text-center text-primary border-right dashed font-12">${m.theory_qty > 0 ? m.theory_qty.toFixed(3) : '-'} <small>${m.unit}</small></td>
-                                                <td class="p-10 text-center text-warning font-bold border-right font-12">
+                                            <tr style="border-bottom: 1px solid var(--bg-surface-hover);">
+                                                <td style="padding:7px 10px; font-weight:600; border-right:1px solid var(--border-color);">${m.name}</td>
+                                                <td style="padding:7px 6px; text-align:center; color:var(--primary); border-right:1px dashed var(--border-color);">${m.theory_qty > 0 ? m.theory_qty.toFixed(3) : '-'} <small>${m.unit}</small></td>
+                                                <td style="padding:7px 6px; text-align:center; color:#e65100; font-weight:700; border-right:1px solid var(--border-color);">
                                                     ${m.fact_qty > 0 ? m.fact_qty.toFixed(3) : '-'} <small>${m.unit}</small>
-                                                    ${m.is_hybrid ? '<span title="Нет факта. Автоматически взято из рецепта" style="cursor:help;">🪄</span>' : ''}
+                                                    ${m.is_hybrid ? '<span title="Нет факта — подставлено из рецепта" style="cursor:help;">🪄</span>' : ''}
                                                 </td>
-                                                
-                                                <td class="p-10 text-right text-primary border-right dashed font-12">${m.theory_cost > 0 ? m.theory_cost.toFixed(2) + ' ₽' : '-'}</td>
-                                                <td class="p-10 text-right text-warning font-bold border-right font-12">${m.fact_cost > 0 ? m.fact_cost.toFixed(2) + ' ₽' : '-'}</td>
-                                                
-                                                <td class="p-10 text-right font-bold text-danger font-12">${m.fact_cost > 0 ? (m.fact_cost * qty).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽' : '-'}</td>
+                                                <td style="padding:7px 6px; text-align:right; color:var(--primary); border-right:1px dashed var(--border-color);">${m.theory_cost > 0 ? m.theory_cost.toFixed(2) + ' ₽' : '-'}</td>
+                                                <td style="padding:7px 6px; text-align:right; color:#e65100; font-weight:700; border-right:1px solid var(--border-color);">${m.fact_cost > 0 ? m.fact_cost.toFixed(2) + ' ₽' : '-'}</td>
+                                                <td style="padding:7px 6px; text-align:right; font-weight:700; color:var(--danger);">${m.fact_cost > 0 ? (m.fact_cost * qty).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽' : '-'}</td>
                                             </tr>
                                         `).join('')}
                                     </tbody>
-                                    <tfoot class="bg-surface-alt border-top border-2">
-                                        <tr class="font-black text-main">
-                                            <td class="p-12 pl-10 pr-10 border-right">ИТОГО (СЫРЬЕ):</td>
-                                            <td class="p-12 pl-10 pr-10 text-center border-right dashed"></td>
-                                            <td class="p-12 pl-10 pr-10 text-center border-right"></td>
-                                            <td class="p-12 pl-10 pr-10 text-right text-primary border-right dashed">${parseFloat(data.theoretical).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽</td>
-                                            <td class="p-12 pl-10 pr-10 text-right text-warning border-right">${totalFactCost > 0 ? totalFactCost.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽' : '-'}</td>
-                                            <td class="p-12 pl-10 pr-10 text-right text-danger font-14">${totalFactCost > 0 ? (totalFactCost * qty).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽' : '-'}</td>
+                                    <tfoot style="background: var(--bg-surface-alt); border-top: 2px solid var(--border-color);">
+                                        <tr style="font-weight: 900;">
+                                            <td style="padding:10px; border-right:1px solid var(--border-color);">ИТОГО (СЫРЬЕ):</td>
+                                            <td style="padding:10px; border-right:1px dashed var(--border-color);"></td>
+                                            <td style="padding:10px; border-right:1px solid var(--border-color);"></td>
+                                            <td style="padding:10px; text-align:right; color:var(--primary); border-right:1px dashed var(--border-color);">${parseFloat(data.theoretical).toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</td>
+                                            <td style="padding:10px; text-align:right; color:#e65100; border-right:1px solid var(--border-color);">${totalFactCost > 0 ? totalFactCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽' : '-'}</td>
+                                            <td style="padding:10px; text-align:right; color:var(--danger); font-size:13px;">${totalFactCost > 0 ? (totalFactCost * qty).toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽' : '-'}</td>
                                         </tr>
                                     </tfoot>
                                 </table>
                             </div>
                         </div>
 
-                        <div class="bg-surface-alt p-20 border-radius-12 border">
-                            <div class="flex-between font-13 mb-10 text-main border-bottom dashed pb-10">
-                                <span>Производственная себестоимость (1 ед):</span>
-                                <strong id="res-prod-cost" class="text-main">0.00 ₽</strong>
+                        <!-- Методология расчёта Опыта -->
+                        <div class="calc-method">
+                            <b>ℹ️ Методология «Опыт»:</b> ${methodNote}
+                        </div>
+                    </div>
+
+                    <!-- ======== ПРАВАЯ КОЛОНКА: Карточки ======== -->
+                    <div style="display: flex; flex-direction: column; gap: 14px;">
+
+                        <!-- Сырье: Идеал vs Опыт -->
+                        <div class="calc-card" style="border-left: 4px solid var(--primary);">
+                            <div class="calc-card-header">📐 Себестоимость сырья (1 ед)</div>
+                            <div class="calc-row">
+                                <span class="text-muted">Идеал (Рецепт):</span>
+                                <b>${data.theoretical} ₽</b>
                             </div>
-                            <div class="flex-between font-13 mb-15 text-main border-bottom pb-15">
-                                <span>Налоги и комиссии (1 ед):</span>
-                                <strong id="res-taxes" class="text-danger">-0.00 ₽</strong>
+                            <div class="calc-row" style="background: var(--bg-surface-alt); padding: 4px 8px; border-radius: 6px;">
+                                <span class="text-muted">🧪 Опыт (Факт):</span>
+                                <b style="color: #e65100;">${parseFloat(data.empirical) > 0 ? data.empirical : data.theoretical} ₽</b>
                             </div>
-                            
-                            <div class="flex-between align-center">
-                                <div class="font-12 text-uppercase text-muted font-bold">Очищенная прибыль (1 ед)</div>
-                                <div class="text-right">
-                                    <div id="res-net-profit" class="font-24 font-black text-success line-height-1">0.00 ₽</div>
-                                    <div id="res-margin-pct" class="font-13 font-bold text-success mt-5">Рентабельность: 0%</div>
+                        </div>
+
+                        <!-- Доп. расходы -->
+                        <div class="calc-card" style="border-left: 4px solid #ff9800;">
+                            <div class="calc-card-header">🔨 Доп. расходы (на 1 ед)</div>
+                            <div class="calc-row">
+                                <span class="text-muted">Амортизация:</span>
+                                <b>${data.amortization} ₽</b>
+                            </div>
+                            <div class="calc-row">
+                                <span class="text-muted">Оверхед (Завод):</span>
+                                <b style="color: #e65100;" title="Распределенные косвенные затраты">${data.overhead} ₽</b>
+                            </div>
+                            <div class="calc-sep"></div>
+                            <div class="calc-row">
+                                <span class="text-muted">Сдельная З/П:</span>
+                                <input type="number" id="calc-wage" class="calc-input" style="color:var(--success); border-color:var(--success);" value="${currentSelectedItem.piece_rate || 0}" disabled title="Из Справочника">
+                            </div>
+                            <div class="calc-row">
+                                <span class="text-muted">Упаковка:</span>
+                                <input type="number" id="calc-pack" class="calc-input" value="0" step="1" onfocus="this.select()" oninput="recalcSalesMargin()">
+                            </div>
+                        </div>
+
+                        <!-- Коммерция -->
+                        <div class="calc-card" style="border-left: 4px solid var(--danger);">
+                            <div class="calc-card-header">💼 Коммерция и Налоги</div>
+                            <div class="calc-row">
+                                <span class="text-muted">Цена (1 ед):</span>
+                                <b>${salePrice} ₽</b>
+                            </div>
+                            <div class="calc-row">
+                                <span style="color: var(--danger);">Налог (%):</span>
+                                <input type="number" id="calc-tax-pct" class="calc-input" style="border-color:var(--danger);" value="${window.FINANCE_TAX_PERCENT || 6}" step="1" max="100" onfocus="this.select()" oninput="recalcSalesMargin()">
+                            </div>
+                            <div class="calc-row">
+                                <span style="color: var(--info);">Бонус менедж. (%):</span>
+                                <input type="number" id="calc-bonus-pct" class="calc-input" style="border-color:var(--info);" value="0" step="0.5" max="100" onfocus="this.select()" oninput="recalcSalesMargin()">
+                            </div>
+                        </div>
+
+                        <!-- Результат -->
+                        <div class="calc-card" style="background: var(--bg-surface-alt);">
+                            <div class="calc-row" style="border-bottom: 1px dashed var(--border-color); padding-bottom: 6px; margin-bottom: 8px;">
+                                <span>Произв. себестоимость:</span>
+                                <strong id="res-prod-cost">0.00 ₽</strong>
+                            </div>
+                            <div class="calc-row" style="border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 10px;">
+                                <span>Налоги и комиссии:</span>
+                                <strong id="res-taxes" style="color: var(--danger);">-0.00 ₽</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">Чистая прибыль (1 ед)</div>
+                                <div style="text-align: right;">
+                                    <div id="res-net-profit" style="font-size: 22px; font-weight: 900; line-height: 1; color: var(--success);">0.00 ₽</div>
+                                    <div id="res-margin-pct" style="font-size: 12px; font-weight: 700; color: var(--success); margin-top: 3px;">Рентабельность: 0%</div>
                                 </div>
                             </div>
                         </div>
@@ -1851,39 +2211,33 @@ window.openCostAnalysisModal = async function () {
             </div>
         `;
 
-        UI.showModal(`📊 Калькулятор: ${currentSelectedItem.name}`, html, `<button class="btn btn-blue w-100" style="padding: 12px; font-size: 15px;" onclick="UI.closeModal()">Закрыть анализ</button>`);
+        UI.showModal(`📊 Калькулятор себестоимости: ${currentSelectedItem.name}`, html, `<button class="btn btn-blue w-100" style="padding: 12px; font-size: 15px;" onclick="UI.closeModal()">Закрыть анализ</button>`);
 
         recalcSalesMargin();
-    } catch (e) { UI.toast('Ошибка загрузки данных', 'error'); }
+    } catch (e) { console.error(e); UI.toast('Ошибка загрузки данных', 'error'); }
 };
 
 window.recalcSalesMargin = function () {
-    // 🚀 Добавили overhead в деструктуризацию
+    if (!window.currentCalcData) return;
     const { theoretical, empirical, amortization, overhead, qty, salePrice } = window.currentCalcData;
 
-    // Значения из полей
     const wage = parseFloat(document.getElementById('calc-wage').value) || 0;
     const pack = parseFloat(document.getElementById('calc-pack').value) || 0;
     const taxPct = parseFloat(document.getElementById('calc-tax-pct').value) || 0;
     const bonusPct = parseFloat(document.getElementById('calc-bonus-pct').value) || 0;
 
-    // Математика: База сырья (Опыт в приоритете)
     const baseMatCost = parseFloat(empirical) > 0 ? parseFloat(empirical) : parseFloat(theoretical);
 
-    // 🚀 Производственная себестоимость (Сырье + Аморт + ОВЕРХЕД + ЗП + Упаковка)
     const prodCost = baseMatCost + parseFloat(amortization) + parseFloat(overhead || 0) + wage + pack;
 
-    // Коммерческие расходы (Налог + Премия от цены продажи)
     const taxCost = salePrice * (taxPct / 100);
     const bonusCost = salePrice * (bonusPct / 100);
     const totalCommercialCost = taxCost + bonusCost;
 
-    // Итоговая прибыль
     const netProfit = salePrice - prodCost - totalCommercialCost;
     const netMargin = salePrice > 0 ? ((netProfit / salePrice) * 100).toFixed(1) : 0;
     const batchProfit = netProfit * qty;
 
-    // Отрисовка
     document.getElementById('res-prod-cost').innerText = prodCost.toFixed(2) + ' ₽';
     document.getElementById('res-taxes').innerText = '-' + totalCommercialCost.toFixed(2) + ' ₽';
 
@@ -1907,6 +2261,7 @@ window.recalcSalesMargin = function () {
 
     batchProfitEl.innerText = batchProfit.toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽';
 };
+
 
 // ==========================================
 // === ОТГРУЗКА ЧАСТЯМИ ИЗ АКТИВНОГО ЗАКАЗА ===
@@ -2276,14 +2631,14 @@ window.openClientDocsModal = function () {
 // Универсальная функция для открытия файлов из папки /files/
 window.printFile = function (fileName) {
     if (!fileName) return;
-    window.open(`/files/${fileName}`, '_blank');
+    window.open(`/files/${fileName}` + (String(`/files/${fileName}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
 };
 
 // Функция для открытия реквизитов выбранного банка
 window.printBankRequisites = function () {
     const bank = document.getElementById('bank-select-docs').value;
     // Теперь обращаемся к серверу, а он сам решит: отдать EJS или PDF
-    window.open(`/print/requisites?bank=${bank}`, '_blank');
+    window.open(`/print/requisites?bank=${bank}` + (String(`/print/requisites?bank=${bank}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
 };
 
 // === КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ (КП) ===
@@ -2297,7 +2652,7 @@ window.generateKP = function () {
 
     const form = document.createElement('form');
     form.method = 'POST';
-    form.action = '/print/kp';
+    form.action = '/print/kp' + ('/print/kp'.includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || '');
     form.target = '_blank';
 
     const data = { client_id: clientId, items: cart, discount: discount, logistics: logisticsCost };
@@ -2330,7 +2685,7 @@ window.generateBlankOrder = function () {
 
     const form = document.createElement('form');
     form.method = 'POST';
-    form.action = '/print/blank_order_draft';
+    form.action = '/print/blank_order_draft' + ('/print/blank_order_draft'.includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || '');
     form.target = '_blank';
 
     const data = {
@@ -2393,7 +2748,7 @@ window.executePrintInvoice = function (docNum) {
         return UI.toast('Сумма счета должна быть больше нуля', 'error');
     }
 
-    window.open(`/print/invoice?docNum=${docNum}&bank=${bank}&custom_amount=${customAmt}`, '_blank');
+    window.open(`/print/invoice?docNum=${docNum}&bank=${bank}&custom_amount=${customAmt}` + (String(`/print/invoice?docNum=${docNum}&bank=${bank}&custom_amount=${customAmt}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
     UI.closeModal();
     setTimeout(() => { if (typeof loadActiveOrders === 'function') loadActiveOrders(); }, 600);
 };
@@ -2661,7 +3016,7 @@ window.executeExport1C = function () {
     const y = document.getElementById('export-year').value;
 
     // Открываем маршрут скачивания файла
-    window.open(`/api/sales/export-1c?month=${m}&year=${y}`, '_blank');
+    window.open(`/api/sales/export-1c?month=${m}&year=${y}` + (String(`/api/sales/export-1c?month=${m}&year=${y}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
     UI.closeModal();
     UI.toast('Файл скачивается...', 'success');
 };
@@ -3158,46 +3513,46 @@ window.AppPrint = {
     // 1. Счет на оплату
     invoice: function (id) {
         if (!id) return UI.toast('ID счета не указан', 'error');
-        window.open(`/print/invoice?id=${id}`, '_blank');
+        window.open(`/print/invoice?id=${id}` + (String(`/print/invoice?id=${id}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
     },
     // 2. Расходная накладная
     waybill: function (docNum) {
         if (!docNum) return UI.toast('Номер документа не указан', 'error');
-        window.open(`/print/waybill?docNum=${docNum}`, '_blank');
+        window.open(`/print/waybill?docNum=${docNum}` + (String(`/print/waybill?docNum=${docNum}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
     },
     // 3. УПД
     upd: function (docNum) {
         if (!docNum) return UI.toast('Номер документа не указан', 'error');
-        window.open(`/print/upd?docNum=${docNum}`, '_blank');
+        window.open(`/print/upd?docNum=${docNum}` + (String(`/print/upd?docNum=${docNum}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
     },
     // 4. Договор
     contract: function (id) {
         if (!id) return UI.toast('ID договора не указан', 'error');
-        window.open(`/print/contract?id=${id}`, '_blank');
+        window.open(`/print/contract?id=${id}` + (String(`/print/contract?id=${id}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
     },
     // 5. Спецификация (по номеру заказа)
     specification: function (docNum) {
         if (!docNum) return UI.toast('Номер заказа не указан', 'error');
-        window.open(`/print/specification?docNum=${docNum}`, '_blank');
+        window.open(`/print/specification?docNum=${docNum}` + (String(`/print/specification?docNum=${docNum}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
     },
     // 6. Спецификация (отдельный документ)
     specificationDoc: function (id) {
         if (!id) return UI.toast('ID спецификации не указан', 'error');
-        window.open(`/print/specification_doc?id=${id}`, '_blank');
+        window.open(`/print/specification_doc?id=${id}` + (String(`/print/specification_doc?id=${id}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
     },
     // 7. Акт сверки
     act: function (cpId, startDate, endDate) {
         if (!cpId || !startDate || !endDate) return UI.toast('Укажите контрагента и период', 'error');
-        window.open(`/print/act?cp_id=${cpId}&start=${startDate}&end=${endDate}`, '_blank');
+        window.open(`/print/act?cp_id=${cpId}&start=${startDate}&end=${endDate}` + (String(`/print/act?cp_id=${cpId}&start=${startDate}&end=${endDate}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
     },
     // 8. Бланк заказа
     blankOrder: function (docNum) {
         if (!docNum) return UI.toast('Номер заказа не указан', 'error');
-        window.open(`/print/blank_order?docNum=${docNum}`, '_blank');
+        window.open(`/print/blank_order?docNum=${docNum}` + (String(`/print/blank_order?docNum=${docNum}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
     },
     // 9. Паспорт партии (Производство)
     passport: function (batchId) {
         if (!batchId) return UI.toast('ID партии не указан', 'error');
-        window.open(`/print/passport?batchId=${batchId}`, '_blank');
+        window.open(`/print/passport?batchId=${batchId}` + (String(`/print/passport?batchId=${batchId}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
     }
 };

@@ -1,0 +1,708 @@
+/* ==========================================================================
+   4. ГЛОБАЛЬНЫЕ UI-КОМПОНЕНТЫ
+   ========================================================================== */
+.card {
+    background: var(--card-bg);
+    padding: 24px;
+    border-radius: 12px;
+    box-shadow: var(--shadow-sm);
+    margin-bottom: 24px;
+    border: 1px solid var(--border);
+}
+
+/* Кнопки */
+.btn {
+    border: none;
+    padding: 10px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+    transition: 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.btn:focus {
+    outline: none;
+}
+
+.btn-blue {
+    background-color: var(--primary);
+    color: white;
+}
+
+.btn-blue:hover {
+    background-color: var(--primary-hover);
+}
+
+.btn-green {
+    background-color: var(--success);
+    color: white;
+}
+
+.btn-green:hover {
+    background-color: #059669;
+}
+
+.btn-purple {
+    background-color: #8b5cf6;
+    color: white;
+    border-color: #7c3aed;
+}
+
+.btn-purple:hover {
+    background-color: #7c3aed;
+    color: white;
+}
+
+.btn-red {
+    background-color: var(--danger);
+    color: white;
+}
+
+.btn-red:hover {
+    background-color: #dc2626;
+}
+
+.btn-outline {
+    background-color: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-main);
+}
+
+.btn-outline:hover {
+    background-color: var(--surface-hover);
+}
+
+.btn-gray {
+    background-color: var(--surface-alt);
+    color: var(--text-main);
+    border: 1px solid var(--border);
+}
+
+.btn-gray:hover {
+    background-color: var(--surface-hover);
+}
+
+.btn:active {
+    transform: scale(0.96) !important;
+    transition: transform 0.1s;
+}
+
+.toolbar-group .btn.active,
+.eq-filter-bar .btn.active,
+.filter-btn.active {
+    background-color: var(--primary) !important;
+    color: white !important;
+    border-color: var(--primary) !important;
+    box-shadow: var(--shadow-sm);
+}
+
+/* Формы и Инпуты (ЭТО ТО, ЧТО ОТВЕЧАЕТ ЗА СЕТКУ И ОТСТУПЫ) */
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+    align-items: end;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 16px;
+}
+
+/* Если поля стоят в сетке, там работает gap, поэтому margin отключаем */
+.form-grid .form-group {
+    margin-bottom: 0;
+}
+
+
+
+.form-group label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.input-modern {
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 14px;
+    outline: none;
+    transition: 0.2s;
+    background: var(--surface-alt);
+    width: 100%;
+    color: var(--text-main);
+}
+
+.input-modern:focus {
+    background: var(--surface);
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Таблицы */
+.table-container {
+    background: var(--card-bg);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    overflow-x: auto;
+    width: 100%;
+}
+
+.table-container.flat {
+    box-shadow: none !important;
+    border: 1px solid var(--border);
+    margin: 0;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+}
+
+th {
+    background-color: var(--surface-alt);
+    padding: 14px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+}
+
+td {
+    padding: 14px 16px;
+    font-size: 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-main);
+}
+
+tr:hover {
+    background-color: var(--surface-hover);
+}
+
+/* Бейджи */
+.badge {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-block;
+}
+
+/* ==========================================================================
+   5. ВСПЛЫВАЮЩИЕ ЭЛЕМЕНТЫ (TOASTS)
+   ========================================================================== */
+#toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.toast {
+    padding: 15px 20px;
+    border-radius: 8px;
+    color: #fff;
+    font-weight: 500;
+    font-size: 14px;
+    box-shadow: var(--shadow-md);
+    transform: translateX(120%);
+    animation: slideIn 0.3s forwards;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 250px;
+}
+
+.toast.success {
+    background: var(--success);
+    border-left: 6px solid #065f46;
+}
+
+.toast.error {
+    background: var(--danger);
+    border-left: 6px solid #991b1b;
+}
+
+.toast.info {
+    background: var(--primary);
+    border-left: 6px solid #1e40af;
+}
+
+.toast.warning {
+    background: var(--warning);
+    border-left: 6px solid #b45309;
+}
+
+/* ==========================================================================
+   6. ИДЕАЛЬНЫЕ МОДАЛЬНЫЕ ОКНА
+   ========================================================================== */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5) !important;
+    backdrop-filter: blur(4px);
+    z-index: 9998;
+    justify-content: center;
+    align-items: center;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.modal-overlay.active {
+    display: flex !important;
+    opacity: 1;
+}
+
+.modal-content {
+    background-color: var(--surface);
+    color: var(--text-main);
+    width: 100%;
+    max-width: 900px;
+    margin: 20px auto;
+    border-radius: 12px;
+    overflow: hidden;
+    /* Обрезает углы шапки и подвала */
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow-lg);
+    border: 1px solid var(--border);
+    transform: translateY(20px);
+    transition: transform 0.3s;
+}
+
+.modal-overlay.active .modal-content {
+    transform: translateY(0);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    background-color: var(--surface-alt);
+    border-bottom: 1px solid var(--border);
+}
+
+#app-modal-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-main);
+    line-height: 1.4;
+    margin: 0;
+    padding-right: 15px;
+}
+
+.btn-close {
+    background: transparent;
+    border: none;
+    font-size: 28px;
+    line-height: 1;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: 0.2s;
+    padding: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+}
+
+.btn-close:hover {
+    color: var(--danger);
+    transform: scale(1.1);
+}
+
+.modal-body {
+    padding: 24px;
+    overflow-y: auto;
+    max-height: 75vh;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 16px 24px;
+    background-color: var(--surface-alt);
+    border-top: 1px solid var(--border);
+}
+
+/* [BACKUP ВРЕМЕННО ОТКЛЮЧЕНО] Исправление для хардкодных фонов внутри модалок из JS
+.modal-body div[style*="background: #f8fafc"],
+.modal-body div[style*="background:#f8fafc"] {
+    background: var(--surface-alt) !important;
+}
+*/
+
+.modal-body .toolbar-group {
+    margin-bottom: 20px;
+}
+
+
+
+.toolbar-group {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.is-locked-by-system {
+    pointer-events: none !important;
+    opacity: 0.7 !important;
+}
+
+.toolbar-group .input-modern,
+.flex-between .input-modern,
+.card-header-flex .input-modern {
+    width: auto;
+    min-width: 220px;
+    max-width: 350px;
+    flex-grow: 1;
+}
+
+.filter-panel {
+    background-color: var(--surface);
+    padding: 15px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    margin-bottom: 20px;
+    display: flex;
+    gap: 15px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.filter-panel .form-group {
+    flex: 1;
+    min-width: 150px;
+    margin-bottom: 0;
+}
+
+.filter-panel .input-modern {
+    width: 100%;
+    min-width: 0;
+}
+
+/* [BACKUP ВРЕМЕННО ПРОСТРАНСТВА ОТКЛЮЧЕНО]
+   ========================================================================== 
+   9. ПРИНУДИТЕЛЬНОЕ ИСПРАВЛЕНИЕ ИНЛАЙНОВЫХ СТИЛЕЙ ИЗ HTML (EJS)
+   ========================================================================== 
+
+1. Подавляем жестко заданные фоны таблиц и панелей в темной теме 
+[data-theme="dark"] [style*="background: #f1f5f9"],
+[data-theme="dark"] [style*="background:#f1f5f9"],
+[data-theme="dark"] [style*="background: #f8fafc"],
+[data-theme="dark"] [style*="background:#f8fafc"],
+[data-theme="dark"] [style*="background: #fdf2f8"],
+[data-theme="dark"] [style*="background:#fdf2f8"],
+[data-theme="dark"] [style*="background: #e0f2fe"],
+[data-theme="dark"] [style*="background:#e0f2fe"] {
+    background-color: var(--surface-alt) !important;
+}
+
+2. Очищаем шапки таблиц (У нас в CSS уже задан фон для th) 
+thead[style*="background: #f1f5f9"],
+thead[style*="background:#f1f5f9"] {
+    background-color: transparent !important;
+}
+
+3. Подавляем жесткие цвета текста в EJS (темно-синие, бордовые)
+[data-theme="dark"] [style*="color: #475569"],
+[data-theme="dark"] [style*="color:#475569"],
+[data-theme="dark"] [style*="color: #1e293b"],
+[data-theme="dark"] [style*="color:#1e293b"],
+[data-theme="dark"] [style*="color: #831843"],
+[data-theme="dark"] [style*="color:#831843"] {
+    color: var(--text-main) !important;
+}
+*/
+
+/* 4. Восстанавливаем бордеры инпутов, если они сбились */
+.input-modern {
+    box-sizing: border-box !important;
+    height: 42px;
+    /* Фиксируем высоту для единообразия */
+}
+
+/* Адаптивность сеток для форм */
+@media (max-width: 900px) {
+    .form-grid {
+        grid-template-columns: 1fr !important;
+        /* На малых экранах все в один столбец */
+    }
+
+    /* Специфичный фикс для продаж */
+    div[style*="grid-template-columns: 1fr 2fr"] {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+/* ==========================================================================
+   10. КАЛЕНДАРИ (FLATPICKR) - АВТОМАТИЧЕСКАЯ ТЕМИЗАЦИЯ
+   ========================================================================== */
+.flatpickr-calendar {
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    box-shadow: var(--shadow-lg) !important;
+    color: var(--text-main) !important;
+}
+
+/* Треугольники-указатели (хвостики) */
+.flatpickr-calendar.arrowTop:before {
+    border-bottom-color: var(--border) !important;
+}
+
+.flatpickr-calendar.arrowTop:after {
+    border-bottom-color: var(--surface) !important;
+}
+
+.flatpickr-calendar.arrowBottom:before {
+    border-top-color: var(--border) !important;
+}
+
+.flatpickr-calendar.arrowBottom:after {
+    border-top-color: var(--surface) !important;
+}
+
+/* Шапка и переключатели месяцев */
+.flatpickr-months .flatpickr-month,
+.flatpickr-current-month .flatpickr-monthDropdown-months,
+.flatpickr-current-month input.cur-year {
+    background: transparent !important;
+    color: var(--text-main) !important;
+    fill: var(--text-main) !important;
+}
+
+.flatpickr-monthDropdown-months:hover {
+    background: var(--surface-hover) !important;
+}
+
+.flatpickr-prev-month:hover svg,
+.flatpickr-next-month:hover svg {
+    fill: var(--primary) !important;
+}
+
+/* Дни недели */
+span.flatpickr-weekday {
+    color: var(--text-muted) !important;
+}
+
+/* Дни */
+.flatpickr-day {
+    color: var(--text-main);
+}
+
+.flatpickr-day.flatpickr-disabled,
+.flatpickr-day.flatpickr-disabled:hover {
+    color: var(--text-muted) !important;
+    opacity: 0.3;
+}
+
+/* Наведение на день */
+.flatpickr-day:hover,
+.flatpickr-day:focus {
+    background: var(--surface-hover) !important;
+    border-color: var(--surface-hover) !important;
+}
+
+/* Диапазон (между начальной и конечной датой) */
+.flatpickr-day.inRange {
+    background: var(--surface-alt) !important;
+    border-color: var(--border) !important;
+    box-shadow: -5px 0 0 var(--surface-alt), 5px 0 0 var(--surface-alt) !important;
+}
+
+/* Выделенные дни (Начало и Конец) */
+.flatpickr-day.selected,
+.flatpickr-day.startRange,
+.flatpickr-day.endRange {
+    background: var(--primary) !important;
+    border-color: var(--primary) !important;
+    color: white !important;
+}
+
+/* Сегодняшний день */
+.flatpickr-day.today {
+    border-color: var(--primary) !important;
+}
+
+.flatpickr-day.today:hover {
+    background: var(--surface-hover) !important;
+    color: var(--text-main) !important;
+}
+
+/* ==========================================================================
+   11. УМНЫЙ ПОИСК (TOM SELECT)
+   ========================================================================== */
+
+/* Базовые переопределения (очистка стилей обертки) */
+.ts-wrapper.input-modern {
+    padding: 0 !important;
+    border: none !important;
+    background: transparent !important;
+}
+
+/* Стилизация основного поля выбора */
+.ts-wrapper .ts-control {
+    background: var(--surface-alt) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 6px !important;
+    color: var(--text-main) !important;
+    height: 42px !important;
+    display: flex !important;
+    align-items: center !important;
+    padding: 0 35px 0 14px !important; /* padding-right 35px под крестик */
+}
+
+/* Состояние фокуса */
+.ts-wrapper.focus .ts-control {
+    background: var(--surface) !important;
+    border-color: var(--primary) !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+}
+
+/* Скрываем нативный крестик и стилизуем кастомный */
+.ts-wrapper.single .ts-control::after {
+    display: none !important;
+}
+
+.ts-wrapper .clear-button {
+    right: 12px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    color: var(--text-muted) !important;
+    font-size: 20px !important;
+    text-decoration: none !important;
+}
+
+.ts-wrapper .clear-button:hover {
+    color: var(--danger) !important;
+}
+
+/* Скрытие курсора при выбранном элементе и запрет переноса строк */
+.ts-wrapper.single.full .ts-control input {
+    display: none !important;
+}
+
+.ts-wrapper.single .ts-control {
+    flex-wrap: nowrap !important;
+}
+
+.ts-wrapper.single .ts-control .item {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+/* Выпадающий список (Dropdown) */
+.ts-dropdown {
+    background: var(--surface) !important;
+    border-color: var(--border) !important;
+    color: var(--text-main) !important;
+    box-shadow: var(--shadow-md) !important;
+    z-index: 99999 !important;
+    border-radius: 6px !important;
+}
+
+.ts-dropdown .option {
+    color: var(--text-main) !important;
+    padding: 8px 12px;
+}
+
+.ts-dropdown .option:hover,
+.ts-dropdown .option.active {
+    background: var(--surface-hover) !important;
+    color: var(--primary) !important;
+}
+
+/* ==========================================================================
+   12. ОПТИМИЗИРОВАННЫЕ КНОПКИ ДОКУМЕНТОВ
+   ========================================================================== */
+
+.doc-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    height: 46px;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    /* Упрощенный транзишн для скорости отклика */
+    transition: background 0.1s ease, border-color 0.1s ease;
+    width: 100%;
+    /* Защита от "залипания" ховера на мобилках */
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Убрали border-accent, теперь все кнопки одинаковые */
+.doc-btn:hover {
+    background: var(--surface-hover);
+    border-color: var(--primary);
+}
+
+.doc-btn:active {
+    background: var(--border);
+    transform: scale(0.98);
+    /* Легкий эффект нажатия без лагов */
+}
+
+/* Исправляем высоту группы выбора банка */
+.bank-select-group {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.bank-select-group .input-modern,
+.bank-select-group .btn {
+    height: 42px !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+}
+
+/* ==========================================================================
+   13. МАССОВЫЕ ДЕЙСТВИЯ (BULK PANEL)
+   ========================================================================== */
+.bulk-panel {
+    background: var(--surface-alt);
+    border: 1px dashed var(--danger);
+    padding: 10px 15px;
+    border-radius: 8px;
+    display: none;
+    /* via js */
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.bulk-panel button {
+    position: relative;
+    /* Необходим для корректного отображения и взаимодействия внутри контейнера */
+    z-index: 10;
+}
+

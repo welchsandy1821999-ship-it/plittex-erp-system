@@ -1,3 +1,4 @@
+;(function() {
 ﻿let allPurchaseMaterials = [];
 let allCounterparties = [];
 let allAccounts = [];
@@ -7,23 +8,19 @@ window.currentEditingPurchaseId = null;
 
 async function loadPurchaseMaterials() {
     try {
-        const resMat = await fetch('/api/items?limit=1000&item_type=material');
-        const dataMat = await resMat.json();
+        const dataMat = await API.get('/api/items?limit=1000&item_type=material');
         allPurchaseMaterials = dataMat.data || [];
 
-        const resSup = await fetch('/api/counterparties');
-        allCounterparties = await resSup.json();
+        allCounterparties = await API.get('/api/counterparties');
 
-        const resAcc = await fetch('/api/accounts');
-        const fetchedAccounts = await resAcc.json();
+        const fetchedAccounts = await API.get('/api/accounts');
         allAccounts = fetchedAccounts.filter(acc => acc.type === 'company' || acc.type === 'bank' || acc.type === 'cash' || !acc.type);
 
         initStaticPurchaseSelects();
 
         const dateEl = document.getElementById('purchase-date');
         if (dateEl && typeof flatpickr !== 'undefined') {
-            const resDates = await fetch('/api/inventory/purchase-dates');
-            window.activePurchaseDates = await resDates.json();
+            window.activePurchaseDates = await API.get('/api/inventory/purchase-dates');
 
             purchaseDatePicker = flatpickr(dateEl, {
                 dateFormat: "Y-m-d", altInput: true, altFormat: "d.m.Y", locale: "ru", defaultDate: new Date(),
@@ -84,8 +81,7 @@ function initStaticPurchaseSelects() {
                 informer.innerHTML = '<i>⏳ Загрузка данных...</i>';
 
                 try {
-                    const res = await fetch(`/api/inventory/material-stats/${value}`);
-                    const stats = await res.json();
+                    const stats = await API.get(`/api/inventory/material-stats/${value}`);
                     let html = `<span class="text-main">📊 На складе: <b>${parseFloat(stats.balance).toFixed(2)} ${mat ? mat.unit : ''}</b></span>`;
                     if (stats.lastPrice) {
                         html += `<br><span class="text-muted">💸 Прошлая закупка (${stats.lastDate}): по <b>${parseFloat(stats.lastPrice).toFixed(2)} ₽</b></span>`;
@@ -216,16 +212,16 @@ window.submitPurchase = function () {
                 <div class="mb-5 pb-10 border-bottom">📅 Дата: <b>${purchaseDate}</b></div>
                 
                 <div class="flex-between mt-10">
-                    <span>За сырье:</span> <b>${totalCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</b>
+                    <span>За сырье:</span> <b>${Utils.formatMoney(totalCost)}</b>
                 </div>
                 ${deliveryCost > 0 ? `
                 <div class="flex-between mt-5">
-                    <span>Доставка:</span> <b>${deliveryCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</b>
+                    <span>Доставка:</span> <b>${Utils.formatMoney(deliveryCost)}</b>
                 </div>
                 ` : ''}
                 
                 <div class="pur-modal-total-box">
-                    <span>Общая себестоимость:</span> <span class="text-primary">${grandTotal.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</span>
+                    <span>Общая себестоимость:</span> <span class="text-primary">${Utils.formatMoney(grandTotal)}</span>
                 </div>
             </div>
         </div>
@@ -248,24 +244,12 @@ window.executePurchase = async function (materialId, counterparty_id, account_id
     UI.toast('⏳ Оформление закупки...', 'info');
 
     try {
-        const res = await fetch('/api/inventory/purchase', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ itemId: materialId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost, deliveryCost, deliveryAccountId })
-        });
-
-        if (res.ok) {
+        await API.post('/api/inventory/purchase', { itemId: materialId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost, deliveryCost, deliveryAccountId });
+        if (true) {
             UI.toast('✅ Закупка успешно оформлена!', 'success');
             setTimeout(() => location.reload(), 1200);
-        } else {
-            let errText = 'Ошибка сервера';
-            try { errText = (await res.json()).error || errText; } catch (e) { }
-            UI.toast('❌ Ошибка: ' + errText, 'error');
         }
-    } catch (e) {
-        console.error(e);
-        UI.toast('Критическая ошибка', 'error');
-    }
+    } catch (e) { console.error(e); }
 };
 
 window.executeUpdatePurchase = async function (purchaseId, materialId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost, deliveryCost, deliveryAccountId) {
@@ -273,35 +257,20 @@ window.executeUpdatePurchase = async function (purchaseId, materialId, counterpa
     UI.toast('⏳ Сохранение изменений...', 'info');
 
     try {
-        const res = await fetch(`/api/inventory/purchase/${purchaseId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ itemId: materialId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost, deliveryCost, deliveryAccountId })
-        });
-
-        if (res.ok) {
+        await API.put(`/api/inventory/purchase/${purchaseId}`, { itemId: materialId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost, deliveryCost, deliveryAccountId });
+        if (true) {
             UI.toast('✅ Изменения успешно сохранены!', 'success');
             cancelEditMode();
             if (typeof loadDailyPurchases === 'function') loadDailyPurchases(purchaseDate);
-        } else {
-            let errText = 'Ошибка при сохранении';
-            try { errText = (await res.json()).error || errText; } catch (e) { }
-            UI.toast('❌ Ошибка: ' + errText, 'error');
         }
-    } catch (e) {
-        console.error(e);
-        UI.toast('Критическая ошибка сети', 'error');
-    }
+    } catch (e) { console.error(e); }
 };
 
 window.editPurchase = async function (id) {
     UI.toast('⏳ Загрузка данных...', 'info');
 
     try {
-        const res = await fetch(`/api/inventory/purchase/${id}`);
-        if (!res.ok) throw new Error('Не удалось загрузить данные');
-
-        const data = await res.json();
+        const data = await API.get(`/api/inventory/purchase/${id}`);
         window.currentEditingPurchaseId = id;
 
         const matSel = document.getElementById('purchase-material-select').tomselect;
@@ -376,8 +345,7 @@ async function loadDailyPurchases(dateStr) {
     if (tfoot) tfoot.classList.add('inv-hidden');
 
     try {
-        const res = await fetch(`/api/inventory/daily-purchases?date=${dateStr}`);
-        const data = await res.json();
+        const data = await API.get(`/api/inventory/daily-purchases?date=${dateStr}`);
 
         if (data.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">В этот день приходов сырья не было.</td></tr>';
@@ -402,7 +370,7 @@ async function loadDailyPurchases(dateStr) {
                 <td>${p.supplier_name || '<i class="text-muted">Не указан</i>'}</td>
                 <td class="text-right">${parseFloat(p.quantity).toFixed(2)} <small>${p.unit}</small></td>
                 <td class="text-right">${parseFloat(p.price).toFixed(2)} ₽</td>
-                <td class="text-right"><strong class="text-danger">${parseFloat(p.amount).toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</strong></td>
+                <td class="text-right"><strong class="text-danger">${Utils.formatMoney(parseFloat(p.amount))}</strong></td>
                 <td class="text-right white-space-nowrap">
                     <button class="btn btn-outline" class="pur-row-btn border-border mr-5" 
                             onclick="printReceipt('${p.id}', '${safeItem}', '${safeSupplier}', ${p.quantity}, '${p.unit}', ${p.price}, ${p.amount})" 
@@ -421,7 +389,7 @@ async function loadDailyPurchases(dateStr) {
         if (tfoot) {
             tfoot.classList.remove('inv-hidden');
             document.getElementById('daily-total-qty').innerHTML = `${totalDailyQty.toFixed(2)} <small>ед.</small>`;
-            document.getElementById('daily-total-amount').innerText = `${totalDailyAmount.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽`;
+            document.getElementById('daily-total-amount').innerText = `${Utils.formatMoney(totalDailyAmount)}`;
         }
 
     } catch (e) {
@@ -449,10 +417,9 @@ window.executeDeletePurchase = async function (id) {
     UI.toast('⏳ Отмена закупки...', 'info');
 
     try {
-        const res = await fetch(`/api/inventory/purchase/${id}`, { method: 'DELETE' });
+        await API.delete(`/api/inventory/purchase/${id}`);
 
-        if (res.ok) {
-            UI.toast('🗑️ Закупка отменена', 'success');
+        UI.toast('🗑️ Закупка отменена', 'success');
             const dateStr = document.getElementById('purchase-date').value;
             // Умное обновление таблицы
             const searchInput = document.getElementById('purchase-search-input');
@@ -467,15 +434,7 @@ window.executeDeletePurchase = async function (id) {
             if (matSelect && matSelect.tomselect && matSelect.value) {
                 matSelect.tomselect.trigger('change', matSelect.value);
             }
-        } else {
-            let errText = 'Ошибка при удалении';
-            try { errText = (await res.json()).error || errText; } catch (e) { }
-            UI.toast('❌ Ошибка: ' + errText, 'error');
-        }
-    } catch (e) {
-        console.error(e);
-        UI.toast('Ошибка сети при удалении', 'error');
-    }
+    } catch (e) { console.error(e); }
 };
 
 window.openAddSupplierModal = function () {
@@ -509,14 +468,8 @@ window.submitNewSupplier = async function () {
     UI.toast('⏳ Сохранение...', 'info');
 
     try {
-        const res = await fetch('/api/inventory/quick-supplier', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, inn })
-        });
-
-        if (res.ok) {
-            const newSup = await res.json();
+        const newSup = await API.post('/api/inventory/quick-supplier', { name, inn });
+        if (true) {
             allCounterparties.push(newSup);
 
             const selectEl = document.getElementById('purchase-supplier-select');
@@ -529,14 +482,8 @@ window.submitNewSupplier = async function () {
 
             UI.closeModal();
             UI.toast('✅ Поставщик добавлен!', 'success');
-        } else {
-            const err = await res.json();
-            UI.toast('❌ Ошибка: ' + (err.error || 'Не удалось сохранить'), 'error');
         }
-    } catch (e) {
-        console.error(e);
-        UI.toast('Критическая ошибка', 'error');
-    }
+    } catch (e) { console.error(e); }
 };
 
 window.printReceipt = function (id, itemName, supplierName, qty, unit, price, amount) {
@@ -607,7 +554,7 @@ window.printReceipt = function (id, itemName, supplierName, qty, unit, price, am
                         <td class="text-center">${unit}</td>
                         <td class="text-right">${parseFloat(qty).toFixed(2)}</td>
                         <td class="text-right">${parseFloat(price).toFixed(2)}</td>
-                        <td class="text-right"><strong>${parseFloat(amount).toLocaleString('ru-RU', { minimumFractionDigits: 2 })}</strong></td>
+                        <td class="text-right"><strong>${Utils.formatMoney(parseFloat(amount)).replace(" ₽","")}</strong></td>
                     </tr>
                 </tbody>
             </table>
@@ -670,8 +617,7 @@ window.handlePurchaseSearch = function () {
         if (tfoot) tfoot.classList.add('inv-hidden'); // Скрываем итоги за день
 
         try {
-            const res = await fetch(`/api/inventory/purchase-search?q=${encodeURIComponent(query)}`);
-            currentSearchResults = await res.json();
+            currentSearchResults = await API.get(`/api/inventory/purchase-search?q=${encodeURIComponent(query)}`);
 
             document.getElementById('th-date').classList.remove('inv-hidden'); // Показываем колонку Дата
             renderSearchResults();
@@ -702,7 +648,7 @@ window.renderSearchResults = function () {
             <td class="text-primary font-bold white-space-nowrap">${safeDate}</td>
             <td class="text-right">${parseFloat(p.quantity).toFixed(2)} <small>${p.unit}</small></td>
             <td class="text-right">${parseFloat(p.price).toFixed(2)} ₽</td>
-            <td class="text-right"><strong class="text-danger">${parseFloat(p.amount).toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</strong></td>
+            <td class="text-right"><strong class="text-danger">${Utils.formatMoney(parseFloat(p.amount))}</strong></td>
             <td class="text-right white-space-nowrap">
                 <button class="btn btn-outline" class="pur-row-btn border-border mr-5" 
                         onclick="printReceipt('${p.id}', '${safeItem}', '${safeSupplier}', ${p.quantity}, '${p.unit}', ${p.price}, ${p.amount})" title="Распечатать">🖨️</button>
@@ -749,3 +695,10 @@ window.sortSearchResults = function (field) {
     renderSearchResults();
 };
 
+
+
+    // === ГЛОБАЛЬНЫЙ ЭКСПОРТ ===
+    if (typeof loadPurchaseMaterials === 'function') window.loadPurchaseMaterials = loadPurchaseMaterials;
+    if (typeof initStaticPurchaseSelects === 'function') window.initStaticPurchaseSelects = initStaticPurchaseSelects;
+    if (typeof loadDailyPurchases === 'function') window.loadDailyPurchases = loadDailyPurchases;
+})();

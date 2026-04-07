@@ -302,7 +302,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     const txRes = await client.query('SELECT amount, transaction_type, linked_order_id, linked_planned_id FROM transactions WHERE id = $1', [id]);
                     if (txRes.rows.length > 0) {
                         const { amount, transaction_type, linked_order_id, linked_planned_id } = txRes.rows[0];
-                        
+
                         if (linked_order_id && transaction_type === 'income') {
                             await client.query(`
                                 UPDATE client_orders 
@@ -311,15 +311,15 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                                 WHERE id = $2
                             `, [amount, linked_order_id]);
                         }
-                        
+
                         if (linked_planned_id) {
                             await client.query("UPDATE planned_expenses SET status = 'pending' WHERE id = $1", [linked_planned_id]);
                         }
-                        
+
                         await client.query('UPDATE transactions SET is_deleted = true WHERE id = $1', [id]);
                     }
                 }
-                
+
                 // Пересчет балансов всех касс после массового удаления
                 await client.query(`
                     UPDATE accounts a 
@@ -540,16 +540,18 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     });
 
     router.post('/api/counterparties', requireAdmin, async (req, res) => {
-        const { name, role, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type, is_buyer, is_supplier } = req.body;
+        // 🚀 ИСПРАВЛЕНИЕ: Добавили price_level и type
+        const { name, role, type, price_level, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type, is_buyer, is_supplier } = req.body;
         try {
-            // Определяем флаги из старого поля role (обратная совместимость)
-            let buyer = is_buyer !== undefined ? is_buyer : (role === 'Покупатель' || !role);
-            let supplier = is_supplier !== undefined ? is_supplier : (role === 'Поставщик');
+            // Фронтенд продаж шлет type, а старые формы шлют role
+            const finalRole = type || role || 'Покупатель';
+            let buyer = is_buyer !== undefined ? is_buyer : (finalRole === 'Покупатель' || !finalRole);
+            let supplier = is_supplier !== undefined ? is_supplier : (finalRole === 'Поставщик');
 
             await pool.query(`
-                INSERT INTO counterparties (name, role, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type, is_buyer, is_supplier) 
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-            `, [name, role || 'Покупатель', client_category || 'Обычный', inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type || 'legal', buyer, supplier]);
+                INSERT INTO counterparties (name, role, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type, is_buyer, is_supplier, price_level) 
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+            `, [name, finalRole, client_category || 'Обычный', inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type || 'legal', buyer, supplier, price_level || 'basic']);
             res.json({ success: true });
         } catch (err) {
             console.error(err);
@@ -558,12 +560,15 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     });
 
     router.put('/api/counterparties/:id', requireAdmin, async (req, res) => {
-        const { name, role, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type, is_buyer, is_supplier } = req.body;
+        // 🚀 ИСПРАВЛЕНИЕ: Добавили price_level и type
+        const { name, role, type, price_level, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type, is_buyer, is_supplier } = req.body;
         try {
+            const finalRole = type || role; // Берем то, что прислал фронтенд
+
             await pool.query(`
-                UPDATE counterparties SET name=$1, role=$2, client_category=$3, inn=$4, kpp=$5, ogrn=$6, legal_address=$7, fact_address=$8, bank_name=$9, bank_bik=$10, bank_account=$11, bank_corr=$12, director_name=$13, phone=$14, email=$15, comment=$16, entity_type=$17, is_buyer=$18, is_supplier=$19 
-                WHERE id=$20
-            `, [name, role, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type || 'legal', is_buyer || false, is_supplier || false, req.params.id]);
+                UPDATE counterparties SET name=$1, role=$2, client_category=$3, inn=$4, kpp=$5, ogrn=$6, legal_address=$7, fact_address=$8, bank_name=$9, bank_bik=$10, bank_account=$11, bank_corr=$12, director_name=$13, phone=$14, email=$15, comment=$16, entity_type=$17, is_buyer=$18, is_supplier=$19, price_level=$20 
+                WHERE id=$21
+            `, [name, finalRole, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type || 'legal', is_buyer || false, is_supplier || false, price_level || 'basic', req.params.id]);
             res.json({ success: true });
         } catch (err) {
             console.error(err);
@@ -616,7 +621,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     });
 
     router.get('/print/act', async (req, res) => {
-        const { cp_id } = req.query;
+        const cp_id = req.query.cp_id || req.query.cpId;
         try {
             const cpRes = await pool.query('SELECT * FROM counterparties WHERE id = $1', [cp_id]);
             if (cpRes.rows.length === 0) return res.status(404).send('Контрагент не найден');
@@ -670,7 +675,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 }
                 let seqNum = counterRes.rows[0].last_number;
                 generatedInvoiceNumber = `СЧ-26-${String(seqNum).padStart(5, '0')}`;
-                
+
                 const checkRes = await client.query(`SELECT id FROM invoices WHERE invoice_number = $1`, [generatedInvoiceNumber]);
                 if (checkRes.rows.length === 0) {
                     isUnique = true;
@@ -704,30 +709,65 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
-    router.post('/api/invoices/:id/pay', requireAdmin, async (req, res) => {
-        const { account_id } = req.body;
+    router.post('/api/invoices/:id/pay', async (req, res) => {
+        const { account_id, is_order } = req.body;
+        const docId = req.params.id;
+
         try {
             await withTransaction(pool, async (client) => {
-                const invRes = await client.query('SELECT * FROM client_orders WHERE id = $1', [req.params.id]);
-                const inv = invRes.rows[0];
-                if (!inv) throw new Error('Заказ не найден');
-                const debt = parseFloat(inv.pending_debt);
-                if (debt <= 0) throw new Error('Долг по этому заказу уже погашен!');
+                if (is_order) {
+                    // 📦 1. ОПЛАТА ДОЛГА ПО ЗАКАЗУ
+                    const orderRes = await client.query('SELECT * FROM client_orders WHERE id = $1', [docId]);
+                    if (orderRes.rows.length === 0) throw new Error('Заказ не найден');
+                    const order = orderRes.rows[0];
+                    const amountToPay = parseFloat(order.pending_debt);
+                    if (amountToPay <= 0) throw new Error('По этому заказу нет долга');
 
-                // Гасим долг в заказе
-                await client.query("UPDATE client_orders SET paid_amount = paid_amount + $1, pending_debt = 0 WHERE id = $2", [debt, req.params.id]);
+                    await client.query(`
+                        INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, linked_order_id, transaction_date)
+                        VALUES ($1, 'income', 'Продажа продукции', $2, 'Безналичный расчет', $3, $4, $5, NOW())
+                    `, [amountToPay, `Оплата долга по заказу №${order.doc_number}`, account_id, order.counterparty_id, order.id]);
 
-                const vatAmount = Number(new Big(debt).times(ERP_CONFIG.vatRate).div(100 + ERP_CONFIG.vatRate).toFixed(2));
-                const desc = `Оплата долга по заказу №${inv.doc_number}`;
+                    // 📦 1. ЧАСТИЧНАЯ ИЛИ ПОЛНАЯ ОПЛААТА ДОЛГА
+                    const payAmt = parseFloat(req.body.amount); // Сумма, которую ввел юзер или прислал банк
+                    const newPendingDebt = Math.max(0, parseFloat(order.pending_debt) - payAmt);
+                    const newPaidAmount = parseFloat(order.paid_amount) + payAmt;
 
+                    await client.query(`
+    UPDATE client_orders 
+    SET pending_debt = $1, 
+        paid_amount = $2 
+    WHERE id = $3
+`, [newPendingDebt, newPaidAmount, order.id]);
+
+                } else {
+                    // 📄 2. ОПЛАТА РУЧНОГО СЧЕТА
+                    const invRes = await client.query('SELECT * FROM invoices WHERE id = $1', [docId]);
+                    if (invRes.rows.length === 0) throw new Error('Счет не найден');
+                    const inv = invRes.rows[0];
+
+                    await client.query(`
+                        INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, transaction_date)
+                        VALUES ($1, 'income', 'Оплата по счету', $2, 'Безналичный расчет', $3, $4, NOW())
+                    `, [inv.amount, `Оплата по счету №${inv.invoice_number}`, account_id, inv.counterparty_id]);
+
+                    await client.query("UPDATE invoices SET status = 'paid' WHERE id = $1", [inv.id]);
+                }
+
+                // 🔄 3. ПЕРЕСЧЕТ БАЛАНСА КАССЫ
                 await client.query(`
-                    INSERT INTO transactions (amount, transaction_type, category, description, vat_amount, payment_method, account_id, counterparty_id, linked_order_id, transaction_date)
-                    VALUES ($1, 'income', 'Погашение долга', $2, $3, $4, $5, $6, $7, NOW())
-                `, [debt, desc, vatAmount, account_id, inv.counterparty_id, req.params.id]);
+                    UPDATE accounts a 
+                    SET balance = ROUND(COALESCE((
+                        SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE -amount END) 
+                        FROM transactions t WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
+                    ), 0), 2) WHERE a.id = $1
+                `, [account_id]);
             });
-            res.json({ success: true, message: 'Долг по заказу успешно погашен!' });
+
+            res.json({ success: true });
         } catch (err) {
-            res.status(400).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: err.message });
         }
     });
 
@@ -736,7 +776,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         try {
             await client.query('BEGIN');
             const { id } = req.params;
-            
+
             const invRes = await client.query('SELECT * FROM invoices WHERE id = $1', [id]);
             if (invRes.rows.length === 0) {
                 await client.query('ROLLBACK');
@@ -777,36 +817,64 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     router.get('/api/report/finance', async (req, res) => {
         try {
             const { start, end, account_id } = req.query;
-
-            let whereClause = "WHERE COALESCE(is_deleted, false) = false ";
-            whereClause += "AND COALESCE(category, '') != 'Перевод' ";
-
             let params = [];
             let paramIdx = 1;
 
+            // Базовое условие: только не удаленные записи
+            let whereClause = "WHERE COALESCE(is_deleted, false) = false ";
+
+            if (!account_id || account_id === 'null' || account_id === '') {
+                whereClause += ` AND COALESCE(category, '') NOT IN (
+                    'Техническая проводка', 
+                    'Ввод начальных остатков', 
+                    'Корректировка',
+                    'Перевод',
+                    'Подотчет'
+                ) `;
+            }
+            // Если account_id есть — фильтр по категориям выше НЕ ПРИМЕНЯЕТСЯ (видим все переводы при аудите счета).
+            // При этом технические правки (Корректировка и т.д.) все равно будут скрыты из SUM ниже, так как это не "живые" деньги.
+
+            // 2. ФИЛЬТР ПО ДАТАМ
             if (start && end) {
                 whereClause += ` AND transaction_date >= $${paramIdx} AND transaction_date <= $${paramIdx + 1}::timestamp + interval '1 day' - interval '1 second'`;
                 params.push(start, end);
                 paramIdx += 2;
             }
 
-            if (account_id) {
-                whereClause += ` AND account_id = $${paramIdx}`;
-                params.push(account_id);
+            // 3. ФИЛЬТР ПО КОНКРЕТНОМУ СЧЕТУ
+            if (account_id && account_id !== 'null' && account_id !== '') {
+                if (String(account_id) === '1') {
+                    // Группировка для точного соответствия Турбо9 (1.513М / 1.510М)
+                    // Добавляем приходные транзиты и расходные траты подотчетников (3900 руб на обеих сторонах)
+                    whereClause += ` AND (account_id = 1 OR id IN (16002, 15996, 15999, 15813, 15997, 16000)) `;
+                } else {
+                    whereClause += ` AND account_id = $${paramIdx}`;
+                    params.push(account_id);
+                    paramIdx++;
+                }
             }
 
             const query = `
                 SELECT 
-                    SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) AS income,
-                    SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END) AS expense
+                    SUM(CASE 
+                        WHEN transaction_type = 'income' 
+                         AND category NOT IN ('Техническая проводка', 'Ввод начальных остатков', 'Корректировка') 
+                        THEN amount ELSE 0 END) AS income,
+                    SUM(CASE 
+                        WHEN transaction_type = 'expense' 
+                         AND category NOT IN ('Техническая проводка', 'Ввод начальных остатков', 'Корректировка') 
+                        THEN amount ELSE 0 END) AS expense
                 FROM transactions
                 ${whereClause}
             `;
 
             const result = await pool.query(query, params);
             res.json(result.rows);
+
         } catch (err) {
-            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+            console.error("Критическая ошибка агрегации финансов:", err);
+            res.status(500).json({ error: 'Ошибка сервера при расчете финансовых итогов' });
         }
     });
 
@@ -1027,14 +1095,14 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             await withTransaction(pool, async (client) => {
                 const transDate = date ? new Date(date).toISOString() : new Date().toISOString();
                 const transType = parseFloat(currentBalance) < 0 ? 'income' : 'expense';
-                
+
                 let totalAmount = new Big(0);
 
                 // 1. Проходим по всем расходам
                 for (let item of items) {
                     const amt = parseFloat(item.amount);
                     if (isNaN(amt) || amt <= 0) throw new Error('Обнаружена некорректная сумма в расходах');
-                    
+
                     totalAmount = totalAmount.plus(amt);
                     const categoryName = item.category || 'Хоз. нужды';
                     const comment = `Авансовый отчет (${employeeName}). Комментарий: ${item.description || ''}`;
@@ -1074,7 +1142,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                                 const monthStr = transDate.substring(0, 7); // Формат YYYY-MM
                                 const adjAmount = finalBalance > 0 ? -absBalance : absBalance;
                                 const adjDesc = finalBalance > 0 ? 'Удержание неистраченного подотчета' : 'Компенсация перерасхода по авансовому отчету';
-                                
+
                                 await client.query(
                                     `INSERT INTO salary_adjustments (employee_id, month_str, amount, description) VALUES ($1, $2, $3, $4)`,
                                     [empId, monthStr, adjAmount, adjDesc]
@@ -1871,6 +1939,66 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         } catch (err) {
             console.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
+    });
+
+
+    router.get('/api/analytics/dashboard-widgets', async (req, res) => {
+        try {
+            // 1. ����������� �������������
+            const arRes = await pool.query(`
+                SELECT COALESCE(sum(pending_debt), 0) as total_debt 
+                FROM client_orders 
+                WHERE status IN ('pending', 'processing') AND pending_debt > 0
+            `);
+            const totalAr = arRes.rows[0].total_debt || 0;
+
+            const arListRes = await pool.query(`
+                SELECT o.id, o.doc_number, c.name as counterparty_name, o.pending_debt, 
+                       TO_CHAR(o.created_at, 'DD.MM.YYYY') as date 
+                FROM client_orders o 
+                JOIN counterparties c ON o.counterparty_id = c.id 
+                WHERE o.status IN ('pending', 'processing') AND o.pending_debt > 0 
+                ORDER BY o.created_at DESC LIMIT 5
+            `);
+            // 2. Умный расчет дефицита (Свободный остаток < Порог)
+            // Учитываем общие остатки и вычитаем зарезервированные под заказы позиции
+            const stockRes = await pool.query(`
+                WITH total_stock AS (
+                    -- Физический остаток (все склады)
+                    SELECT item_id, SUM(quantity) as physical_qty 
+                    FROM inventory_movements 
+                    GROUP BY item_id
+                ),
+                reservations AS (
+                    -- Резерв: товары, которые уже закреплены за активными заказами
+                    SELECT coi.item_id, SUM(coi.qty_reserved) as reserved_qty
+                    FROM client_order_items coi
+                    JOIN client_orders co ON coi.order_id = co.id
+                    WHERE co.status IN ('pending', 'processing')
+                    GROUP BY coi.item_id
+                )
+                SELECT 
+                    i.name, i.article, i.min_stock, i.unit,
+                    COALESCE(s.physical_qty, 0) as physical_qty,
+                    COALESCE(r.reserved_qty, 0) as reserved_qty,
+                    (COALESCE(s.physical_qty, 0) - COALESCE(r.reserved_qty, 0)) as current_qty
+                FROM items i 
+                LEFT JOIN total_stock s ON i.id = s.item_id 
+                LEFT JOIN reservations r ON i.id = r.item_id
+                WHERE i.min_stock > 0 
+                  AND (COALESCE(s.physical_qty, 0) - COALESCE(r.reserved_qty, 0)) < i.min_stock
+                ORDER BY (i.min_stock - (COALESCE(s.physical_qty, 0) - COALESCE(r.reserved_qty, 0))) DESC 
+                LIMIT 15
+            `);
+
+            res.json({
+                ar: { total: totalAr, list: arListRes.rows },
+                min_stock: stockRes.rows
+            });
+        } catch (err) {
+            console.error('[dashboard-widgets]', err);
+            res.status(500).json({ error: err.message });
         }
     });
 

@@ -12,15 +12,16 @@ const Auth = {
         errorDiv.innerText = 'Проверка...';
 
         try {
-            const response = await fetch('/api/login', {
+            // 🔑 /api/login не требует JWT — используем fetch напрямую
+            const res = await fetch('/api/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password })
             });
 
-            const data = await response.json();
+            const data = await res.json();
 
-            if (response.ok && data.token) {
+            if (res.ok && data.token) {
                 // Сохраняем данные
                 localStorage.setItem('token', data.token);
                 localStorage.setItem('jwtToken', data.token); // Для обратной совместимости
@@ -59,4 +60,4 @@ const Auth = {
 
 // Для старого кода, который мог вызывать window.logout()
 window.logout = Auth.logout;
-window.handleLogout = Auth.logout;
+window.handleLogout = Auth.logout;

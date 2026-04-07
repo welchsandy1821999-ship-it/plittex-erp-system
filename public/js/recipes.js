@@ -1,3 +1,4 @@
+;(function() {
 // === public/js/recipes.js ===
 
 let allMaterialsList = []; // Хранит список всего сырья
@@ -13,16 +14,14 @@ window.mixTemplateYields = {};
 async function loadRecipeModuleData() {
     try {
         // Грузим продукцию для левого списка
-        const prodRes = await fetch('/api/items?item_type=product&limit=500');
-        const prodData = await prodRes.json();
+        const prodData = await API.get('/api/items?item_type=product&limit=500');
         allRecipeProducts = prodData.data;
         const prodSelect = document.getElementById('recipe-product-select');
         prodSelect.innerHTML = '<option value="" disabled selected>-- Выберите продукцию --</option>';
         prodData.data.forEach(p => prodSelect.add(new Option(p.name, p.id)));
 
         // Грузим сырье для правого списка (добавление компонентов)
-        const matRes = await fetch('/api/items?item_type=material&limit=500');
-        const matData = await matRes.json();
+        const matData = await API.get('/api/items?item_type=material&limit=500');
         allMaterialsList = matData.data;
 
         const matSelect = document.getElementById('recipe-material-select');
@@ -38,11 +37,8 @@ async function loadRecipeModuleData() {
         initStaticRecipeSelects();
 
         // Загружаем данные для Второго Режима (Шаблоны)
-        const resMix = await fetch('/api/mix-templates');
-        if (resMix.ok) window.currentMixTemplates = await resMix.json();
-        
-        const resYields = await fetch('/api/mix-template-yields');
-        if (resYields.ok) window.mixTemplateYields = await resYields.json();
+        window.currentMixTemplates = await API.get('/api/mix-templates');
+        window.mixTemplateYields = await API.get('/api/mix-template-yields');
 
     } catch (e) { console.error("Ошибка загрузки данных рецептов:", e); }
 }
@@ -152,8 +148,7 @@ async function loadRecipeDetails() {
 
     try {
         // Запрашиваем с сервера уже сохраненный рецепт
-        const res = await fetch(`/api/recipes/${productId}`);
-        const data = await res.json();
+        const data = await API.get(`/api/recipes/${productId}`);
 
         // Преобразуем данные в наш рабочий массив
         currentRecipeData = data.map(ing => ({
@@ -531,14 +526,10 @@ window.executeSaveMixTemplate = async function(templateKey, yieldValue, targetKe
     UI.toast('⏳ Сохранение...', 'info');
     try {
         const promises = targetKeys.map(key => {
-            return fetch('/api/mix-templates/single', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    templateKey: key,
-                    yieldValue: yieldValue,
-                    ingredients: payloadIngredients
-                })
+            return API.post('/api/mix-templates/single', {
+                templateKey: key,
+                yieldValue: yieldValue,
+                ingredients: payloadIngredients
             });
         });
 
@@ -553,7 +544,7 @@ window.executeSaveMixTemplate = async function(templateKey, yieldValue, targetKe
         UI.toast(targetKeys.length > 1 ? `✅ Шаблон скопирован в ${targetKeys.length} позиций!` : '✅ Шаблон успешно сохранен!', 'success');
         originalRecipeData = JSON.parse(JSON.stringify(currentRecipeData));
     } catch (e) {
-        UI.toast('❌ Ошибка сети', 'error');
+        
     }
 };
 
@@ -566,39 +557,12 @@ window.executeSaveRecipe = async function (productId, productName, force) {
     const payload = { productId, productName, ingredients: currentRecipeData, force };
 
     try {
-        const res = await fetch('/api/recipes/save', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-
-        if (res.ok) {
-            UI.toast('✅ Рецепт успешно сохранен!', 'success');
-
-            // 2. ОБНОВЛЯЕМ ОРИГИНАЛ
-            if (typeof originalRecipeData !== 'undefined') {
-                originalRecipeData = JSON.parse(JSON.stringify(currentRecipeData));
-            }
-
-        } else {
-            const errData = await res.json().catch(() => null);
-
-            // Заменяем второй confirm (предупреждение от сервера)
-            if (errData && errData.warning) {
-                const html = `<div style="padding: 10px; font-size: 15px; color: var(--warning-text);">${errData.warning}</div>`;
-                const buttons = `
-                    <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-                    <button class="btn btn-blue" onclick="executeSaveRecipe(${productId}, '${productName}', true)">⚠️ Все равно сохранить</button>
-                `;
-                UI.showModal('Конфликт сохранения', html, buttons);
-            } else {
-                UI.toast(errData?.error || 'Ошибка сохранения!', 'error');
-            }
+        await API.post('/api/recipes/save', payload);
+        UI.toast('✅ Рецепт успешно сохранен!', 'success');
+        if (typeof originalRecipeData !== 'undefined') {
+            originalRecipeData = JSON.parse(JSON.stringify(currentRecipeData));
         }
-    } catch (e) {
-        console.error(e);
-        UI.toast('Критическая ошибка связи с сервером', 'error');
-    }
+    } catch (e) { console.error(e); }
 };
 
 // 7. Параметрическая модалка "Массовое применение шаблона" (Режим 1)
@@ -797,23 +761,21 @@ window.executeMassApply = async function() {
     UI.closeModal();
 
     try {
-        const syncRes = await fetch('/api/recipes/sync-category', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+        await API.post('/api/recipes/sync-category', {
                 targetProductIds: targetIds,
                 materials: payloadIngredients
-            })
-        });
+            });
 
-        const syncData = await syncRes.json();
-        if (syncRes.ok) {
-            UI.toast('✅ ' + (syncData.message || 'Успешно применено!'), 'success');
-        } else {
-            UI.toast('❌ ' + (syncData.error || 'Ошибка применения'), 'error');
-        }
-    } catch (e) {
-        console.error(e);
-        UI.toast('Ошибка связи с сервером', 'error');
-    }
-}
+        UI.toast('✅ Успешно применено!', 'success');
+    } catch (e) { console.error(e); }
+}
+
+    // === ГЛОБАЛЬНЫЙ ЭКСПОРТ ===
+    if (typeof loadRecipeModuleData === 'function') window.loadRecipeModuleData = loadRecipeModuleData;
+    if (typeof initStaticRecipeSelects === 'function') window.initStaticRecipeSelects = initStaticRecipeSelects;
+    if (typeof loadRecipeDetails === 'function') window.loadRecipeDetails = loadRecipeDetails;
+    if (typeof removeIngredientFromRecipe === 'function') window.removeIngredientFromRecipe = removeIngredientFromRecipe;
+    if (typeof renderRecipeTable === 'function') window.renderRecipeTable = renderRecipeTable;
+    if (typeof isRecipeChanged === 'function') window.isRecipeChanged = isRecipeChanged;
+    if (typeof parseProductFeatures === 'function') window.parseProductFeatures = parseProductFeatures;
+})();

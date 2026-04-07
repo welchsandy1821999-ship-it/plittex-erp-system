@@ -1,3 +1,4 @@
+;(function() {
 // === public/js/production.js ===
 
 window.currentMixTemplates = {};
@@ -15,8 +16,7 @@ window.activeProductionDates = []; // Глобальный массив рабо
 // Функция, которая запрашивает свежие даты и заставляет календарь перерисоваться
 window.updateCalendarMarks = async function () {
     try {
-        const res = await fetch('/api/production/active-dates');
-        window.activeProductionDates = await res.json();
+        window.activeProductionDates = await API.get('/api/production/active-dates');
 
         // Если календарь уже инициализирован — даем ему команду перерисовать сетку дней
         if (prodDatePicker) {
@@ -56,13 +56,11 @@ async function initProduction() {
         }
 
         // 2. ЗАГРУЖАЕМ СЫРЬЕ
-        const resMat = await fetch('/api/items?item_type=material&limit=500');
-        const matData = await resMat.json();
+        const matData = await API.get('/api/items?item_type=material&limit=500');
         allMaterialsForMix = matData.data || [];
 
         // 3. ЗАГРУЖАЕМ ШАБЛОНЫ
-        const resMix = await fetch('/api/mix-templates');
-        const dbTemplates = await resMix.json();
+        const dbTemplates = await API.get('/api/mix-templates');
 
         const findMat = (kw) => allMaterialsForMix.find(m => m.name.toLowerCase().includes(kw)) || { id: '', name: 'Материал', unit: 'кг' };
         const defMain = [{ ...findMat('цемент'), qty: 250 }, { ...findMat('песок'), qty: 600 }, { ...findMat('щебень'), qty: 800 }];
@@ -80,17 +78,15 @@ async function initProduction() {
         });
 
         if (needsUpdate) {
-            await fetch('/api/mix-templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(window.currentMixTemplates) });
+            await API.post('/api/mix-templates', window.currentMixTemplates);
         }
 
         // 4. ЗАГРУЖАЕМ ПРОДУКЦИЮ
-        const resProd = await fetch('/api/products');
-        allProductsList = await resProd.json();
+        allProductsList = await API.get('/api/products');
         populateCategories();
 
         // 5. ЗАГРУЖАЕМ БРИГАДИРОВ
-        const resEmp = await fetch('/api/employees');
-        const empData = await resEmp.json();
+        const empData = await API.get('/api/employees');
         const shiftSel = document.getElementById('prod-shift-name');
         if (shiftSel) {
             shiftSel.innerHTML = '<option value="">-- Выберите бригадира --</option>';
@@ -178,8 +174,7 @@ window.handleProductSelection = async function () {
 
     // 3. Загружаем Рецепт для расчета подсказки по замесам
     try {
-        const res = await fetch(`/api/recipes/${productId}`);
-        currentSelectedProductRecipe = await res.json();
+        currentSelectedProductRecipe = await API.get(`/api/recipes/${productId}`);
     } catch (e) { console.error(e); }
 
     calculateMixesPreview();
@@ -364,13 +359,8 @@ window.addProdToSession = async function () {
             materialsUsed: actualMaterials, // 👈 ТЕПЕРЬ ОТПРАВЛЯЕМ РЕАЛЬНОЕ СЫРЬЕ
             status: 'draft'
         };
-        const res = await fetch('/api/production', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(draftPayload)
-        });
-        const result = await res.json();
-        if (res.ok) {
+        await API.post('/api/production', draftPayload);
+        if (true) {
             // Сохраняем в память только после успешного ответа сервера
             sessionProducts.push({
                 id: product.id,
@@ -385,13 +375,8 @@ window.addProdToSession = async function () {
             });
             UI.toast('📝 Черновик сохранён', 'success');
             loadDailyHistory();
-        } else {
-            UI.toast(result.error || 'Ошибка сохранения черновика', 'error');
         }
-    } catch (e) {
-        console.error(e);
-        UI.toast('Ошибка сети при сохранении черновика', 'error');
-    } finally {
+    } catch (e) { console.error(e); } finally {
         // 🛡️ РАЗБЛОКИРОВКА КНОПКИ
         if (addBtn) {
             addBtn.disabled = false;
@@ -510,15 +495,9 @@ window.submitDailyProduction = async function (btnElement) {
 
     try {
         // 🆕 Вызываем роут фиксации вместо создания партий (они уже есть как черновики)
-        const res = await fetch('/api/production/fixate-shift', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
+        await API.post('/api/production/fixate-shift', payload);
 
-        const result = await res.json();
-
-        if (res.ok) {
+        if (true) {
             UI.toast('✅ Смена зафиксирована! Сырье списано, продукция на сушилке.', 'success');
             sessionProducts = [];
             renderSessionProducts();
@@ -528,12 +507,10 @@ window.submitDailyProduction = async function (btnElement) {
             if (result.details) {
                 const missingList = result.details.split('; ').join('<br>• ');
                 UI.toast(`<b>${result.error}:</b><br>• ${missingList}`, 'error');
-            } else {
-                UI.toast(result.error || 'Ошибка фиксации', 'error');
             }
         }
     } catch (e) {
-        UI.toast('Критическая ошибка связи с сервером', 'error');
+        
     } finally {
         isSubmittingProduction = false;
         buttonsToDisable.forEach(b => {
@@ -699,11 +676,7 @@ window.saveMixTemplate = async function (templateKey) {
     console.log(`[DEBUG] PAYLOAD:`, newTemplateArray);
 
     try {
-        await fetch('/api/mix-templates', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(window.currentMixTemplates)
-        });
+        await API.post('/api/mix-templates', window.currentMixTemplates);
         UI.closeModal();
         UI.toast('Шаблон успешно обновлен!', 'success');
         renderSelectedTemplates();
@@ -722,8 +695,7 @@ async function loadDailyHistory() {
     if (!tbody) return;
 
     try {
-        const res = await fetch(`/api/production/history?date=${date}`);
-        const data = await res.json();
+        const data = await API.get(`/api/production/history?date=${date}`);
 
         if (!Array.isArray(data)) {
             tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger">Ошибка: ${data.error || 'нет данных'}</td></tr>`;
@@ -737,8 +709,7 @@ async function loadDailyHistory() {
         // Восстановление sessionProducts из черновиков 
         sessionProducts = [];
         for (let b of data.filter(i => i.status === 'draft')) {
-            const matRes = await fetch(`/api/production/batch/${b.id}/materials`);
-            const materials = await matRes.json();
+            const materials = await API.get(`/api/production/batch/${b.id}/materials`);
             sessionProducts.push({
                 batchId: b.id, id: b.product_id, name: b.product_name,
                 quantity: parseFloat(b.planned_quantity), cycles: 0,
@@ -774,7 +745,7 @@ async function loadDailyHistory() {
                 <td onclick="toggleBatchDetails(${b.id})">${costDisplay}</td>
                 <td class="text-right" style="white-space: nowrap;">
                     <button class="btn btn-outline text-primary p-5" style="margin-right: 5px;" 
-                            onclick="event.stopPropagation(); window.open('/print/passport?batchId=${b.id}', '_blank')">🖨️</button>
+                            onclick="event.stopPropagation(); window.open('/print/passport?batchId=${b.id}&token=' + localStorage.getItem('token'), '_blank')">🖨️</button>
                     ${isDraft ? `<button class="btn btn-outline p-5" style="color: var(--warning-text); margin-right: 5px;" 
                                          onclick="event.stopPropagation(); editDraftBatch(${b.id})">✏️</button>` : ''}
                     <button class="btn btn-outline text-danger p-5" 
@@ -787,7 +758,7 @@ async function loadDailyHistory() {
         if (tfoot && data.length > 0) {
             tfoot.style.display = 'table-footer-group';
             document.getElementById('prod-total-volume').innerText = dayTotalVolume.toFixed(2);
-            document.getElementById('prod-total-cost').innerText = dayTotalCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽';
+            document.getElementById('prod-total-cost').innerText = Utils.formatMoney(dayTotalCost);
         }
 
     } catch (e) {
@@ -803,12 +774,10 @@ async function toggleBatchDetails(batchId) {
 
     try {
         // 1. Получаем данные партии (объём, амортизация)
-        const batchRes = await fetch(`/api/production/batch/${batchId}/info`);
-        const batchInfo = await batchRes.json();
+        const batchInfo = await API.get(`/api/production/batch/${batchId}/info`);
 
         // 2. Получаем материалы
-        const matRes = await fetch(`/api/production/batch/${batchId}/materials`);
-        const materials = await matRes.json();
+        const materials = await API.get(`/api/production/batch/${batchId}/materials`);
 
         // Данные партии
         const plannedQty = parseFloat(batchInfo.planned_quantity) || 1;
@@ -838,7 +807,7 @@ async function toggleBatchDetails(batchId) {
             </div>
             <div class="text-right">
                 <div class="prod-details-cost-label">Полная себестоимость 1 ед.</div>
-                <div class="prod-details-cost-val">${unitTotalCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</div>
+                <div class="prod-details-cost-val">${Utils.formatMoney(unitTotalCost)}</div>
             </div>
         </div>
 
@@ -848,36 +817,36 @@ async function toggleBatchDetails(batchId) {
                 <div class="prod-cost-card prod-cost-card-mat">
                     <div class="prod-cost-header">
                         <span class="prod-cost-title">📦 Сырье и материалы</span>
-                        <b class="prod-cost-val">${matCost.toLocaleString('ru-RU')} ₽</b>
+                        <b class="prod-cost-val">${Utils.formatMoney(matCost)}</b>
                     </div>
                     <div class="prod-cost-bar-bg">
                         <div class="prod-cost-bar-fill" style="width: ${(matCost / totalCost * 100).toFixed(0)}%;"></div>
                     </div>
                     <div class="prod-cost-unit-mat">
                         <span class="text-muted">На 1 единицу:</span>
-                        <b class="text-success">${unitMatCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</b>
+                        <b class="text-success">${Utils.formatMoney(unitMatCost)}</b>
                     </div>
                 </div>
 
                 <div class="prod-cost-card prod-cost-card-mach">
                     <div class="prod-cost-header">
                         <span class="prod-cost-title">⚙️ Аморт. станка</span>
-                        <b class="prod-cost-val">${machineAmortCost.toLocaleString('ru-RU')} ₽</b>
+                        <b class="prod-cost-val">${Utils.formatMoney(machineAmortCost)}</b>
                     </div>
                     <div class="prod-cost-unit-mach">
                         <span class="text-muted">На 1 единицу:</span>
-                        <b style="color: #b37400;">${unitMachineAmortCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</b>
+                        <b style="color: #b37400;">${Utils.formatMoney(unitMachineAmortCost)}</b>
                     </div>
                 </div>
 
                 <div class="prod-cost-card prod-cost-card-mold">
                     <div class="prod-cost-header">
                         <span class="prod-cost-title">🧩 Аморт. матрицы</span>
-                        <b class="prod-cost-val">${moldAmortCost.toLocaleString('ru-RU')} ₽</b>
+                        <b class="prod-cost-val">${Utils.formatMoney(moldAmortCost)}</b>
                     </div>
                     <div class="prod-cost-unit-mold">
                         <span class="text-muted">На 1 единицу:</span>
-                        <b style="color: #0056b3;">${unitMoldAmortCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</b>
+                        <b style="color: #0056b3;">${Utils.formatMoney(unitMoldAmortCost)}</b>
                     </div>
                 </div>
             </div>
@@ -914,7 +883,7 @@ async function toggleBatchDetails(batchId) {
                                 <td class="prod-td-styled prod-td-right text-primary">${qUnit.toFixed(3)} <small>${m.unit}</small></td>
                                 <td class="prod-td-styled prod-td-right text-muted font-12">${pricePerKg.toFixed(2)}</td>
                                 <td class="prod-td-styled prod-td-right font-bold text-muted">${costUnit.toFixed(2)} ₽</td>
-                                <td class="prod-td-styled prod-td-right font-bold text-danger">${costBatch.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</td>
+                                <td class="prod-td-styled prod-td-right font-bold text-danger">${Utils.formatMoney(costBatch)}</td>
                             </tr>`;
         }).join('')}
                     </tbody>
@@ -925,7 +894,7 @@ async function toggleBatchDetails(batchId) {
                             <td class="prod-tfoot-td prod-td-right text-primary">${totalWeightUnit.toFixed(3)} <small>кг</small></td>
                             <td class="prod-tfoot-td"></td>
                             <td class="prod-tfoot-td prod-td-right">${unitMatCost.toFixed(2)} ₽</td>
-                            <td class="prod-tfoot-td prod-td-right text-danger font-16">${matCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</td>
+                            <td class="prod-tfoot-td prod-td-right text-danger font-16">${Utils.formatMoney(matCost)}</td>
                         </tr>
                     </tfoot>
                 </table>
@@ -945,7 +914,7 @@ async function toggleBatchDetails(batchId) {
 // === ОТМЕНА ФОРМОВКИ (КРАСИВОЕ ОКНО) ===
 window.deleteBatch = function (id, batchNumber) {
     // 🛡️ escapeHTML для номера партии
-    const html = `<div class="text-center p-15 font-15">Точно отменить формовку <b>${escapeHTML(batchNumber)}</b> и вернуть списанное сырье на склад?</div>`;
+    const html = `<div class="text-center p-15 font-15">Точно отменить формовку <b>${Utils.escapeHtml(batchNumber)}</b> и вернуть списанное сырье на склад?</div>`;
 
     UI.showModal('⚠️ Отмена формовки', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>
@@ -956,8 +925,8 @@ window.deleteBatch = function (id, batchNumber) {
 window.executeDeleteBatch = async function (id) {
     UI.closeModal();
     try {
-        const res = await fetch(`/api/production/batch/${id}`, { method: 'DELETE' });
-        if (res.ok) {
+        await API.delete(`/api/production/batch/${id}`);
+        if (true) {
             UI.toast('🗑️ Формовка отменена, сырье возвращено', 'success');
 
             // Проверяем, активен ли поиск
@@ -968,22 +937,15 @@ window.executeDeleteBatch = async function (id) {
                 loadDailyHistory(); // Обновляем календарный день
                 updateCalendarMarks();
             }
-        } else {
-            const err = await res.json();
-            UI.toast(err.error || 'Ошибка при удалении', 'error');
         }
-    } catch (e) {
-        console.error(e);
-        UI.toast('Ошибка сети', 'error');
-    }
+    } catch (e) { console.error(e); }
 };
 
 // 
 window.editDraftBatch = async function (batchId) {
     UI.toast('⏳ Загрузка черновика...', 'info');
     try {
-        const infoRes = await fetch(`/api/production/batch/${batchId}/info`);
-        const info = await infoRes.json();
+        const info = await API.get(`/api/production/batch/${batchId}/info`);
 
         // 1. Устанавливаем продукт в TomSelect
         const sel = document.getElementById('prod-product-select').tomselect;
@@ -1067,14 +1029,12 @@ window.printDailyReport = function () {
 window.openMrpDashboard = async function () {
     try {
         UI.toast('Загрузка сводного плана...', 'info');
-        const res = await fetch('/api/production/mrp-summary');
-        if (!res.ok) throw new Error('Ошибка сервера');
-        const data = await res.json();
+        const data = await API.get('/api/production/mrp-summary');
 
         // 1. Генерируем левую таблицу: План производства (Что отлить)
         let planHtml = data.productionPlan.map((p, idx) => `
             <tr class="mrp-plan-row">
-                <td class="p-10"><b>${idx + 1}. ${escapeHTML(p.item_name)}</b></td>
+                <td class="p-10"><b>${idx + 1}. ${Utils.escapeHtml(p.item_name)}</b></td>
                 <td class="p-10 mrp-plan-qty">
                     ${p.total_needed_qty} <span class="font-11 text-muted">${p.unit}</span>
                 </td>
@@ -1094,7 +1054,7 @@ window.openMrpDashboard = async function () {
 
             return `
                 <tr class="mrp-deficit-row" style="background: var(--${shortage > 0 ? 'danger-bg' : 'success-bg'});">
-                    <td class="p-10">${icon} <b>${escapeHTML(m.name)}</b></td>
+                    <td class="p-10">${icon} <b>${Utils.escapeHtml(m.name)}</b></td>
                     <td class="p-10 text-center font-bold">${m.needed}</td>
                     <td class="p-10 text-center text-muted">${m.stock}</td>
                     <td class="p-10 text-center font-bold" style="color: var(--${shortage > 0 ? 'danger' : 'success'});">${statusText}</td>
@@ -1187,8 +1147,7 @@ window.handleProductionSearch = function () {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">🔍 Ищем по всей базе...</td></tr>';
 
         try {
-            const res = await fetch(`/api/production/search?q=${encodeURIComponent(query)}`);
-            currentProdSearchResults = await res.json();
+            currentProdSearchResults = await API.get(`/api/production/search?q=${encodeURIComponent(query)}`);
 
             // Показываем колонку Дата, так как результаты будут за разные дни
             document.getElementById('th-prod-date').style.display = 'table-cell';
@@ -1224,7 +1183,7 @@ window.renderProductionSearchResults = function () {
             <td onclick="toggleBatchDetails(${b.id})" class="text-right">${costDisplay}</td>
             <td class="text-right whitespace-nowrap">
                 <button class="btn btn-outline text-primary p-5 mr-5" 
-                        onclick="event.stopPropagation(); window.open('/print/passport?batchId=${b.id}', '_blank')">🖨️</button>
+                        onclick="event.stopPropagation(); window.open('/print/passport?batchId=${b.id}&token=' + localStorage.getItem('token'), '_blank')">🖨️</button>
                 <button class="btn btn-outline text-danger p-5" 
                         onclick="event.stopPropagation(); deleteBatch(${b.id}, '${b.batch_number}')">❌</button>
             </td>
@@ -1262,3 +1221,12 @@ window.sortProductionResults = function (field) {
 
     renderProductionSearchResults();
 };
+
+    // === ГЛОБАЛЬНЫЙ ЭКСПОРТ ===
+    if (typeof initProduction === 'function') window.initProduction = initProduction;
+    if (typeof initStaticProductionSelects === 'function') window.initStaticProductionSelects = initStaticProductionSelects;
+    if (typeof populateCategories === 'function') window.populateCategories = populateCategories;
+    if (typeof renderSessionProducts === 'function') window.renderSessionProducts = renderSessionProducts;
+    if (typeof loadDailyHistory === 'function') window.loadDailyHistory = loadDailyHistory;
+    if (typeof toggleBatchDetails === 'function') window.toggleBatchDetails = toggleBatchDetails;
+})();

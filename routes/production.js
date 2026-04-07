@@ -4,7 +4,7 @@ const router = express.Router();
 const Big = require('big.js');
 const { sendNotify } = require('../utils/telegram');
 
-const { requireAdmin } = require('../middleware/auth');
+const { requireAdmin, authenticateToken } = require('../middleware/auth');
 
 // 👈 Добавили withTransaction
 module.exports = function (pool, getWhId, withTransaction) {
@@ -178,7 +178,7 @@ module.exports = function (pool, getWhId, withTransaction) {
         }
     });
 
-    router.get('/print/passport', async (req, res) => {
+    router.get('/print/passport', authenticateToken, async (req, res) => {
         const { batchId } = req.query;
         try {
             const result = await pool.query(`

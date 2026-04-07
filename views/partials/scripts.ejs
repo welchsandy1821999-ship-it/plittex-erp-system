@@ -1,0 +1,275 @@
+    <script>
+        const UI = {
+            toast: (msg, type = 'success') => {
+                const container = document.getElementById('toast-container');
+                const toast = document.createElement('div');
+                toast.className = `toast ${type}`;
+                let icon = type === 'success' ? '✅' : type === 'error' ? 'ℹ️' : 'ℹ️';
+                if (type === 'error') icon = '❌';
+                toast.innerHTML = `<span>${icon}</span> <div>${msg}</div>`;
+                container.appendChild(toast);
+                setTimeout(() => {
+                    toast.style.animation = 'fadeOut 0.3s forwards';
+                    setTimeout(() => toast.remove(), 300);
+                }, 4000);
+            },
+            showModal: (title, htmlBody, buttonsHtml) => {
+                const modal = document.getElementById('app-modal');
+                if (!modal) return;
+                document.getElementById('app-modal-title').innerHTML = title;
+                document.getElementById('app-modal-body').innerHTML = htmlBody;
+                document.getElementById('app-modal-footer').innerHTML = buttonsHtml;
+                modal.style.display = 'flex';
+                modal.classList.add('active');
+            },
+            closeModal: (id = 'app-modal') => {
+                const targetModal = document.getElementById(id);
+                if (targetModal) { targetModal.classList.remove('active'); targetModal.style.display = 'none'; }
+            },
+            confirm: (msg, onConfirm) => {
+                UI.showModal('⚠️ Подтверждение', `<div style="padding: 15px; text-align: center; font-size: 15px;">${msg}</div>`, `
+                    <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+                    <button class="btn btn-red" id="ui-confirm-btn">Да, продолжить</button>
+                `);
+                const btn = document.getElementById('ui-confirm-btn');
+                if (btn) btn.onclick = () => {
+                    UI.closeModal();
+                    if (onConfirm) onConfirm();
+                };
+            }
+        };
+    </script>
+    <script src="/js/core.js"></script>
+    <script src="/js/cache.js"></script>
+
+    <script src="/js/references.js"></script>
+    <script src="/js/recipes.js"></script>
+    <script src="/js/purchases.js"></script>
+    <script src="/js/production.js"></script>
+    <script src="/js/inventory.js"></script>
+    <script src="/js/sales.js"></script>
+    <script src="/js/finance.js"></script>
+    <script src="/js/salary.js?v=<%= Date.now() %>"></script>
+    <script src="/js/docs_registry.js"></script>
+    <script src="/js/dashboard.js"></script>
+    <script src="/js/equipment.js"></script>
+
+    <script>
+        const originalFetch = window.fetch;
+        window.fetch = async function (resource, config = {}) {
+            const url = (resource instanceof Request) ? resource.url : resource;
+            const requestToken = localStorage.getItem('token') || localStorage.getItem('jwtToken');
+
+            if (typeof url === 'string' && url.includes('/api') && !url.includes('/api/login')) {
+                if (requestToken) {
+                    if (resource instanceof Request) {
+                        resource.headers.set('Authorization', `Bearer ${requestToken}`);
+                    } else {
+                        if (!config.headers) config.headers = {};
+                        config.headers = { ...config.headers, 'Authorization': `Bearer ${requestToken}` };
+                    }
+                }
+            }
+
+            try {
+                const response = await originalFetch(resource, config);
+                if (response.status === 401 && typeof url === 'string' && url.includes('/api') && !url.includes('/api/login')) {
+                    const latestToken = localStorage.getItem('token') || localStorage.getItem('jwtToken');
+                    if (latestToken === requestToken) {
+                        console.warn("Session expired on request:", url);
+                        if (typeof window.logout === 'function') window.logout();
+                        else { localStorage.clear(); window.location.href = '/login.html'; }
+                    }
+                    return Promise.reject(new Error('Auth required'));
+                }
+                return response;
+            } catch (e) { throw e; }
+        };
+
+        window.switchModule = function (moduleId, navElement) {
+            document.querySelectorAll('.modal-overlay').forEach(m => {
+                m.classList.remove('active');
+                m.style.display = 'none';
+            });
+            document.querySelectorAll('.module').forEach(mod => mod.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+            const target = document.getElementById(moduleId);
+            if (target) {
+                target.classList.add('active');
+                if (navElement) navElement.classList.add('active');
+            }
+            try {
+                if (moduleId === 'stock-mod' && typeof loadTable === 'function') loadTable();
+                if (moduleId === 'sales-mod') (typeof initSales === 'function') ? initSales() : (typeof loadSalesData === 'function' && loadSalesData(false));
+                if (moduleId === 'fin-mod') (typeof initFinance === 'function') ? initFinance() : (typeof loadFinanceData === 'function' && loadFinanceData());
+                if (moduleId === 'purchase-mod' && typeof loadPurchaseMaterials === 'function') loadPurchaseMaterials();
+                if (moduleId === 'salary-mod' && typeof initSalary === 'function') initSalary();
+                if (moduleId === 'prod-mod' && typeof initProduction === 'function') initProduction();
+                if (moduleId === 'recipe-mod' && typeof loadRecipeModuleData === 'function') loadRecipeModuleData();
+                if (moduleId === 'ref-mod' && typeof loadReferences === 'function') loadReferences();
+                if (moduleId === 'equipment-mod' && typeof loadEquipment === 'function') loadEquipment();
+                if (moduleId === 'dashboard-mod' && typeof initDashboard === 'function') initDashboard();
+            } catch (err) { console.error(err); }
+        };
+
+        window.app = window.app || {};
+        window.app.openEntity = function(type, id) {
+            if (!id) return;
+            switch (type) {
+                case 'client':
+                    if (typeof openCounterpartyProfile === 'function') openCounterpartyProfile(id);
+                    else if (typeof editClient === 'function') editClient(id);
+                    break;
+                case 'employee': if (typeof editWorker === 'function') editWorker(id); break;
+                case 'nomenclature': if (typeof editNomenclature === 'function') editNomenclature(id); break;
+                case 'equipment': if (typeof editEquipment === 'function') editEquipment(id); break;
+                case 'recipe': if (typeof editRecipe === 'function') editRecipe(id); break;
+            }
+        };
+
+        window.app.navigateCategory = function(categoryName) {
+            if (UI && typeof UI.closeModal === 'function') {
+                document.querySelectorAll('.modal-overlay.active').forEach(m => UI.closeModal(m.id));
+            }
+            const openWithDelay = (fn, delay = 150) => setTimeout(fn, delay);
+            switch (categoryName) {
+                case 'Зарплата и Авансы': case 'Оплата труда': case 'Зарплата': case 'Премии': case 'Сдельная оплата': case 'Штрафы':
+                    window.switchModule('salary-mod');
+                    openWithDelay(() => {
+                        const body = document.getElementById('acc-payouts'), header = document.querySelector('[onclick*="acc-payouts"]');
+                        if (typeof toggleAccordion === 'function' && body && !body.classList.contains('active')) toggleAccordion('acc-payouts', header);
+                    });
+                    break;
+                case 'Продажа продукции': case 'Реализация (Продажа)': case 'Продажи': case 'Реализация': case 'Доставка клиенту': case 'Транспортные услуги (клиентам)':
+                    window.switchModule('sales-mod');
+                    openWithDelay(() => {
+                        const btn = document.querySelector('[onclick*="tab-active-orders"]');
+                        if (typeof switchSalesTab === 'function' && btn) switchSalesTab('tab-active-orders', btn);
+                    });
+                    break;
+                case 'Покупка поддонов': case 'Возвратная тара': case 'Тара': case 'Поддоны':
+                    window.switchModule('equipment-mod');
+                    openWithDelay(() => {
+                        const btn = document.getElementById('filter-eq-pallets');
+                        if (typeof filterEquipment === 'function' && btn) filterEquipment('pallets', btn);
+                    });
+                    break;
+                case 'Оборудование': case 'Покупка оборудования': case 'Станки': case 'Запчасти': case 'Ремонт оборудования': case 'Инструмент': case 'Матрицы':
+                    window.switchModule('equipment-mod');
+                    openWithDelay(() => {
+                        const buttons = document.querySelectorAll('button'), btn = Array.from(buttons).find(b => b.getAttribute('onclick') && b.getAttribute('onclick').includes("filterEquipment('machine'"));
+                        if (typeof filterEquipment === 'function' && btn) filterEquipment('machine', btn);
+                    });
+                    break;
+                case 'Закупка сырья': case 'Материалы': case 'Сырье': case 'Цемент': case 'Песок': case 'Щебень': case 'Пигмент': case 'Транспортные услуги (сырье)': case 'Доставка сырья': case 'Химия / Пластификатор':
+                    window.switchModule('purchase-mod'); break;
+                default:
+                    window.switchModule('fin-mod');
+                    openWithDelay(() => {
+                        const searchInput = document.getElementById('finance-search');
+                        if (searchInput) { searchInput.value = categoryName; if (typeof triggerFinanceSearch === 'function') triggerFinanceSearch(); else if (typeof loadFinanceData === 'function') loadFinanceData(); }
+                    }); break;
+            }
+        };
+
+        window.startApp = function (userName) {
+            if (userName) document.getElementById('topbar-user').innerText = `👤 ${userName}`;
+            const token = localStorage.getItem('token') || localStorage.getItem('jwtToken');
+            if (token) {
+                try {
+                    const parts = token.split('.');
+                    if (parts.length === 3) {
+                        const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+                        const isAdmin = payload.role === 'admin';
+                        document.querySelectorAll('.admin-only').forEach(el => el.style.display = isAdmin ? 'block' : 'none');
+                    }
+                } catch (e) { }
+            }
+            if (typeof UI !== 'undefined' && UI.closeModal) UI.closeModal();
+            switchModule('dashboard-mod', document.querySelector('.nav-item.active'));
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const userStr = localStorage.getItem('user');
+            if (userStr) { try { const u = JSON.parse(userStr); window.startApp(u.username); } catch (e) { window.startApp(); } }
+            else window.startApp();
+        });
+
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal-overlay')) { e.target.classList.remove('active'); e.target.style.display = 'none'; }
+        });
+
+        window.getCssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        window.getChartColors = () => [window.getCssVar('--chart-1'), window.getCssVar('--chart-2'), window.getCssVar('--chart-3'), window.getCssVar('--chart-4'), window.getCssVar('--chart-5'), window.getCssVar('--chart-6'), window.getCssVar('--chart-7')];
+        window.toggleTheme = () => {
+            const current = document.documentElement.getAttribute('data-theme'), next = current === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+            document.getElementById('theme-btn').innerText = next === 'dark' ? '☀️' : '🌙';
+        };
+
+        window.initDateRangePicker = (inputId, onChangeCallback) => {
+            const el = document.getElementById(inputId); if (!el) return null;
+            return flatpickr(el, { mode: "range", dateFormat: "Y-m-d", altInput: true, altFormat: "d.m.Y", locale: "ru",
+                onChange: (selectedDates, dateStr, instance) => { if (onChangeCallback) {
+                    let start = '', end = '';
+                    if (selectedDates.length === 1) start = end = instance.formatDate(selectedDates[0], "Y-m-d");
+                    else if (selectedDates.length === 2) { start = instance.formatDate(selectedDates[0], "Y-m-d"); end = instance.formatDate(selectedDates[1], "Y-m-d"); }
+                    onChangeCallback(start, end);
+                }}
+            });
+        };
+
+        window.initSingleDatePicker = (inputId, onChangeCallback) => {
+            const el = document.getElementById(inputId); if (!el) return null;
+            return flatpickr(el, { dateFormat: "Y-m-d", altInput: true, altFormat: "d.m.Y", locale: "ru",
+                onChange: (selectedDates, dateStr, instance) => { if (onChangeCallback && selectedDates.length === 1) onChangeCallback(instance.formatDate(selectedDates[0], "Y-m-d")); }
+            });
+        };
+
+        window.setQuickDateRange = (pickerInstance, type) => {
+            if (!pickerInstance) return;
+            const today = new Date(); let start = new Date(), end = new Date();
+            switch (type) {
+                case 'week': const day = today.getDay(), diff = today.getDate() - day + (day === 0 ? -6 : 1); start.setDate(diff); end = new Date(start); end.setDate(start.getDate() + 6); break;
+                case 'month': start = new Date(today.getFullYear(), today.getMonth(), 1); end = new Date(today.getFullYear(), today.getMonth() + 1, 0); break;
+                case 'year': start = new Date(today.getFullYear(), 0, 1); end = new Date(today.getFullYear(), 11, 31); break;
+            }
+            pickerInstance.setDate([start, end], true);
+        };
+
+        window.escapeHTML = (str) => str ? String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;") : '';
+
+        let socket;
+        try {
+            socket = io();
+            socket.on('inventory_updated', () => {
+                if (document.getElementById('stock-mod').classList.contains('active')) typeof loadTable === 'function' && loadTable();
+                if (document.getElementById('dashboard-mod').classList.contains('active')) typeof initDashboard === 'function' && initDashboard();
+            });
+        } catch (e) { console.warn("Socket.io registration failed:", e); }
+    </script>
+
+    <% if (locals.devMode) { %>
+        <div id="dev-toolbar" class="surface-alt border-top dev-panel-hidden" style="position: fixed; bottom:0; left:0; width:100%; padding:10px 20px; z-index:10000; display:flex; gap:15px; align-items:center; justify-content:space-between; background:var(--surface);">
+            <div style="display:flex; gap:10px; align-items:center; color:var(--warning);"><span>🛠️ <strong>DEV PANEL</strong></span>
+                <button type="button" onclick="toggleDevPanel()" style="background:none; border:none; cursor:pointer;" title="Скрыть (Ctrl+Shift+D)">❌</button>
+            </div>
+            <div style="display:flex; gap:5px;">
+                <button class="btn btn-warning btn-sm" onclick="openDevUnlockModal()">🔓 Разблокировать Заказ</button>
+                <button class="btn btn-dev-danger btn-sm" onclick="devHardDeleteTransaction()">💥 Hard Delete</button>
+            </div>
+        </div>
+        <script>
+            window.toggleDevPanel = () => { const panel = document.getElementById('dev-toolbar'); if (panel) panel.classList.toggle('dev-panel-hidden'); };
+            document.addEventListener('keydown', (e) => { if (e.ctrlKey && e.shiftKey && e.code === 'KeyD') { e.preventDefault(); window.toggleDevPanel(); } });
+            async function openDevUnlockModal() {
+                const id = prompt("Order ID:"); if (!id || !confirm("Unlock?")) return;
+                try { const res = await fetch(`/api/dev/unlock-order/${id}`, {method:'POST'}), data = await res.json(); if (res.ok) { alert(data.message); if (typeof loadSalesData === 'function') loadSalesData(false); } else alert(data.error); } catch(e) { alert(e.message); }
+            }
+            async function devHardDeleteTransaction() {
+                const id = prompt("TX ID:"); if (!id || !confirm("Hard Delete?")) return;
+                try { const res = await fetch(`/api/dev/transactions/${id}`, {method:'DELETE'}), data = await res.json(); if (res.ok) { alert('Removed'); if (typeof loadFinanceData === 'function') loadFinanceData(); } else alert(data.error); } catch(e) { alert(e.message); }
+            }
+        </script>
+    <% } %>

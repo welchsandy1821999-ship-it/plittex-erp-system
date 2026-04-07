@@ -33,8 +33,8 @@
     </div>
 
     <div id="ref-form-container" class="card dict-form-panel">
-        <button class="btn btn-outline btn-close-abs text-danger border-danger"
-            onclick="closeRefForm()">✖ Закрыть</button>
+        <button class="btn btn-outline btn-close-abs text-danger border-danger" onclick="closeRefForm()">✖
+            Закрыть</button>
 
         <h3 id="ref-form-title" class="mt-0 text-primary">✨ Добавление позиции</h3>
         <p class="text-muted mb-15 font-12">Заполните данные. Названия сырья должны быть точными.</p>
@@ -62,8 +62,7 @@
                     <input type="text" id="ref-category" list="dl-categories" class="input-modern w-100"
                         placeholder="Сырье, Плитка..."
                         onfocus="this.select(); if(typeof this.showPicker === 'function') this.showPicker();">
-                    <span class="dict-datalist-arrow"
-                        onclick="this.previousElementSibling.focus();">▼</span>
+                    <span class="dict-datalist-arrow" onclick="this.previousElementSibling.focus();">▼</span>
                 </div>
             </div>
             <div class="form-group">
@@ -72,13 +71,17 @@
                     <input type="text" id="ref-unit" list="dl-units" class="input-modern w-100"
                         placeholder="кг, кв.м, шт" value="кг"
                         onfocus="this.select(); if(typeof this.showPicker === 'function') this.showPicker();">
-                    <span class="dict-datalist-arrow"
-                        onclick="this.previousElementSibling.focus();">▼</span>
+                    <span class="dict-datalist-arrow" onclick="this.previousElementSibling.focus();">▼</span>
                 </div>
             </div>
             <div class="form-group">
                 <label>Цена за ед (₽):</label>
                 <input type="number" id="ref-price" class="input-modern" step="0.01" value="0">
+            </div>
+            <div class="form-group">
+                <label>Порог безопасности (Min Stock):</label>
+                <input type="number" id="ref-min-stock" class="input-modern" step="0.1" value="0">
+                <small class="text-muted">Критический остаток для Дашборда</small>
             </div>
             <div class="form-group">
                 <label>Вес 1 ед (кг):</label>
@@ -190,6 +193,7 @@
                     <th class="dict-col-name">Наименование</th>
                     <th class="dict-col-unit">Ед.</th>
                     <th class="dict-col-price">Цена (₽)</th>
+                    <th class="dict-col-min text-center" title="Минимальный остаток">Порог</th>
                     <th class="dict-col-actions text-right">Действия</th>
                 </tr>
             </thead>

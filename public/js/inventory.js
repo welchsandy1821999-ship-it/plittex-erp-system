@@ -3,13 +3,35 @@
 let allInventory = [];
 let currentWarehouseFilter = 'all';
 let isAuditMode = false; // Флаг режима инвентаризации
+let currentSearch = '';
+let currentPage = 1;
+let itemsPerPage = 50;
+
+window.handleInventorySearch = function() {
+    currentSearch = (document.getElementById('inventory-search') ? document.getElementById('inventory-search').value.toLowerCase().trim() : '');
+    currentPage = 1;
+    renderInventoryTable();
+}
+
+window.changeItemsPerPage = function(val) {
+    itemsPerPage = parseInt(val);
+    currentPage = 1;
+    renderInventoryTable();
+}
+
+window.goToPage = function(page) {
+    currentPage = page;
+    renderInventoryTable();
+}
 
 function loadTable() {
-    fetch('/api/inventory')
-        .then(res => res.json())
+    API.get('/api/inventory')
         .then(data => {
             allInventory = data;
             renderInventoryTable();
+        })
+        .catch(err => {
+            console.error('Failed to load table:', err);
         });
 }
 
@@ -87,26 +109,17 @@ window.saveAudit = async function () {
     }
 
     try {
-        const res = await fetch('/api/inventory/audit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                warehouseId: currentWarehouseFilter,
-                adjustments: adjustments
-            })
+        await API.post('/api/inventory/audit', {
+            warehouseId: currentWarehouseFilter,
+            adjustments: adjustments
         });
 
-        if (res.ok) {
-            UI.toast('✅ Инвентаризация успешно проведена!', 'success');
-            toggleAuditMode();
-            loadTable();
-        } else {
-            const errText = await res.text();
-            UI.toast('Ошибка сохранения: ' + errText, 'error');
-        }
+        UI.toast('✅ Инвентаризация успешно проведена!', 'success');
+        toggleAuditMode();
+        loadTable();
     } catch (e) {
         console.error(e);
-        UI.toast('Ошибка сети при инвентаризации', 'error');
+        // API.post automatically triggers UI.toast on error
     }
 };
 
@@ -146,15 +159,64 @@ function renderInventoryTable() {
     const filtered = allInventory.filter(item => {
         if (parseFloat(item.total) === 0) return false;
         if (currentWarehouseFilter !== 'all' && String(item.warehouse_id) !== currentWarehouseFilter) return false;
+        if (currentSearch) {
+            const searchStr = `${item.item_name} ${item.warehouse_name || ''} ${item.batch_number || ''} ${item.batch_id || ''}`.toLowerCase();
+            const searchStrCondensed = searchStr.replace(/[\.\s-]/g, '');
+
+            const tokens = currentSearch.split(/\s+/).filter(Boolean);
+            let multiTargetMatch = true;
+            for (let token of tokens) {
+                let tokenCondensed = token.replace(/[\.\s-]/g, '');
+                if (!searchStr.includes(token) && (!tokenCondensed || !searchStrCondensed.includes(tokenCondensed))) {
+                    multiTargetMatch = false;
+                    break;
+                }
+            }
+
+            if (!multiTargetMatch) {
+                // Secondary check for cases like typing "2 к 6" spaced out
+                const fullQueryCondensed = currentSearch.replace(/[\.\s-]/g, '');
+                if (fullQueryCondensed.length < 2 || !searchStrCondensed.includes(fullQueryCondensed)) {
+                    return false;
+                }
+            }
+        }
         return true;
     });
 
-    if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="${colSpan}" class="inv-empty-row">На складе нет остатков</td></tr>`;
+    const totalItems = filtered.length;
+    const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+    if (currentPage > totalPages) currentPage = totalPages;
+
+    const startIdx = (currentPage - 1) * itemsPerPage;
+    const paginated = filtered.slice(startIdx, startIdx + itemsPerPage);
+
+    const summaryText = document.getElementById('inventory-summary-text');
+    if (summaryText) summaryText.innerText = totalItems > 0 ? `Показано ${startIdx + 1} - ${Math.min(startIdx + itemsPerPage, totalItems)} из ${totalItems}` : '0 записей';
+
+    const paginationContainer = document.getElementById('inventory-pagination');
+    if (paginationContainer) {
+        let pagesHtml = '';
+        if (totalPages > 1) {
+            pagesHtml += `<button class="btn btn-sm btn-outline" ${currentPage === 1 ? 'disabled' : ''} onclick="goToPage(${currentPage - 1})">Пред</button>`;
+            let startPage = Math.max(1, currentPage - 2);
+            let endPage = Math.min(totalPages, currentPage + 2);
+            if (startPage > 1) pagesHtml += `<button class="btn btn-sm btn-outline" onclick="goToPage(1)">1</button>${startPage > 2 ? '<span class="text-muted">...</span>' : ''}`;
+            for (let i = startPage; i <= endPage; i++) {
+                pagesHtml += `<button class="btn btn-sm ${i === currentPage ? 'btn-blue' : 'btn-outline'}" onclick="goToPage(${i})">${i}</button>`;
+            }
+            if (endPage < totalPages) pagesHtml += `${endPage < totalPages - 1 ? '<span class="text-muted">...</span>' : ''}<button class="btn btn-sm btn-outline" onclick="goToPage(${totalPages})">${totalPages}</button>`;
+            pagesHtml += `<button class="btn btn-sm btn-outline" ${currentPage === totalPages ? 'disabled' : ''} onclick="goToPage(${currentPage + 1})">След</button>`;
+        }
+        paginationContainer.innerHTML = pagesHtml;
+    }
+
+    if (paginated.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="${colSpan}" class="inv-empty-row">По вашему запросу ничего не найдено</td></tr>`;
         return;
     }
 
-    filtered.forEach(item => {
+    paginated.forEach(item => {
         let actionHtml = '';
         let qtyHtml = '';
 
@@ -201,8 +263,8 @@ function renderInventoryTable() {
                 : '<span class="badge inv-wh-badge">Без привязки</span>';
             tbody.innerHTML += `
             <tr>
-                <td class="inv-batch-cell">${item.batch_number ? '#' + escapeHTML(item.batch_number) : '-'}</td>
-                <td><strong>${escapeHTML(item.item_name)}</strong></td>
+                <td class="inv-batch-cell">${item.batch_number ? '#' + Utils.escapeHtml(item.batch_number) : '-'}</td>
+                <td class="inv-name-cell" title="${Utils.escapeHtml(item.item_name)}"><strong>${Utils.escapeHtml(item.item_name)}</strong></td>
                 <td>${orderBadge}</td>
                 ${qtyHtml}
                 <td class="inv-unit-cell">${item.unit}</td>
@@ -211,9 +273,9 @@ function renderInventoryTable() {
         } else {
             tbody.innerHTML += `
             <tr>
-                <td><span class="badge inv-wh-badge">${escapeHTML(item.warehouse_name)}</span></td>
-                <td class="inv-batch-cell">${item.batch_number ? '#' + escapeHTML(item.batch_number) : (item.batch_id ? '#' + item.batch_id : '-')}</td>
-                <td><strong>${escapeHTML(item.item_name)}</strong></td>
+                <td><span class="badge inv-wh-badge">${Utils.escapeHtml(item.warehouse_name)}</span></td>
+                <td class="inv-batch-cell">${item.batch_number ? '#' + Utils.escapeHtml(item.batch_number) : (item.batch_id ? '#' + item.batch_id : '-')}</td>
+                <td class="inv-name-cell" title="${Utils.escapeHtml(item.item_name)}"><strong>${Utils.escapeHtml(item.item_name)}</strong></td>
                 ${qtyHtml}
                 <td class="inv-unit-cell">${item.unit}</td>
                 <td class="inv-actions-cell">${actionHtml}</td>
@@ -262,26 +324,18 @@ window.executeDirectScrap = async function () {
     if (!scrapQty || scrapQty <= 0) return UI.toast('Введите корректное количество', 'warning');
 
     try {
-        const res = await fetch('/api/inventory/scrap', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                itemId: itemId,
-                batchId: batchId || null,
-                warehouseId: warehouseId,
-                targetWarehouseId: 6, // 🚨 ДОБАВЛЕНО: Явно указываем склад утиля (№6), чтобы бэкенд не сломался
-                scrapQty: scrapQty,
-                description: desc
-            })
+        await API.post('/api/inventory/scrap', {
+            itemId: itemId,
+            batchId: batchId || null,
+            warehouseId: warehouseId,
+            targetWarehouseId: 6, // 🚨 ДОБАВЛЕНО: Явно указываем склад утиля (№6), чтобы бэкенд не сломался
+            scrapQty: scrapQty,
+            description: desc
         });
 
-        if (res.ok) {
-            UI.closeModal();
-            UI.toast('Брак успешно списан', 'success');
-            loadTable();
-        } else {
-            UI.toast('Ошибка списания', 'error');
-        }
+        UI.closeModal();
+        UI.toast('Брак успешно списан', 'success');
+        loadTable();
     } catch (e) { console.error(e); }
 };
 
@@ -336,19 +390,11 @@ window.executeDemolding = async function (batchId, tileId, currentWipQty) {
     if (goodQty + grade2Qty + scrapQty === 0) return UI.toast('Укажите хотя бы одну позицию выхода!', 'error');
 
     try {
-        const res = await fetch('/api/move-wip', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ batchId, tileId, currentWipQty, goodQty, grade2Qty, scrapQty, isComplete })
-        });
+        await API.post('/api/move-wip', { batchId, tileId, currentWipQty, goodQty, grade2Qty, scrapQty, isComplete });
 
-        if (res.ok) {
-            UI.closeModal();
-            UI.toast('Партия успешно распределена по складам!', 'success');
-            loadTable();
-        } else {
-            UI.toast('Ошибка при распалубке', 'error');
-        }
+        UI.closeModal();
+        UI.toast('Партия успешно распределена по складам!', 'success');
+        loadTable();
     } catch (e) { console.error(e); }
 };
 
@@ -412,16 +458,10 @@ window.executeScrap = async function () {
     if (!scrapQty || scrapQty <= 0) return UI.toast('Введите количество', 'warning');
 
     try {
-        const res = await fetch('/api/inventory/scrap', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ itemId, batchId: batchId || null, warehouseId, targetWarehouseId: targetWh, scrapQty, description: desc })
-        });
-        if (res.ok) {
-            UI.closeModal();
-            UI.toast('Успешно перемещено!', 'success');
-            loadTable();
-        } else UI.toast('Ошибка списания', 'error');
+        await API.post('/api/inventory/scrap', { itemId, batchId: batchId || null, warehouseId, targetWarehouseId: targetWh, scrapQty, description: desc });
+        UI.closeModal();
+        UI.toast('Успешно перемещено!', 'success');
+        loadTable();
     } catch (e) { console.error(e); }
 };
 
@@ -466,30 +506,20 @@ window.executeDispose = async function () {
     UI.toast('⏳ Выполняется списание...', 'info');
 
     try {
-        const res = await fetch('/api/inventory/dispose', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                itemId: itemId,
-                batchId: batchId || null,
-                warehouseId: warehouseId,
-                disposeQty: disposeQty,
-                description: desc
-            })
+        const data = await API.post('/api/inventory/dispose', {
+            itemId: itemId,
+            batchId: batchId || null,
+            warehouseId: warehouseId,
+            disposeQty: disposeQty,
+            description: desc
         });
 
-        const data = await res.json();
-
-        if (res.ok) {
-            UI.closeModal();
-            UI.toast(data.message || '✅ Успешно утилизировано', 'success');
-            loadTable();
-        } else {
-            UI.toast(data.error || 'Ошибка при утилизации', 'error');
-        }
+        UI.closeModal();
+        UI.toast(data.message || '✅ Успешно утилизировано', 'success');
+        loadTable();
     } catch (e) {
         console.error(e);
-        UI.toast('Критическая ошибка связи с сервером', 'error');
+        // Toast shows automatically from API
     }
 };
 
@@ -536,8 +566,7 @@ window.openReserveManagerModal = function (itemId, itemName, batchId, batchNum, 
     UI.showModal('🔒 Управление резервом', html, buttons);
 
     // Предзагрузка списка заказов для переброски
-    fetch(`/api/inventory/active-order-items?itemId=${itemId}`)
-        .then(r => r.json())
+    API.get(`/api/inventory/active-order-items?itemId=${itemId}`)
         .then(orders => {
             const sel = document.getElementById('reserve-target-coi');
             if (!sel) return;
@@ -546,7 +575,7 @@ window.openReserveManagerModal = function (itemId, itemName, batchId, batchNum, 
                 if (String(o.id) === String(linkedOrderItemId)) return; // Скрываем текущий
                 sel.innerHTML += `<option value="${o.id}">${escapeHTML(o.doc_number)} | ${escapeHTML(o.client_name || '')} (Заказ: ${o.qty_ordered}, Рез: ${o.qty_reserved || 0})</option>`;
             });
-        });
+        }).catch(e => console.error(e));
 };
 
 // Переключатель видимости селекта целевого заказа
@@ -569,21 +598,143 @@ window.executeReserveAction = async function () {
     if (action === 'transfer' && !targetOrderItemId) return UI.toast('Выберите целевой заказ!', 'warning');
 
     try {
-        const res = await fetch('/api/inventory/reserve-action', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action, itemId, batchId, linkedOrderItemId, qty, targetOrderItemId })
-        });
-        const data = await res.json();
-        if (res.ok) {
-            UI.closeModal();
-            UI.toast(data.message || '✅ Готово', 'success');
-            loadTable();
-        } else {
-            UI.toast(data.error || 'Ошибка', 'error');
-        }
+        const data = await API.post('/api/inventory/reserve-action', { action, itemId, batchId, linkedOrderItemId, qty, targetOrderItemId });
+        
+        UI.closeModal();
+        UI.toast(data.message || '✅ Готово', 'success');
+        loadTable();
     } catch (e) {
         console.error(e);
-        UI.toast('Критическая ошибка связи с сервером', 'error');
+        // Error toast handled by API
     }
+};
+
+// === ЭКСПОРТ / ИМПОРТ ===
+window.handleExcelImport = async function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('excelFile', file);
+
+    UI.toast('⏳ Обработка файла...', 'info');
+
+    try {
+        const headers = {};
+        const token = localStorage.getItem('token') || localStorage.getItem('jwtToken');
+        if (token) headers['Authorization'] = 'Bearer ' + token;
+
+        const res = await fetch('/api/inventory/import-preview', {
+            method: 'POST',
+            headers: headers,
+            body: formData
+        });
+        const data = await res.json();
+        event.target.value = ''; // clear
+
+        if (!res.ok) throw new Error(data.error || 'Ошибка загрузки');
+
+        let html = '<div class="inv-scrollable" style="max-height: 50vh; overflow-y: auto;">';
+        html += '<table class="table-modern w-100" style="font-size:12px; table-layout: fixed;">';
+        html += '<thead style="position: sticky; top: 0; background: white; z-index: 10;"><tr><th style="width: 15%">Склад</th><th style="width: 35%">Товар</th><th style="width: 15%">Партия</th><th style="width: 10%">Расчет</th><th style="width: 10%">Факт</th><th style="width: 15%">Дельта</th></tr></thead><tbody>';
+
+        let hasAdjustments = false;
+        let adjustmentsData = [];
+
+        data.errors.forEach(e => {
+            html += `<tr style="background: #ffe6e6;">
+                <td>Склад ${e.wh_id || '?'}</td>
+                <td style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${Utils.escapeHtml(e.item_name || 'Неизвестно')}">${e.item_id || '?'} - ${Utils.escapeHtml(e.item_name || 'Неизвестно')}</td>
+                <td>${Utils.escapeHtml(e.batch_num || '-')}</td>
+                <td colspan="3" class="text-danger">⚠️ Ошибка: ${Utils.escapeHtml(e.error_msg)}</td>
+            </tr>`;
+        });
+
+        data.differences.forEach(d => {
+            hasAdjustments = true;
+            adjustmentsData.push({
+                warehouseId: d.wh_id,
+                itemId: d.item_id,
+                batchId: d.batch_id,
+                actualQty: d.fact_qty
+            });
+            html += `<tr style="background: #fff8e1;">
+                <td>Склад ${d.wh_id}</td>
+                <td style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${Utils.escapeHtml(d.item_name)}">${Utils.escapeHtml(d.item_name)}</td>
+                <td>${Utils.escapeHtml(d.batch_num || '-')}</td>
+                <td>${d.db_qty}</td>
+                <td><b>${d.fact_qty}</b></td>
+                <td class="${d.delta > 0 ? 'text-success' : 'text-danger'}"><b>${d.delta > 0 ? '+'+d.delta : d.delta}</b></td>
+            </tr>`;
+        });
+
+        if (data.matches.length > 0) {
+            html += `<tr><td colspan="6" class="text-center text-muted font-12 bg-surface-alt p-10">Остальные ${data.matches.length} позиций сошлись (скрыты)</td></tr>`;
+        }
+
+        html += '</tbody></table></div>';
+
+        if (!hasAdjustments && data.errors.length === 0) {
+            html = '<div class="p-20 text-center"><h3 class="text-success">✅ Всё идеально сошлось!</h3><p>Расхождения не найдены.</p></div>';
+        }
+
+        window.__currentImportAdjustments = adjustmentsData;
+
+        const buttons = `
+            <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+            <button class="btn btn-blue" ${hasAdjustments && data.errors.length === 0 ? '' : (hasAdjustments ? '' : 'disabled')} onclick="confirmExcelImport()">💾 Применить изменения</button>
+        `;
+
+        UI.showModal('📊 Предпросмотр Ревизии', html, buttons, 'modal-lg');
+    } catch(err) {
+        UI.toast(err.message, 'error');
+        event.target.value = '';
+    }
+};
+
+window.confirmExcelImport = async function() {
+    const adjustments = window.__currentImportAdjustments || [];
+    if (adjustments.length === 0) return UI.toast('Нет изменений для сохранения', 'warning');
+
+    UI.toast('⏳ Загрузка в базу...', 'info');
+    try {
+        await API.post('/api/inventory/audit', { warehouseId: 0, adjustments: adjustments });
+        
+        UI.closeModal();
+        UI.toast('✅ Инвентаризация успешно импортирована!', 'success');
+        window.__currentImportAdjustments = null;
+        loadTable();
+    } catch (e) {
+        console.error(e);
+        // error toast handled by API helper
+    }
+};
+
+window.openPrintModal = function() {
+    const wh = typeof currentWarehouseFilter !== 'undefined' ? currentWarehouseFilter : 'all';
+    
+    // Прячем дропдаун экспорта если открыт
+    const dropdowns = document.querySelectorAll('.dropdown-menu');
+    dropdowns.forEach(d => d.classList.add('inv-hidden'));
+
+    const tokenParam = typeof API !== 'undefined' && API.token ? API.token : localStorage.getItem('token');
+    
+    const html = `
+        <div class="text-center p-20">
+            <p class="mb-20 text-muted">Будет распечатан бланк для инвентаризации <b>${wh === 'all' ? 'всех складов' : 'выбранного склада (№' + wh + ')' }</b>.</p>
+            <button class="btn btn-outline mb-10 w-100" onclick="window.open('/api/inventory/print?mode=blind&wh=' + currentWarehouseFilter + '&token=' + '${tokenParam}', '_blank'); UI.closeModal();">Слепой бланк (Пустые колонки Факт / Расчет)</button>
+            <button class="btn btn-blue w-100" onclick="window.open('/api/inventory/print?mode=full&wh=' + currentWarehouseFilter + '&token=' + '${tokenParam}', '_blank'); UI.closeModal();">Полный бланк (Содержит Расчетный остаток)</button>
+        </div>
+    `;
+    UI.showModal('🖨️ Печать Бланка', html, '<button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>');
+};
+
+window.executeExport = function(mode) {
+    const wh = typeof currentWarehouseFilter !== 'undefined' ? currentWarehouseFilter : 'all';
+    // Прячем дропдаун
+    const dropdowns = document.querySelectorAll('.dropdown-menu');
+    dropdowns.forEach(d => d.classList.add('inv-hidden'));
+    
+    const tokenParam = typeof API !== 'undefined' && API.token ? API.token : localStorage.getItem('token');
+    window.open(`/api/inventory/export?mode=${mode}&wh=${wh}&token=${tokenParam}`, '_blank');
 };

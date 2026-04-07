@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 2. Первичная загрузка
     loadCostConstructor();
+    loadDashboardWidgets();
 });
 
 let ccGroupedExpenses = { direct: [], opex: [], capex: [] };
@@ -34,7 +35,7 @@ window.loadCostConstructor = async function () {
         endDate = dashSpecificDate;
     } else if (dashPeriodType === 'week') {
         const now = new Date();
-        const dayOfWeek = now.getDay() || 7; 
+        const dayOfWeek = now.getDay() || 7;
         const monday = new Date(now);
         monday.setDate(now.getDate() - dayOfWeek + 1);
         startDate = monday.toISOString().split('T')[0];
@@ -62,19 +63,13 @@ window.loadCostConstructor = async function () {
     // Предзагрузка категорий для быстрого выпадающего списка
     if (ccAllCategories.length === 0) {
         try {
-            const resCat = await fetch('/api/categories');
-            ccAllCategories = await resCat.json();
-        } catch(e) { console.error('Ошибка загрузки справочника категорий', e); }
+            const resCat = await API.get('/api/categories');
+            ccAllCategories = resCat;
+        } catch (e) { console.error('Ошибка загрузки справочника категорий', e); }
     }
 
     try {
-        const res = await fetch('/api/analytics/cost-constructor', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ startDate, endDate })
-        });
-
-        const data = await res.json();
+        const data = await API.post('/api/analytics/cost-constructor', { startDate, endDate });
         currentCycles = data.totalCycles;
         const pieceRateSalary = parseFloat(data.pieceRateSalary) || 0;
 
@@ -82,9 +77,9 @@ window.loadCostConstructor = async function () {
 
         // 1. Суммы по группам (все значения положительные, т.к. запросы содержат только expense)
         const totalDirect = ccGroupedExpenses.direct.reduce((sum, cat) => sum + cat.total, 0);
-        const totalOpex   = ccGroupedExpenses.opex.reduce((sum, cat) => sum + cat.total, 0);
-        const totalCapex  = ccGroupedExpenses.capex.reduce((sum, cat) => sum + cat.total, 0);
-        const totalAll    = totalDirect + totalOpex + totalCapex;
+        const totalOpex = ccGroupedExpenses.opex.reduce((sum, cat) => sum + cat.total, 0);
+        const totalCapex = ccGroupedExpenses.capex.reduce((sum, cat) => sum + cat.total, 0);
+        const totalAll = totalDirect + totalOpex + totalCapex;
 
         // 2. Обновляем плашки с фиксированными цветами, числа без минуса
         const elCogs = document.getElementById('cc-total-cogs');
@@ -156,16 +151,16 @@ window.loadCostConstructor = async function () {
         console.error(e);
         UI.toast('Ошибка загрузки Конструктора', 'error');
     }
-};window.switchCostTab = function(groupId, tabIndex) {
+}; window.switchCostTab = function (groupId, tabIndex) {
     if (!ccGroupedExpenses[groupId]) return;
-    
+
     const tabEl = document.getElementById('tab-' + groupId);
     const container = document.getElementById('dashboard-tabs-content');
     const wrapper = container ? container.parentElement : null;
     const gridContainer = document.querySelector('.cost-triad-grid');
 
     const tabColors = { direct: 'var(--success)', opex: 'var(--warning)', capex: 'var(--primary)' };
-    
+
     // Если клик по уже активной вкладке - сворачиваем
     if (tabEl.classList.contains('tab-active')) {
         tabEl.classList.remove('tab-active');
@@ -188,7 +183,7 @@ window.loadCostConstructor = async function () {
     // Иначе разворачиваем и переключаем
     document.querySelectorAll('.dashboard-tabs-nav .card').forEach(c => c.classList.remove('tab-active'));
     tabEl.classList.add('tab-active');
-    
+
     container.classList.remove('collapsed-panel');
     const offset = -(tabIndex * 33.333333);
     container.style.transform = `translateX(${offset}%)`;
@@ -214,7 +209,7 @@ window.loadCostConstructor = async function () {
 
     ccCurrentGroup = groupId;
     ccCurrentCategory = null;
-    
+
     const titles = { direct: '🟢 COGS', opex: '🟠 OPEX', capex: '🔵 CAPEX' };
     const drillTitle = document.getElementById('drill-title-' + groupId);
     if (drillTitle) drillTitle.innerText = titles[groupId];
@@ -238,7 +233,7 @@ window.loadCostConstructor = async function () {
     }, 150); // Небольшая задержка, чтобы CSS-анимация раскрытия раздвинула контент
 };
 
-window.closeCostTabs = function() {
+window.closeCostTabs = function () {
     const container = document.getElementById('dashboard-tabs-content');
     if (container) {
         container.classList.add('collapsed-panel');
@@ -260,7 +255,7 @@ window.closeCostTabs = function() {
     ccCurrentCategory = null;
 };
 
-window.closeCostCategory = function() {
+window.closeCostCategory = function () {
     if (ccCurrentCategory) {
         // Возврат из транзакций к списку категорий в текущей панели
         ccCurrentCategory = null;
@@ -273,16 +268,16 @@ window.closeCostCategory = function() {
     }
 };
 
-window.openCostCategory = function(catName) {
+window.openCostCategory = function (catName) {
     ccCurrentCategory = catName;
     const titleEl = document.getElementById('drill-title-' + ccCurrentGroup);
     if (titleEl) titleEl.innerText = '🧾 Транзакции: ' + catName;
     renderDrilldown();
 };
 
-window.handleCostSearch = function(query) {
+window.handleCostSearch = function (query) {
     ccSearchQuery = query.toLowerCase().trim();
-    
+
     if (ccCurrentGroup) {
         // Если открыта какая-то вкладка, ищем внутри неё
         renderDrilldown();
@@ -290,7 +285,7 @@ window.handleCostSearch = function(query) {
         // Глобальный поиск "Матрешка" с главного экрана
         const searchContainer = document.getElementById('cc-global-search-container');
         const warnEl = document.getElementById('cc-balance-warning');
-        
+
         if (!ccSearchQuery) {
             if (searchContainer) searchContainer.style.display = 'none';
             if (warnEl) warnEl.style.display = 'block';
@@ -304,7 +299,7 @@ window.handleCostSearch = function(query) {
     }
 };
 
-window.renderGlobalSearch = function() {
+window.renderGlobalSearch = function () {
     const container = document.getElementById('cc-global-search-content');
     if (!container) return;
 
@@ -321,12 +316,12 @@ window.renderGlobalSearch = function() {
     ['direct', 'opex', 'capex'].forEach(grp => {
         const groupData = ccGroupedExpenses[grp] || [];
         let groupHtml = '';
-        
+
         groupData.forEach(cat => {
             const catMatch = cat.name.toLowerCase().includes(ccSearchQuery);
-            const matchingTxs = cat.transactions.filter(t => 
+            const matchingTxs = cat.transactions.filter(t =>
                 catMatch ||
-                (t.description || '').toLowerCase().includes(ccSearchQuery) || 
+                (t.description || '').toLowerCase().includes(ccSearchQuery) ||
                 (t.counterparty || '').toLowerCase().includes(ccSearchQuery) ||
                 t.amount.toString().includes(ccSearchQuery)
             );
@@ -440,7 +435,7 @@ window.applyDashPeriod = function (field, value) {
     loadCostConstructor();
 };
 
-window.renderDrilldown = function() {
+window.renderDrilldown = function () {
     const container = document.getElementById('cc-panel-' + ccCurrentGroup);
     if (!container || !ccCurrentGroup) return;
 
@@ -475,8 +470,8 @@ window.renderDrilldown = function() {
         groupData.forEach((cat, index) => {
             let match = cat.name.toLowerCase().includes(ccSearchQuery);
             if (!match && ccSearchQuery) {
-                match = cat.transactions.some(t => 
-                    (t.description || '').toLowerCase().includes(ccSearchQuery) || 
+                match = cat.transactions.some(t =>
+                    (t.description || '').toLowerCase().includes(ccSearchQuery) ||
                     (t.counterparty || '').toLowerCase().includes(ccSearchQuery) ||
                     t.amount.toString().includes(ccSearchQuery)
                 );
@@ -510,9 +505,9 @@ window.renderDrilldown = function() {
         if (catObj) {
             catObj.transactions.forEach((t, index) => {
                 if (ccSearchQuery) {
-                    const match = (t.description || '').toLowerCase().includes(ccSearchQuery) || 
-                                  (t.counterparty || '').toLowerCase().includes(ccSearchQuery) ||
-                                  t.amount.toString().includes(ccSearchQuery);
+                    const match = (t.description || '').toLowerCase().includes(ccSearchQuery) ||
+                        (t.counterparty || '').toLowerCase().includes(ccSearchQuery) ||
+                        t.amount.toString().includes(ccSearchQuery);
                     if (!match) return;
                 }
 
@@ -558,7 +553,7 @@ window.renderDrilldown = function() {
 };
 
 // === ГРУППОВОЙ ПЕРЕНОС ГАЛОЧКАМИ ===
-window.updateBulkSelectBtn = function(element) {
+window.updateBulkSelectBtn = function (element) {
     // Ищем ближайший wrapper от кликнутого чекбокса
     const wrapper = element ? element.closest('.folder-tx-wrapper') : null;
     if (!wrapper) return;
@@ -576,20 +571,20 @@ window.updateBulkSelectBtn = function(element) {
     }
 };
 
-window.toggleAllCheckboxes = function(selectAllCb) {
+window.toggleAllCheckboxes = function (selectAllCb) {
     const wrapper = selectAllCb.closest('.folder-tx-wrapper');
     if (!wrapper) return;
     const isChecked = selectAllCb.checked;
-    wrapper.querySelectorAll('.tx-select-checkbox').forEach(function(cb) { cb.checked = isChecked; });
+    wrapper.querySelectorAll('.tx-select-checkbox').forEach(function (cb) { cb.checked = isChecked; });
     updateBulkSelectBtn(selectAllCb);
 };
 
-window.moveSelectedTransactions = function(btnElement) {
+window.moveSelectedTransactions = function (btnElement) {
     // Ищем wrapper от кнопки или берем все отмеченные на странице
     const wrapper = btnElement ? btnElement.closest('.folder-tx-wrapper') : document;
     var checked = wrapper.querySelectorAll('.tx-select-checkbox:checked');
     var selectedIds = [];
-    checked.forEach(function(cb) { var n = Number(cb.value); if (n > 0) selectedIds.push(n); });
+    checked.forEach(function (cb) { var n = Number(cb.value); if (n > 0) selectedIds.push(n); });
     if (selectedIds.length === 0) return UI.toast('Отметьте хотя бы одну транзакцию', 'warning');
 
     // Сохраняем ID в глобальную переменную, которую читает executeRenameFolder
@@ -598,12 +593,12 @@ window.moveSelectedTransactions = function(btnElement) {
 
     // Собираем все существующие имена папок для select
     var allNames = [];
-    ['direct', 'opex', 'capex'].forEach(function(grp) {
-        (ccGroupedExpenses[grp] || []).forEach(function(cat) { allNames.push(cat.name); });
+    ['direct', 'opex', 'capex'].forEach(function (grp) {
+        (ccGroupedExpenses[grp] || []).forEach(function (cat) { allNames.push(cat.name); });
     });
-    var uniqueNames = allNames.filter(function(v, i, a) { return a.indexOf(v) === i; }).sort();
+    var uniqueNames = allNames.filter(function (v, i, a) { return a.indexOf(v) === i; }).sort();
     var selectOptions = '<option value="">-- Ввести новое название ниже --</option>';
-    uniqueNames.forEach(function(n) {
+    uniqueNames.forEach(function (n) {
         selectOptions += '<option value="' + n.replace(/"/g, '&quot;') + '">' + n + '</option>';
     });
 
@@ -611,24 +606,24 @@ window.moveSelectedTransactions = function(btnElement) {
         '<div style="font-weight: bold; font-size: 13px;">Выбрано транзакций: <span style="color: var(--primary);">' + selectedIds.length + ' шт.</span></div>' +
 
         '<div class="form-group" style="margin: 0;">' +
-            '<label style="font-weight: 600; margin-bottom: 4px; display: block;">Переместить в существующую папку:</label>' +
-            '<select id="renameExistingSelect" class="input-modern" style="font-size: 14px; padding: 10px;">' + selectOptions + '</select>' +
+        '<label style="font-weight: 600; margin-bottom: 4px; display: block;">Переместить в существующую папку:</label>' +
+        '<select id="renameExistingSelect" class="input-modern" style="font-size: 14px; padding: 10px;">' + selectOptions + '</select>' +
         '</div>' +
 
         '<div class="form-group" style="margin: 0;">' +
-            '<label style="font-weight: 600; margin-bottom: 4px; display: block;">Или создать новую папку:</label>' +
-            '<input type="text" id="renameNameInput" class="input-modern" style="font-size: 14px; padding: 10px; font-weight: 600;" placeholder="Например: Канцтовары...">' +
+        '<label style="font-weight: 600; margin-bottom: 4px; display: block;">Или создать новую папку:</label>' +
+        '<input type="text" id="renameNameInput" class="input-modern" style="font-size: 14px; padding: 10px; font-weight: 600;" placeholder="Например: Канцтовары...">' +
         '</div>' +
 
         '<div class="form-group" style="margin: 0;">' +
-            '<label style="font-weight: 600; margin-bottom: 4px; display: block;">Группа для новой категории:</label>' +
-            '<select id="rename-folder-group" class="input-modern" style="font-size: 13px; padding: 8px;">' +
-                '<option value="direct"' + (ccRenameGroup === 'direct' ? ' selected' : '') + '>🟢 Прямые (COGS)</option>' +
-                '<option value="opex"' + (ccRenameGroup === 'opex' ? ' selected' : '') + '>🟠 Косвенные (OPEX)</option>' +
-                '<option value="capex"' + (ccRenameGroup === 'capex' ? ' selected' : '') + '>🟣 Капитал (CAPEX)</option>' +
-            '</select>' +
+        '<label style="font-weight: 600; margin-bottom: 4px; display: block;">Группа для новой категории:</label>' +
+        '<select id="rename-folder-group" class="input-modern" style="font-size: 13px; padding: 8px;">' +
+        '<option value="direct"' + (ccRenameGroup === 'direct' ? ' selected' : '') + '>🟢 Прямые (COGS)</option>' +
+        '<option value="opex"' + (ccRenameGroup === 'opex' ? ' selected' : '') + '>🟠 Косвенные (OPEX)</option>' +
+        '<option value="capex"' + (ccRenameGroup === 'capex' ? ' selected' : '') + '>🟣 Капитал (CAPEX)</option>' +
+        '</select>' +
         '</div>' +
-    '</div>';
+        '</div>';
 
     UI.showModal('🔄 Перемещение / Переименование', modalHtml,
         '<button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>' +
@@ -636,10 +631,10 @@ window.moveSelectedTransactions = function(btnElement) {
     );
 
     // Слушатель: при выборе из select — заполнить input
-    setTimeout(function() {
+    setTimeout(function () {
         var sel = document.getElementById('renameExistingSelect');
         if (sel) {
-            sel.addEventListener('change', function(e) {
+            sel.addEventListener('change', function (e) {
                 var inp = document.getElementById('renameNameInput');
                 if (inp && e.target.value) inp.value = e.target.value;
             });
@@ -647,7 +642,7 @@ window.moveSelectedTransactions = function(btnElement) {
     }, 50);
 };
 
-window.moveTransaction = async function(txId) {
+window.moveTransaction = async function (txId) {
     try {
         const html = `
             <div class="form-group">
@@ -672,40 +667,34 @@ window.moveTransaction = async function(txId) {
     }
 };
 
-window.executeMoveTransaction = async function(txId) {
+window.executeMoveTransaction = async function (txId) {
     const sel = document.getElementById('move-cat-select');
     if (!sel) return;
-    
+
     const newCategory = sel.value;
-    
+
     // ШАГ 1: Сохраняем состояние UI ДО отправки
     const savedGroup = ccCurrentGroup;
     const savedCategory = ccCurrentCategory;
-    
+
     try {
-        // ШАГ 2: Отправляем fetch
-        const response = await fetch(`/api/transactions/${txId}/override`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cost_group_override: newCategory || null })
-        });
-        
-        if (!response.ok) throw new Error('Ошибка обновления');
-        
+        // ШАГ 2: Отправляем PATCH через обёртку API
+        await API.patch(`/api/transactions/${txId}/override`, { cost_group_override: newCategory || null });
+
         UI.toast('Транзакция успешно перенесена', 'success');
         UI.closeModal();
-        
+
         // ШАГ 3: Перезагружаем данные (loadCostConstructor вызовет closeCostTabs внутри)
         await loadCostConstructor();
-        
+
         // ШАГ 4: Восстанавливаем состояние UI
         const tabIndexMap = { direct: 0, opex: 1, capex: 2 };
         if (savedGroup && tabIndexMap[savedGroup] !== undefined) {
             switchCostTab(savedGroup, tabIndexMap[savedGroup]);
             if (savedCategory) openCostCategory(savedCategory);
         }
-        
-    } catch(err) {
+
+    } catch (err) {
         console.error(err);
         UI.toast(err.message, 'error');
     }
@@ -713,11 +702,11 @@ window.executeMoveTransaction = async function(txId) {
 
 let ccCurrentFolderIds = [];
 
-window.moveFolderCategory = function(btnElement) {
+window.moveFolderCategory = function (btnElement) {
     try {
         const idsStr = btnElement.getAttribute('data-ids') || '';
         ccCurrentFolderIds = idsStr.split(',').map(Number).filter(n => !isNaN(n) && n > 0);
-        
+
         if (ccCurrentFolderIds.length === 0) {
             return UI.toast('В этой папке нет реальных транзакций для переноса', 'warning');
         }
@@ -745,7 +734,7 @@ window.moveFolderCategory = function(btnElement) {
     }
 };
 
-window.executeMoveFolder = async function() {
+window.executeMoveFolder = async function () {
     const sel = document.getElementById('move-folder-select');
     if (!sel) return;
     if (ccCurrentFolderIds.length === 0) return UI.toast('Нет ID для переноса', 'error');
@@ -754,15 +743,11 @@ window.executeMoveFolder = async function() {
     const savedGroup = ccCurrentGroup;
 
     try {
-        // ШАГ 2: Отправляем fetch с массивом ID
-        const response = await fetch('/api/transactions/bulk-override', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transactionIds: ccCurrentFolderIds, cost_group_override: sel.value || null })
+        // ШАГ 2: Отправляем PATCH через обёртку API
+        const data = await API.patch('/api/transactions/bulk-override', {
+            transactionIds: ccCurrentFolderIds,
+            cost_group_override: sel.value || null
         });
-
-        if (!response.ok) throw new Error('Ошибка обновления');
-        const data = await response.json();
 
         UI.toast(`Перенесено ${data.updated} транзакций`, 'success');
         UI.closeModal();
@@ -776,8 +761,8 @@ window.executeMoveFolder = async function() {
         if (savedGroup && tabIndexMap[savedGroup] !== undefined) {
             switchCostTab(savedGroup, tabIndexMap[savedGroup]);
         }
-        
-    } catch(err) {
+
+    } catch (err) {
         console.error(err);
         UI.toast(err.message, 'error');
     }
@@ -787,10 +772,10 @@ window.executeMoveFolder = async function() {
 let ccRenameIds = [];
 let ccRenameGroup = 'opex';
 
-window.renameFolder = function(btnElement) {
+window.renameFolder = function (btnElement) {
     try {
         var idsStr = btnElement.getAttribute('data-ids') || '';
-        ccRenameIds = idsStr.split(',').map(Number).filter(function(n) { return !isNaN(n) && n > 0; });
+        ccRenameIds = idsStr.split(',').map(Number).filter(function (n) { return !isNaN(n) && n > 0; });
         ccRenameGroup = btnElement.getAttribute('data-group') || 'opex';
 
         if (ccRenameIds.length === 0) {
@@ -799,12 +784,12 @@ window.renameFolder = function(btnElement) {
 
         // Собираем все существующие имена папок для select
         var allNames = [];
-        ['direct', 'opex', 'capex'].forEach(function(grp) {
-            (ccGroupedExpenses[grp] || []).forEach(function(cat) { allNames.push(cat.name); });
+        ['direct', 'opex', 'capex'].forEach(function (grp) {
+            (ccGroupedExpenses[grp] || []).forEach(function (cat) { allNames.push(cat.name); });
         });
-        var uniqueNames = allNames.filter(function(v, i, a) { return a.indexOf(v) === i; }).sort();
+        var uniqueNames = allNames.filter(function (v, i, a) { return a.indexOf(v) === i; }).sort();
         var selectOptions = '<option value="">-- Ввести новое название ниже --</option>';
-        uniqueNames.forEach(function(n) {
+        uniqueNames.forEach(function (n) {
             selectOptions += '<option value="' + n.replace(/"/g, '&quot;') + '">' + n + '</option>';
         });
 
@@ -812,24 +797,24 @@ window.renameFolder = function(btnElement) {
             '<div style="font-weight: bold; font-size: 13px;">Транзакций: <span style="color: var(--primary);">' + ccRenameIds.length + ' шт.</span></div>' +
 
             '<div class="form-group" style="margin: 0;">' +
-                '<label style="font-weight: 600; margin-bottom: 4px; display: block;">Выберите существующую папку (для объединения):</label>' +
-                '<select id="renameExistingSelect" class="input-modern" style="font-size: 14px; padding: 10px;">' + selectOptions + '</select>' +
+            '<label style="font-weight: 600; margin-bottom: 4px; display: block;">Выберите существующую папку (для объединения):</label>' +
+            '<select id="renameExistingSelect" class="input-modern" style="font-size: 14px; padding: 10px;">' + selectOptions + '</select>' +
             '</div>' +
 
             '<div class="form-group" style="margin: 0;">' +
-                '<label style="font-weight: 600; margin-bottom: 4px; display: block;">Или введите новое название:</label>' +
-                '<input type="text" id="renameNameInput" class="input-modern" style="font-size: 14px; padding: 10px; font-weight: 600;" placeholder="Например: Канцтовары...">' +
+            '<label style="font-weight: 600; margin-bottom: 4px; display: block;">Или введите новое название:</label>' +
+            '<input type="text" id="renameNameInput" class="input-modern" style="font-size: 14px; padding: 10px; font-weight: 600;" placeholder="Например: Канцтовары...">' +
             '</div>' +
 
             '<div class="form-group" style="margin: 0;">' +
-                '<label style="font-weight: 600; margin-bottom: 4px; display: block;">Группа для новой категории:</label>' +
-                '<select id="rename-folder-group" class="input-modern" style="font-size: 13px; padding: 8px;">' +
-                    '<option value="direct"' + (ccRenameGroup === 'direct' ? ' selected' : '') + '>🟢 Прямые (COGS)</option>' +
-                    '<option value="opex"' + (ccRenameGroup === 'opex' ? ' selected' : '') + '>🟠 Косвенные (OPEX)</option>' +
-                    '<option value="capex"' + (ccRenameGroup === 'capex' ? ' selected' : '') + '>🟣 Капитал (CAPEX)</option>' +
-                '</select>' +
+            '<label style="font-weight: 600; margin-bottom: 4px; display: block;">Группа для новой категории:</label>' +
+            '<select id="rename-folder-group" class="input-modern" style="font-size: 13px; padding: 8px;">' +
+            '<option value="direct"' + (ccRenameGroup === 'direct' ? ' selected' : '') + '>🟢 Прямые (COGS)</option>' +
+            '<option value="opex"' + (ccRenameGroup === 'opex' ? ' selected' : '') + '>🟠 Косвенные (OPEX)</option>' +
+            '<option value="capex"' + (ccRenameGroup === 'capex' ? ' selected' : '') + '>🟣 Капитал (CAPEX)</option>' +
+            '</select>' +
             '</div>' +
-        '</div>';
+            '</div>';
 
         UI.showModal('✏️ Переименование папки', modalHtml,
             '<button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>' +
@@ -837,10 +822,10 @@ window.renameFolder = function(btnElement) {
         );
 
         // Слушатель: при выборе из select — заполнить input
-        setTimeout(function() {
+        setTimeout(function () {
             var sel = document.getElementById('renameExistingSelect');
             if (sel) {
-                sel.addEventListener('change', function(e) {
+                sel.addEventListener('change', function (e) {
                     var inp = document.getElementById('renameNameInput');
                     if (inp && e.target.value) inp.value = e.target.value;
                 });
@@ -852,7 +837,7 @@ window.renameFolder = function(btnElement) {
     }
 };
 
-window.executeRenameFolder = async function() {
+window.executeRenameFolder = async function () {
     var input = document.getElementById('renameNameInput');
     var groupSel = document.getElementById('rename-folder-group');
     if (!input || !input.value.trim()) return UI.toast('Введите или выберите имя категории', 'warning');
@@ -861,18 +846,11 @@ window.executeRenameFolder = async function() {
     var savedGroup = ccCurrentGroup;
 
     try {
-        var response = await fetch('/api/transactions/bulk-rename', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                transactionIds: ccRenameIds,
-                newCategoryName: input.value.trim(),
-                costGroup: groupSel ? groupSel.value : ccRenameGroup
-            })
+        var data = await API.patch('/api/transactions/bulk-rename', {
+            transactionIds: ccRenameIds,
+            newCategoryName: input.value.trim(),
+            costGroup: groupSel ? groupSel.value : ccRenameGroup
         });
-
-        if (!response.ok) throw new Error('Ошибка переименования');
-        var data = await response.json();
 
         UI.toast('Переименовано ' + data.updated + ' транзакций', 'success');
         UI.closeModal();
@@ -884,7 +862,7 @@ window.executeRenameFolder = async function() {
         if (savedGroup && tabIndexMap[savedGroup] !== undefined) {
             switchCostTab(savedGroup, tabIndexMap[savedGroup]);
         }
-    } catch(err) {
+    } catch (err) {
         console.error(err);
         UI.toast(err.message, 'error');
     }
@@ -912,22 +890,19 @@ window.recalcOverheadUI = function () {
 // Загрузка настроек из БД
 async function loadFinanceSettings() {
     try {
-        const res = await fetch('/api/settings/finance');
-        if (res.ok) {
-            const data = await res.json();
+        const data = await API.get('/api/settings/finance');
 
-            // 🚀 ИСПРАВЛЕНИЕ: Возвращаем сохранение налога в память браузера!
-            window.FINANCE_TAX_PERCENT = parseFloat(data.sales_tax) || 6;
+        // 🚀 ИСПРАВЛЕНИЕ: Возвращаем сохранение налога в память браузера!
+        window.FINANCE_TAX_PERCENT = parseFloat(data.sales_tax) || 6;
 
-            if (document.getElementById('set-sales-tax')) {
-                document.getElementById('set-sales-tax').value = data.sales_tax || 6;
-                document.getElementById('set-monthly-exp').value = data.monthly_expenses || 1500000;
-                document.getElementById('set-month-days').value = data.working_days || 22;
-                document.getElementById('set-shift-cycles').value = data.cycles_per_shift || 500;
+        if (document.getElementById('set-sales-tax')) {
+            document.getElementById('set-sales-tax').value = data.sales_tax || 6;
+            document.getElementById('set-monthly-exp').value = data.monthly_expenses || 1500000;
+            document.getElementById('set-month-days').value = data.working_days || 22;
+            document.getElementById('set-shift-cycles').value = data.cycles_per_shift || 500;
 
-                // Вызываем пересчет, чтобы обновить красивые цифры и формулу
-                recalcOverheadUI();
-            }
+            // Вызываем пересчет, чтобы обновить красивые цифры и формулу
+            recalcOverheadUI();
         }
     } catch (e) { console.error("Ошибка загрузки финансовых настроек", e); }
 }
@@ -944,22 +919,13 @@ window.saveFinanceSettings = async function () {
     };
 
     try {
-        const res = await fetch('/api/settings/finance', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-
-        if (res.ok) {
-            // 🚀 ИСПРАВЛЕНИЕ: Мгновенно обновляем память при сохранении
-            window.FINANCE_TAX_PERCENT = parseFloat(taxVal) || 6;
-            UI.toast('✅ Финансовая модель утверждена!', 'success');
-        } else {
-            UI.toast('Ошибка при сохранении', 'error');
-        }
+        await API.post('/api/settings/finance', payload);
+        // 🚀 ИСПРАВЛЕНИЕ: Мгновенно обновляем память при сохранении
+        window.FINANCE_TAX_PERCENT = parseFloat(taxVal) || 6;
+        UI.toast('✅ Финансовая модель утверждена!', 'success');
     } catch (e) {
         console.error(e);
-        UI.toast('Ошибка связи с сервером', 'error');
+        UI.toast(e.message || 'Ошибка при сохранении', 'error');
     }
 };
 
@@ -970,8 +936,7 @@ window.openMrpPanel = async function () {
     UI.toast('⏳ Анализ дефицита и планов производства...', 'info');
 
     try {
-        const res = await fetch('/api/production/mrp-summary');
-        const data = await res.json();
+        const data = await API.get('/api/production/mrp-summary');
 
         if (!data.success) throw new Error('Ошибка на сервере');
 
@@ -1050,9 +1015,7 @@ window.checkMrpStatus = async function (isSilent = false) {
     if (!btn) return;
 
     try {
-        const res = await fetch('/api/production/mrp-summary');
-        if (!res.ok) throw new Error('HTTP Error ' + res.status);
-        const data = await res.json();
+        const data = await API.get('/api/production/mrp-summary');
 
         if (data.success) {
             // Ищем, есть ли хоть одна позиция, где shortage > 0
@@ -1071,7 +1034,7 @@ window.checkMrpStatus = async function (isSilent = false) {
                 btn.style.color = '#fff';
                 btn.innerHTML = '✅ Склад обеспечен (MRP)';
             }
-            
+
             if (!isSilent && typeof openMrpPanel === 'function') {
                 openMrpPanel();
             }
@@ -1088,8 +1051,7 @@ window.checkMrpStatus = async function (isSilent = false) {
 window.openCategoryMatrix = async function () {
     UI.toast('⏳ Загрузка матрицы...', 'info');
     try {
-        const res = await fetch('/api/finance/categories');
-        const categories = await res.json();
+        const categories = await API.get('/api/finance/categories');
 
         const groups = {
             direct: categories.filter(c => c.cost_group === 'direct'),
@@ -1121,11 +1083,10 @@ window.openCategoryMatrix = async function () {
         `;
 
         const html = `
-            <style>#app-modal .modal-content { max-width: 900px !important; width: 95% !important; }</style>
-            <div class="form-grid" style="grid-template-columns: repeat(3, 1fr); gap: 15px; align-items: start;">
-                ${renderCol('🟢 Прямые (COGS)', 'var(--success)', 'Сырье, доставка сырья. Участвуют только в калькуляторе одной плитки.', groups.direct)}
-                ${renderCol('🟠 Косвенные (Оверхед)', 'var(--warning)', 'Аренда, налоги, ЗП ИТР. Делятся на удары пресса, формируя стоимость цикла.', groups.overhead)}
-                ${renderCol('🟣 Капитал / Скрытые', '#8b5cf6', 'Личные покупки, кредиты, переводы. НЕ попадают в себестоимость вообще.', groups.capital)}
+            <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
+                ${renderCol('🟢 COGS (Прямые)', 'var(--success)', 'Материалы, сдельная ЗП, прямые расходы', groups.direct)}
+                ${renderCol('🟠 OPEX (Косвенные)', 'var(--warning)', 'Аренда, оклады, налоги, маркетинг', groups.overhead)}
+                ${renderCol('🔵 CAPEX (Капитал)', 'var(--primary)', 'Оборудование, стройка, инвестиции', groups.capital)}
             </div>
         `;
 
@@ -1137,7 +1098,7 @@ window.openCategoryMatrix = async function () {
                 if (!el.tomselect) {
                     new TomSelect(el, {
                         dropdownParent: 'body',
-                        onChange: function(value) {
+                        onChange: function (value) {
                             const catId = this.input.getAttribute('data-id');
                             updateCategoryGroup(catId, value);
                         }
@@ -1153,18 +1114,13 @@ window.openCategoryMatrix = async function () {
 
 window.updateCategoryGroup = async function (id, newGroup) {
     try {
-        const res = await fetch(`/api/finance/categories/${id}/group`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cost_group: newGroup })
-        });
-        if (!res.ok) throw new Error('Ошибка сети');
+        await API.put(`/api/finance/categories/${id}/group`, { cost_group: newGroup });
         // Перерисовываем окно, чтобы карточка визуально перепрыгнула в нужную колонку
         openCategoryMatrix();
     } catch (e) { UI.toast('Ошибка сохранения', 'error'); }
 };
 
-window.initDashboard = function() {
+window.initDashboard = function () {
     initStaticDashboardSelects();
     if (typeof loadStockValuation === 'function') loadStockValuation();
 
@@ -1177,7 +1133,7 @@ window.initDashboard = function() {
     }, 150);
 };
 
-window.loadStockValuation = async function() {
+window.loadStockValuation = async function () {
     const listEl = document.getElementById('stock-val-list');
     const totalEl = document.getElementById('stock-val-total');
     if (!listEl || !totalEl) return;
@@ -1185,9 +1141,7 @@ window.loadStockValuation = async function() {
     listEl.innerHTML = '<div class="text-muted" style="font-size: 13px;">🔄 Загрузка данных...</div>';
 
     try {
-        const res = await fetch('/api/inventory/valuation');
-        if (!res.ok) throw new Error('Ошибка загрузки стоимости складов');
-        const data = await res.json();
+        const data = await API.get('/api/inventory/valuation');
 
         const fmt = (val) => Number(val).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         totalEl.innerHTML = `${fmt(data.grand_total)} ₽`;
@@ -1226,3 +1180,70 @@ function initStaticDashboardSelects() {
     // Задел под будущие фильтры (например, склад/менеджер)
     // ['dash-warehouse-filter'].forEach(id => { ... }) 
 }
+
+window.loadDashboardWidgets = async function () {
+    try {
+        const data = await API.get('/api/analytics/dashboard-widgets');
+        if (!data) return;
+
+        const arTotalEl = document.getElementById('dash-widget-ar-total');
+        if (arTotalEl) arTotalEl.innerText = Utils.formatMoney(data.ar.total) + ' ₽';
+
+        const arListEl = document.getElementById('dash-widget-ar-list');
+        if (arListEl && data.ar.list) {
+            if (data.ar.list.length === 0) {
+                arListEl.innerHTML = '<div style="padding: 10px; color: var(--success); font-weight: bold;">✅ Все счета оплачены</div>';
+            } else {
+                arListEl.innerHTML = data.ar.list.map(inv => `
+                <div class="cursor-pointer" style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border); padding: 8px 10px; border-radius: 6px; transition: background 0.2s;" 
+                     onmouseover="this.style.background='var(--surface-hover)'" onmouseout="this.style.background='transparent'" 
+                     onclick="openOrderDetails(${inv.id})">
+                    <div>
+                        <span style="font-weight: bold; color: var(--text-main);">${Utils.escapeHtml(inv.counterparty_name)}</span>
+                        <br><small class="text-muted">Заказ №${inv.doc_number} от ${inv.date}</small>
+                    </div>
+                    <div style="font-weight: bold; color: var(--warning-text); padding-top: 5px;">
+                        ${fmtRub(inv.pending_debt)} ₽
+                    </div>
+                </div>
+            `).join('');
+            }
+        }
+
+        const stockListEl = document.getElementById('dash-widget-stock-list');
+        const stockBadge = document.getElementById('dash-widget-stock-badge'); // Счетчик в заголовке
+
+        if (stockListEl && data.min_stock) {
+            if (stockBadge) stockBadge.innerText = data.min_stock.length > 0 ? `(${data.min_stock.length})` : '';
+
+            if (data.min_stock.length === 0) {
+                stockListEl.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--success); font-weight: bold;">✅ Складской запас в норме</div>';
+            } else {
+                stockListEl.innerHTML = data.min_stock.map(item => {
+                    const available = parseFloat(item.current_qty || 0);
+                    const deficit = item.min_stock - available;
+
+                    return `
+                    <div class="cursor-pointer" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border); padding: 8px 10px; border-radius: 6px; transition: background 0.2s;"
+                         onmouseover="this.style.background='var(--surface-hover)'" onmouseout="this.style.background='transparent'"
+                         onclick="if(window.switchModule){ switchModule('stock-mod', document.querySelector('[onclick*=\\'stock-mod\\']')); setTimeout(() => { const mod = document.getElementById('stock-mod'); const s = mod ? mod.querySelector('input[type=\\'text\\']') : null; if(s){ s.value='${Utils.escapeHtml(item.name)}'; s.dispatchEvent(new Event('input')); } }, 300); }">
+                        <div style="max-width: 70%;">
+                            <span style="font-weight: bold; color: var(--text-main); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                ${Utils.escapeHtml(item.name)}
+                            </span>
+                            <small class="text-muted">${item.article || 'Без арт.'} | Порог: ${item.min_stock} ${item.unit}</small>
+                        </div>
+                        <div style="text-align: right; min-width: 80px;">
+                            <span style="color: var(--danger); font-weight: 900; font-size: 14px;" title="Физически: ${item.physical_qty} | Резерв: ${item.reserved_qty}">
+                                ${available} ${item.unit}
+                            </span>
+                            <br><small style="color: var(--warning-text); font-weight: bold;">📉 Нужно: ${deficit.toFixed(1)}</small>
+                        </div>
+                    </div>
+                `}).join('');
+            }
+        }
+    } catch (e) {
+        console.error('Ошибка загрузки виджетов', e);
+    }
+};
