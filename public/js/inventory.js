@@ -287,10 +287,16 @@ function renderInventoryTable() {
                             🗑️ Утилизировать
                           </button>`;
             } else {
-                actionHtml = `<button class="btn btn-outline inv-btn-move" 
-                    onclick="openDirectScrapModal(${item.item_id}, '${item.item_name}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
-                      ↘️ Переместить
-                </button>`;
+                actionHtml = `<div class="d-flex gap-5" style="gap: 5px;">
+                    <button class="btn btn-outline inv-btn-move" title="Переместить в Уценку или Утиль"
+                        onclick="openScrapModal(${item.item_id}, '${Utils.escapeHtml(item.item_name)}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
+                          ↘️ Брак/Уценка
+                    </button>
+                    <button class="btn btn-outline inv-btn-scrap" style="color: var(--danger); border-color: var(--danger-light);" title="Безвозвратное прямое списание"
+                        onclick="openDirectScrapModal(${item.item_id}, '${Utils.escapeHtml(item.item_name)}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
+                          🔨 Списание
+                    </button>
+                </div>`;
             }
         }
 
