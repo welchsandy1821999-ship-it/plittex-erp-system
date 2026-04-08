@@ -287,13 +287,11 @@ function renderInventoryTable() {
                             🗑️ Утилизировать
                           </button>`;
             } else {
-                actionHtml = `<div class="d-flex" style="gap: 8px;">
-                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; border-color: var(--warning); color: var(--warning-text);" title="Переместить в Уценку или Утиль"
-                        onclick="openScrapModal(${item.item_id}, '${Utils.escapeHtml(item.item_name)}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
+                actionHtml = `<div class="flex-row gap-5">
+                    <button class="btn btn-outline" onclick="openScrapModal(${item.item_id}, '${Utils.escapeHtml(item.item_name)}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
                           ↘️ Брак/Уценка
                     </button>
-                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; border-color: var(--danger); color: var(--danger);" title="Безвозвратное прямое списание"
-                        onclick="openDirectScrapModal(${item.item_id}, '${Utils.escapeHtml(item.item_name)}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
+                    <button class="btn btn-outline" onclick="openDirectScrapModal(${item.item_id}, '${Utils.escapeHtml(item.item_name)}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
                           🔨 Прямое списание
                     </button>
                 </div>`;
@@ -1146,11 +1144,11 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
             
             let decryption = '';
             if (m.supplier_name) {
-                 decryption = `<a href="javascript:void(0)" onclick="document.getElementById('history-search-input').value='${Utils.escapeHtml(m.supplier_name)}'; window.filterItemHistoryTable();" class="text-primary font-12" style="text-decoration: underline;">📝 Поставщик: ${Utils.escapeHtml(m.supplier_name)}</a>`;
+                 decryption = `<span class="badge cursor-pointer hover-shadow" onclick="openClientStatsModal(${m.supplier_id}, '${Utils.escapeHtml(m.supplier_name)}')">📝 Поставщик: ${Utils.escapeHtml(m.supplier_name)}</span>`;
             } else if (m.order_doc) {
-                 decryption = `<a href="javascript:void(0)" onclick="document.getElementById('history-search-input').value='${Utils.escapeHtml(m.order_doc)}'; window.filterItemHistoryTable();" class="text-primary font-12" style="text-decoration: underline;">🛒 Заказ: ${Utils.escapeHtml(m.order_doc)}</a>`;
+                 decryption = `<span class="badge cursor-pointer hover-shadow" onclick="openClientStatsModal(${m.order_id}, 'Заказ ${Utils.escapeHtml(m.order_doc)}')">🛒 Заказ: ${Utils.escapeHtml(m.order_doc)}</span>`;
             } else if (m.batch_number) {
-                 decryption = `<a href="javascript:void(0)" onclick="document.getElementById('history-search-input').value='${Utils.escapeHtml(m.batch_number)}'; window.filterItemHistoryTable();" class="badge" style="background:#e0f2fe; color:#0369a1; border: 1px solid #7dd3fc; cursor: pointer; text-decoration: none;">Партия #${Utils.escapeHtml(m.batch_number)}</a>`;
+                 decryption = `<span class="badge cursor-pointer hover-shadow" onclick="openBatchStatsModal(${m.batch_id}, '${Utils.escapeHtml(m.batch_number)}')">Партия #${Utils.escapeHtml(m.batch_number)}</span>`;
             } else if (m.description) {
                  decryption = `<span class="font-12 text-muted">${Utils.escapeHtml(m.description)}</span>`;
             }
@@ -1232,8 +1230,122 @@ function getMovementTypeName(type) {
         'production_draft': 'Замес (Черновик)',
         'wip_receipt': 'Поступление в сушилку',
         'wip_expense': 'Списание из сушилки (Распалубка)',
-        'finished_receipt': 'Принято на склад готов. продукции',
-        'markdown_receipt': 'Перевод в уценку / 2-й сорт'
+        'finished_receipt': 'Принято на склад',
+        'markdown_receipt': 'Перевод в уценку / 2-й сорт',
+        'reserve_receipt': 'Возврат из Резерва (Приход)',
+        'reserve_expense': 'Резервирование (Списание)',
+        'customer_return': 'Возврат от клиента',
+        'sales_shipment': 'Отгрузка клиенту (Реализация)',
+        'shipment_reversal': 'Отмена отгрузки'
     };
     return map[type] || type;
+}
+
+// ------------------------------------------------------------------
+// ИНТЕКРАКТИВНЫЕ КАРТОЧКИ (ДОСЬЕ И ПАРТИИ)
+// ------------------------------------------------------------------
+
+window.openClientStatsModal = async function(clientId, clientName) {
+    if (!clientId) return;
+    UI.openModalById('modal-client-stats');
+    document.getElementById('client-stats-title').innerText = "Досье контрагента: " + clientName;
+    const body = document.getElementById('client-stats-body');
+    body.innerHTML = '<div class="p-20 text-center text-muted">Загрузка статистики...</div>';
+    
+    try {
+        const res = await API.get('/api/counterparties/' + clientId + '/profile');
+        if (!res) throw new Error("Данные не найдены");
+        
+        let html = `<div class="p-15 bg-surface-alt" style="border-bottom: 1px solid #eee;">
+            <div class="flex-row gap-15">
+                <div class="card bg-surface flex-grow-1 p-15 border">
+                    <p class="font-12 text-muted mb-5 mt-0">Текущий баланс (Долг)</p>
+                    <h2 class="mt-0 mb-0 ${parseFloat(res.balance) < 0 ? 'text-danger' : 'text-success'}">${parseFloat(res.balance || 0).toLocaleString('ru-RU')} ₽</h2>
+                </div>
+                <div class="card bg-surface flex-grow-1 p-15 border">
+                    <p class="font-12 text-muted mb-5 mt-0">Сумма всех отгрузок 🚚</p>
+                    <h2 class="mt-0 mb-0">${parseFloat(res.total_shipments || 0).toLocaleString('ru-RU')} ₽</h2>
+                </div>
+                <div class="card bg-surface flex-grow-1 p-15 border">
+                    <p class="font-12 text-muted mb-5 mt-0">Сумма поступлений 💰</p>
+                    <h2 class="mt-0 mb-0">${parseFloat(res.total_payments || 0).toLocaleString('ru-RU')} ₽</h2>
+                </div>
+            </div>
+            <div class="mt-15 text-muted font-13"><b>ИНН/Регион:</b> ${res.inn || 'Не указан'} | <b>Общий оборот:</b> ${parseFloat((res.total_payments || 0) + (res.total_shipments || 0)).toLocaleString()} ₽</div>
+        </div>
+        <div class="p-20 text-center text-muted"><p>Детальная расшифровка по документам доступна в модуле Финансы или Отгрузки.</p><button class="btn btn-outline mt-10" onclick="window.filterItemHistoryTable()">Показать записи только по этому клиенту</button></div>`;
+        body.innerHTML = html;
+        
+    } catch(e) {
+        body.innerHTML = `<div class="p-20 text-center text-danger border-top">Ошибка загрузки профиля: ${e.message}</div>`;
+    }
+}
+
+window.openBatchStatsModal = async function(batchId, batchNum) {
+    if (!batchId) {
+        UI.toast("Партия без ID", "warning");
+        return;
+    }
+    UI.openModalById('modal-batch-stats');
+    document.getElementById('batch-stats-title').innerText = "Информация о партии №" + batchNum;
+    const body = document.getElementById('batch-stats-body');
+    body.innerHTML = '<div class="p-20 text-center text-muted">Загрузка информации (Смета, Сырье)...</div>';
+    
+    try {
+        const info = await API.get('/api/production/batch/' + batchId + '/info');
+        const materials = await API.get('/api/production/batch/' + batchId + '/materials');
+        
+        let html = `<div class="p-15 bg-surface-alt border-bottom">
+            <div class="flex-row gap-15">
+                <div class="flex-grow-1">
+                    <div class="font-12 text-muted">Статус партии:</div>
+                    <div class="font-bold font-14">${info.status === 'completed' ? '🟢 Выпущена' : info.status === 'drying' ? '🟠 В сушилке' : '📝 Формуется'}</div>
+                </div>
+                <div class="flex-grow-1 text-right">
+                    <div class="font-12 text-muted">Смена:</div>
+                    <div class="font-bold font-14">${info.shift_name || 'Не указана'}</div>
+                </div>
+                <div class="flex-grow-1 text-right">
+                    <div class="font-12 text-muted">Объем по плану:</div>
+                    <div class="font-bold font-14">${parseFloat(info.planned_quantity || 0).toLocaleString('ru-RU')} ед.</div>
+                </div>
+            </div>
+            
+            <div class="mt-15 p-15 card bg-surface border flex-between">
+                <div>
+                   <p class="font-12 text-muted mb-0 mt-0">Себестоимость МАТ.</p>
+                   <b class="font-16">${parseFloat(info.mat_cost_total || 0).toLocaleString('ru-RU')} ₽</b>
+                </div>
+                <div class="text-right">
+                   <p class="font-12 text-muted mb-0 mt-0">Полная себест. (С накладными)</p>
+                   <b class="font-16 text-primary">${(parseFloat(info.mat_cost_total||0) + parseFloat(info.overhead_cost_total||0) + parseFloat(info.machine_amort_cost||0)).toLocaleString('ru-RU')} ₽</b>
+                </div>
+            </div>
+        </div>`;
+        
+        if (materials && materials.length > 0) {
+            html += `<div class="p-15">
+                <h4 class="mt-0 mb-10 text-muted">Состав сырья (Расход МАТ)</h4>
+                <table class="table-modern w-100 font-13">
+                    <thead class="bg-surface">
+                        <tr><th class="text-left">Сырье</th><th class="text-right">Кг</th><th class="text-right">Сумма ₽</th></tr>
+                    </thead>
+                    <tbody>`;
+            materials.forEach(m => {
+                html += `<tr>
+                    <td>${m.name}</td>
+                    <td class="text-right">${parseFloat(m.qty).toLocaleString('ru-RU')} ${m.unit||'кг'}</td>
+                    <td class="text-right font-bold">${parseFloat(m.cost).toLocaleString('ru-RU')} ₽</td>
+                </tr>`;
+            });
+            html += `</tbody></table></div>`;
+        } else {
+            html += `<div class="p-20 text-center text-muted">Состав сырья не зафиксирован</div>`;
+        }
+        
+        body.innerHTML = html;
+        
+    } catch(e) {
+        body.innerHTML = `<div class="p-20 text-center text-danger border-top">Ошибка: Партия не найдена или удалена</div>`;
+    }
 }

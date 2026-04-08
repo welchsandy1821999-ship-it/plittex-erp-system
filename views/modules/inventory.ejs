@@ -247,5 +247,35 @@
                 <button class="btn btn-outline" onclick="closeItemHistory()">Закрыть</button>
             </div>
         </div>
+    <!-- Модальное окно: Детализация Партии -->
+    <div id="modal-batch-stats" class="modal-overlay" style="display:none; z-index:1005;">
+        <div class="modal-content modal-md">
+            <div class="modal-header">
+                <h3 id="batch-stats-title" class="mt-0 mb-0">Информация о партии</h3>
+                <button class="btn-close" onclick="UI.closeModalById('modal-batch-stats')">×</button>
+            </div>
+            <div class="modal-body p-0" id="batch-stats-body" style="background: var(--surface-alt);">
+                <div class="p-20 text-center text-muted">Загрузка данных партии...</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="UI.closeModalById('modal-batch-stats')">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно: Досье контрагента -->
+    <div id="modal-client-stats" class="modal-overlay" style="display:none; z-index:1005;">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h3 id="client-stats-title" class="mt-0 mb-0">Досье контрагента</h3>
+                <button class="btn-close" onclick="UI.closeModalById('modal-client-stats')">×</button>
+            </div>
+            <div class="modal-body p-0" id="client-stats-body" style="background: var(--surface-alt);">
+                <div class="p-20 text-center text-muted">Загрузка статистики...</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="UI.closeModalById('modal-client-stats')">Закрыть</button>
+            </div>
+        </div>
     </div>
 </div>
