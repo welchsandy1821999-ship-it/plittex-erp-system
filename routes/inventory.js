@@ -17,14 +17,19 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     router.get('/api/inventory/print', requireAdmin, async (req, res) => {
         try {
-            const { mode, wh } = req.query; // mode: 'blind' / 'full', wh: 'all' / '4' / etc
+            const { mode, wh, as_of_date } = req.query; // mode: 'blind' / 'full', wh: 'all' / '4' / etc
             
             let queryOptions = "WHERE w.type IN ('materials', 'drying', 'finished', 'defect', 'markdown')";
             const params = [];
             
             if (wh && wh !== 'all') {
-                queryOptions += " AND w.id = $1";
                 params.push(wh);
+                queryOptions += ` AND w.id = $${params.length}`;
+            }
+
+            if (as_of_date) {
+                params.push(as_of_date);
+                queryOptions += ` AND m.movement_date::date <= $${params.length}::date`;
             }
 
             const result = await pool.query(`
@@ -140,14 +145,19 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     router.get('/api/inventory/export', requireAdmin, async (req, res) => {
         try {
-            const { mode, wh } = req.query; // 'blind' или 'full'
+            const { mode, wh, as_of_date } = req.query; // 'blind' или 'full'
             
             let queryOptions = "WHERE w.type IN ('materials', 'drying', 'finished', 'defect', 'markdown')";
             const params = [];
             
             if (wh && wh !== 'all') {
-                queryOptions += " AND w.id = $1";
                 params.push(wh);
+                queryOptions += ` AND w.id = $${params.length}`;
+            }
+
+            if (as_of_date) {
+                params.push(as_of_date);
+                queryOptions += ` AND m.movement_date::date <= $${params.length}::date`;
             }
 
             const result = await pool.query(`
@@ -456,6 +466,15 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     router.get('/api/inventory', async (req, res) => {
         try {
+            const { as_of_date } = req.query;
+            let whereClause = '';
+            const params = [];
+            
+            if (as_of_date) {
+                whereClause = 'WHERE m.movement_date::date <= $1::date';
+                params.push(as_of_date);
+            }
+
             const result = await pool.query(`
                 SELECT 
                     m.item_id, i.name as item_name, i.unit, 
@@ -472,6 +491,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 LEFT JOIN production_batches b ON m.batch_id = b.id
                 LEFT JOIN client_order_items coi ON w.type = 'reserve' AND m.linked_order_item_id = coi.id
                 LEFT JOIN client_orders co ON coi.order_id = co.id
+                ${whereClause}
                 GROUP BY 
                     m.item_id, i.name, i.unit, 
                     m.warehouse_id, w.name, w.type,
@@ -482,8 +502,76 @@ module.exports = function (pool, getWhId, withTransaction) {
                     CASE WHEN w.type = 'reserve' THEN co.id ELSE NULL END
                 HAVING SUM(m.quantity) <> 0 
                 ORDER BY w.name, i.name
-            `);
-            res.json(result.rows);
+            `, params);
+            
+            let rows = result.rows;
+            const { audit_all, wh } = req.query;
+
+            // Если включен режим ревизии, добавляем товары у которых вообще 0 движений в БД (левые соединения)
+            if (audit_all === 'true' && wh && ['all', '1', '4', '5'].includes(wh)) {
+                let warehousesToAudit = wh === 'all' ? ['1', '4', '5'] : [wh];
+                
+                const catalogRes = await pool.query(`
+                    SELECT id as item_id, name as item_name, unit, item_type
+                    FROM items
+                    WHERE is_deleted = false
+                `);
+                
+                for (let currentWh of warehousesToAudit) {
+                    let allowedTypes = [];
+                    let whName = '';
+                    let whType = '';
+                    
+                    if (currentWh === '1') {
+                        allowedTypes = ['material'];
+                        whName = 'Склад №1 (Сырье)';
+                        whType = 'materials';
+                    } else if (currentWh === '4') {
+                        allowedTypes = ['product', 'Продукция'];
+                        whName = 'Склад №4 (Готовая продукция)';
+                        whType = 'finished';
+                    } else if (currentWh === '5') {
+                        allowedTypes = ['product', 'Продукция'];
+                        whName = 'Склад №5 (Уценка и Брак)';
+                        whType = 'defect';
+                    }
+                    
+                    const presentItemIds = new Set(rows.filter(r => String(r.warehouse_id) === currentWh).map(r => r.item_id));
+                    
+                    catalogRes.rows.filter(c => {
+                        if (!allowedTypes.includes(c.item_type)) return false;
+                        const lowerName = c.item_name.toLowerCase();
+                        const isGrade2 = lowerName.includes('2 сорт') || lowerName.includes('2-й сорт');
+                        // Склад №4: Готовая продукция (исключаем 2-й сорт)
+                        if (currentWh === '4' && isGrade2) return false;
+                        // Склад №5: Уценка и Брак (исключаем 1-й сорт)
+                        if (currentWh === '5' && !isGrade2) return false;
+                        return true;
+                    }).forEach(c => {
+                        if (!presentItemIds.has(c.item_id)) {
+                            rows.push({
+                                item_id: c.item_id,
+                                item_name: c.item_name,
+                                unit: c.unit,
+                                warehouse_id: Number(currentWh),
+                                warehouse_name: whName,
+                                warehouse_type: whType,
+                                batch_id: null,
+                                batch_number: null,
+                                linked_order_item_id: null,
+                                order_doc_number: null,
+                                order_id: null,
+                                total: '0'
+                            });
+                        }
+                    });
+                }
+                
+                // Снова сортируем по имени, так как мы добавили записи в конец
+                rows.sort((a,b) => a.warehouse_name.localeCompare(b.warehouse_name) || a.item_name.localeCompare(b.item_name));
+            }
+
+            res.json(rows);
         } catch (err) {
             console.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
@@ -491,7 +579,60 @@ module.exports = function (pool, getWhId, withTransaction) {
     });
 
     // ------------------------------------------------------------------
-    // 2. МАРШРУТ: СПИСАНИЕ В БРАК ИЛИ УТИЛЬ (POST /api/inventory/scrap)
+    // 2. МАРШРУТ: ПРОСЕИВАНИЕ (ПЕРЕРАБОТКА) СЫРЬЯ
+    // ------------------------------------------------------------------
+    router.post('/api/inventory/sifting', requireAdmin, async (req, res) => {
+        const { sourceId, sourceQty, outputs } = req.body;
+        
+        if (!sourceId || !sourceQty || !outputs || !Array.isArray(outputs)) {
+            return res.status(400).json({ error: 'Неверные данные для просеивания' });
+        }
+
+        try {
+            await withTransaction(pool, async (client) => {
+                const materialsWh = await getWhId(client, 'materials');
+                
+                // 1. Проверяем наличие основного песка (или другого исходного сырья)
+                const stockRes = await client.query(`
+                    SELECT COALESCE(SUM(quantity), 0) as balance 
+                    FROM inventory_movements 
+                    WHERE item_id = $1 AND warehouse_id = $2
+                `, [sourceId, materialsWh]);
+                
+                const available = Number(new Big(stockRes.rows[0].balance || 0));
+                if (sourceQty > available) {
+                    throw new Error(`Недостаточно сырья для просеивания. В наличии: ${available} кг`);
+                }
+
+                // 2. Списываем исходное сырье
+                await client.query(`
+                    INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id)
+                    VALUES ($1, $2, 'sifting_expense', $3, $4)
+                `, [sourceId, -sourceQty, `Просеивание`, materialsWh]);
+
+                // 3. Приходуем выходы
+                for (let out of outputs) {
+                    if (out.qty > 0) {
+                        await client.query(`
+                            INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id)
+                            VALUES ($1, $2, 'sifting_receipt', $3, $4)
+                        `, [out.id, out.qty, `Из просеивания (исходник ID: ${sourceId})`, materialsWh]);
+                    }
+                }
+            });
+
+            const io = req.app.get('io');
+            if (io) io.emit('inventory_updated');
+
+            res.json({ success: true, message: 'Просеивание успешно выполнено' });
+        } catch (err) {
+            console.error('SIFTING ERROR:', err);
+            res.status(500).json({ error: err.message || 'Ошибка сервера при просеивании' });
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // 3. МАРШРУТ: СПИСАНИЕ В БРАК ИЛИ УТИЛЬ (POST /api/inventory/scrap)
     // ------------------------------------------------------------------
     router.post('/api/inventory/scrap', requireAdmin, async (req, res) => {
         const { itemId, batchId, warehouseId, targetWarehouseId, scrapQty, description } = req.body;
@@ -548,21 +689,27 @@ module.exports = function (pool, getWhId, withTransaction) {
                     const { itemId, batchId, actualQty } = adj;
                     const wh_id = adj.warehouseId || warehouseId;
 
+                    const whRes = await client.query('SELECT type FROM warehouses WHERE id = $1', [wh_id]);
+                    const whType = whRes.rows[0].type;
+
                     // 1. Сначала блокируем строки (FOR UPDATE), чтобы никто не вставил новое движение
                     let lockQuery = `
                         SELECT id FROM inventory_movements 
                         WHERE item_id = $1 AND warehouse_id = $2
                     `;
-                    const params = [itemId, wh_id];
-                    if (batchId) {
-                        lockQuery += ` AND batch_id = $3`;
-                        params.push(batchId);
-                    } else {
-                        lockQuery += ` AND batch_id IS NULL`;
+                    const lockParams = [itemId, wh_id];
+                    
+                    if (whType !== 'materials' && whType !== 'reserve') {
+                        if (batchId) {
+                            lockQuery += ` AND batch_id = $3`;
+                            lockParams.push(batchId);
+                        } else {
+                            lockQuery += ` AND batch_id IS NULL`;
+                        }
                     }
 
                     // Выполняем блокировку существующих строк
-                    await client.query(lockQuery + " FOR UPDATE", params);
+                    await client.query(lockQuery + " FOR UPDATE", lockParams);
 
                     // 2. Теперь спокойно считаем сумму (агрегат отдельно от FOR UPDATE)
                     let sumQuery = `
@@ -570,10 +717,24 @@ module.exports = function (pool, getWhId, withTransaction) {
                         FROM inventory_movements 
                         WHERE item_id = $1 AND warehouse_id = $2
                     `;
-                    if (batchId) sumQuery += ` AND batch_id = $3`;
-                    else sumQuery += ` AND batch_id IS NULL`;
+                    let sumParams = [itemId, wh_id];
+                    
+                    if (whType !== 'materials' && whType !== 'reserve') {
+                        if (batchId) {
+                            sumQuery += ` AND batch_id = $3`;
+                            sumParams.push(batchId);
+                        } else {
+                            sumQuery += ` AND batch_id IS NULL`;
+                        }
+                    }
 
-                    const stockRes = await client.query(sumQuery, params);
+                    if (auditDate) {
+                        sumParams.push(auditDate);
+                        sumQuery += ` AND movement_date::date <= $${sumParams.length}::date`;
+                    }
+
+
+                    const stockRes = await client.query(sumQuery, sumParams);
                     const currentBalanceBig = new Big(stockRes.rows[0].balance || 0);
                     const currentBalance = Number(currentBalanceBig);
 
@@ -683,10 +844,36 @@ module.exports = function (pool, getWhId, withTransaction) {
                 }
 
                 if (grade2Qty > 0) {
+                    const origItemRes = await client.query('SELECT name, article, category, unit, current_price, item_type, weight_kg, qty_per_cycle, amortization_per_cycle, mold_id, gost_mark, dealer_price FROM items WHERE id = $1', [tileId]);
+                    let markdownTileId = tileId;
+
+                    if (origItemRes.rows.length > 0) {
+                        const orig = origItemRes.rows[0];
+                        if (!orig.name.toLowerCase().includes('2 сорт') && !orig.name.toLowerCase().includes('2-й сорт')) {
+                            const newName = `${orig.name.trim()} 2 сорт`;
+                            const newArticle = orig.article ? `${orig.article.trim()}2S` : `${tileId}-2S`;
+                            const newPrice = orig.current_price ? (orig.current_price / 2) : 0;
+                            const newDealerPrice = orig.dealer_price ? (orig.dealer_price / 2) : 0;
+
+                            const checkExistRes = await client.query('SELECT id FROM items WHERE name = $1 AND is_deleted = false LIMIT 1', [newName]);
+
+                            if (checkExistRes.rows.length > 0) {
+                                markdownTileId = checkExistRes.rows[0].id;
+                            } else {
+                                const insertRes = await client.query(`
+                                    INSERT INTO items (name, article, category, unit, current_price, dealer_price, item_type, is_deleted, weight_kg, qty_per_cycle, amortization_per_cycle, mold_id, gost_mark)
+                                    VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8, $9, $10, $11, $12)
+                                    RETURNING id
+                                `, [newName, newArticle, orig.category, orig.unit, newPrice, newDealerPrice, orig.item_type, orig.weight_kg, orig.qty_per_cycle, orig.amortization_per_cycle, orig.mold_id, orig.gost_mark]);
+                                markdownTileId = insertRes.rows[0].id;
+                            }
+                        }
+                    }
+
                     await client.query(`
                         INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id)
                         VALUES ($1, $2, 'markdown_receipt', 'Распалубка: 2-й сорт (Уценка)', $3, $4, $5)
-                    `, [tileId, grade2Qty, markdownWh, batchId, userId]);
+                    `, [markdownTileId, grade2Qty, markdownWh, batchId, userId]);
                 }
 
                 if (scrapQty > 0) {

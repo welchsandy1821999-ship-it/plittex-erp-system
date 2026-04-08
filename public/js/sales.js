@@ -2679,20 +2679,32 @@ window.openOrderManager = async function (orderId) {
         let itemsHtml = items.map(i => {
             const ordered = parseFloat(i.qty_ordered);
             const shipped = parseFloat(i.qty_shipped || 0);
+            const reserved = parseFloat(i.qty_reserved || 0);
+            const production = parseFloat(i.qty_production || 0);
             const remain = ordered - shipped;
             const remainText = remain > 0 ? remain : 0;
 
+            let actionsHtml = '';
+            if (production > 0) {
+                actionsHtml = `<button class="btn btn-outline sales-btn-sm" onclick="openReserveTransferModal(${i.id}, ${order.id}, ${i.item_id}, '${escapeHTML(i.name)}', ${production})" style="padding: 2px 5px; font-size: 10px; margin-top: 5px;">🔄 Перехватить</button>`;
+            }
+
             return `
                 <tr style="border-bottom: 1px solid var(--border);">
-                    <td style="padding: 8px;">${i.name}</td>
-                    <td style="padding: 8px; text-align: center; font-weight: bold;">${ordered} ${i.unit}</td>
-                    <td style="padding: 8px; text-align: center; color: var(--success); font-weight: bold;">${shipped} ${i.unit}</td>
+                    <td style="padding: 8px;">
+                        ${i.name}
+                        ${actionsHtml ? '<br>' + actionsHtml : ''}
+                    </td>
+                    <td style="padding: 8px; text-align: center; font-weight: bold;">${ordered}</td>
+                    <td style="padding: 8px; text-align: center; color: var(--success); font-weight: bold;">${shipped}</td>
+                    <td style="padding: 8px; text-align: center; color: var(--primary); font-weight: bold;">${reserved}</td>
+                    <td style="padding: 8px; text-align: center; color: var(--danger); font-weight: bold;">${production}</td>
                     <td style="padding: 8px; text-align: center;">
                         <input type="number" class="input-modern ship-qty-input" 
                                data-coi-id="${i.id}" data-item-id="${i.item_id}" 
-                               max="${remainText}" value="${remainText}" 
-                               ${remain <= 0 ? 'disabled' : ''} 
-                               style="width: 90px; text-align: center; border-color: var(--primary); font-weight: bold;">
+                               max="${reserved}" value="${reserved}" 
+                               ${reserved <= 0 ? 'disabled' : ''} 
+                               style="width: 70px; text-align: center; border-color: var(--primary); font-weight: bold;">
                     </td>
                 </tr>
             `;
@@ -2709,9 +2721,11 @@ window.openOrderManager = async function (orderId) {
                     <thead class="bg-info-lt">
                         <tr>
                             <th class="p-10 text-left">Продукция</th>
-                            <th class="p-10 text-center">Заказано</th>
-                            <th class="p-10 text-center">Уже отгружено</th>
-                            <th class="p-10 text-center text-primary">Грузим сейчас</th>
+                            <th class="p-10 text-center">Заказ</th>
+                            <th class="p-10 text-center">Отгружено</th>
+                            <th class="p-10 text-center text-primary">В Резерве</th>
+                            <th class="p-10 text-center text-danger">Ожидает</th>
+                            <th class="p-10 text-center text-primary">Грузим (из Резерва)</th>
                         </tr>
                     </thead>
                     <tbody>${itemsHtml}</tbody>
@@ -4030,5 +4044,108 @@ window.toggleSaleDelivery = function() {
         } else {
             addressGroup.style.display = 'block';
         }
+    }
+};
+
+// ==========================================
+// === ПЕРЕХВАТ РЕЗЕРВА (Reserve Transfer) ===
+// ==========================================
+window.openReserveTransferModal = async function(recCoiId, recOrderId, itemId, itemName, neededQty) {
+    try {
+        const res = await fetch(`/api/sales/reserve-donors?item_id=${itemId}&exclude_order_id=${recOrderId}`);
+        if (!res.ok) throw new Error('Ошибка сети');
+        const donors = await res.json();
+
+        if (donors.length === 0) {
+            UI.showModal('Перехват резерва', `
+                <div class="p-20 text-center">
+                    <div style="font-size: 40px; margin-bottom: 10px;">❌</div>
+                    <h3 class="m-0 mb-10">Нет доступных доноров</h3>
+                    <p class="text-muted m-0">Ни один другой активный заказ не имеет зарезервированного товара <b>${itemName}</b>.</p>
+                </div>
+            `, `<button class="btn btn-outline" onclick="UI.closeModal(); setTimeout(() => openOrderManager(${recOrderId}), 100);">Назад к заказу</button>`);
+            return;
+        }
+
+        const tbodyHtml = donors.map(d => {
+            const maxTransfer = Math.min(parseFloat(d.qty_reserved), parseFloat(neededQty));
+            return `
+                <tr>
+                    <td class="p-10 text-left">
+                        <b>${d.doc_number}</b><br>
+                        <span class="font-12 text-muted">${d.client_name || 'Не указан'}</span>
+                    </td>
+                    <td class="p-10 text-center font-bold text-primary">${d.qty_reserved}</td>
+                    <td class="p-10 text-center">
+                        <input type="number" id="transfer-qty-${d.coi_id}" class="input-modern" 
+                               value="${maxTransfer}" max="${maxTransfer}" min="1" 
+                               style="width: 80px; text-align: center; border-color: var(--primary);">
+                    </td>
+                    <td class="p-10 text-right">
+                        <button class="btn btn-blue sales-btn-sm" onclick="executeReserveTransfer(${d.coi_id}, ${recCoiId}, 'transfer-qty-${d.coi_id}', ${recOrderId})">Забрать</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        const html = `
+            <div class="p-10">
+                <div class="bg-warning-lt border-warning p-15 border-radius-6 mb-15">
+                    <p class="m-0 font-14">Вы ищете: <b>${itemName}</b></p>
+                    <p class="m-0 font-12 text-muted">Требуется для этого заказа: <b class="text-danger">${neededQty}</b> ед.</p>
+                </div>
+                <p class="font-13 mb-10 text-main">Доступные заказы-доноры (у кого есть этот товар в резерве):</p>
+                
+                <table class="table-modern w-100">
+                    <thead class="bg-surface-alt">
+                        <tr>
+                            <th class="p-10 text-left">Донор</th>
+                            <th class="p-10 text-center">Его резерв</th>
+                            <th class="p-10 text-center">Забираем</th>
+                            <th class="p-10 text-right">Действие</th>
+                        </tr>
+                    </thead>
+                    <tbody>${tbodyHtml}</tbody>
+                </table>
+            </div>
+        `;
+
+        UI.showModal('Перехват резерва', html, `<button class="btn btn-outline" onclick="UI.closeModal(); setTimeout(() => openOrderManager(${recOrderId}), 100);">Отмена и Назад</button>`);
+    } catch (e) {
+        console.error(e);
+        UI.toast('Ошибка загрузки доноров', 'error');
+    }
+};
+
+window.executeReserveTransfer = async function(donorCoiId, recipientCoiId, inputId, recOrderId) {
+    const qty = document.getElementById(inputId).value;
+    if (!qty || parseFloat(qty) <= 0) return UI.toast('Укажите количество!', 'warning');
+
+    const confirmed = confirm(`Вы уверены, что хотите забрать ${qty} ед. резерва у другого клиента? Его заказ будет отложен и вернется в производственную очередь.`);
+    if (!confirmed) return;
+
+    try {
+        const res = await fetch('/api/sales/transfer-reserve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ donor_coi_id: donorCoiId, recipient_coi_id: recipientCoiId, transfer_qty: qty })
+        });
+        const data = await res.json();
+        
+        if (res.ok) {
+            UI.closeModal();
+            UI.toast(data.message, 'success');
+            
+            // Перезагружаем интерфейс
+            if (typeof loadActiveOrders === 'function') loadActiveOrders();
+            // Обновляем текущую модалку Управления Заказом (с небольшой задержкой для анимации)
+            setTimeout(() => openOrderManager(recOrderId), 200);
+
+        } else {
+            UI.toast(data.error, 'error');
+        }
+    } catch (e) {
+        console.error(e);
+        UI.toast('Ошибка выполнения перехвата', 'error');
     }
 };

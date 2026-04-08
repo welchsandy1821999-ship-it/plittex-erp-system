@@ -401,17 +401,17 @@ module.exports = function (pool, getWhId, withTransaction) {
                             matCost = matCost.plus(qty.times(price));
                             await client.query(`
                                 INSERT INTO inventory_movements 
-                                (item_id, quantity, movement_type, description, warehouse_id, batch_id, unit_price) 
-                                VALUES ($1, $2, 'production_expense', $3, $4, $5, $6)
-                            `, [mat.id, qty.times(-1).toFixed(4), `Замес: Партия ${batch.batch_number}`, materialsWh, batch.id, price]);
+                                (item_id, quantity, movement_type, description, warehouse_id, batch_id, unit_price, movement_date) 
+                                VALUES ($1, $2, 'production_expense', $3, $4, $5, $6, $7)
+                            `, [mat.id, qty.times(-1).toFixed(4), `Замес: Партия ${batch.batch_number}`, materialsWh, batch.id, price, date]);
                         }
                     }
 
                     // 7b. Приход продукции на сушилку
                     await client.query(
-                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id) 
-                         VALUES ($1, $2, 'production_receipt', $3, $4, $5)`,
-                        [batch.product_id, bQty.toFixed(4), `Выпуск: Партия ${batch.batch_number}`, dryingWh, batch.id]
+                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, movement_date) 
+                         VALUES ($1, $2, 'production_receipt', $3, $4, $5, $6)`,
+                        [batch.product_id, bQty.toFixed(4), `Выпуск: Партия ${batch.batch_number}`, dryingWh, batch.id, date]
                     );
 
                     // 7d. ОБНОВЛЯЕМ ПАРТИЮ (Только мат. затраты, накладные теперь в глобальном дашборде)

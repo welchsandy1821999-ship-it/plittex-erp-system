@@ -288,6 +288,18 @@ tr:hover {
     transition: transform 0.3s;
 }
 
+.modal-sm {
+    max-width: 500px !important;
+}
+
+.modal-md {
+    max-width: 700px !important;
+}
+
+.modal-lg {
+    max-width: 1100px !important;
+}
+
 .modal-overlay.active .modal-content {
     transform: translateY(0);
 }

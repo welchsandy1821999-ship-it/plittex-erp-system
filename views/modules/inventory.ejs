@@ -17,10 +17,11 @@
         
         <div class="flex-row gap-10" style="align-items: flex-end; flex-wrap: wrap; justify-content: flex-end;">
             <div class="form-group prod-header-datepicker" style="margin-bottom: 0; min-width: 160px;">
-                <label class="label-sm text-muted">Дата ревизии:</label>
-                <input type="text" id="audit-date-filter" class="input-modern prod-date-input" placeholder="Сегодня">
+                <label class="label-sm text-muted">Остатки на дату:</label>
+                <input type="text" id="inventory-date-filter" class="input-modern prod-date-input" placeholder="Сегодня">
             </div>
             
+            <button class="btn btn-outline" onclick="openSiftingModal()">⚙️ Переработка</button>
             <button class="btn btn-outline" id="btn-audit-mode" onclick="toggleAuditMode()">📋 Ревизия</button>
             <button class="btn btn-blue inv-hidden" id="btn-audit-save" onclick="saveAudit()">💾 Сохранить</button>
             
@@ -107,6 +108,68 @@
             </div>
             <div class="flex-row gap-5" id="inventory-pagination">
                 <!-- Pagination buttons generated via JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно Просеивания -->
+    <div id="modal-sifting" class="modal-overlay" style="display:none;">
+        <div class="modal-content modal-sm">
+            <div class="modal-header">
+                <h3 id="app-modal-title" class="mt-0 mb-0">🔄 Просеивание (Переработка) сырья</h3>
+                <button class="btn-close" onclick="closeSiftingModal()">×</button>
+            </div>
+            
+            <div class="modal-body">
+                <div class="form-group mb-15">
+                    <label>Исходное сырье (к списанию):</label>
+                    <select id="sifting-source" class="input-modern w-100">
+                        <option value="155" selected>Песок основной</option>
+                        <!-- В будущем можно сделать динамическим -->
+                    </select>
+                </div>
+                
+                <div class="form-group mb-20">
+                    <label>Объем для просеивания (кг):</label>
+                    <input type="number" id="sifting-amount" class="input-modern w-100 font-18 text-center" placeholder="Например: 1000" oninput="calculateSifting()">
+                </div>
+
+                <div class="bg-surface p-15 border-radius-8">
+                    <h4 class="mt-0 mb-10 text-muted">Расчетный выход сырья (Приход):</h4>
+                    
+                    <div class="flex-row gap-10 mb-10 align-center">
+                        <div class="w-75">
+                            <label class="font-12 text-muted">Песок лицевой (85%):</label>
+                            <select id="sifting-out1-target" class="input-modern w-100 p-5 mt-5">
+                                <option value="156" selected>Песок лицевой</option>
+                            </select>
+                        </div>
+                        <div class="w-25">
+                            <label class="font-12 text-muted">Кг:</label>
+                            <input type="number" id="sifting-out1-qty" class="input-modern w-100 p-5 mt-5 text-right font-bold text-success">
+                        </div>
+                    </div>
+
+                    <div class="flex-row gap-10 align-center">
+                        <div class="w-75">
+                            <label class="font-12 text-muted">Гранит (15%):</label>
+                            <select id="sifting-out2-target" class="input-modern w-100 p-5 mt-5">
+                                <option value="508" selected>Гранит</option>
+                            </select>
+                        </div>
+                        <div class="w-25">
+                            <label class="font-12 text-muted">Кг:</label>
+                            <input type="number" id="sifting-out2-qty" class="input-modern w-100 p-5 mt-5 text-right font-bold text-success">
+                        </div>
+                    </div>
+                    
+                    <p class="font-11 text-muted mt-10 mb-0">*Вы можете скорректировать килограммы, если есть потери влажности или утиль.</p>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeSiftingModal()">Отмена</button>
+                <button class="btn btn-blue" onclick="executeSifting()">✔️ Выполнить просев</button>
             </div>
         </div>
     </div>

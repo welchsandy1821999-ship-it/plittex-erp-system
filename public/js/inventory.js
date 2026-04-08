@@ -24,8 +24,33 @@ window.goToPage = function(page) {
     renderInventoryTable();
 }
 
+let inventoryDatePicker = null;
+
 function loadTable() {
-    API.get('/api/inventory')
+    // Инициализация календаря если еще нет
+    const dateEl = document.getElementById('inventory-date-filter');
+    if (dateEl && !inventoryDatePicker && typeof flatpickr !== 'undefined') {
+        inventoryDatePicker = flatpickr(dateEl, { 
+            dateFormat: "Y-m-d", altInput: true, altFormat: "d.m.Y", locale: "ru", defaultDate: new Date(),
+            onChange: function(selectedDates, dateStr, instance) {
+                // При смене даты сразу загружаем новые данные
+                loadTable();
+            }
+        });
+    }
+
+    let params = [];
+    if (inventoryDatePicker && inventoryDatePicker.selectedDates.length > 0) {
+        params.push(`as_of_date=${inventoryDatePicker.formatDate(inventoryDatePicker.selectedDates[0], "Y-m-d")}`);
+    }
+    if (isAuditMode && ['all', '1', '4', '5'].includes(currentWarehouseFilter)) {
+        params.push(`audit_all=true`);
+        params.push(`wh=${currentWarehouseFilter}`);
+    }
+    
+    const queryString = params.length > 0 ? '?' + params.join('&') : '';
+
+    API.get('/api/inventory' + queryString)
         .then(data => {
             allInventory = data;
             renderInventoryTable();
@@ -46,19 +71,11 @@ function applyWarehouseFilter(id, btn) {
 }
 
 // === РЕЖИМ ИНВЕНТАРИЗАЦИИ ===
-let auditDatePicker = null;
 
 window.toggleAuditMode = function () {
-    if (currentWarehouseFilter === 'all' && !isAuditMode) {
-        return UI.toast('Для инвентаризации выберите конкретный склад (например, Склад №4)!', 'warning');
-    }
-
-    // Инициализация календаря если еще нет
-    const dateEl = document.getElementById('audit-date-filter');
-    if (dateEl && !auditDatePicker && typeof flatpickr !== 'undefined') {
-        auditDatePicker = flatpickr(dateEl, { 
-            dateFormat: "Y-m-d", altInput: true, altFormat: "d.m.Y", locale: "ru", defaultDate: new Date()
-        });
+    // Разрешаем ревизию на вкладке "Все склады" для 1, 4, 5
+    if (['3', '6', '7'].includes(currentWarehouseFilter) && !isAuditMode) {
+        return UI.toast('На этом складе ревизия недоступна!', 'warning');
     }
 
     isAuditMode = !isAuditMode;
@@ -75,7 +92,8 @@ window.toggleAuditMode = function () {
         btnMode.innerText = '📋 Ревизия';
         btnSave.classList.add('inv-hidden');
     }
-    renderInventoryTable();
+    // ЗАГРУЖАЕМ новые данные с сервера, чтобы получить нулевые позиции
+    loadTable();
 };
 
 // === РЕЖИМ ИНВЕНТАРИЗАЦИИ ===
@@ -106,6 +124,7 @@ window.saveAudit = async function () {
             adjustments.push({
                 itemId: input.getAttribute('data-item-id'),
                 batchId: input.getAttribute('data-batch-id') || null,
+                warehouseId: input.getAttribute('data-wh-id'), // нужно для Все Склады
                 actualQty: newQty // 🚀 ИСПРАВЛЕНИЕ: Отправляем на сервер ФАКТИЧЕСКОЕ количество
             });
         }
@@ -118,7 +137,7 @@ window.saveAudit = async function () {
         return UI.toast('Нет изменений. Остатки верны.', 'success');
     }
 
-    const auditDateStr = document.getElementById('audit-date-filter')?.value || '';
+    const auditDateStr = document.getElementById('inventory-date-filter')?.value || '';
 
     try {
         await API.post('/api/inventory/audit', {
@@ -170,7 +189,12 @@ function renderInventoryTable() {
     const colSpan = 6;
 
     const filtered = allInventory.filter(item => {
-        if (parseFloat(item.total) === 0) return false;
+        // Резервы и др. технические склады не участвуют в ревизии
+        if (isAuditMode && ['3', '6', '7'].includes(String(item.warehouse_id))) return false;
+
+        // В режиме Инвентаризации на разрешенных складах показываем позиции с 0 остатком
+        const allowZero = isAuditMode && ['all', '1', '4', '5'].includes(currentWarehouseFilter);
+        if (parseFloat(item.total) === 0 && !allowZero) return false;
         if (currentWarehouseFilter !== 'all' && String(item.warehouse_id) !== currentWarehouseFilter) return false;
         if (currentSearch) {
             const searchStr = `${item.item_name} ${item.warehouse_name || ''} ${item.batch_number || ''} ${item.batch_id || ''}`.toLowerCase();
@@ -237,6 +261,7 @@ function renderInventoryTable() {
             qtyHtml = `<td class="inv-actions-cell">
                 <input type="number" class="input-modern audit-qty-input" 
                        data-item-id="${item.item_id}" 
+                       data-wh-id="${item.warehouse_id}" 
                        data-batch-id="${item.batch_id || ''}" 
                        data-old-qty="${item.total}" 
                        value="${parseFloat(item.total)}" 
@@ -731,12 +756,13 @@ window.openPrintModal = function() {
     dropdowns.forEach(d => d.classList.add('inv-hidden'));
 
     const tokenParam = typeof API !== 'undefined' && API.token ? API.token : localStorage.getItem('token');
+    const dateParam = (inventoryDatePicker && inventoryDatePicker.selectedDates.length > 0) ? `&as_of_date=${inventoryDatePicker.formatDate(inventoryDatePicker.selectedDates[0], "Y-m-d")}` : '';
     
     const html = `
         <div class="text-center p-20">
             <p class="mb-20 text-muted">Будет распечатан бланк для инвентаризации <b>${wh === 'all' ? 'всех складов' : 'выбранного склада (№' + wh + ')' }</b>.</p>
-            <button class="btn btn-outline mb-10 w-100" onclick="window.open('/api/inventory/print?mode=blind&wh=' + currentWarehouseFilter + '&token=' + '${tokenParam}', '_blank'); UI.closeModal();">Слепой бланк (Пустые колонки Факт / Расчет)</button>
-            <button class="btn btn-blue w-100" onclick="window.open('/api/inventory/print?mode=full&wh=' + currentWarehouseFilter + '&token=' + '${tokenParam}', '_blank'); UI.closeModal();">Полный бланк (Содержит Расчетный остаток)</button>
+            <button class="btn btn-outline mb-10 w-100" onclick="window.open('/api/inventory/print?mode=blind&wh=' + currentWarehouseFilter + '&token=' + '${tokenParam}' + '${dateParam}', '_blank'); UI.closeModal();">Слепой бланк (Пустые колонки Факт / Расчет)</button>
+            <button class="btn btn-blue w-100" onclick="window.open('/api/inventory/print?mode=full&wh=' + currentWarehouseFilter + '&token=' + '${tokenParam}' + '${dateParam}', '_blank'); UI.closeModal();">Полный бланк (Содержит Расчетный остаток)</button>
         </div>
     `;
     UI.showModal('🖨️ Печать Бланка', html, '<button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>');
@@ -749,5 +775,67 @@ window.executeExport = function(mode) {
     dropdowns.forEach(d => d.classList.add('inv-hidden'));
     
     const tokenParam = typeof API !== 'undefined' && API.token ? API.token : localStorage.getItem('token');
-    window.open(`/api/inventory/export?mode=${mode}&wh=${wh}&token=${tokenParam}`, '_blank');
+    const dateParam = (inventoryDatePicker && inventoryDatePicker.selectedDates.length > 0) ? `&as_of_date=${inventoryDatePicker.formatDate(inventoryDatePicker.selectedDates[0], "Y-m-d")}` : '';
+    window.open(`/api/inventory/export?mode=${mode}&wh=${wh}&token=${tokenParam}${dateParam}`, '_blank');
+};
+
+// === ПРОСЕИВАНИЕ СЫРЬЯ ===
+window.openSiftingModal = function() {
+    const modal = document.getElementById('modal-sifting');
+    modal.style.display = 'flex';
+    // Небольшая задержка для плавности CSS-перехода, если он есть
+    setTimeout(() => modal.classList.add('active'), 10);
+
+    document.getElementById('sifting-amount').value = '';
+    document.getElementById('sifting-out1-qty').value = '';
+    document.getElementById('sifting-out2-qty').value = '';
+    
+    // По умолчанию стоит Песок основной (155)
+};
+
+window.closeSiftingModal = function() {
+    const modal = document.getElementById('modal-sifting');
+    modal.classList.remove('active');
+    setTimeout(() => modal.style.display = 'none', 200);
+};
+
+window.calculateSifting = function() {
+    const input = parseFloat(document.getElementById('sifting-amount').value) || 0;
+    // Логика по умолчанию: 85% лицевой песок, 15% гранит
+    const out1 = (input * 0.85).toFixed(1);
+    const out2 = (input * 0.15).toFixed(1);
+    
+    document.getElementById('sifting-out1-qty').value = input > 0 ? out1 : '';
+    document.getElementById('sifting-out2-qty').value = input > 0 ? out2 : '';
+};
+
+window.executeSifting = async function() {
+    const sourceId = document.getElementById('sifting-source').value;
+    const sourceQty = parseFloat(document.getElementById('sifting-amount').value);
+    
+    const out1Id = document.getElementById('sifting-out1-target').value;
+    const out1Qty = parseFloat(document.getElementById('sifting-out1-qty').value);
+    
+    const out2Id = document.getElementById('sifting-out2-target').value;
+    const out2Qty = parseFloat(document.getElementById('sifting-out2-qty').value);
+
+    if (!sourceQty || sourceQty <= 0) return UI.toast('Введите объем исходного сырья', 'warning');
+    if (isNaN(out1Qty) || isNaN(out2Qty)) return UI.toast('Ошибка в расчетах выхода сырья', 'error');
+
+    try {
+        const res = await API.post('/api/inventory/sifting', {
+            sourceId,
+            sourceQty,
+            outputs: [
+                { id: out1Id, qty: out1Qty },
+                { id: out2Id, qty: out2Qty }
+            ]
+        });
+        
+        UI.toast(res.message || 'Просеивание успешно выполнено!', 'success');
+        closeSiftingModal();
+        if (typeof loadTable === 'function') loadTable();
+    } catch (err) {
+        UI.toast(err.message || 'Ошибка просеивания', 'error');
+    }
 };

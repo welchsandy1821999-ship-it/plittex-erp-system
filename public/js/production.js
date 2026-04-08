@@ -482,7 +482,7 @@ window.submitDailyProduction = async function (btnElement) {
 
     if (!shiftDateStr) return UI.toast('Выберите дату смены!', 'warning');
     if (selectedDate > today) return UI.toast('Нельзя закрывать смену в будущем!', 'warning');
-    if (!shiftName) return UI.toast('Выберите бригадира!', 'warning');
+    // if (!shiftName) return UI.toast('Выберите бригадира!', 'warning');
     if (sessionProducts.length === 0) return UI.toast('Добавьте продукцию в партию!', 'error');
 
     // Начинаем жесткую блокировку

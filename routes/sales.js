@@ -502,13 +502,6 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
                     // 2b. Удаляем оригинальную запись sales_shipment
                     await client.query('DELETE FROM inventory_movements WHERE id = $1', [m.id]);
-
-                    // 2c. 🛡️ ВОЗВРАЩАЕМ товар на Склад №7 (Резерв)
-                    await client.query(
-                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, linked_order_item_id)
-                         VALUES ($1, $2, 'shipment_reversal', $3, $4, $5, $6)`,
-                        [m.item_id, returnQty, `Отмена отгрузки: ${docNum}`, reserveWhId, m.batch_id || null, m.linked_order_item_id]
-                    );
                 }
 
                 // 3. Откатываем статус заказа
@@ -780,6 +773,108 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
         } catch (err) {
             console.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // 10. ПЕРЕБРОСКА РЕЗЕРВОВ (Reserve Transfer)
+    // ------------------------------------------------------------------
+    router.get('/api/sales/reserve-donors', async (req, res) => {
+        const { item_id, exclude_order_id } = req.query;
+        try {
+            const query = `
+                SELECT coi.id as coi_id, coi.qty_reserved, coi.qty_ordered, co.doc_number, c.name as client_name
+                FROM client_order_items coi
+                JOIN client_orders co ON coi.order_id = co.id
+                LEFT JOIN counterparties c ON co.counterparty_id = c.id
+                WHERE coi.item_id = $1
+                  AND coi.qty_reserved > 0
+                  AND co.status IN ('pending', 'processing')
+                  AND co.id != $2
+                ORDER BY co.created_at ASC
+            `;
+            const result = await pool.query(query, [item_id, exclude_order_id]);
+            res.json(result.rows);
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера.' });
+        }
+    });
+
+    router.post('/api/sales/transfer-reserve', requireAdmin, async (req, res) => {
+        const { donor_coi_id, recipient_coi_id, transfer_qty, user_id } = req.body;
+        const qty = parseFloat(transfer_qty);
+        if (qty <= 0) return res.status(400).json({ error: 'Количество должно быть больше нуля' });
+
+        try {
+            await withTransaction(pool, async (client) => {
+                // 1. Получаем данные донора
+                const donorRes = await client.query('SELECT coi.*, co.doc_number FROM client_order_items coi JOIN client_orders co ON coi.order_id = co.id WHERE coi.id = $1 FOR UPDATE', [donor_coi_id]);
+                if (donorRes.rows.length === 0) throw new Error('Заказ-донор не найден');
+                const donor = donorRes.rows[0];
+
+                // 2. Получаем данные реципиента
+                const recRes = await client.query('SELECT coi.*, co.doc_number FROM client_order_items coi JOIN client_orders co ON coi.order_id = co.id WHERE coi.id = $1 FOR UPDATE', [recipient_coi_id]);
+                if (recRes.rows.length === 0) throw new Error('Заказ-реципиент не найден');
+                const recipient = recRes.rows[0];
+
+                if (donor.item_id !== recipient.item_id) throw new Error('Товары не совпадают!');
+                if (qty > parseFloat(donor.qty_reserved)) throw new Error(`Нельзя забрать больше резерва донора (${donor.qty_reserved})`);
+                if (qty > parseFloat(recipient.qty_production)) throw new Error(`Нельзя зачислить больше дефицита реципиента (${recipient.qty_production})`);
+
+                const reserveWhId = await getWhId(client, 'reserve');
+
+                // 3. Вычисляем батчи из резерва Донора
+                const stockRes = await client.query(`
+                    SELECT batch_id, SUM(quantity) as available 
+                    FROM inventory_movements 
+                    WHERE linked_order_item_id = $1 AND warehouse_id = $2 
+                    GROUP BY batch_id HAVING SUM(quantity) > 0 
+                    ORDER BY MIN(movement_date) ASC
+                `, [donor_coi_id, reserveWhId]);
+
+                let remainingNeeded = qty;
+                for (let row of stockRes.rows) {
+                    if (remainingNeeded <= 0) break;
+                    const deduct = Math.min(remainingNeeded, parseFloat(row.available));
+                    remainingNeeded -= deduct;
+                    
+                    // Списание с Донора (Резерв -> Свободный)
+                    await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id) VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6, $7)`, [donor.item_id, -deduct, `Изъятие резерва (в счет ${recipient.doc_number})`, reserveWhId, row.batch_id, user_id || null, donor_coi_id]);
+                    
+                    // Зачисление Реципиенту (Свободный -> Резерв)
+                    await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id) VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6, $7)`, [recipient.item_id, deduct, `Перехват резерва (от ${donor.doc_number})`, reserveWhId, row.batch_id, user_id || null, recipient_coi_id]);
+                }
+
+                if (remainingNeeded > 0) throw new Error('Математическая ошибка: физических партий меньше заявленного резерва');
+
+                // 4. Обновляем счетчики Донора
+                await client.query(`UPDATE client_order_items SET qty_reserved = qty_reserved - $1, qty_production = COALESCE(qty_production, 0) + $1 WHERE id = $2`, [qty, donor_coi_id]);
+                
+                // Возвращаем Донора в planned_production
+                const ppRes = await client.query(`SELECT id FROM planned_production WHERE order_item_id = $1`, [donor_coi_id]);
+                if (ppRes.rows.length > 0) {
+                    await client.query(`UPDATE planned_production SET quantity = quantity + $1 WHERE id = $2`, [qty, ppRes.rows[0].id]);
+                } else {
+                    await client.query(`INSERT INTO planned_production (order_item_id, item_id, quantity) VALUES ($1, $2, $3)`, [donor_coi_id, donor.item_id, qty]);
+                }
+
+                // 5. Обновляем счетчики Реципиента
+                await client.query(`UPDATE client_order_items SET qty_reserved = COALESCE(qty_reserved, 0) + $1, qty_production = GREATEST(qty_production - $1, 0) WHERE id = $2`, [qty, recipient_coi_id]);
+                
+                // Снимаем Реципиента из planned_production
+                await client.query(`UPDATE planned_production SET quantity = GREATEST(quantity - $1, 0) WHERE order_item_id = $2`, [qty, recipient_coi_id]);
+                await client.query(`DELETE FROM planned_production WHERE order_item_id = $1 AND quantity <= 0`, [recipient_coi_id]);
+                
+            });
+
+            const io = req.app.get('io');
+            if (io) io.emit('inventory_updated');
+            res.json({ success: true, message: 'Резервы успешно переброшены!' });
+
+        } catch (err) {
+            console.error(err);
+            res.status(400).json({ error: err.message });
         }
     });
 
