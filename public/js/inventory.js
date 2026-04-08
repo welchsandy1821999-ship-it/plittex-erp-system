@@ -287,14 +287,14 @@ function renderInventoryTable() {
                             🗑️ Утилизировать
                           </button>`;
             } else {
-                actionHtml = `<div class="d-flex gap-5" style="gap: 5px;">
-                    <button class="btn btn-outline inv-btn-move" title="Переместить в Уценку или Утиль"
+                actionHtml = `<div class="d-flex" style="gap: 8px;">
+                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; border-color: var(--warning); color: var(--warning-text);" title="Переместить в Уценку или Утиль"
                         onclick="openScrapModal(${item.item_id}, '${Utils.escapeHtml(item.item_name)}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
                           ↘️ Брак/Уценка
                     </button>
-                    <button class="btn btn-outline inv-btn-scrap" style="color: var(--danger); border-color: var(--danger-light);" title="Безвозвратное прямое списание"
+                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; border-color: var(--danger); color: var(--danger);" title="Безвозвратное прямое списание"
                         onclick="openDirectScrapModal(${item.item_id}, '${Utils.escapeHtml(item.item_name)}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
-                          🔨 Списание
+                          🔨 Прямое списание
                     </button>
                 </div>`;
             }
@@ -1146,11 +1146,11 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
             
             let decryption = '';
             if (m.supplier_name) {
-                 decryption = `<span class="text-primary font-12">📝 Поставщик: ${Utils.escapeHtml(m.supplier_name)}</span>`;
+                 decryption = `<a href="javascript:void(0)" onclick="document.getElementById('history-search-input').value='${Utils.escapeHtml(m.supplier_name)}'; window.filterItemHistoryTable();" class="text-primary font-12" style="text-decoration: underline dashed;">📝 Поставщик: ${Utils.escapeHtml(m.supplier_name)}</a>`;
             } else if (m.order_doc) {
-                 decryption = `<span class="text-primary font-12">🛒 Заказ: ${Utils.escapeHtml(m.order_doc)}</span>`;
+                 decryption = `<a href="javascript:void(0)" onclick="document.getElementById('history-search-input').value='${Utils.escapeHtml(m.order_doc)}'; window.filterItemHistoryTable();" class="text-primary font-12" style="text-decoration: underline dashed;">🛒 Заказ: ${Utils.escapeHtml(m.order_doc)}</a>`;
             } else if (m.batch_number) {
-                 decryption = `<span class="badge" style="background:#e0f2fe; color:#0369a1; border: 1px solid #7dd3fc;">Партия #${Utils.escapeHtml(m.batch_number)}</span>`;
+                 decryption = `<a href="javascript:void(0)" onclick="document.getElementById('history-search-input').value='${Utils.escapeHtml(m.batch_number)}'; window.filterItemHistoryTable();" class="badge" style="background:#e0f2fe; color:#0369a1; border: 1px solid #7dd3fc; cursor: pointer; text-decoration: none;">Партия #${Utils.escapeHtml(m.batch_number)}</a>`;
             } else if (m.description) {
                  decryption = `<span class="font-12 text-muted">${Utils.escapeHtml(m.description)}</span>`;
             }
@@ -1229,6 +1229,7 @@ function getMovementTypeName(type) {
         'audit_adjustment': 'Инвентаризация (Корректировка)',
         'production_expense': 'Списание в производство',
         'production_receipt': 'Выпуск продукции (Формовка)',
+        'production_draft': 'Замес (Черновик)',
         'wip_receipt': 'Поступление в сушилку',
         'wip_expense': 'Списание из сушилки (Распалубка)',
         'finished_receipt': 'Принято на склад готов. продукции',
