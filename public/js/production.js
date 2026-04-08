@@ -775,11 +775,11 @@ async function loadDailyHistory() {
 
             return `
             <tr id="row-${b.id}" class="${isDraft ? 'prod-row-draft' : ''}">
-                <td onclick="toggleBatchDetails(${b.id})"><strong>${b.batch_number}</strong>${draftBadge}</td>
-                <td onclick="toggleBatchDetails(${b.id})">${b.product_name}</td>
-                <td onclick="toggleBatchDetails(${b.id})">${volume.toFixed(2)}</td>
-                <td onclick="toggleBatchDetails(${b.id})">${costDisplay}</td>
-                <td class="text-right whitespace-nowrap">
+                <td class="w-15" onclick="toggleBatchDetails(${b.id})"><strong>${b.batch_number}</strong>${draftBadge}</td>
+                <td class="w-30p" onclick="toggleBatchDetails(${b.id})">${b.product_name}</td>
+                <td class="w-13p text-right" onclick="toggleBatchDetails(${b.id})">${volume.toFixed(2)}</td>
+                <td class="w-15p text-right" onclick="toggleBatchDetails(${b.id})">${costDisplay}</td>
+                <td class="w-15 text-right whitespace-nowrap">
                     <button class="btn btn-outline text-primary p-5 mr-5" 
                             onclick="event.stopPropagation(); window.open('/print/passport?batchId=${b.id}&token=' + localStorage.getItem('token'), '_blank')">🖨️</button>
                     ${isDraft ? `<button class="btn btn-outline p-5 text-warning mr-5" 

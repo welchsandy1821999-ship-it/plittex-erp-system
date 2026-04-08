@@ -3009,6 +3009,10 @@
     margin-top: 20px;
 }
 
+.prod-history-card .table-modern {
+    table-layout: fixed;
+}
+
 .prod-search-wrap {
     position: relative;
     width: 350px;
