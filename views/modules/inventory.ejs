@@ -203,16 +203,20 @@
                             <option value="7">Склад №7 (Резервы)</option>
                         </select>
                     </div>
-                    <div class="form-group mb-0 flex-grow-1" style="min-width: 250px;">
-                        <label>Выбор товара (Умный поиск):</label>
+                    <div class="form-group mb-0 flex-grow-1" style="min-width: 200px;">
+                        <label>Выбор товара (Другой):</label>
                         <div class="search-input-wrapper w-100">
                             <input type="text" list="history-item-datalist" id="history-item-switch" placeholder="🔍 Введите товар..." 
                                    class="input-modern input-search w-100" style="height: 32px; padding-left: 30px;" onchange="switchHistoryItem()" onfocus="this.select()">
                             <datalist id="history-item-datalist"></datalist>
                         </div>
                     </div>
+                    <div class="form-group mb-0 flex-grow-1" style="min-width: 180px;">
+                        <label>Фильтр по операциям:</label>
+                        <input type="text" id="history-search-input" class="input-modern w-100" style="height: 32px; padding: 4px 6px; font-size: 13px;" placeholder="Партия, Заказ..." oninput="debounceHistorySearch()">
+                    </div>
                     <div class="form-group mb-0" style="margin-top: 24px;">
-                        <button class="btn btn-blue" style="height: 32px; padding: 0 15px;" onclick="fetchItemHistory()">🔄 Сформировать</button>
+                        <button class="btn btn-blue" style="height: 32px; padding: 0 15px;" onclick="fetchItemHistory()">🔄 Обновить</button>
                     </div>
                 </div>
 

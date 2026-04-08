@@ -1146,9 +1146,9 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
             
             let decryption = '';
             if (m.supplier_name) {
-                 decryption = `<a href="javascript:void(0)" onclick="document.getElementById('history-search-input').value='${Utils.escapeHtml(m.supplier_name)}'; window.filterItemHistoryTable();" class="text-primary font-12" style="text-decoration: underline dashed;">📝 Поставщик: ${Utils.escapeHtml(m.supplier_name)}</a>`;
+                 decryption = `<a href="javascript:void(0)" onclick="document.getElementById('history-search-input').value='${Utils.escapeHtml(m.supplier_name)}'; window.filterItemHistoryTable();" class="text-primary font-12" style="text-decoration: underline;">📝 Поставщик: ${Utils.escapeHtml(m.supplier_name)}</a>`;
             } else if (m.order_doc) {
-                 decryption = `<a href="javascript:void(0)" onclick="document.getElementById('history-search-input').value='${Utils.escapeHtml(m.order_doc)}'; window.filterItemHistoryTable();" class="text-primary font-12" style="text-decoration: underline dashed;">🛒 Заказ: ${Utils.escapeHtml(m.order_doc)}</a>`;
+                 decryption = `<a href="javascript:void(0)" onclick="document.getElementById('history-search-input').value='${Utils.escapeHtml(m.order_doc)}'; window.filterItemHistoryTable();" class="text-primary font-12" style="text-decoration: underline;">🛒 Заказ: ${Utils.escapeHtml(m.order_doc)}</a>`;
             } else if (m.batch_number) {
                  decryption = `<a href="javascript:void(0)" onclick="document.getElementById('history-search-input').value='${Utils.escapeHtml(m.batch_number)}'; window.filterItemHistoryTable();" class="badge" style="background:#e0f2fe; color:#0369a1; border: 1px solid #7dd3fc; cursor: pointer; text-decoration: none;">Партия #${Utils.escapeHtml(m.batch_number)}</a>`;
             } else if (m.description) {
