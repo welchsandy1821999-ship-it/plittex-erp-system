@@ -170,36 +170,6 @@ window.switchRecipeMode = function(mode) {
     }
 };
 
-// 2. Открытие конкретного рецепта при выборе продукции
-async function loadRecipeDetails() {
-    const prodSelect = document.getElementById('recipe-product-select');
-    const productId = prodSelect.value;
-    const productName = prodSelect.options[prodSelect.selectedIndex].text;
-
-    if (!productId) return;
-
-    // Показываем правый блок и сводку
-    document.getElementById('recipe-editor-area').classList.remove('hidden');
-    document.getElementById('recipe-summary-card').classList.remove('hidden');
-    document.getElementById('recipe-editor-title').innerText = `Рецепт: ${productName}`;
-
-    try {
-        // Запрашиваем с сервера уже сохраненный рецепт
-        const data = await API.get(`/api/recipes/${productId}`);
-
-        // Преобразуем данные в наш рабочий массив
-        currentRecipeData = data.map(ing => ({
-            materialId: ing.material_id,
-            name: ing.material_name,
-            qty: parseFloat(ing.quantity_per_unit),
-            unit: ing.unit,
-            price: parseFloat(ing.current_price) || 0
-        }));
-
-        originalRecipeData = JSON.parse(JSON.stringify(currentRecipeData));
-        renderRecipeTable();
-    } catch (e) { console.error("Ошибка загрузки рецепта:", e); }
-}
 
 // Загрузка шаблона замеса (Режим 2)
 window.loadMixTemplateDetails = function() {
