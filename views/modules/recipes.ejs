@@ -1,40 +1,40 @@
 <div id="recipe-mod" class="module">
-    <div class="flex-between mb-20" style="align-items: flex-end;">
+    <div class="flex-between mb-20 align-end">
         <div>
             <h2 class="mt-0">🧪 Управление рецептурами</h2>
             
             <div class="mb-20 flex-row gap-10" id="top-panel-mass-apply">
-                <button class="btn btn-outline" style="border-color: var(--primary); color: var(--primary);"
+                <button class="btn btn-outline rec-primary-outline"
                     onclick="showRecipeMassApplyModal()">🎭 Массовое применение шаблона</button>
             </div>
 
             <!-- ПЕРЕКЛЮЧАТЕЛЬ РЕЖИМОВ (TABS) -->
-            <div class="mb-20" style="display: flex; gap: 15px; border-bottom: 2px solid var(--border); padding-bottom: 30px; margin-bottom: 30px;">
-                <button id="tab-recipes-bom" class="btn btn-blue shadow-primary" style="font-weight: bold; border-radius: 8px; padding: 12px 24px;" onclick="switchRecipeMode('BOM')">
+            <div class="mb-20 rec-filter-container">
+                <button id="tab-recipes-bom" class="btn btn-blue shadow-primary font-bold radius-8 p-12-24" onclick="switchRecipeMode('BOM')">
                     📊 Нормы расхода (1 ед.)
                 </button>
-                <button id="tab-recipes-mix" class="btn btn-outline" style="font-weight: bold; border-radius: 8px; padding: 12px 24px; border-color: var(--primary); color: var(--primary);" onclick="switchRecipeMode('MIX')">
+                <button id="tab-recipes-mix" class="btn btn-outline rec-action-btn rec-primary-outline" onclick="switchRecipeMode('MIX')">
                     🐘 Шаблоны Замесов
                 </button>
             </div>
             
-            <p class="text-muted" style="font-size: 13px; margin: 0;">Настройка эталонного расхода сырья на 1 единицу продукции (кв.м, шт)</p>
+            <p class="text-muted font-13 m-0">Настройка эталонного расхода сырья на 1 единицу продукции (кв.м, шт)</p>
         </div>
     </div>
 
-    <div class="form-grid" style="grid-template-columns: 1fr 2fr; align-items: start; gap: 24px;">
+    <div class="form-grid rec-grid-header">
 
         <div class="flex-column gap-20">
-            <div class="card" style="border-left: 4px solid var(--primary);" id="recipe-left-mode-bom">
-                <h3 class="mt-0" style="font-size: 16px;">1. Выбор продукции</h3>
+            <div class="card pl-10 rec-section-title" id="recipe-left-mode-bom">
+                <h3 class="mt-0 font-16">1. Выбор продукции</h3>
                 <div class="form-group">
                     <label>Плитка / Блок / Бордюр:</label>
                     <select id="recipe-product-select" class="input-modern" onchange="loadRecipeDetails()"></select>
                 </div>
             </div>
 
-            <div class="card" style="border-left: 4px solid var(--primary); display: none;" id="recipe-left-mode-mix">
-                <h3 class="mt-0" style="font-size: 16px;">1. Выбор Шаблона</h3>
+            <div class="card border-primary-left hidden" id="recipe-left-mode-mix">
+                <h3 class="mt-0 font-16">1. Выбор Шаблона</h3>
                 <div class="form-group">
                     <label>Матрица бетономешалки (31 ключ):</label>
                     <select id="mix-template-keys-select" class="input-modern" onchange="loadMixTemplateDetails()">
@@ -83,78 +83,78 @@
                 </div>
             </div>
 
-            <div class="card card-alt" id="recipe-summary-card" style="display: none;">
-                <h3 class="mt-0" style="font-size: 16px;">📊 Сводка по рецепту</h3>
-                <div class="flex-between mb-15" style="font-size: 15px;">
+            <div class="card card-alt hidden" id="recipe-summary-card">
+                <h3 class="mt-0 font-16">📊 Сводка по рецепту</h3>
+                <div class="flex-between mb-15 font-15">
                     <span class="text-muted">Общий вес сырья:</span>
                     <strong id="recipe-total-weight" class="text-main">0.00 кг</strong>
                 </div>
-                <div class="flex-between mb-15" style="font-size: 15px;">
+                <div class="flex-between mb-15 font-15">
                     <span class="text-muted" id="recipe-cost-label">Себестоимость (сырье):</span>
                     <strong id="recipe-total-cost" class="recipe-cost-highlight">0.00 ₽</strong>
                 </div>
 
-                <div id="mix-yield-container" style="display: none; background: var(--surface); padding: 12px; border-radius: 8px; border: 1px dashed var(--border); margin-top: 15px;">
+                <div id="mix-yield-container" class="hidden bg-surface p-12 radius-8 border-dashed mt-15">
                     <div class="form-group mb-10">
-                        <label class="text-primary" style="font-weight: 600;">Плановый выход (кв.м, шт):</label>
-                        <input type="number" id="mix-yield-input" class="input-modern" style="margin-top: 5px;" value="1" step="any" oninput="recalculateMixUnitCost()">
+                        <label class="text-primary font-600">Плановый выход (кв.м, шт):</label>
+                        <input type="number" id="mix-yield-input" class="input-modern mt-5" value="1" step="any" oninput="recalculateMixUnitCost()">
                     </div>
-                    <div class="flex-between text-success" style="font-size: 15px; font-weight: bold; padding-top: 10px; border-top: 1px dashed var(--border);">
+                    <div class="flex-between text-success rec-step-header">
                         <span>Себестоимость 1 ед:</span>
                         <strong id="mix-unit-cost">0.00 ₽</strong>
                     </div>
                 </div>
 
-                <div class="text-muted" style="font-size: 12px; margin-top: 15px; border-top: 1px dashed var(--border); padding-top: 10px;">
+                <div class="text-muted font-12 mt-15 pt-10 border-top-dashed">
                     <span id="recipe-footer-hint">* Расчет идет строго на 1 единицу измерения (указана в справочнике).</span>
                 </div>
             </div>
         </div>
 
-        <div class="card card-recipe-editor" id="recipe-editor-area" style="display: none;">
-            <div class="flex-between mb-20" style="align-items: center; padding-bottom: 20px; border-bottom: 1px dashed var(--border);">
-                <div style="display: flex; align-items: center; gap: 15px;">
-                    <h3 id="recipe-editor-title" class="mt-0 text-main" style="margin-bottom: 0; font-size: 20px;">Рецепт: ...</h3>
-                    <span id="recipe-editor-badge" class="badge" style="display: none; padding: 6px 12px; font-size: 13px; font-weight: bold; border-radius: 6px;"></span>
+        <div class="card card-recipe-editor hidden" id="recipe-editor-area">
+            <div class="flex-between mb-20 align-center pb-20 border-bottom-dashed">
+                <div class="flex-row align-center gap-15">
+                    <h3 id="recipe-editor-title" class="mt-0 text-main mb-0 font-20">Рецепт: ...</h3>
+                    <span id="recipe-editor-badge" class="badge hidden p-6-12 font-13 font-bold radius-6"></span>
                 </div>
-                <div style="display: flex; gap: 10px;">
-                    <button id="btn-mass-apply-recipe" class="btn btn-outline" style="border-color: var(--primary); color: var(--primary);" onclick="showRecipeMassApplyModal()">🎭 Массовое применение</button>
+                <div class="flex-row gap-10">
+                    <button id="btn-mass-apply-recipe" class="btn btn-outline rec-primary-outline" onclick="showRecipeMassApplyModal()">🎭 Массовое применение</button>
 
                     <button class="btn btn-green shadow-success" onclick="saveRecipe(false)">💾 Сохранить</button>
                 </div>
             </div>
 
-            <div class="add-component-box" style="margin-top: 15px; margin-bottom: 25px; background: var(--surface-alt); padding: 20px; border-radius: 8px;">
-                <h4 class="mt-0 mb-15 text-primary" style="font-size: 15px;">➕ Добавить сырье</h4>
-                <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
-                    <div class="form-group" style="flex: 2; min-width: 200px; margin-bottom: 0;">
+            <div class="add-component-box rec-cost-panel">
+                <h4 class="mt-0 mb-15 text-primary font-15">➕ Добавить сырье</h4>
+                <div class="rec-cost-param">
+                    <div class="form-group flex-2 min-w-200 m-0">
                         <label>Материал (Сырье):</label>
                         <select id="recipe-material-select" class="input-modern"></select>
                     </div>
-                    <div class="form-group" style="flex: 1; min-width: 120px; margin-bottom: 0;">
+                    <div class="form-group flex-1 min-w-120 m-0">
                         <label>Кол-во (кг/л/шт):</label>
                         <input type="number" id="recipe-material-qty" class="input-modern" step="0.001" placeholder="0.00">
                     </div>
-                    <button class="btn btn-blue shadow-primary" onclick="addIngredientToRecipe()" style="height: 42px; padding: 0 25px;">В список</button>
+                    <button class="btn btn-blue shadow-primary h-42 px-25" onclick="addIngredientToRecipe()">В список</button>
                 </div>
             </div>
 
             <div class="table-container">
                 <table>
-                    <thead style="background: var(--surface-alt);">
+                    <thead class="bg-surface-alt">
                         <tr>
-                            <th style="padding: 12px 15px;">Сырье</th>
-                            <th style="text-align: right; padding: 12px 15px;">Кол-во</th>
-                            <th style="padding: 12px 15px;">Ед.</th>
-                            <th style="text-align: right; padding: 12px 15px;">Сумма (₽)</th>
-                            <th class="text-center" style="padding: 12px 15px;">Удалить</th>
+                            <th class="px-15 py-12">Сырье</th>
+                            <th class="text-right px-15 py-12">Кол-во</th>
+                            <th class="px-15 py-12">Ед.</th>
+                            <th class="text-right px-15 py-12">Сумма (₽)</th>
+                            <th class="text-center px-15 py-12">Удалить</th>
                         </tr>
                     </thead>
                     <tbody id="recipe-table-body"></tbody>
                 </table>
             </div>
 
-            <div id="recipe-empty-msg" class="text-center text-muted" style="display: none; padding: 20px; font-size: 14px; border: 1px dashed var(--border); border-radius: 6px; margin-top: 15px;">
+            <div id="recipe-empty-msg" class="text-center text-muted hidden p-20 font-14 border-dashed radius-6 mt-15">
                 В этом рецепте пока нет компонентов. Добавьте сырье выше.
             </div>
         </div>

@@ -1,0 +1,31 @@
+const fs = require('fs');
+let C = fs.readFileSync('views/modules/recipes.ejs', 'utf8');
+
+C = C.replace(/style="align-items: flex-end;"/g, 'class="align-end"');
+C = C.replace(/class="form-grid"\s+class="form-grid rec-grid-header"/g, 'class="form-grid rec-grid-header"');
+C = C.replace(/class="card"\s+class="pl-10 rec-section-title"/g, 'class="card pl-10 rec-section-title"');
+C = C.replace(/style="border-left: 4px solid var\(--primary\);\s*display: none;"/g, 'class="border-primary-left hidden"');
+C = C.replace(/style="display: none;"/g, 'class="hidden"');
+C = C.replace(/style="font-weight: bold;\s*border-radius: 8px;\s*padding: 12px 24px;"/g, 'class="font-bold radius-8 p-12-24"');
+C = C.replace(/class="mb-20"\s+class="rec-filter-container"/g, 'class="mb-20 rec-filter-container"');
+C = C.replace(/class="text-muted"\s+class="font-13 m-0"/g, 'class="text-muted font-13 m-0"');
+C = C.replace(/class="form-group"\s+class="flex-2 min-w-200 m-0"/g, 'class="form-group flex-2 min-w-200 m-0"');
+C = C.replace(/class="form-group"\s+class="flex-1 min-w-120 m-0"/g, 'class="form-group flex-1 min-w-120 m-0"');
+C = C.replace(/class="add-component-box"\s+class="rec-cost-panel"/g, 'class="add-component-box rec-cost-panel"');
+C = C.replace(/style="margin-bottom: 0;\s*font-size: 20px;"/g, 'class="mb-0 font-20"');
+C = C.replace(/style="display: none;\s*padding: 6px 12px;\s*font-size: 13px;\s*font-weight: bold;\s*border-radius: 6px;"/g, 'class="hidden p-6-12 font-13 font-bold radius-6"');
+C = C.replace(/style="align-items: center;\s*padding-bottom: 20px;\s*border-bottom: 1px dashed var\(--border\);"/g, 'class="align-center pb-20 border-bottom-dashed"');
+C = C.replace(/style="height: 42px;\s*padding: 0 25px;"/g, 'class="h-42 px-25"');
+C = C.replace(/style="display: none;\s*padding: 20px;\s*font-size: 14px;\s*border: 1px dashed var\(--border\);\s*border-radius: 6px;\s*margin-top: 15px;"/g, 'class="hidden p-20 font-14 border-dashed radius-6 mt-15"');
+C = C.replace(/class="flex-between mb-15"\s+class="font-15"/g, 'class="flex-between mb-15 font-15"');
+C = C.replace(/style="display: none;\s*background: var\(--surface\);\s*padding: 12px;\s*border-radius: 8px;\s*border: 1px dashed var\(--border\);\s*margin-top: 15px;"/g, 'class="hidden bg-surface p-12 radius-8 border-dashed mt-15"');
+C = C.replace(/class="text-primary"\s+class="font-600"/g, 'class="text-primary font-600"');
+C = C.replace(/class="input-modern"\s+class="mt-5"/g, 'class="input-modern mt-5"');
+C = C.replace(/class="flex-between text-success"\s+class="rec-step-header"/g, 'class="flex-between text-success rec-step-header"');
+C = C.replace(/class="text-muted"\s+class="font-12 mt-15 pt-10 border-top-dashed"/g, 'class="text-muted font-12 mt-15 pt-10 border-top-dashed"');
+C = C.replace(/class="mt-0"\s+class="font-16"/g, 'class="mt-0 font-16"');
+C = C.replace(/class="mt-0 mb-15 text-primary"\s+class="font-15"/g, 'class="mt-0 mb-15 text-primary font-15"');
+C = C.replace(/class="text-center"\s+class="px-15 py-12"/g, 'class="text-center px-15 py-12"');
+
+fs.writeFileSync('views/modules/recipes.ejs', C, 'utf8');
+console.log('Fixed EJS!');

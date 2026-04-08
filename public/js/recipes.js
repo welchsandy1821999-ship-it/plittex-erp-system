@@ -82,7 +82,42 @@ function initStaticRecipeSelects() {
     }
 }
 
-// === ЛОГИКА ПЕРЕКЛЮЧЕНИЯ РЕЖИМОВ ===
+// 2. Загрузка рецепта при выборе продукта
+async function loadRecipeDetails() {
+    const prodSelect = document.getElementById('recipe-product-select');
+    const productId = prodSelect.value;
+    // Безопасное получение имени через TomSelect
+    const tsP = prodSelect.tomselect;
+    const productName = tsP
+        ? (tsP.options[tsP.getValue()] ? tsP.options[tsP.getValue()].text : '')
+        : (prodSelect.options[prodSelect.selectedIndex] ? prodSelect.options[prodSelect.selectedIndex].text : '');
+
+    if (!productId) return;
+
+    // Показываем правый блок и сводку
+    document.getElementById('recipe-editor-area').classList.remove('hidden');
+    document.getElementById('recipe-summary-card').classList.remove('hidden');
+    document.getElementById('recipe-editor-title').innerText = `Рецепт: ${productName}`;
+
+    try {
+        // Запрашиваем с сервера уже сохраненный рецепт
+        const data = await API.get(`/api/recipes/${productId}`);
+
+        // Преобразуем данные в наш рабочий массив
+        currentRecipeData = data.map(ing => ({
+            materialId: ing.material_id,
+            name: ing.material_name,
+            qty: parseFloat(ing.quantity_per_unit),
+            unit: ing.unit,
+            price: parseFloat(ing.current_price) || 0
+        }));
+
+        originalRecipeData = JSON.parse(JSON.stringify(currentRecipeData));
+        renderRecipeTable();
+    } catch (e) { console.error("Ошибка загрузки рецепта:", e); }
+}
+
+
 window.switchRecipeMode = function(mode) {
     window.currentRecipeMode = mode;
     
@@ -98,8 +133,8 @@ window.switchRecipeMode = function(mode) {
     document.getElementById('recipe-left-mode-mix').style.display = mode === 'MIX' ? 'block' : 'none';
 
     // Сбрасываем рабочую область
-    document.getElementById('recipe-editor-area').style.display = 'none';
-    document.getElementById('recipe-summary-card').style.display = 'none';
+    document.getElementById('recipe-editor-area').classList.add('hidden');
+    document.getElementById('recipe-summary-card').classList.add('hidden');
     currentRecipeData = [];
     originalRecipeData = [];
     document.getElementById('recipe-table-body').innerHTML = '';
@@ -144,8 +179,8 @@ async function loadRecipeDetails() {
     if (!productId) return;
 
     // Показываем правый блок и сводку
-    document.getElementById('recipe-editor-area').style.display = 'block';
-    document.getElementById('recipe-summary-card').style.display = 'block';
+    document.getElementById('recipe-editor-area').classList.remove('hidden');
+    document.getElementById('recipe-summary-card').classList.remove('hidden');
     document.getElementById('recipe-editor-title').innerText = `Рецепт: ${productName}`;
 
     try {
@@ -175,8 +210,8 @@ window.loadMixTemplateDetails = function() {
     const opt = document.querySelector(`#mix-template-keys-select option[value="${templateKey}"]`);
     const templateName = opt ? opt.innerText : templateKey;
 
-    document.getElementById('recipe-editor-area').style.display = 'block';
-    document.getElementById('recipe-summary-card').style.display = 'block';
+    document.getElementById('recipe-editor-area').classList.remove('hidden');
+    document.getElementById('recipe-summary-card').classList.remove('hidden');
     document.getElementById('recipe-editor-title').innerText = `Шаблон: ${templateName}`;
 
     const badgeEl = document.getElementById('recipe-editor-badge');
@@ -256,6 +291,34 @@ window.addIngredientToRecipe = function () {
 function removeIngredientFromRecipe(index) {
     currentRecipeData.splice(index, 1);
     renderRecipeTable();
+}
+
+// 4.1. Обновление количества при редактировании в таблице
+function updateIngredientQty(index, newValue) {
+    const val = parseFloat(newValue);
+    if (isNaN(val) || val < 0) return;
+    if (currentRecipeData[index]) {
+        currentRecipeData[index].qty = val;
+        // Пересчитываем сводку без полной перерисовки таблицы
+        let totalWeight = 0;
+        let totalCost = 0;
+        currentRecipeData.forEach(ing => {
+            totalWeight += ing.qty;
+            totalCost += ing.qty * ing.price;
+        });
+        const weightEl = document.getElementById('recipe-total-weight');
+        const costEl = document.getElementById('recipe-total-cost');
+        if (weightEl) weightEl.innerText = `${totalWeight.toFixed(2)} кг`;
+        if (costEl) costEl.innerText = `${totalCost.toFixed(2)} ₽`;
+        // Обновляем стоимость в этой строке
+        const row = document.getElementById('recipe-table-body').rows[index];
+        if (row && row.cells[3]) {
+            row.cells[3].innerText = (val * currentRecipeData[index].price).toFixed(2) + ' ₽';
+        }
+        if (window.currentRecipeMode === 'MIX' && typeof window.recalculateMixUnitCost === 'function') {
+            window.recalculateMixUnitCost();
+        }
+    }
 }
 
 // 5. Отрисовка таблицы и пересчет сводки
@@ -486,7 +549,11 @@ window.saveRecipe = async function (force = false) {
     // --- РЕЖИМ 1: СОХРАНЕНИЕ BOM ---
     const prodSelect = document.getElementById('recipe-product-select');
     const productId = parseInt(prodSelect.value);
-    const productName = prodSelect.options[prodSelect.selectedIndex].text;
+    // Безопасное получение имени через TomSelect
+    const tsP = prodSelect.tomselect;
+    const productName = tsP
+        ? (tsP.options[tsP.getValue()] ? tsP.options[tsP.getValue()].text : '')
+        : (prodSelect.options[prodSelect.selectedIndex] ? prodSelect.options[prodSelect.selectedIndex].text : '');
 
     if (!productId) return UI.toast("Не выбрана продукция!", "error");
 
@@ -502,7 +569,7 @@ window.saveRecipe = async function (force = false) {
         const buttons = `
             <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
             <button class="btn btn-blue" style="background: var(--danger); border-color: var(--danger);" 
-                    onclick="executeSaveRecipe(${productId}, '${productName}', ${force})">🗑️ Да, сохранить пустым</button>
+                    onclick="executeSaveRecipe(${productId}, '${productName.replace(/'/g, "\\'")}', ${force})">🗑️ Да, сохранить пустым</button>
         `;
         return UI.showModal('⚠️ Внимание: Пустой рецепт', html, buttons);
     }
@@ -510,6 +577,36 @@ window.saveRecipe = async function (force = false) {
     // Если всё ок — переходим к отправке
     executeSaveRecipe(productId, productName, force);
 };
+
+// 6.1 Функция отправки BOM-рецепта на сервер
+window.executeSaveRecipe = async function(productId, productName, force) {
+    if (typeof UI.closeModal === 'function') UI.closeModal();
+    UI.toast('⏳ Сохранение...', 'info');
+
+    const payload = { productId, productName, ingredients: currentRecipeData, force };
+
+    try {
+        await API.post('/api/recipes/save', payload);
+        UI.toast('✅ Рецепт успешно сохранен!', 'success');
+        if (typeof originalRecipeData !== 'undefined') {
+            originalRecipeData = JSON.parse(JSON.stringify(currentRecipeData));
+        }
+    } catch (e) {
+        if (e.body && e.body.warning) {
+            const html = `<div class="p-10 font-15">${e.body.warning.replace(/\\n/g, '<br>')}</div>`;
+            const buttons = `
+                <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+                <button class="btn btn-blue" style="background: var(--danger); border-color: var(--danger);" 
+                        onclick="executeSaveRecipe(${productId}, '${(productName || '').replace(/'/g, "\\'")}', true)">🗑️ Да, Сохранить принудительно</button>
+            `;
+            return UI.showModal('⚠️ Внимание: Отклонение норм', html, buttons);
+        } else {
+            console.error(e);
+            UI.toast(e.message || 'Ошибка', 'error');
+        }
+    }
+};
+
 
 // Функция отправки Шаблона в Режиме 2
 window.executeSaveMixTemplate = async function(templateKey, yieldValue, targetKeysArray = null) {
@@ -550,22 +647,7 @@ window.executeSaveMixTemplate = async function(templateKey, yieldValue, targetKe
     }
 };
 
-// 2. ОТПРАВКА НА СЕРВЕР И ПРОВЕРКА ОТВЕТА (Режим 1)
-window.executeSaveRecipe = async function (productId, productName, force) {
-    // Закрываем модалку, если она была открыта на предыдущем шаге
-    if (typeof UI.closeModal === 'function') UI.closeModal();
-    UI.toast('⏳ Сохранение...', 'info');
 
-    const payload = { productId, productName, ingredients: currentRecipeData, force };
-
-    try {
-        await API.post('/api/recipes/save', payload);
-        UI.toast('✅ Рецепт успешно сохранен!', 'success');
-        if (typeof originalRecipeData !== 'undefined') {
-            originalRecipeData = JSON.parse(JSON.stringify(currentRecipeData));
-        }
-    } catch (e) { console.error(e); }
-};
 
 // 7. Параметрическая модалка "Массовое применение шаблона" (Режим 1)
 function parseProductFeatures(name) {
@@ -605,7 +687,11 @@ function parseProductFeatures(name) {
 window.showRecipeMassApplyModal = function() {
     const prodSelect = document.getElementById('recipe-product-select');
     const productId = parseInt(prodSelect.value);
-    const productName = prodSelect.options[prodSelect.selectedIndex]?.text || '';
+    // Безопасное получение имени через TomSelect
+    const tsP = prodSelect.tomselect;
+    const productName = tsP
+        ? (tsP.options[tsP.getValue()] ? tsP.options[tsP.getValue()].text : '')
+        : (prodSelect.options[prodSelect.selectedIndex] ? prodSelect.options[prodSelect.selectedIndex].text : '');
 
     if (!productId) {
         UI.toast('Сначала выберите товар (эталон) для применения!', 'warning');
@@ -734,8 +820,8 @@ window.updateMassApplyList = function(sourceId) {
         listEl.innerHTML = '<div style="color: var(--text-muted); padding: 10px; text-align: center;">Товары, соответствующие фильтрам, не найдены.</div>';
     } else {
         listEl.innerHTML = matched.map(p => `
-            <label class="sync-list-item" style="font-size: 13px; cursor: pointer; padding: 4px; border-bottom: 1px solid var(--border-light);">
-                <input type="checkbox" class="mass-apply-cb" value="${p.id}" checked>
+            <label class="sync-list-item font-13 cursor-pointer p-5 border-bottom">
+                <input type="checkbox" class="mass-apply-cb" value="${p.id}" data-name="${(p.name || '').replace(/"/g, '&quot;')}" checked>
                 ${p.name}
             </label>
         `).join('');
@@ -752,24 +838,72 @@ window.executeMassApply = async function() {
         return;
     }
 
-    const payloadIngredients = currentRecipeData.map(ing => ({
-        materialId: String(ing.materialId),
-        qty: parseFloat(ing.qty)
+    const targets = Array.from(checkedBoxes).map(cb => ({
+        id: parseInt(cb.value),
+        name: cb.getAttribute('data-name') || ('ID ' + cb.value)
     }));
+    const total = targets.length;
 
-    const targetIds = Array.from(checkedBoxes).map(cb => parseInt(cb.value));
-
-    UI.toast('⏳ Применение...', 'info');
+    // Показываем модалку с прогрессом
     UI.closeModal();
+    const progressHtml = `
+        <div class="p-15">
+            <div class="mb-15 font-15 text-center" id="mass-progress-text">🚀 Инициализация... (0/${total})</div>
+            <div style="background: var(--border); border-radius: 8px; height: 12px; overflow: hidden; margin-bottom: 15px;">
+                <div id="mass-progress-bar" style="background: var(--primary); height: 100%; width: 0%; transition: width 0.3s ease; border-radius: 8px;"></div>
+            </div>
+            <div id="mass-progress-log" style="max-height: 200px; overflow-y: auto; font-size: 13px; line-height: 1.8;"></div>
+        </div>
+    `;
+    UI.showModal('📋 Массовое копирование рецепта', progressHtml, '');
 
-    try {
-        await API.post('/api/recipes/sync-category', {
-                targetProductIds: targetIds,
-                materials: payloadIngredients
+    const progressText = document.getElementById('mass-progress-text');
+    const progressBar = document.getElementById('mass-progress-bar');
+    const progressLog = document.getElementById('mass-progress-log');
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (let i = 0; i < targets.length; i++) {
+        const target = targets[i];
+        const pct = Math.round(((i + 1) / total) * 100);
+        if (progressText) progressText.innerText = `⏳ Обработка ${i + 1}/${total}...`;
+        if (progressBar) progressBar.style.width = pct + '%';
+
+        try {
+            await API.post('/api/recipes/sync-category', {
+                targetProductIds: [target.id],
+                materials: currentRecipeData.map(ing => ({
+                    materialId: String(ing.materialId),
+                    qty: parseFloat(ing.qty)
+                }))
             });
+            successCount++;
+            if (progressLog) progressLog.innerHTML += `<div class="text-success">✅ ${target.name}</div>`;
+        } catch (e) {
+            errorCount++;
+            const errMsg = (e.body && e.body.warning) ? e.body.warning : (e.body && e.body.error) ? e.body.error : (e.message || 'Ошибка');
+            if (progressLog) progressLog.innerHTML += `<div class="text-danger">❌ ${target.name}: ${errMsg}</div>`;
+        }
+    }
 
-        UI.toast('✅ Успешно применено!', 'success');
-    } catch (e) { console.error(e); }
+    // Финальный результат
+    if (progressBar) progressBar.style.width = '100%';
+    if (progressText) {
+        if (errorCount === 0) {
+            progressText.innerHTML = `<span class="text-success font-bold">✅ Завершено! Успешно: ${successCount} из ${total}</span>`;
+            if (progressBar) progressBar.style.background = 'var(--success)';
+        } else {
+            progressText.innerHTML = `<span class="text-warning font-bold">⚠️ Завершено! Успешно: ${successCount}, Ошибок: ${errorCount}</span>`;
+            if (progressBar) progressBar.style.background = errorCount === total ? 'var(--danger)' : 'var(--warning-text)';
+        }
+    }
+
+    // Меняем footer на кнопку Закрыть
+    const footer = document.getElementById('app-modal-footer');
+    if (footer) footer.innerHTML = `<button class="btn btn-blue" onclick="UI.closeModal()">Закрыть</button>`;
+
+    UI.toast(`📋 Массовое копирование завершено (${successCount}/${total})`, successCount === total ? 'success' : 'warning');
 }
 
     // === ГЛОБАЛЬНЫЙ ЭКСПОРТ ===
@@ -777,6 +911,7 @@ window.executeMassApply = async function() {
     if (typeof initStaticRecipeSelects === 'function') window.initStaticRecipeSelects = initStaticRecipeSelects;
     if (typeof loadRecipeDetails === 'function') window.loadRecipeDetails = loadRecipeDetails;
     if (typeof removeIngredientFromRecipe === 'function') window.removeIngredientFromRecipe = removeIngredientFromRecipe;
+    if (typeof updateIngredientQty === 'function') window.updateIngredientQty = updateIngredientQty;
     if (typeof renderRecipeTable === 'function') window.renderRecipeTable = renderRecipeTable;
     if (typeof isRecipeChanged === 'function') window.isRecipeChanged = isRecipeChanged;
     if (typeof parseProductFeatures === 'function') window.parseProductFeatures = parseProductFeatures;

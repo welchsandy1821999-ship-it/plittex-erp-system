@@ -287,13 +287,13 @@ window.handleCostSearch = function (query) {
         const warnEl = document.getElementById('cc-balance-warning');
 
         if (!ccSearchQuery) {
-            if (searchContainer) searchContainer.style.display = 'none';
-            if (warnEl) warnEl.style.display = 'block';
+            if (searchContainer) searchContainer.classList.add('hidden');
+            if (warnEl) warnEl.classList.remove('hidden');
             return;
         }
 
-        if (warnEl) warnEl.style.display = 'none';
-        if (searchContainer) searchContainer.style.display = 'block';
+        if (warnEl) warnEl.classList.add('hidden');
+        if (searchContainer) searchContainer.classList.remove('hidden');
 
         renderGlobalSearch();
     }
@@ -341,7 +341,7 @@ window.renderGlobalSearch = function () {
                             ${fmtRub(t.amount)} ₽
                         </div>
                         <div class="flex-row align-center">
-                            <button class="btn btn-outline p-5 font-12" style="height: 26px;" onclick="moveTransaction(${t.id})">🔄</button>
+                            <button class="btn btn-outline p-5 font-12 h-26" onclick="moveTransaction(${t.id})">🔄</button>
                         </div>
                     </div>
                 `).join('');
@@ -360,7 +360,7 @@ window.renderGlobalSearch = function () {
         if (groupHtml) {
             html += `
                 <div class="mb-15 fade-in-drilldown dash-search-group-wrap">
-                    <div style="background: ${colors[grp]}15; padding: 10px 15px; font-weight: bold; color: ${colors[grp]}; border-bottom: 2px solid ${colors[grp]}; text-transform: uppercase;">
+                    <div class="p-10 font-bold dash-financial-header" style="background: ${colors[grp]}15; color: ${colors[grp]}; border-bottom: 2px solid ${colors[grp]};">
                         ${titles[grp]}
                     </div>
                     ${groupHtml}
@@ -369,7 +369,7 @@ window.renderGlobalSearch = function () {
         }
     });
 
-    if (!html) html = '<div class="text-muted fade-in-drilldown" style="padding: 20px; text-align: center;">Ничего не найдено</div>';
+    if (!html) html = '<div class="text-muted fade-in-drilldown p-20 text-center" >Ничего не найдено</div>';
     container.innerHTML = html;
 };
 
@@ -398,26 +398,26 @@ window.renderDashPeriodUI = function () {
 
     let activeInputHtml = '';
     if (dashPeriodType === 'day') {
-        activeInputHtml = `<input type="date" class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px; width: 130px;" value="${dashSpecificDate}" onchange="applyDashPeriod('date', this.value)">`;
+        activeInputHtml = `<input type="date" class="input-modern dash-period-input dash-period-input-date" value="${dashSpecificDate}" onchange="applyDashPeriod('date', this.value)">`;
     } else if (dashPeriodType !== 'all' && dashPeriodType !== 'year' && dashPeriodType !== 'week') {
-        activeInputHtml = `<select class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px;" onchange="applyDashPeriod('value', this.value)">${valOptions}</select>`;
+        activeInputHtml = `<select class="input-modern dash-period-input" onchange="applyDashPeriod('value', this.value)">${valOptions}</select>`;
     }
 
     let yearHtml = '';
     if (dashPeriodType !== 'day' && dashPeriodType !== 'week' && dashPeriodType !== 'all') {
-        yearHtml = `<select class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px;" onchange="applyDashPeriod('year', this.value)">${yearOptions}</select>`;
+        yearHtml = `<select class="input-modern dash-period-input" onchange="applyDashPeriod('year', this.value)">${yearOptions}</select>`;
     }
 
     const html = `
-        <select class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px;" onchange="applyDashPeriod('type', this.value)">${typeOptions}</select>
+        <select class="input-modern dash-period-input" onchange="applyDashPeriod('type', this.value)">${typeOptions}</select>
         ${activeInputHtml}
         ${yearHtml}
     `;
 
     document.querySelectorAll('.dash-period-selector').forEach(container => {
         container.innerHTML = html;
-        container.style.display = 'flex';
-        container.style.gap = '8px';
+        container.classList.remove('hidden');
+        container.classList.add('gap-10');
     });
 };
 
@@ -498,7 +498,7 @@ window.renderDrilldown = function () {
                 </div>
             `;
         });
-        if (!html) html = '<div class="text-muted fade-in-drilldown" style="padding: 20px; text-align: center;">Ничего не найдено</div>';
+        if (!html) html = '<div class="text-muted fade-in-drilldown p-20 text-center" >Ничего не найдено</div>';
     } else {
         // Рендер ТРАНЗАКЦИЙ
         const catObj = groupData.find(c => c.name === ccCurrentCategory);
@@ -530,7 +530,7 @@ window.renderDrilldown = function () {
                 `;
             });
         }
-        if (!html) html = '<div class="text-muted fade-in-drilldown" style="padding: 20px; text-align: center;">Ничего не найдено</div>';
+        if (!html) html = '<div class="text-muted fade-in-drilldown p-20 text-center" >Ничего не найдено</div>';
 
         // Панель массового действия (по умолчанию скрыта)
         const bulkBar = `
@@ -561,11 +561,11 @@ window.updateBulkSelectBtn = function (element) {
     const bar = wrapper.querySelector('.bulk-select-bar');
     if (!bar) return;
     if (checkedBoxes.length > 0) {
-        bar.style.display = 'flex';
+        bar.classList.remove('hidden');
         const countEl = bar.querySelector('.bulk-select-count');
         if (countEl) countEl.textContent = 'Выбрано: ' + checkedBoxes.length;
     } else {
-        bar.style.display = 'none';
+        bar.classList.add('hidden');
         const selectAllCb = bar.querySelector('.bulk-select-all-cb');
         if (selectAllCb) selectAllCb.checked = false;
     }
@@ -602,22 +602,22 @@ window.moveSelectedTransactions = function (btnElement) {
         selectOptions += '<option value="' + n.replace(/"/g, '&quot;') + '">' + n + '</option>';
     });
 
-    var modalHtml = '<div style="display: flex; flex-direction: column; gap: 15px;">' +
-        '<div style="font-weight: bold; font-size: 13px;">Выбрано транзакций: <span style="color: var(--primary);">' + selectedIds.length + ' шт.</span></div>' +
+    var modalHtml = '<div class="flex-col gap-15">' +
+        '<div class="font-bold font-13">Выбрано транзакций: <span class="text-primary">' + selectedIds.length + ' шт.</span></div>' +
 
-        '<div class="form-group" style="margin: 0;">' +
-        '<label style="font-weight: 600; margin-bottom: 4px; display: block;">Переместить в существующую папку:</label>' +
-        '<select id="renameExistingSelect" class="input-modern" style="font-size: 14px; padding: 10px;">' + selectOptions + '</select>' +
+        '<div class="form-group m-0" >' +
+        '<label class="font-600 mb-5 block">Переместить в существующую папку:</label>' +
+        '<select id="renameExistingSelect" class="input-modern font-14 p-10" >' + selectOptions + '</select>' +
         '</div>' +
 
-        '<div class="form-group" style="margin: 0;">' +
-        '<label style="font-weight: 600; margin-bottom: 4px; display: block;">Или создать новую папку:</label>' +
-        '<input type="text" id="renameNameInput" class="input-modern" style="font-size: 14px; padding: 10px; font-weight: 600;" placeholder="Например: Канцтовары...">' +
+        '<div class="form-group m-0" >' +
+        '<label class="font-600 mb-5 block">Или создать новую папку:</label>' +
+        '<input type="text" id="renameNameInput" class="input-modern font-14 p-10 font-600"  placeholder="Например: Канцтовары...">' +
         '</div>' +
 
-        '<div class="form-group" style="margin: 0;">' +
-        '<label style="font-weight: 600; margin-bottom: 4px; display: block;">Группа для новой категории:</label>' +
-        '<select id="rename-folder-group" class="input-modern" style="font-size: 13px; padding: 8px;">' +
+        '<div class="form-group m-0" >' +
+        '<label class="font-600 mb-5 block">Группа для новой категории:</label>' +
+        '<select id="rename-folder-group" class="input-modern font-13 p-10" >' +
         '<option value="direct"' + (ccRenameGroup === 'direct' ? ' selected' : '') + '>🟢 Прямые (COGS)</option>' +
         '<option value="opex"' + (ccRenameGroup === 'opex' ? ' selected' : '') + '>🟠 Косвенные (OPEX)</option>' +
         '<option value="capex"' + (ccRenameGroup === 'capex' ? ' selected' : '') + '>🟣 Капитал (CAPEX)</option>' +
@@ -647,7 +647,7 @@ window.moveTransaction = async function (txId) {
         const html = `
             <div class="form-group">
                 <label>Выберите новую группу (перенос):</label>
-                <select id="move-cat-select" class="input-modern" style="font-size: 14px; padding: 10px;">
+                <select id="move-cat-select" class="input-modern font-14 p-10" >
                     <option value="" selected>Автоматически (По матрице)</option>
                     <option value="direct">🟢 Прямые (COGS)</option>
                     <option value="overhead">🟠 Косвенные (OPEX)</option>
@@ -713,9 +713,9 @@ window.moveFolderCategory = function (btnElement) {
 
         const html = `
             <div class="form-group">
-                <label style="font-weight: bold; margin-bottom: 8px; display: block;">Транзакций для переноса: <span style="color: var(--primary);">${ccCurrentFolderIds.length} шт.</span></label>
+                <label class="font-bold mb-10 block">Транзакций для переноса: <span class="text-primary">${ccCurrentFolderIds.length} шт.</span></label>
                 <label>Перенести ВСЕ транзакции этой папки в группу:</label>
-                <select id="move-folder-select" class="input-modern" style="font-size: 14px; padding: 10px;">
+                <select id="move-folder-select" class="input-modern font-14 p-10" >
                     <option value="" selected>Автоматически (По матрице)</option>
                     <option value="direct">🟢 Прямые (COGS)</option>
                     <option value="overhead">🟠 Косвенные (OPEX)</option>
@@ -793,22 +793,22 @@ window.renameFolder = function (btnElement) {
             selectOptions += '<option value="' + n.replace(/"/g, '&quot;') + '">' + n + '</option>';
         });
 
-        var modalHtml = '<div style="display: flex; flex-direction: column; gap: 15px;">' +
-            '<div style="font-weight: bold; font-size: 13px;">Транзакций: <span style="color: var(--primary);">' + ccRenameIds.length + ' шт.</span></div>' +
+        var modalHtml = '<div class="flex-col gap-15">' +
+            '<div class="font-bold font-13">Транзакций: <span class="text-primary">' + ccRenameIds.length + ' шт.</span></div>' +
 
-            '<div class="form-group" style="margin: 0;">' +
-            '<label style="font-weight: 600; margin-bottom: 4px; display: block;">Выберите существующую папку (для объединения):</label>' +
-            '<select id="renameExistingSelect" class="input-modern" style="font-size: 14px; padding: 10px;">' + selectOptions + '</select>' +
+            '<div class="form-group m-0" >' +
+            '<label class="font-600 mb-5 block">Выберите существующую папку (для объединения):</label>' +
+            '<select id="renameExistingSelect" class="input-modern font-14 p-10" >' + selectOptions + '</select>' +
             '</div>' +
 
-            '<div class="form-group" style="margin: 0;">' +
-            '<label style="font-weight: 600; margin-bottom: 4px; display: block;">Или введите новое название:</label>' +
-            '<input type="text" id="renameNameInput" class="input-modern" style="font-size: 14px; padding: 10px; font-weight: 600;" placeholder="Например: Канцтовары...">' +
+            '<div class="form-group m-0" >' +
+            '<label class="font-600 mb-5 block">Или введите новое название:</label>' +
+            '<input type="text" id="renameNameInput" class="input-modern font-14 p-10 font-600"  placeholder="Например: Канцтовары...">' +
             '</div>' +
 
-            '<div class="form-group" style="margin: 0;">' +
-            '<label style="font-weight: 600; margin-bottom: 4px; display: block;">Группа для новой категории:</label>' +
-            '<select id="rename-folder-group" class="input-modern" style="font-size: 13px; padding: 8px;">' +
+            '<div class="form-group m-0" >' +
+            '<label class="font-600 mb-5 block">Группа для новой категории:</label>' +
+            '<select id="rename-folder-group" class="input-modern font-13 p-10" >' +
             '<option value="direct"' + (ccRenameGroup === 'direct' ? ' selected' : '') + '>🟢 Прямые (COGS)</option>' +
             '<option value="opex"' + (ccRenameGroup === 'opex' ? ' selected' : '') + '>🟠 Косвенные (OPEX)</option>' +
             '<option value="capex"' + (ccRenameGroup === 'capex' ? ' selected' : '') + '>🟣 Капитал (CAPEX)</option>' +

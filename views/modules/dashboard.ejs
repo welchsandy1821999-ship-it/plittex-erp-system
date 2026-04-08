@@ -18,7 +18,7 @@
             <div class="dash-period-selector flex-row gap-5"></div>
         </div>
         <!-- Закомментированная кнопка матрицы осталась, но стили скрытия сохранены -->
-        <button class="btn btn-outline" style="margin-right: 10px; display: none;" onclick="openCategoryMatrix()">
+        <button class="btn btn-outline mr-10 hidden" onclick="openCategoryMatrix()">
             🎛️ Матрица статей
         </button>
         <button class="btn btn-blue" onclick="loadCostConstructor()">🔄 Обновить</button>
@@ -43,7 +43,7 @@
     <!-- Капитализация склада (Активы) - Аккордеон -->
     <div class="card mb-20 dash-stock-card">
         <div class="p-15 cursor-pointer flex-between align-center"
-            onclick="const body = document.getElementById('stock-val-body'); body.style.display = body.style.display === 'none' ? 'block' : 'none';">
+            onclick="document.getElementById('stock-val-body').classList.toggle('hidden');">
             <div>
                 <h3 class="dash-stock-title">📦 Капитализация склада (Активы)</h3>
                 <p class="text-muted m-0 mt-5 font-12">Общая стоимость остатков сырья и готовой продукции: <span
@@ -51,7 +51,7 @@
             </div>
             <div class="text-muted font-11">▼ РАСКРЫТЬ</div>
         </div>
-        <div id="stock-val-body" class="dash-accordion-body" style="display: none;">
+        <div id="stock-val-body" class="dash-accordion-body hidden">
             <div id="stock-val-list" class="flex-col gap-5 mt-10">
                 <div class="text-muted font-13">Загрузка данных...</div>
             </div>
@@ -59,48 +59,40 @@
     </div>
 
     <!-- Виджеты: Дебиторка и Min Stock -->
-    <div class="form-grid mb-20 gap-20 align-start" style="grid-template-columns: 1fr 1fr;">
-
-        <div class="card p-0 border-left-warning overflow-hidden">
-            <div class="p-15 cursor-pointer flex-between align-center"
-                onclick="var b=this.nextElementSibling; var i=this.querySelector('.acc-icon'); if(b.style.display==='none'){b.style.display='block';i.innerText='▲';}else{b.style.display='none';i.innerText='▼';}">
-                <div>
-                    <h3 class="m-0 font-15">💰 Ожидаемые поступления</h3>
-                </div>
-                <div class="flex-row align-center gap-10">
-                    <div class="text-warning font-18 font-bold" id="dash-widget-ar-total">0 ₽</div>
-                    <div class="text-muted font-12 acc-icon" style="user-select: none;">▼</div>
-                </div>
+    <!-- Виджеты: Дебиторка и Min Stock (Адаптированы под полный размер) -->
+    
+    <div class="card mb-20 p-0 border-left-warning">
+        <div class="p-15 cursor-pointer flex-between align-center"
+            onclick="document.getElementById('dash-ar-body').classList.toggle('hidden');">
+            <div>
+                <h3 class="dash-stock-title m-0">💰 Ожидаемые поступления</h3>
+                <p class="text-muted m-0 mt-5 font-12">Общая сумма запланированных платежей от клиентов: <span
+                        id="dash-widget-ar-total" class="font-bold text-warning">0 ₽</span></p>
             </div>
-
-            <div id="dash-ar-body"
-                style="display: none; padding: 0 15px 15px 15px; border-top: 1px dashed var(--border);">
-                <div id="dash-widget-ar-list" style="font-size: 13px; color: var(--text-muted);">
-                    <div style="padding: 10px;">Загрузка...</div>
-                </div>
+            <div class="text-muted font-11">▼ РАСКРЫТЬ</div>
+        </div>
+        <div id="dash-ar-body" class="dash-acc-body hidden">
+            <div id="dash-widget-ar-list" class="dash-widget-list mt-10">
+                <div class="p-10">Загрузка...</div>
             </div>
         </div>
+    </div>
 
-        <div class="card p-0 border-left-danger overflow-hidden">
-            <div class="p-15 cursor-pointer flex-between align-center"
-                onclick="var b=this.nextElementSibling; var i=this.querySelector('.acc-icon'); if(b.style.display==='none'){b.style.display='block';i.innerText='▲';}else{b.style.display='none';i.innerText='▼';}">
-                <div>
-                    <h3 class="m-0 font-15">🚨 Заканчиваются материалы</h3>
-                </div>
-                <div class="flex-row align-center gap-10">
-                    <span id="dash-widget-stock-badge" class="text-danger font-16 font-bold"></span>
-                    <div class="text-muted font-12 acc-icon" style="user-select: none;">▼</div>
-                </div>
+    <div class="card mb-20 p-0 border-left-danger">
+        <div class="p-15 cursor-pointer flex-between align-center"
+            onclick="document.getElementById('dash-stock-body').classList.toggle('hidden');">
+            <div>
+                <h3 class="dash-stock-title m-0">🚨 Заканчиваются материалы</h3>
+                <p class="text-muted m-0 mt-5 font-12">Сырье и материалы со статусом критически низкого запаса: <span
+                        id="dash-widget-stock-badge" class="font-bold text-danger"></span></p>
             </div>
-
-            <div id="dash-stock-body"
-                style="display: none; padding: 0 15px 15px 15px; border-top: 1px dashed var(--border);">
-                <div id="dash-widget-stock-list" style="font-size: 13px; color: var(--text-muted); min-height: 50px;">
-                    <div style="padding: 10px;">Загрузка...</div>
-                </div>
+            <div class="text-muted font-11">▼ РАСКРЫТЬ</div>
+        </div>
+        <div id="dash-stock-body" class="dash-acc-body hidden">
+            <div id="dash-widget-stock-list" class="dash-widget-list mt-10">
+                <div class="p-10">Загрузка...</div>
             </div>
         </div>
-
     </div>
     <!-- Умный поиск -->
     <div class="mb-20">
@@ -109,7 +101,7 @@
             oninput="handleCostSearch(this.value)">
 
         <!-- Контейнер для результатов глобального поиска -->
-        <div id="cc-global-search-container" class="card mt-15 dash-search-container" style="display: none;">
+        <div id="cc-global-search-container" class="card mt-15 dash-search-container hidden">
             <div class="flex-between dash-panel-header mb-15">
                 <h3 class="m-0 font-16">🔍 Результаты глобального поиска</h3>
                 <button class="btn btn-outline btn-sm"
@@ -152,7 +144,7 @@
         <div id="dashboard-tabs-content" class="dashboard-tabs-content collapsed-panel"
             style="display: flex; width: 300%; transition: transform 0.4s ease-in-out, max-height 0.4s ease-in-out, opacity 0.4s ease-in-out; align-items: flex-start; transform: translateX(0%); overflow: hidden;">
 
-            <div class="tab-panel" style="width: 33.333%; padding-right: 20px; box-sizing: border-box;">
+            <div class="tab-panel dash-tab-panel dash-tab-panel-1">
                 <div class="card mb-0 dash-panel-success">
                     <div class="flex-between mb-15 dash-panel-header">
                         <div class="flex-row gap-10 align-center">
@@ -181,7 +173,7 @@
                 </div>
             </div>
 
-            <div class="tab-panel" style="width: 33.333%; padding-left: 20px; box-sizing: border-box;">
+            <div class="tab-panel dash-tab-panel dash-tab-panel-3">
                 <div class="card mb-0 dash-panel-primary">
                     <div class="flex-between mb-15 dash-panel-header">
                         <div class="flex-row gap-10 align-center">
@@ -207,7 +199,7 @@
                     пресса.</p>
             </div>
             <div class="dash-finance-tax-box">
-                <div class="font-11 text-muted font-bold" style="text-transform: uppercase;">Налог со сделки</div>
+                <div class="font-11 text-muted font-bold dash-financial-header">Налог со сделки</div>
                 <div class="dash-tax-input-wrap">
                     <input type="number" id="set-sales-tax" class="input-modern dash-tax-input" step="1" min="0"
                         value="6">
@@ -219,7 +211,7 @@
         <div class="dash-finance-input-box">
             <div class="flex-between align-center mb-10">
                 <strong class="font-13 text-primary">1. Исходные данные месяца (План):</strong>
-                <span class="font-11 text-info p-5" style="background: var(--info-bg); border-radius: 4px;">В будущем
+                <span class="font-11 text-info p-5 dash-info-badge">В будущем
                     автоматизируем из модуля Финансы 🔄</span>
             </div>
 
@@ -250,7 +242,7 @@
                 </div>
             </div>
             <div class="text-right">
-                <div id="res-overhead-cycle" class="font-24 text-warning" style="font-weight: 900; line-height: 1;">
+                <div id="res-overhead-cycle" class="font-24 text-warning dash-heavy-amount">
                     136.36 ₽</div>
                 <div class="font-11 font-bold text-muted mt-5">ложится на 1 поддон продукции</div>
             </div>

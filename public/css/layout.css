@@ -203,4 +203,11 @@ input[list]::-webkit-calendar-picker-indicator {
 body.dev-panel-hidden-active {
     padding-bottom: 0 !important;
 }
+
+/* ==========================================================================
+   UTILITY CLASSES & AUDIT-011 
+   ========================================================================== */
+.hidden {
+    display: none !important;
+}
 

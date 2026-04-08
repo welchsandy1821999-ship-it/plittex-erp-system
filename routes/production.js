@@ -243,13 +243,18 @@ module.exports = function (pool, getWhId, withTransaction) {
                         const batchNum = `П-${date.replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
                         const pQty = Number(new Big(p.quantity || 0));
                         const pCycles = Number(new Big(p.cycles || 0));
+                        
+                        const pInfo = prodInfoRes.rows.find(x => x.id == p.id) || {};
+                        const pMoldAmort = Number(new Big(pInfo.mold_amort || pInfo.manual_amort || 0).round(4));
+                        const calcMachineCost = Number(new Big(machineAmort).times(pCycles).round(2));
+                        const calcMoldCost = Number(new Big(pMoldAmort).times(pCycles).round(2));
 
                         const bRes = await client.query(`
                             INSERT INTO production_batches 
                             (batch_number, product_id, planned_quantity, status, cycles_count, shift_name, 
                              mat_cost_total, overhead_cost_total, machine_amort_cost, mold_amort_cost, production_date)
-                            VALUES ($1, $2, $3, 'draft', $4, $5, 0, 0, 0, 0, $6) RETURNING id
-                        `, [batchNum, p.id, pQty, pCycles, shiftName, date]);
+                            VALUES ($1, $2, $3, 'draft', $4, $5, 0, 0, $6, $7, $8) RETURNING id
+                        `, [batchNum, p.id, pQty, pCycles, shiftName, calcMachineCost, calcMoldCost, date]);
 
                         const newBatchId = bRes.rows[0].id;
 
@@ -506,6 +511,11 @@ module.exports = function (pool, getWhId, withTransaction) {
                     await client.query('DELETE FROM production_batches WHERE id = $1', [batchId]);
                     return;
                 }
+                
+                // 🛡️ ЗАЩИТА: Уже удалено
+                if (batch.status === 'deleted') {
+                    throw new Error('Эта партия уже была отменена и удалена. Двойное удаление заблокировано.');
+                }
                 const cycles = Number(new Big(batch.cycles_count || 0));
 
                 // --- 2. СТАНДАРТНЫЙ ОТКАТ СКЛАДА И ОБОРУДОВАНИЯ ---
@@ -522,8 +532,8 @@ module.exports = function (pool, getWhId, withTransaction) {
                     await client.query(`UPDATE equipment SET current_cycles = GREATEST(0, COALESCE(current_cycles, 0) - $1) WHERE equipment_type = 'pallets' AND status = 'active'`, [cycles]);
                 }
 
-                // 3. УДАЛЯЕМ САМУ ПАРТИЮ
-                await client.query('UPDATE production_batches SET status = \'deleted\' WHERE id = $1', [batchId]);
+                // 3. УДАЛЯЕМ САМУ ПАРТИЮ ИЗ БАЗЫ
+                await client.query('DELETE FROM production_batches WHERE id = $1', [batchId]);
 
                 // 🔄 4. КАСКАДНЫЙ ПЕРЕСЧЕТ ЗАРПЛАТЫ
                 if (batch.is_salary_calculated) {
@@ -640,9 +650,11 @@ module.exports = function (pool, getWhId, withTransaction) {
         try {
             // 🚀 Динамически получаем ID склада сырья
             const materialsWh = await getWhId(pool, 'materials');
+            const filterProductId = req.query.product_id ? parseInt(req.query.product_id) : null;
 
             // 1. Собираем все невыполненные задачи
-            const planRes = await pool.query(`
+            const planParams = [];
+            let planQuery = `
                 SELECT 
                     pp.item_id, 
                     i.name as item_name, 
@@ -653,16 +665,22 @@ module.exports = function (pool, getWhId, withTransaction) {
                 JOIN client_order_items coi ON pp.order_item_id = coi.id
                 JOIN client_orders co ON coi.order_id = co.id
                 WHERE co.status IN ('pending', 'processing')
-                GROUP BY pp.item_id, i.name, i.unit
-                ORDER BY total_needed_qty DESC
-            `);
+            `;
+            if (filterProductId) {
+                planParams.push(filterProductId);
+                planQuery += ` AND pp.item_id = $1 `;
+            }
+            planQuery += ` GROUP BY pp.item_id, i.name, i.unit ORDER BY total_needed_qty DESC `;
 
+            const planRes = await pool.query(planQuery, planParams);
             const productionPlan = planRes.rows;
+
             // 2. Рассчитываем потребность по рецептам и остатки одним мощным CTE запросом
             let deficitReport = [];
             
             if (productionPlan.length > 0) {
-                const deficitRes = await pool.query(`
+                const deficitParams = [materialsWh];
+                let deficitQuery = `
                     WITH needed_materials AS (
                         SELECT r.material_id, SUM(r.quantity_per_unit * pp.total_needed_qty) as total_needed
                         FROM recipes r
@@ -672,6 +690,14 @@ module.exports = function (pool, getWhId, withTransaction) {
                             JOIN client_order_items coi ON pp.order_item_id = coi.id
                             JOIN client_orders co ON coi.order_id = co.id
                             WHERE co.status IN ('pending', 'processing')
+                `;
+                
+                if (filterProductId) {
+                    deficitParams.push(filterProductId);
+                    deficitQuery += ` AND pp.item_id = $2 `;
+                }
+
+                deficitQuery += `
                             GROUP BY pp.item_id
                         ) pp ON r.product_id = pp.item_id
                         GROUP BY r.material_id
@@ -686,7 +712,9 @@ module.exports = function (pool, getWhId, withTransaction) {
                     FROM needed_materials nm
                     JOIN items i ON nm.material_id = i.id
                     LEFT JOIN material_stock ms ON ms.item_id = nm.material_id
-                `, [materialsWh]);
+                `;
+
+                const deficitRes = await pool.query(deficitQuery, deficitParams);
 
                 deficitReport = deficitRes.rows.map(row => {
                     const neededBig = new Big(row.total_needed || 0);

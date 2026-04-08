@@ -632,6 +632,99 @@ module.exports = function (pool, getWhId, withTransaction) {
     });
 
     // ------------------------------------------------------------------
+    // X. МАРШРУТ: ИСТОРИЯ ДВИЖЕНИЯ ТОВАРА / КАРТОЧКА (GET /api/inventory/history/:itemId)
+    // ------------------------------------------------------------------
+    router.get('/api/inventory/history/:itemId', requireAdmin, async (req, res) => {
+        const { itemId } = req.params;
+        const { warehouse_id, start_date, end_date } = req.query;
+
+        try {
+            let filterConditions = [`m.item_id = $1`];
+            let filterParams = [itemId];
+            let paramIdx = 2;
+
+            if (warehouse_id && warehouse_id !== 'all') {
+                filterConditions.push(`m.warehouse_id = $${paramIdx}`);
+                filterParams.push(warehouse_id);
+                paramIdx++;
+            }
+
+            // Сальдо на начало
+            let startBalance = 0;
+            if (start_date) {
+                const sbParams = [...filterParams];
+                let sbConditions = [...filterConditions];
+                
+                sbConditions.push(`m.movement_date < $${paramIdx}`);
+                sbParams.push(`${start_date} 00:00:00`);
+
+                const sbRes = await pool.query(`
+                    SELECT COALESCE(SUM(quantity), 0) as start_balance
+                    FROM inventory_movements m
+                    WHERE ${sbConditions.join(' AND ')}
+                `, sbParams);
+                startBalance = parseFloat(sbRes.rows[0].start_balance) || 0;
+            }
+
+            // Основная выборка движений
+            if (start_date) {
+                filterConditions.push(`m.movement_date >= $${paramIdx}`);
+                filterParams.push(`${start_date} 00:00:00`);
+                paramIdx++;
+            }
+            if (end_date) {
+                filterConditions.push(`m.movement_date <= $${paramIdx}`);
+                filterParams.push(`${end_date} 23:59:59`);
+                paramIdx++;
+            }
+
+            const query = `
+                SELECT 
+                    m.id, 
+                    m.movement_date, 
+                    m.quantity, 
+                    m.movement_type, 
+                    m.description, 
+                    m.warehouse_id, 
+                    w.name as warehouse_name,
+                    m.batch_id, 
+                    b.batch_number,
+                    m.order_id, 
+                    o.doc_number as order_doc,
+                    m.supplier_id, 
+                    c.name as supplier_name,
+                    u.username as user_name,
+                    m.unit_price, 
+                    m.amount
+                FROM inventory_movements m
+                LEFT JOIN warehouses w ON m.warehouse_id = w.id
+                LEFT JOIN production_batches b ON m.batch_id = b.id
+                LEFT JOIN client_orders o ON m.order_id = o.id
+                LEFT JOIN counterparties c ON m.supplier_id = c.id
+                LEFT JOIN users u ON m.user_id = u.id
+                WHERE ${filterConditions.join(' AND ')}
+                ORDER BY m.movement_date ASC, m.id ASC
+            `;
+
+            const historyRes = await pool.query(query, filterParams);
+            
+            const itemRes = await pool.query('SELECT current_price FROM items WHERE id = $1', [itemId]);
+            const currentPrice = itemRes.rows.length > 0 ? parseFloat(itemRes.rows[0].current_price) || 0 : 0;
+
+            res.json({
+                success: true,
+                startBalance: startBalance,
+                history: historyRes.rows,
+                currentPrice: currentPrice
+            });
+
+        } catch (err) {
+            console.error('INVENTORY HISTORY ERROR:', err);
+            res.status(500).json({ error: 'Ошибка сервера при получении истории движения' });
+        }
+    });
+
+    // ------------------------------------------------------------------
     // 3. МАРШРУТ: СПИСАНИЕ В БРАК ИЛИ УТИЛЬ (POST /api/inventory/scrap)
     // ------------------------------------------------------------------
     router.post('/api/inventory/scrap', requireAdmin, async (req, res) => {

@@ -187,6 +187,9 @@ window.handleProductSelection = async function () {
     const productId = sel.value;
     if (!productId) return;
 
+    // Сброс цифр при смене партии
+    document.getElementById('prod-cycles-input').value = '';
+
     // Берём данные из allProductsList
     const product = allProductsList.find(p => p.id == productId);
 
@@ -380,7 +383,7 @@ window.addProdToSession = async function () {
         origBtnText = addBtn.innerText;
         addBtn.disabled = true;
         addBtn.innerText = '⏳ Сохранение...';
-        addBtn.style.opacity = '0.6';
+        addBtn.classList.add('opacity-60');
     }
 
     try {
@@ -414,7 +417,7 @@ window.addProdToSession = async function () {
         if (addBtn) {
             addBtn.disabled = false;
             addBtn.innerText = origBtnText;
-            addBtn.style.opacity = '1';
+            addBtn.classList.remove('opacity-60', 'opacity-50');
         }
     }
 
@@ -496,8 +499,8 @@ window.submitDailyProduction = async function (btnElement) {
         b.dataset.origText = b.innerText;
         b.innerText = 'Обработка...';
         b.disabled = true;
-        b.style.opacity = '0.5';
-        b.style.pointerEvents = 'none';
+        b.classList.add('opacity-50');
+        b.classList.add('no-pointer');
     });
 
     // Материалы уже загружены в sessionProducts через loadDailyHistory
@@ -549,8 +552,8 @@ window.submitDailyProduction = async function (btnElement) {
         buttonsToDisable.forEach(b => {
             b.innerText = b.dataset.origText || 'Закрыть смену';
             b.disabled = false;
-            b.style.opacity = '1';
-            b.style.pointerEvents = 'auto';
+            b.classList.remove('opacity-60', 'opacity-50');
+            b.classList.remove('no-pointer');
         });
     }
 };
@@ -584,11 +587,11 @@ window.editMixTemplate = function (templateKey) {
                         ${rowMatOptions}
                     </select>
                 </td>
-                <td class="p-10" style="width: 140px;">
+                <td class="p-10 w-140" >
                     <input type="number" step="any" class="input-modern tpl-qty-input text-center font-bold m-0 w-100" data-index="${index}" value="${mat.qty}" onfocus="this.select()">
                 </td>
-                <td class="text-right p-10" style="width: 60px;">
-                    <button class="btn btn-red" style="padding: 6px 12px; height: auto;" onclick="removeMaterialFromTemplate('${templateKey}', ${index})" title="Удалить строку">✕</button>
+                <td class="text-right p-10 w-60" >
+                    <button class="btn btn-red p-5 h-auto"  onclick="removeMaterialFromTemplate('${templateKey}', ${index})" title="Удалить строку">✕</button>
                 </td>
             </tr>
         `;
@@ -599,28 +602,28 @@ window.editMixTemplate = function (templateKey) {
             <table class="w-100 prod-table-modern mb-20">
                 <thead>
                     <tr>
-                        <th class="prod-tpl-edit-th" style="border-radius: 8px 0 0 8px;">Сырье (можно заменить)</th>
+                        <th class="prod-tpl-edit-th input-left-rounded" >Сырье (можно заменить)</th>
                         <th class="prod-tpl-edit-th text-center">Норма (кг)</th>
-                        <th class="prod-tpl-edit-th text-right" style="border-radius: 0 8px 8px 0;">Удалить</th>
+                        <th class="prod-tpl-edit-th text-right input-right-rounded" >Удалить</th>
                     </tr>
                 </thead>
                 <tbody>
-                    ${tableRows || '<tr><td colspan="3" class="text-center text-muted p-20" style="font-style: italic;">В шаблоне пока нет сырья</td></tr>'}
+                    ${tableRows || '<tr><td colspan="3" class="text-center text-muted p-20 italic" >В шаблоне пока нет сырья</td></tr>'}
                 </tbody>
             </table>
 
             <div class="prod-tpl-edit-add-wrap">
-                <label class="text-primary font-bold font-14 mb-10" style="display: block;">➕ Добавить новое сырье в шаблон:</label>
+                <label class="text-primary font-bold font-14 mb-10 block" >➕ Добавить новое сырье в шаблон:</label>
                 <div class="flex-row gap-10 align-stretch">
                     <select id="new-tpl-mat" class="input-modern flex-grow-1 m-0">${matOptionsGlobal}</select>
-                    <input type="number" step="any" id="new-tpl-qty" class="input-modern text-center font-bold m-0" placeholder="0.00" style="width: 120px;" onfocus="this.select()">
+                    <input type="number" step="any" id="new-tpl-qty" class="input-modern text-center font-bold m-0 w-120" placeholder="0.00"  onfocus="this.select()">
                     <button class="btn btn-green shadow-success font-bold p-10" onclick="addMaterialToTemplate('${templateKey}')">Добавить</button>
                 </div>
             </div>
         </div>
     `;
 
-    UI.showModal(title, html, `<button class="btn btn-blue w-100 btn-lg" style="font-size: 16px; font-weight: bold;" onclick="saveMixTemplate('${templateKey}')">💾 СОХРАНИТЬ ШАБЛОН</button>`);
+    UI.showModal(title, html, `<button class="btn btn-blue w-100 btn-lg font-16 font-bold"  onclick="saveMixTemplate('${templateKey}')">💾 СОХРАНИТЬ ШАБЛОН</button>`);
 
     // Инициализация TomSelect после рендера модалки
     setTimeout(() => {
@@ -754,7 +757,7 @@ async function loadDailyHistory() {
 
         if (data.length === 0) {
             tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">В этот день формовок не было.</td></tr>';
-            if (tfoot) tfoot.style.display = 'none';
+            if (tfoot) tfoot.classList.add('hidden');
             return;
         }
 
@@ -768,7 +771,7 @@ async function loadDailyHistory() {
             dayTotalCost += cost;
 
             const draftBadge = isDraft ? '<span class="prod-badge-draft">📝 Черновик</span>' : '';
-            const costDisplay = isDraft ? '<span class="text-muted" style="font-style: italic;">—</span>' : `${cost.toFixed(2)} ₽`;
+            const costDisplay = isDraft ? '<span class="text-muted italic">—</span>' : `${cost.toFixed(2)} ₽`;
 
             return `
             <tr id="row-${b.id}" class="${isDraft ? 'prod-row-draft' : ''}">
@@ -776,10 +779,10 @@ async function loadDailyHistory() {
                 <td onclick="toggleBatchDetails(${b.id})">${b.product_name}</td>
                 <td onclick="toggleBatchDetails(${b.id})">${volume.toFixed(2)}</td>
                 <td onclick="toggleBatchDetails(${b.id})">${costDisplay}</td>
-                <td class="text-right" style="white-space: nowrap;">
-                    <button class="btn btn-outline text-primary p-5" style="margin-right: 5px;" 
+                <td class="text-right whitespace-nowrap">
+                    <button class="btn btn-outline text-primary p-5 mr-5" 
                             onclick="event.stopPropagation(); window.open('/print/passport?batchId=${b.id}&token=' + localStorage.getItem('token'), '_blank')">🖨️</button>
-                    ${isDraft ? `<button class="btn btn-outline p-5" style="color: var(--warning-text); margin-right: 5px;" 
+                    ${isDraft ? `<button class="btn btn-outline p-5 text-warning mr-5" 
                                          onclick="event.stopPropagation(); editDraftBatch(${b.id})">✏️</button>` : ''}
                     <button class="btn btn-outline text-danger p-5" 
                             onclick="event.stopPropagation(); deleteBatch(${b.id}, '${b.batch_number}')">❌</button>
@@ -789,7 +792,7 @@ async function loadDailyHistory() {
 
         // Выводим итоги 
         if (tfoot && data.length > 0) {
-            tfoot.style.display = 'table-footer-group';
+            tfoot.classList.add('table-footer'); tfoot.classList.remove('hidden');
             document.getElementById('prod-total-volume').innerText = dayTotalVolume.toFixed(2);
             document.getElementById('prod-total-cost').innerText = Utils.formatMoney(dayTotalCost);
         }
@@ -868,7 +871,7 @@ async function toggleBatchDetails(batchId) {
                     </div>
                     <div class="prod-cost-unit-mach">
                         <span class="text-muted">На 1 единицу:</span>
-                        <b style="color: #b37400;">${Utils.formatMoney(unitMachineAmortCost)}</b>
+                        <b class="text-warning">${Utils.formatMoney(unitMachineAmortCost)}</b>
                     </div>
                 </div>
 
@@ -879,7 +882,18 @@ async function toggleBatchDetails(batchId) {
                     </div>
                     <div class="prod-cost-unit-mold">
                         <span class="text-muted">На 1 единицу:</span>
-                        <b style="color: #0056b3;">${Utils.formatMoney(unitMoldAmortCost)}</b>
+                        <b class="text-primary">${Utils.formatMoney(unitMoldAmortCost)}</b>
+                    </div>
+                </div>
+
+                <div class="prod-cost-card bg-surface">
+                    <div class="prod-cost-header">
+                        <span class="prod-cost-title font-bold text-main">💰 ИТОГО (Себестоимость)</span>
+                        <b class="prod-cost-val font-bold text-main font-18">${Utils.formatMoney(totalCost)}</b>
+                    </div>
+                    <div class="prod-cost-unit-mold mt-10">
+                        <span class="text-muted">Полная себестоимость 1 ед:</span>
+                        <b class="text-main font-bold font-16">${Utils.formatMoney(unitTotalCost)}</b>
                     </div>
                 </div>
             </div>
@@ -893,12 +907,12 @@ async function toggleBatchDetails(batchId) {
                 <table class="prod-table-modern">
                     <thead class="prod-th-styled">
                         <tr>
-                            <th class="prod-th-styled" style="border-bottom: 2px solid #eee;">МАТЕРИАЛ</th>
-                            <th class="prod-th-styled prod-th-right" style="border-bottom: 2px solid #eee;">ОБЩИЙ РАСХОД</th>
-                            <th class="prod-th-styled prod-th-right" style="border-bottom: 2px solid #eee;">НА 1 ЕД.</th>
-                            <th class="prod-th-styled prod-th-right" style="border-bottom: 2px solid #eee;">ЦЕНА/КГ</th>
-                            <th class="prod-th-styled prod-th-right" style="border-bottom: 2px solid #eee;">СУММА (1 ЕД)</th>
-                            <th class="prod-th-styled prod-th-right" style="border-bottom: 2px solid #eee;">СУММА (ПАРТИЯ)</th>
+                            <th class="prod-th-styled border-bottom-dashed" >МАТЕРИАЛ</th>
+                            <th class="prod-th-styled prod-th-right border-bottom-dashed" >ОБЩИЙ РАСХОД</th>
+                            <th class="prod-th-styled prod-th-right border-bottom-dashed" >НА 1 ЕД.</th>
+                            <th class="prod-th-styled prod-th-right border-bottom-dashed" >ЦЕНА/КГ</th>
+                            <th class="prod-th-styled prod-th-right border-bottom-dashed" >СУММА (1 ЕД)</th>
+                            <th class="prod-th-styled prod-th-right border-bottom-dashed" >СУММА (ПАРТИЯ)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1010,7 +1024,7 @@ window.printDailyReport = function () {
     let printFrame = document.getElementById('report-print-frame') || document.createElement('iframe');
     if (!printFrame.id) {
         printFrame.id = 'report-print-frame';
-        printFrame.style.cssText = 'position:absolute;width:0;height:0;border:none;';
+        printFrame.classList.add('hidden-print-frame');
         document.body.appendChild(printFrame);
     }
 
@@ -1025,6 +1039,10 @@ window.printDailyReport = function () {
         <head>
             <title>Отчет за смену ${date}</title>
             <style>
+                @media print {
+                    @page { margin: 0; }
+                    body { margin: 1.5cm; }
+                }
                 body { font-family: sans-serif; padding: 20px; }
                 table { width: 100%; border-collapse: collapse; margin-top: 20px; }
                 th, td { border: 1px solid #000; padding: 8px; text-align: left; }
@@ -1039,9 +1057,9 @@ window.printDailyReport = function () {
             <table>
                 <thead><tr><th>№ Партии</th><th>Продукция</th><th>Объем</th><th>Себест. сырья</th></tr></thead>
                 <tbody>${tableContent}</tbody>
-                <tfoot style="font-weight:bold;">
+                <tfoot class="font-bold">
                     <tr>
-                        <td colspan="2" style="text-align:right">ИТОГО:</td>
+                        <td colspan="2" class="text-right">ИТОГО:</td>
                         <td>${document.getElementById('prod-total-volume').innerText}</td>
                         <td>${document.getElementById('prod-total-cost').innerText}</td>
                     </tr>
@@ -1059,35 +1077,41 @@ window.printDailyReport = function () {
 // ==========================================
 // === ДАШБОРД: СВОДНЫЙ ПЛАН ПРОИЗВОДСТВА ===
 // ==========================================
-window.openMrpDashboard = async function () {
+window.openMrpDashboard = async function (filterProductId = null) {
     try {
         UI.toast('Загрузка сводного плана...', 'info');
-        const data = await API.get('/api/production/mrp-summary');
+        const url = filterProductId ? `/api/production/mrp-summary?product_id=${filterProductId}` : '/api/production/mrp-summary';
+        const data = await API.get(url);
 
-        // 1. Генерируем левую таблицу: План производства (Что отлить)
-        let planHtml = data.productionPlan.map((p, idx) => `
-            <tr class="mrp-plan-row">
-                <td class="p-10"><b>${idx + 1}. ${Utils.escapeHtml(p.item_name)}</b></td>
-                <td class="p-10 mrp-plan-qty">
+        // 1. Генерируем таблицу заказов (сверху)
+        let planHtml = data.productionPlan.map((p, idx) => {
+            const isSelected = (filterProductId === p.item_id);
+            const rowClass = isSelected ? 'bg-surface-alt font-bold text-primary' : '';
+            return `
+            <tr class="mrp-plan-row cursor-pointer ${rowClass}" onclick="openMrpDashboard(${isSelected ? 'null' : p.item_id})" title="Кликните для фильтрации сырья">
+                <td class="p-10">
+                    <span class="text-muted mr-5">${idx + 1}.</span> 
+                    <span>${Utils.escapeHtml(p.item_name)}</span>
+                </td>
+                <td class="p-10 text-right">
                     ${p.total_needed_qty} <span class="font-11 text-muted">${p.unit}</span>
                 </td>
             </tr>
-        `).join('');
+        `}).join('');
 
         if (!planHtml) {
             planHtml = '<tr><td colspan="2" class="text-center p-20 text-muted">🎉 Нет активных задач в производство. Всё сделано!</td></tr>';
         }
 
-        // 2. Генерируем правую таблицу: Потребность в сырье
+        // 2. Генерируем нижнюю таблицу: Потребность в сырье
         let deficitHtml = data.deficitReport.map(m => {
             const shortage = parseFloat(m.shortage);
-            const statusType = shortage > 0 ? 'err' : 'ok';
             const icon = shortage > 0 ? '⚠️' : '✅';
             const statusText = shortage > 0 ? `-${m.shortage}` : 'Хватает';
 
             return `
                 <tr class="mrp-deficit-row" style="background: var(--${shortage > 0 ? 'danger-bg' : 'success-bg'});">
-                    <td class="p-10">${icon} <b>${Utils.escapeHtml(m.name)}</b></td>
+                    <td class="p-10 font-bold">${icon} ${Utils.escapeHtml(m.name)}</td>
                     <td class="p-10 text-center font-bold">${m.needed}</td>
                     <td class="p-10 text-center text-muted">${m.stock}</td>
                     <td class="p-10 text-center font-bold" style="color: var(--${shortage > 0 ? 'danger' : 'success'});">${statusText}</td>
@@ -1099,41 +1123,43 @@ window.openMrpDashboard = async function () {
             deficitHtml = '<tr><td colspan="4" class="text-center p-20 text-muted">Сырье не требуется</td></tr>';
         }
 
-        // 3. Собираем всё в большое модальное окно
+        // 3. Собираем всё в большое модальное окно (ВЕРТИКАЛЬНАЯ ВЕРСТКА)
+        const filterBadge = filterProductId ? '<span class="prod-badge-draft text-warning bg-warning ml-10">Фильтр по 1 изделию (кликните чтобы сбросить)</span>' : '<span class="mrp-title-badge">По всем заказам</span>';
+
         const html = `
-        <style>.modal-content { max-width: 1000px !important; width: 95% !important; }</style>
+        <style>.modal-content { max-width: 800px !important; width: 95% !important; }</style>
         
-        <div class="p-10 form-grid gap-20 align-stretch" style="grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));">
+        <div class="p-10 flex-col gap-20">
             
-            <div class="card flex-column mrp-card-block">
-                <div class="mrp-card-header">
-                    <h4 class="mrp-card-title">
+            <div class="card flex-column p-0 overflow-hidden">
+                <div class="mrp-card-header bg-surface-alt p-15 border-bottom">
+                    <h4 class="m-0 flex-row align-center font-15">
                         <span>🏭 Нужно произвести</span>
-                        <span class="mrp-title-badge">По всем заказам</span>
+                        <div class="ml-10 font-12 text-muted italic font-normal">(Кликните по товару, чтобы рассчитать сырье только для него)</div>
                     </h4>
                 </div>
-                <div class="flex-grow-1">
+                <div class="max-h-250 overflow-y-auto">
                     <table class="w-100 font-13 prod-table-modern">
                         <tbody>${planHtml}</tbody>
                     </table>
                 </div>
             </div>
 
-            <div class="card flex-column mrp-card-block">
-                <div class="mrp-card-header">
-                    <h4 class="mrp-card-title">
+            <div class="card flex-column p-0 overflow-hidden mt-10">
+                <div class="mrp-card-header bg-surface-alt p-15 border-bottom">
+                    <h4 class="m-0 flex-between align-center font-15">
                         <span>🧱 Потребность в сырье</span>
-                        <span class="mrp-title-badge">Склад №1</span>
+                        ${filterBadge}
                     </h4>
                 </div>
-                <div class="flex-grow-1">
+                <div class="overflow-x-auto">
                     <table class="w-100 font-13 prod-table-modern">
-                        <thead class="prod-th-styled" style="text-transform: uppercase;">
+                        <thead class="prod-th-styled text-uppercase bg-surface">
                             <tr>
-                                <th class="p-10" style="border-bottom: 1px solid var(--border);">Материал</th>
-                                <th class="p-10 text-center" style="border-bottom: 1px solid var(--border);" title="Сколько всего нужно на производство">План</th>
-                                <th class="p-10 text-center" style="border-bottom: 1px solid var(--border);" title="Реальный остаток на складе сырья">Остаток</th>
-                                <th class="p-10 text-center" style="border-bottom: 1px solid var(--border);">Статус</th>
+                                <th class="p-10 border-bottom text-left">Материал</th>
+                                <th class="p-10 text-center border-bottom" title="Сколько всего нужно на производство">План</th>
+                                <th class="p-10 text-center border-bottom" title="Реальный остаток на складе сырья">Остаток</th>
+                                <th class="p-10 text-center border-bottom">Статус</th>
                             </tr>
                         </thead>
                         <tbody>${deficitHtml}</tbody>
@@ -1146,13 +1172,80 @@ window.openMrpDashboard = async function () {
 
         UI.showModal('📋 Сводное задание на производство (MRP)', html, `
             <button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>
-            <button class="btn btn-blue" onclick="window.print()">🖨️ Печать задания</button>
+            ${filterProductId ? `<button class="btn btn-red btn-outline mr-auto" onclick="openMrpDashboard()">Сбросить фильтр</button>` : ''}
+            <button class="btn btn-blue" onclick="window.printMrpDashboard()">🖨️ Печать задания</button>
         `);
 
     } catch (e) {
         console.error(e);
         UI.toast('Ошибка загрузки плана', 'error');
     }
+};
+
+window.printMrpDashboard = function () {
+    const today = document.getElementById('prod-date-filter')?.value || new Date().toISOString().split('T')[0];
+    
+    // Ищем таблицы внутри модалки
+    const modalContent = document.querySelector('.modal-content');
+    if (!modalContent) return;
+
+    let planHtml = "";
+    const planTable = modalContent.querySelector('table:first-of-type');
+    if (planTable) {
+        // Убираем onclick с печати
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = planTable.outerHTML;
+        tempDiv.querySelectorAll('tr').forEach(tr => tr.removeAttribute('onclick'));
+        planHtml = tempDiv.innerHTML;
+    }
+
+    let deficitHtml = "";
+    const deficitTable = modalContent.querySelectorAll('table')[1];
+    if (deficitTable) deficitHtml = deficitTable.outerHTML;
+    
+    let printFrame = document.getElementById('mrp-print-frame') || document.createElement('iframe');
+    if (!printFrame.id) {
+        printFrame.id = 'mrp-print-frame';
+        printFrame.classList.add('hidden-print-frame');
+        document.body.appendChild(printFrame);
+    }
+
+    const html = `
+        <html>
+        <head>
+            <title>MRP Задание ${today}</title>
+            <style>
+                @media print {
+                    @page { margin: 0; }
+                    body { margin: 1.5cm; }
+                }
+                body { font-family: sans-serif; padding: 20px; font-size: 14px; color: #000; }
+                h2 { text-align: center; margin-bottom: 20px; }
+                h3 { margin-top: 30px; margin-bottom: 10px; border-bottom: 2px solid #ccc; padding-bottom: 5px; }
+                table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+                th, td { border: 1px solid #000; padding: 8px; text-align: left; }
+                th { background-color: #f5f5f5; font-weight: bold; }
+                .text-right { text-align: right; }
+                .text-center { text-align: center; }
+                .text-muted { color: #666; }
+            </style>
+        </head>
+        <body>
+            <h2>СВОДНОЕ ЗАДАНИЕ НА ПРОИЗВОДСТВО (MRP)</h2>
+            <p>Дата формирования: <b>${today}</b></p>
+            
+            <h3>🏭 Нужно произвести</h3>
+            ${planHtml}
+            
+            <h3>🧱 Потребность в сырье</h3>
+            ${deficitHtml}
+        </body>
+        </html>
+    `;
+
+    const doc = printFrame.contentWindow.document;
+    doc.open(); doc.write(html); doc.close();
+    setTimeout(() => { printFrame.contentWindow.focus(); printFrame.contentWindow.print(); }, 500);
 };
 
 // ==========================================
@@ -1177,7 +1270,7 @@ window.handleProductionSearch = function () {
     // Задержка (Debounce) 400мс
     prodSearchTimer = setTimeout(async () => {
         const tbody = document.getElementById('daily-history-table');
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">🔍 Ищем по всей базе...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">🔍 Ищем по всей базе...</td></tr>';
 
         try {
             currentProdSearchResults = await API.get(`/api/production/search?q=${encodeURIComponent(query)}`);
@@ -1187,7 +1280,7 @@ window.handleProductionSearch = function () {
             renderProductionSearchResults();
         } catch (e) {
             console.error(e);
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--danger);">Ошибка поиска</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-danger">Ошибка поиска</td></tr>';
         }
     }, 400);
 };
@@ -1196,7 +1289,7 @@ window.renderProductionSearchResults = function () {
     const tbody = document.getElementById('daily-history-table');
 
     if (currentProdSearchResults.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Ничего не найдено.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Ничего не найдено.</td></tr>';
         return;
     }
 

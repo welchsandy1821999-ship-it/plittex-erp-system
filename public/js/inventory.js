@@ -302,7 +302,11 @@ function renderInventoryTable() {
             tbody.innerHTML += `
             <tr>
                 <td class="inv-batch-cell">${item.batch_number ? '#' + Utils.escapeHtml(item.batch_number) : '-'}</td>
-                <td class="inv-name-cell" title="${Utils.escapeHtml(item.item_name)}"><strong>${Utils.escapeHtml(item.item_name)}</strong></td>
+                <td class="inv-name-cell" title="${Utils.escapeHtml(item.item_name)}">
+                    <a href="javascript:void(0)" onclick="openItemHistory(${item.item_id}, ${item.warehouse_id})" style="color: var(--primary); text-decoration: none;">
+                        <strong>${Utils.escapeHtml(item.item_name)}</strong>
+                    </a>
+                </td>
                 <td>${orderBadge}</td>
                 ${qtyHtml}
                 <td class="inv-unit-cell">${item.unit}</td>
@@ -313,7 +317,11 @@ function renderInventoryTable() {
             <tr>
                 <td><span class="badge inv-wh-badge">${Utils.escapeHtml(item.warehouse_name)}</span></td>
                 <td class="inv-batch-cell">${item.batch_number ? '#' + Utils.escapeHtml(item.batch_number) : (item.batch_id ? '#' + item.batch_id : '-')}</td>
-                <td class="inv-name-cell" title="${Utils.escapeHtml(item.item_name)}"><strong>${Utils.escapeHtml(item.item_name)}</strong></td>
+                <td class="inv-name-cell" title="${Utils.escapeHtml(item.item_name)}">
+                    <a href="javascript:void(0)" onclick="openItemHistory(${item.item_id}, ${item.warehouse_id === 'all' ? 'null' : item.warehouse_id})" style="color: var(--primary); text-decoration: none;">
+                        <strong>${Utils.escapeHtml(item.item_name)}</strong>
+                    </a>
+                </td>
                 ${qtyHtml}
                 <td class="inv-unit-cell">${item.unit}</td>
                 <td class="inv-actions-cell">${actionHtml}</td>
@@ -839,3 +847,386 @@ window.executeSifting = async function() {
         UI.toast(err.message || 'Ошибка просеивания', 'error');
     }
 };
+
+// === ГЛОБАЛЬНОЕ СОСТОЯНИЕ КАЛЕНДАРЯ ИСТОРИИ ===
+let invHistoryPeriodType = 'month'; 
+let invHistoryPeriodValue = new Date().getMonth() + 1;
+let invHistoryYear = new Date().getFullYear();
+let invHistorySpecificDate = new Date().toISOString().split('T')[0];
+let invHistoryCustomStart = ''; 
+let invHistoryCustomEnd = '';   
+let historyFlatpickr = null;
+let historyCurrentItemId = null;
+let currentItemHistoryData = []; // Для поиска
+let currentItemHistoryStartBalance = 0;
+let currentItemHistoryPrice = 0;
+
+window.renderInvHistoryPeriodUI = function () {
+    let typeOptions = `
+        <option value="day" ${invHistoryPeriodType === 'day' ? 'selected' : ''}>День</option>
+        <option value="week" ${invHistoryPeriodType === 'week' ? 'selected' : ''}>Неделя</option>
+        <option value="month" ${invHistoryPeriodType === 'month' ? 'selected' : ''}>Месяц</option>
+        <option value="quarter" ${invHistoryPeriodType === 'quarter' ? 'selected' : ''}>Квартал</option>
+        <option value="year" ${invHistoryPeriodType === 'year' ? 'selected' : ''}>Год</option>
+        <option value="custom" ${invHistoryPeriodType === 'custom' ? 'selected' : ''}>Произвольно</option>
+        <option value="all" ${invHistoryPeriodType === 'all' ? 'selected' : ''}>За всё время</option>
+    `;
+
+    let valOptions = '';
+    if (invHistoryPeriodType === 'quarter') {
+        for (let i = 1; i <= 4; i++) valOptions += `<option value="${i}" ${invHistoryPeriodValue == i ? 'selected' : ''}>${i} Квартал</option>`;
+    } else if (invHistoryPeriodType === 'month') {
+        const months = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+        months.forEach((m, i) => valOptions += `<option value="${i + 1}" ${invHistoryPeriodValue == i + 1 ? 'selected' : ''}>${m}</option>`);
+    }
+
+    let yearOptions = '';
+    const currentY = new Date().getFullYear();
+    for (let y = currentY - 2; y <= currentY + 1; y++) yearOptions += `<option value="${y}" ${invHistoryYear == y ? 'selected' : ''}>${y} год</option>`;
+
+    let activeInputHtml = '';
+    if (invHistoryPeriodType === 'day') {
+        activeInputHtml = `<input type="date" class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px; flex: 1.2; min-width: 120px;" value="${invHistorySpecificDate}" onchange="applyInvHistoryPeriod('date', this.value)">`;
+    } else if (invHistoryPeriodType === 'custom') {
+        activeInputHtml = `<input type="text" id="inv-hist-custom-date" class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px; flex: 1.5; min-width: 180px;" placeholder="Выберите даты...">`;
+    } else if (invHistoryPeriodType !== 'all' && invHistoryPeriodType !== 'year' && invHistoryPeriodType !== 'week') {
+        activeInputHtml = `<select class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px; flex: 1; min-width: 110px;" onchange="applyInvHistoryPeriod('value', this.value)">${valOptions}</select>`;
+    }
+
+    let yearHtml = '';
+    if (invHistoryPeriodType !== 'all' && invHistoryPeriodType !== 'day' && invHistoryPeriodType !== 'week' && invHistoryPeriodType !== 'custom') {
+        yearHtml = `<select class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px; flex: 0.8; min-width: 90px;" onchange="applyInvHistoryPeriod('year', this.value)">${yearOptions}</select>`;
+    }
+
+    const html = `
+        <select class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px; flex: 0.8; min-width: 110px;" onchange="applyInvHistoryPeriod('type', this.value)">${typeOptions}</select>
+        ${activeInputHtml}
+        ${yearHtml}
+    `;
+
+    const container = document.getElementById('history-period-selector');
+    if (container) {
+        container.innerHTML = html;
+        container.style.width = '100%'; 
+        container.style.display = 'flex';
+    }
+
+    if (invHistoryPeriodType === 'custom') {
+        setTimeout(() => {
+            const el = document.getElementById('inv-hist-custom-date');
+            if (el && window.flatpickr) {
+                historyFlatpickr = flatpickr(el, {
+                    mode: "range",
+                    dateFormat: "Y-m-d",
+                    altInput: true,
+                    altFormat: "d.m.Y",
+                    locale: "ru",
+                    defaultDate: invHistoryCustomStart && invHistoryCustomEnd ? [invHistoryCustomStart, invHistoryCustomEnd] : null,
+                    onChange: function (selectedDates, dateStr, instance) {
+                        if (selectedDates.length === 2) {
+                            invHistoryCustomStart = instance.formatDate(selectedDates[0], "Y-m-d");
+                            invHistoryCustomEnd = instance.formatDate(selectedDates[1], "Y-m-d");
+                            applyInvHistoryPeriod('custom_range', null);
+                        }
+                    }
+                });
+            }
+        }, 50);
+    }
+};
+
+window.applyInvHistoryPeriod = function (field, value) {
+    if (field === 'type') {
+        invHistoryPeriodType = value;
+        if (value === 'quarter') invHistoryPeriodValue = Math.floor(new Date().getMonth() / 3) + 1;
+        else if (value === 'month') invHistoryPeriodValue = new Date().getMonth() + 1;
+    }
+    else if (field === 'date') invHistorySpecificDate = value;
+    else if (field === 'value') invHistoryPeriodValue = parseInt(value);
+    else if (field === 'year') invHistoryYear = parseInt(value);
+
+    renderInvHistoryPeriodUI();
+    fetchItemHistory(); // Автоапдейт
+};
+
+window.switchHistoryItem = function() {
+    const input = document.getElementById('history-item-switch');
+    const val = input.value;
+    if (!val) return;
+    
+    const list = window.globalItemsList && window.globalItemsList.length ? window.globalItemsList : allInventory;
+    const item = list.find(i => (i.name || i.item_name) === val);
+    if (item) {
+        historyCurrentItemId = item.id || item.item_id;
+        document.getElementById('history-modal-title').innerText = "Карточка движения: " + (item.name || item.item_name);
+        fetchItemHistory();
+    }
+};
+
+window.globalItemsList = [];
+
+window.openItemHistory = async function(itemId, warehouseId) {
+    historyCurrentItemId = itemId;
+    const modal = document.getElementById('modal-item-history');
+    
+    document.getElementById('history-table-body').innerHTML = '<tr><td colspan="6" class="text-center p-20 text-muted">Загрузка данных...</td></tr>';
+    document.getElementById('history-table-foot').innerHTML = '';
+    
+    const whFilter = document.getElementById('history-warehouse-filter');
+    if (warehouseId && warehouseId !== 'all') {
+        whFilter.value = warehouseId;
+    } else {
+        whFilter.value = 'all';
+    }
+    
+    // Загружаем полный справочник товаров для умного поиска
+    if (window.globalItemsList.length === 0) {
+        try {
+            const res = await API.get('/api/items?limit=2000');
+            if (res && res.data) {
+                window.globalItemsList = res.data;
+            }
+        } catch(e) {}
+    }
+    
+    const datalist = document.getElementById('history-item-datalist');
+    const searchSource = window.globalItemsList.length ? window.globalItemsList : allInventory;
+    if (datalist) {
+        datalist.innerHTML = '';
+        searchSource.forEach(inv => {
+            datalist.innerHTML += `<option value="${Utils.escapeHtml(inv.name || inv.item_name)}"></option>`;
+        });
+    }
+    
+    // Установка заголовка
+    const itemObj = searchSource.find(i => String(i.id || i.item_id) === String(itemId));
+    if (itemObj) {
+        document.getElementById('history-modal-title').innerText = "Карточка движения: " + (itemObj.name || itemObj.item_name);
+        const searchInput = document.getElementById('history-item-switch');
+        if (searchInput) searchInput.value = itemObj.name || itemObj.item_name;
+    } else {
+        document.getElementById('history-modal-title').innerText = "Карточка движения";
+    }
+
+    invHistoryPeriodType = 'month';
+    invHistoryPeriodValue = new Date().getMonth() + 1;
+    invHistoryYear = new Date().getFullYear();
+    renderInvHistoryPeriodUI();
+    
+    modal.style.display = 'flex';
+    setTimeout(() => modal.classList.add('active'), 10);
+    
+    fetchItemHistory();
+};
+
+window.closeItemHistory = function() {
+    const modal = document.getElementById('modal-item-history');
+    modal.classList.remove('active');
+    setTimeout(() => modal.style.display = 'none', 200);
+    historyCurrentItemId = null;
+};
+
+window.fetchItemHistory = async function() {
+    if (!historyCurrentItemId) return;
+
+    try {
+        const whId = document.getElementById('history-warehouse-filter').value;
+        
+        let start_date = '';
+        let end_date = '';
+        
+        if (invHistoryPeriodType === 'day') {
+            start_date = invHistorySpecificDate;
+            end_date = invHistorySpecificDate;
+        } else if (invHistoryPeriodType === 'week') {
+            const now = new Date();
+            const dayOfWeek = now.getDay() || 7;
+            const monday = new Date(now);
+            monday.setDate(now.getDate() - dayOfWeek + 1);
+            start_date = monday.toISOString().split('T')[0];
+            end_date = now.toISOString().split('T')[0];
+        } else if (invHistoryPeriodType === 'year') {
+            start_date = `${invHistoryYear}-01-01`;
+            end_date = `${invHistoryYear}-12-31`;
+        } else if (invHistoryPeriodType === 'quarter') {
+            const startMonth = (invHistoryPeriodValue - 1) * 3 + 1;
+            start_date = `${invHistoryYear}-${String(startMonth).padStart(2, '0')}-01`;
+            const endDay = new Date(invHistoryYear, startMonth + 2, 0).getDate();
+            end_date = `${invHistoryYear}-${String(startMonth + 2).padStart(2, '0')}-${endDay}`;
+        } else if (invHistoryPeriodType === 'month') {
+            start_date = `${invHistoryYear}-${String(invHistoryPeriodValue).padStart(2, '0')}-01`;
+            const endDay = new Date(invHistoryYear, invHistoryPeriodValue, 0).getDate();
+            end_date = `${invHistoryYear}-${String(invHistoryPeriodValue).padStart(2, '0')}-${endDay}`;
+        } else if (invHistoryPeriodType === 'custom') {
+            start_date = invHistoryCustomStart;
+            end_date = invHistoryCustomEnd;
+        }
+        
+        const params = new URLSearchParams({
+            warehouse_id: whId,
+            start_date: start_date,
+            end_date: end_date
+        });
+        
+        const res = await API.get(`/api/inventory/history/${historyCurrentItemId}?${params.toString()}`);
+        
+        currentItemHistoryStartBalance = res.startBalance || 0;
+        currentItemHistoryData = res.history || [];
+        currentItemHistoryPrice = res.currentPrice || 0;
+        
+        filterItemHistoryTable();
+        
+    } catch (e) {
+        UI.toast(e.message || 'Ошибка загрузки истории', 'error');
+        document.getElementById('history-table-body').innerHTML = `<tr><td colspan="6" class="text-center p-20 text-danger">Ошибка загрузки: ${e.message}</td></tr>`;
+    }
+};
+
+let historySearchTimer = null;
+window.debounceHistorySearch = function() {
+    clearTimeout(historySearchTimer);
+    historySearchTimer = setTimeout(() => {
+        filterItemHistoryTable();
+    }, 300);
+}
+
+window.filterItemHistoryTable = function() {
+    const searchInput = document.getElementById('history-search-input');
+    const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+    
+    // We filter the local array, but the "Balance" calculation should ideally only show the mathematical balance lines?
+    // Wait, if we hide a line, the visible balance doesn't make sense chronologically.
+    // However, users expect to search text across lines anyway. We'll recalculate balance physically for all lines, but only *render* lines that match the search. That way the balance at the end of a transaction is correct for that moment in time.
+    
+    renderItemHistoryTable(currentItemHistoryStartBalance, currentItemHistoryData, query);
+}
+
+function renderItemHistoryTable(startBalance, history, searchQuery = '') {
+    const tbody = document.getElementById('history-table-body');
+    const tfoot = document.getElementById('history-table-foot');
+    
+    let html = '';
+    let currentBalance = parseFloat(startBalance);
+    let sumIn = 0;
+    let sumOut = 0;
+    
+    // Вводная строка Сальдо (если считали)
+    html += `
+        <tr class="bg-surface-alt">
+            <td colspan="4" class="text-right font-bold text-muted">Сальдо на начало периода:</td>
+            <td class="text-right font-bold">${currentBalance.toLocaleString('ru-RU')}</td>
+            <td></td>
+        </tr>
+    `;
+    
+    if (history.length === 0) {
+        html += `<tr><td colspan="6" class="text-center p-20 text-muted" style="font-style: italic;">Движений не найдено</td></tr>`;
+    } else {
+        let matchCount = 0;
+        history.forEach(m => {
+            const qty = parseFloat(m.quantity);
+            const inQty = qty > 0 ? qty : 0;
+            const outQty = qty < 0 ? Math.abs(qty) : 0;
+            
+            // Математика идет всегда для всех строк периода
+            sumIn += inQty;
+            sumOut += outQty;
+            currentBalance += qty;
+            
+            let dateStr = new Date(m.movement_date).toLocaleString('ru-RU', {day: '2-digit', month: '2-digit', year: 'numeric'});
+            let typeName = getMovementTypeName(m.movement_type);
+            let operationHtml = `<div><b>${typeName}</b></div>`;
+            if (m.warehouse_name) operationHtml += `<div class="font-11 text-muted">Склад: ${Utils.escapeHtml(m.warehouse_name)}</div>`;
+            
+            let decryption = '';
+            if (m.supplier_name) {
+                 decryption = `<span class="text-primary font-12">📝 Поставщик: ${Utils.escapeHtml(m.supplier_name)}</span>`;
+            } else if (m.order_doc) {
+                 decryption = `<span class="text-primary font-12">🛒 Заказ: ${Utils.escapeHtml(m.order_doc)}</span>`;
+            } else if (m.batch_number) {
+                 decryption = `<span class="badge" style="background:#e0f2fe; color:#0369a1; border: 1px solid #7dd3fc;">Партия #${Utils.escapeHtml(m.batch_number)}</span>`;
+            } else if (m.description) {
+                 decryption = `<span class="font-12 text-muted">${Utils.escapeHtml(m.description)}</span>`;
+            }
+            
+            if (searchQuery) {
+                const searchStr = `${typeName} ${m.warehouse_name || ''} ${m.supplier_name || ''} ${m.order_doc || ''} ${m.batch_number || ''} ${m.description || ''} ${dateStr}`.toLowerCase();
+                if (!searchStr.includes(searchQuery)) {
+                    return; // Пропускаем добавление в HTML
+                }
+            }
+            
+            matchCount++;
+            
+            if (decryption) operationHtml += `<div class="mt-5">${decryption}</div>`;
+            
+            let priceHtml = '';
+            
+            if (m.unit_price && parseFloat(m.unit_price) > 0) {
+                priceHtml += `<div class="font-11 text-muted">Цена: ${parseFloat(m.unit_price).toLocaleString('ru-RU')} ₽</div>`;
+            }
+            if (m.amount && parseFloat(m.amount) > 0) {
+                priceHtml += `<div class="font-12 mb-5">Операция: ${parseFloat(m.amount).toLocaleString('ru-RU')} ₽</div>`;
+            }
+            if (currentItemHistoryPrice > 0) {
+                const currentWorth = currentBalance * currentItemHistoryPrice;
+                priceHtml += `<div class="font-13 font-bold text-primary mt-5" style="border-top: 1px dotted rgba(2, 132, 199, 0.3); padding-top: 4px;">САЛЬДО: ${currentWorth.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ₽</div>`;
+            }
+            
+            html += `
+                <tr style="border-bottom: 1px solid var(--border);">
+                    <td class="font-12 align-top">${dateStr}</td>
+                    <td class="align-top">${operationHtml}</td>
+                    <td class="text-right text-success font-bold align-top" style="background-color: rgba(16, 185, 129, 0.05);">${inQty > 0 ? '+' + inQty.toLocaleString('ru-RU') : ''}</td>
+                    <td class="text-right text-danger font-bold align-top" style="background-color: rgba(239, 68, 68, 0.05);">${outQty > 0 ? '-' + outQty.toLocaleString('ru-RU') : ''}</td>
+                    <td class="text-right font-bold align-top">${currentBalance.toLocaleString('ru-RU')}</td>
+                    <td class="text-right align-top">${priceHtml}</td>
+                </tr>
+            `;
+        });
+        
+        if (searchQuery && matchCount === 0) {
+             html += `<tr><td colspan="6" class="text-center p-20 text-muted" style="font-style: italic;">По вашему запросу ничего не найдено</td></tr>`;
+        }
+    }
+    
+    tbody.innerHTML = html;
+    
+    tfoot.innerHTML = `
+        <tr>
+            <td colspan="2" class="text-right text-muted">Обороты за период:</td>
+            <td class="text-right text-success">+${sumIn.toLocaleString('ru-RU')}</td>
+            <td class="text-right text-danger">-${sumOut.toLocaleString('ru-RU')}</td>
+            <td class="text-right font-bold" style="font-size:1.1em; color:var(--primary);">Остаток: ${currentBalance.toLocaleString('ru-RU')}</td>
+            <td></td>
+        </tr>
+    `;
+}
+function getMovementTypeName(type) {
+    const map = {
+        'receipt': 'Поступление',
+        'expense': 'Списание',
+        'sale': 'Реализация (Отгрузка)',
+        'prod_receipt': 'Производство (Продукция)',
+        'prod_expense': 'Списание в производство',
+        'audit': 'Инвентаризация',
+        'move_in': 'Перемещение (Приход)',
+        'move_out': 'Перемещение (Расход)',
+        'scrap': 'Списание (Утиль / Брак)',
+        'demold_receipt': 'Распалубка: Принято на склад',
+        'demold_scrap': 'Распалубка: Брак продукта',
+        'demold_expense': 'Распалубка: Исходник списан',
+        'sifting_receipt': 'Просеивание: Выход',
+        'sifting_expense': 'Просеивание: Исходник списан',
+        'purchase': 'Закупка (Поступление)',
+        'initial': 'Ввод начальных остатков',
+        'audit_adjustment': 'Инвентаризация (Корректировка)',
+        'production_expense': 'Списание в производство',
+        'production_receipt': 'Выпуск продукции (Формовка)',
+        'wip_receipt': 'Поступление в сушилку',
+        'wip_expense': 'Списание из сушилки (Распалубка)',
+        'finished_receipt': 'Принято на склад готов. продукции',
+        'markdown_receipt': 'Перевод в уценку / 2-й сорт'
+    };
+    return map[type] || type;
+}

@@ -41,12 +41,14 @@ window.API = {
                     if (typeof window.handleLogout === 'function') window.handleLogout();
                 }
                 const errBody = await res.json().catch(() => ({}));
-                throw new Error(errBody.error || `HTTP ${res.status}`);
+const err = new Error(errBody.error || errBody.warning || `HTTP ${res.status}`);
+err.body = errBody;
+throw err;
             }
             return await res.json();
         } catch (error) {
             console.error('[API GET Error]', error);
-            if (typeof UI !== 'undefined' && UI.toast) UI.toast(error.message || 'Ошибка сети', 'error');
+            if (typeof UI !== 'undefined' && UI.toast && !error.body?.warning) UI.toast(error.message || 'Ошибка сети', 'error');
             throw error;
         }
     },
@@ -65,12 +67,14 @@ window.API = {
                     if (typeof window.handleLogout === 'function') window.handleLogout();
                 }
                 const errBody = await res.json().catch(() => ({}));
-                throw new Error(errBody.error || `HTTP ${res.status}`);
+const err = new Error(errBody.error || errBody.warning || `HTTP ${res.status}`);
+err.body = errBody;
+throw err;
             }
             return await res.json();
         } catch (error) {
             console.error('[API POST Error]', error);
-            if (typeof UI !== 'undefined' && UI.toast) UI.toast(error.message || 'Ошибка сети', 'error');
+            if (typeof UI !== 'undefined' && UI.toast && !error.body?.warning) UI.toast(error.message || 'Ошибка сети', 'error');
             throw error;
         }
     },
@@ -89,12 +93,14 @@ window.API = {
                     if (typeof window.handleLogout === 'function') window.handleLogout();
                 }
                 const errBody = await res.json().catch(() => ({}));
-                throw new Error(errBody.error || `HTTP ${res.status}`);
+const err = new Error(errBody.error || errBody.warning || `HTTP ${res.status}`);
+err.body = errBody;
+throw err;
             }
             return await res.json();
         } catch (error) {
             console.error('[API PUT Error]', error);
-            if (typeof UI !== 'undefined' && UI.toast) UI.toast(error.message || 'Ошибка сети', 'error');
+            if (typeof UI !== 'undefined' && UI.toast && !error.body?.warning) UI.toast(error.message || 'Ошибка сети', 'error');
             throw error;
         }
     },
@@ -113,12 +119,14 @@ window.API = {
                     if (typeof window.handleLogout === 'function') window.handleLogout();
                 }
                 const errBody = await res.json().catch(() => ({}));
-                throw new Error(errBody.error || `HTTP ${res.status}`);
+const err = new Error(errBody.error || errBody.warning || `HTTP ${res.status}`);
+err.body = errBody;
+throw err;
             }
             return await res.json();
         } catch (error) {
             console.error('[API PATCH Error]', error);
-            if (typeof UI !== 'undefined' && UI.toast) UI.toast(error.message || 'Ошибка сети', 'error');
+            if (typeof UI !== 'undefined' && UI.toast && !error.body?.warning) UI.toast(error.message || 'Ошибка сети', 'error');
             throw error;
         }
     },
@@ -133,13 +141,15 @@ window.API = {
                     if (typeof window.handleLogout === 'function') window.handleLogout();
                 }
                 const errBody = await res.json().catch(() => ({}));
-                throw new Error(errBody.error || `HTTP ${res.status}`);
+const err = new Error(errBody.error || errBody.warning || `HTTP ${res.status}`);
+err.body = errBody;
+throw err;
             }
             const text = await res.text();
             return text ? JSON.parse(text) : true;
         } catch (error) {
             console.error('[API DELETE Error]', error);
-            if (typeof UI !== 'undefined' && UI.toast) UI.toast(error.message || 'Ошибка сети', 'error');
+            if (typeof UI !== 'undefined' && UI.toast && !error.body?.warning) UI.toast(error.message || 'Ошибка сети', 'error');
             throw error;
         }
     }
