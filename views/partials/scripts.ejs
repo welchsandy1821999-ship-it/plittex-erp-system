@@ -89,12 +89,18 @@
         window.switchModule = function (moduleId, navElement) {
             document.querySelectorAll('.modal-overlay').forEach(m => {
                 m.classList.remove('active');
-                m.style.display = 'none';
+                m.classList.add('hidden');
+                m.style.setProperty('display', 'none', 'important');
             });
-            document.querySelectorAll('.module').forEach(mod => mod.classList.remove('active'));
+            document.querySelectorAll('.module').forEach(mod => {
+                mod.classList.remove('active');
+                mod.classList.add('hidden');
+            });
             document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+            
             const target = document.getElementById(moduleId);
             if (target) {
+                target.classList.remove('hidden');
                 target.classList.add('active');
                 if (navElement) navElement.classList.add('active');
             }
