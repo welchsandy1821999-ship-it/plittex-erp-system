@@ -152,7 +152,7 @@ FK `client_orders.counterparty_id → counterparties.id` имеет правил
 - `product_id` (FK, но нет индекса)
 
 При росте данных деградация гарантирована.  
-**Рекомендация:** Добавить индексы: `CREATE INDEX idx_pb_production_date ON production_batches(production_date)`, `CREATE INDEX idx_pb_status ON production_batches(status)`, `CREATE INDEX idx_pb_product ON production_batches(product_id)`.
+**Статус:** ✅ ЗАКРЫТО (Миграция `006_add_performance_indexes.sql` применена. Добавлено 29 индексов на FK-колонки без покрытия + 2 индекса на дату. Удалён 1 дубликат `idx_inv_item`. Итого в БД: 125 индексов. Покрытие FK: 100%. `production_batches` полностью покрыт индексами на `production_date`, `status`, `product_id` и composite `(production_date, status)`.)
 
 ---
 
