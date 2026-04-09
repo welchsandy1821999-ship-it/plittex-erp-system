@@ -307,7 +307,7 @@ function renderInventoryTable() {
             <tr>
                 <td class="inv-batch-cell">${item.batch_number ? '#' + Utils.escapeHtml(item.batch_number) : '-'}</td>
                 <td class="inv-name-cell" title="${Utils.escapeHtml(item.item_name)}">
-                    <a href="javascript:void(0)" onclick="openItemHistory(${item.item_id}, ${item.warehouse_id})" style="color: var(--primary); text-decoration: none;">
+                    <a href="javascript:void(0)" onclick="openItemHistory(${item.item_id}, ${item.warehouse_id})" class="text-primary text-decoration-none">
                         <strong>${Utils.escapeHtml(item.item_name)}</strong>
                     </a>
                 </td>
@@ -322,7 +322,7 @@ function renderInventoryTable() {
                 <td><span class="badge inv-wh-badge">${Utils.escapeHtml(item.warehouse_name)}</span></td>
                 <td class="inv-batch-cell">${item.batch_number ? '#' + Utils.escapeHtml(item.batch_number) : (item.batch_id ? '#' + item.batch_id : '-')}</td>
                 <td class="inv-name-cell" title="${Utils.escapeHtml(item.item_name)}">
-                    <a href="javascript:void(0)" onclick="openItemHistory(${item.item_id}, ${item.warehouse_id === 'all' ? 'null' : item.warehouse_id})" style="color: var(--primary); text-decoration: none;">
+                    <a href="javascript:void(0)" onclick="openItemHistory(${item.item_id}, ${item.warehouse_id === 'all' ? 'null' : item.warehouse_id})" class="text-primary text-decoration-none">
                         <strong>${Utils.escapeHtml(item.item_name)}</strong>
                     </a>
                 </td>
@@ -684,17 +684,17 @@ window.handleExcelImport = async function(event) {
 
         if (!res.ok) throw new Error(data.error || 'Ошибка загрузки');
 
-        let html = '<div class="inv-scrollable" style="max-height: 50vh; overflow-y: auto;">';
-        html += '<table class="table-modern w-100" style="font-size:12px; table-layout: fixed;">';
-        html += '<thead style="position: sticky; top: 0; background: white; z-index: 10;"><tr><th style="width: 15%">Склад</th><th style="width: 35%">Товар</th><th style="width: 15%">Партия</th><th style="width: 10%">Расчет</th><th style="width: 10%">Факт</th><th style="width: 15%">Дельта</th></tr></thead><tbody>';
+        let html = '<div class="inv-scrollable overflow-y-auto max-h-50vh">';
+        html += '<table class="table-modern w-100 font-12 table-fixed">';
+        html += '<thead class="bg-surface sticky-top z-10"><tr><th class="w-15">Склад</th><th class="w-35">Товар</th><th class="w-15">Партия</th><th class="w-10">Расчет</th><th class="w-10">Факт</th><th class="w-15">Дельта</th></tr></thead><tbody>';
 
         let hasAdjustments = false;
         let adjustmentsData = [];
 
         data.errors.forEach(e => {
-            html += `<tr style="background: #ffe6e6;">
+            html += `<tr class="bg-danger-light">
                 <td>Склад ${e.wh_id || '?'}</td>
-                <td style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${Utils.escapeHtml(e.item_name || 'Неизвестно')}">${e.item_id || '?'} - ${Utils.escapeHtml(e.item_name || 'Неизвестно')}</td>
+                <td class="text-truncate" title="${Utils.escapeHtml(e.item_name || 'Неизвестно')}">${e.item_id || '?'} - ${Utils.escapeHtml(e.item_name || 'Неизвестно')}</td>
                 <td>${Utils.escapeHtml(e.batch_num || '-')}</td>
                 <td colspan="3" class="text-danger">⚠️ Ошибка: ${Utils.escapeHtml(e.error_msg)}</td>
             </tr>`;
@@ -708,9 +708,9 @@ window.handleExcelImport = async function(event) {
                 batchId: d.batch_id,
                 actualQty: d.fact_qty
             });
-            html += `<tr style="background: #fff8e1;">
+            html += `<tr class="bg-warning-light">
                 <td>Склад ${d.wh_id}</td>
-                <td style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${Utils.escapeHtml(d.item_name)}">${Utils.escapeHtml(d.item_name)}</td>
+                <td class="text-truncate" title="${Utils.escapeHtml(d.item_name)}">${Utils.escapeHtml(d.item_name)}</td>
                 <td>${Utils.escapeHtml(d.batch_num || '-')}</td>
                 <td>${d.db_qty}</td>
                 <td><b>${d.fact_qty}</b></td>
@@ -890,20 +890,20 @@ window.renderInvHistoryPeriodUI = function () {
 
     let activeInputHtml = '';
     if (invHistoryPeriodType === 'day') {
-        activeInputHtml = `<input type="date" class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px; flex: 1.2; min-width: 120px;" value="${invHistorySpecificDate}" onchange="applyInvHistoryPeriod('date', this.value)">`;
+        activeInputHtml = `<input type="date" class="input-modern p-5 font-13 radius-md h-32 flex-12 min-w-120" value="${invHistorySpecificDate}" onchange="applyInvHistoryPeriod('date', this.value)">`;
     } else if (invHistoryPeriodType === 'custom') {
-        activeInputHtml = `<input type="text" id="inv-hist-custom-date" class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px; flex: 1.5; min-width: 180px;" placeholder="Выберите даты...">`;
+        activeInputHtml = `<input type="text" id="inv-hist-custom-date" class="input-modern p-5 font-13 radius-md h-32 flex-15 min-w-180" placeholder="Выберите даты...">`;
     } else if (invHistoryPeriodType !== 'all' && invHistoryPeriodType !== 'year' && invHistoryPeriodType !== 'week') {
-        activeInputHtml = `<select class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px; flex: 1; min-width: 110px;" onchange="applyInvHistoryPeriod('value', this.value)">${valOptions}</select>`;
+        activeInputHtml = `<select class="input-modern p-5 font-13 radius-md h-32 flex-1 min-w-110" onchange="applyInvHistoryPeriod('value', this.value)">${valOptions}</select>`;
     }
 
     let yearHtml = '';
     if (invHistoryPeriodType !== 'all' && invHistoryPeriodType !== 'day' && invHistoryPeriodType !== 'week' && invHistoryPeriodType !== 'custom') {
-        yearHtml = `<select class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px; flex: 0.8; min-width: 90px;" onchange="applyInvHistoryPeriod('year', this.value)">${yearOptions}</select>`;
+        yearHtml = `<select class="input-modern p-5 font-13 radius-md h-32 flex-08 min-w-90" onchange="applyInvHistoryPeriod('year', this.value)">${yearOptions}</select>`;
     }
 
     const html = `
-        <select class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px; flex: 0.8; min-width: 110px;" onchange="applyInvHistoryPeriod('type', this.value)">${typeOptions}</select>
+        <select class="input-modern p-5 font-13 radius-md h-32 flex-08 min-w-110" onchange="applyInvHistoryPeriod('type', this.value)">${typeOptions}</select>
         ${activeInputHtml}
         ${yearHtml}
     `;
@@ -1124,7 +1124,7 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
     `;
     
     if (history.length === 0) {
-        html += `<tr><td colspan="6" class="text-center p-20 text-muted" style="font-style: italic;">Движений не найдено</td></tr>`;
+        html += `<tr><td colspan="6" class="text-center p-20 text-muted font-italic">Движений не найдено</td></tr>`;
     } else {
         let matchCount = 0;
         history.forEach(m => {
@@ -1174,15 +1174,15 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
             }
             if (currentItemHistoryPrice > 0) {
                 const currentWorth = currentBalance * currentItemHistoryPrice;
-                priceHtml += `<div class="font-13 font-bold text-primary mt-5" style="border-top: 1px dotted rgba(2, 132, 199, 0.3); padding-top: 4px;">САЛЬДО: ${currentWorth.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ₽</div>`;
+                priceHtml += `<div class="font-13 font-bold text-primary mt-5 border-top-dotted pt-5">САЛЬДО: ${currentWorth.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ₽</div>`;
             }
             
             html += `
-                <tr style="border-bottom: 1px solid var(--border);">
+                <tr class="border-bottom">
                     <td class="font-12 align-top">${dateStr}</td>
                     <td class="align-top">${operationHtml}</td>
-                    <td class="text-right text-success font-bold align-top" style="background-color: rgba(16, 185, 129, 0.05);">${inQty > 0 ? '+' + inQty.toLocaleString('ru-RU') : ''}</td>
-                    <td class="text-right text-danger font-bold align-top" style="background-color: rgba(239, 68, 68, 0.05);">${outQty > 0 ? '-' + outQty.toLocaleString('ru-RU') : ''}</td>
+                    <td class="text-right text-success font-bold align-top bg-success-light">${inQty > 0 ? '+' + inQty.toLocaleString('ru-RU') : ''}</td>
+                    <td class="text-right text-danger font-bold align-top bg-danger-light">${outQty > 0 ? '-' + outQty.toLocaleString('ru-RU') : ''}</td>
                     <td class="text-right font-bold align-top">${currentBalance.toLocaleString('ru-RU')}</td>
                     <td class="text-right align-top">${priceHtml}</td>
                 </tr>
@@ -1190,7 +1190,7 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
         });
         
         if (searchQuery && matchCount === 0) {
-             html += `<tr><td colspan="6" class="text-center p-20 text-muted" style="font-style: italic;">По вашему запросу ничего не найдено</td></tr>`;
+             html += `<tr><td colspan="6" class="text-center p-20 text-muted font-italic">По вашему запросу ничего не найдено</td></tr>`;
         }
     }
     
@@ -1201,7 +1201,7 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
             <td colspan="2" class="text-right text-muted">Обороты за период:</td>
             <td class="text-right text-success">+${sumIn.toLocaleString('ru-RU')}</td>
             <td class="text-right text-danger">-${sumOut.toLocaleString('ru-RU')}</td>
-            <td class="text-right font-bold" style="font-size:1.1em; color:var(--primary);">Остаток: ${currentBalance.toLocaleString('ru-RU')}</td>
+            <td class="text-right font-bold font-14 text-primary">Остаток: ${currentBalance.toLocaleString('ru-RU')}</td>
             <td></td>
         </tr>
     `;
@@ -1256,7 +1256,7 @@ window.openClientStatsModal = async function(clientId, clientName) {
         const res = await API.get('/api/counterparties/' + clientId + '/profile');
         if (!res) throw new Error("Данные не найдены");
         
-        let html = `<div class="p-15 bg-surface-alt" style="border-bottom: 1px solid #eee;">
+        let html = `<div class="p-15 bg-surface-alt border-bottom">
             <div class="flex-row gap-15">
                 <div class="card bg-surface flex-grow-1 p-15 border">
                     <p class="font-12 text-muted mb-5 mt-0">Текущий баланс (Долг)</p>

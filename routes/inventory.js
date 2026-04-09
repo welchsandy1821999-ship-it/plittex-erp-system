@@ -596,7 +596,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 const stockRes = await client.query(`
                     SELECT COALESCE(SUM(quantity), 0) as balance 
                     FROM inventory_movements 
-                    WHERE item_id = $1 AND warehouse_id = $2
+                    WHERE item_id = $1 AND warehouse_id = $2 FOR UPDATE
                 `, [sourceId, materialsWh]);
                 
                 const available = Number(new Big(stockRes.rows[0].balance || 0));
