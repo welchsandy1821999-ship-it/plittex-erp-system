@@ -102,7 +102,7 @@
 .module.active {
     display: flex;
     flex-direction: column;
-    animation: fadeIn 0.3s ease;
+    animation: fadeIn 0.3s ease forwards;
 }
 
 /* Адаптивность для мобильных */
