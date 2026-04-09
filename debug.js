@@ -10,44 +10,70 @@ const pool = new Pool({
 
 async function run() {
     try {
-        console.log('\n--- STEP 1: DEGBUG INVENTORY MOVEMENTS ---');
+        // Simulate EXACTLY what the browser does: fetch /api/invoices
+        console.log('=== Simulating GET /api/invoices ===');
         const result = await pool.query(`
-            SELECT id, movement_type, description, linked_order_item_id, item_id
-            FROM inventory_movements 
-            WHERE movement_type = 'sales_shipment' 
-            ORDER BY created_at DESC 
-            LIMIT 3
-        `);
-        console.log('Real inventory_movements (sales_shipment):');
-        console.log(JSON.stringify(result.rows, null, 2));
+                SELECT 
+                    i.id, 
+                    i.invoice_number, 
+                    i.total_amount as amount, 
+                    i.purpose as description, 
+                    i.status, 
+                    i.created_at,
+                    TO_CHAR(i.created_at, 'DD.MM.YYYY') as date_formatted,
+                    c.name as counterparty_name, 
+                    c.id as counterparty_id,
+                    false as is_order
+                FROM invoices i
+                JOIN counterparties c ON i.counterparty_id = c.id
+                WHERE i.status = 'pending'
 
-        const orderResult = await pool.query(`
-            SELECT id, doc_number, status, pending_debt FROM client_orders ORDER BY created_at DESC LIMIT 3
-        `);
-        console.log('\nReal client_orders:');
-        console.log(JSON.stringify(orderResult.rows, null, 2));
+                UNION ALL
 
-        console.log('\n--- STEP 2: DEBUG API ROUTES DATA ---');
-        const apiSalesOrders = await pool.query(`
-            SELECT o.id, o.doc_number, o.status, o.pending_debt
-            FROM client_orders o
-            WHERE o.status IN ('pending', 'processing')
-            ORDER BY o.created_at DESC LIMIT 100
-        `);
-        console.log(`GET /api/sales/orders returns: ${apiSalesOrders.rowCount} orders`);
-        const targetOrderInSales = apiSalesOrders.rows.find(row => row.doc_number === 'ЗК-00001' || row.id === 1);
-        console.log('Is ЗК-00001 in /api/sales/orders? ', !!targetOrderInSales);
+                SELECT 
+                    o.id, 
+                    o.doc_number as invoice_number, 
+                    o.pending_debt as amount, 
+                    'Остаток долга по заказу № ' || o.doc_number as description, 
+                    'pending' as status, 
+                    o.created_at,
+                    TO_CHAR(o.created_at, 'DD.MM.YYYY') as date_formatted,
+                    c.name as counterparty_name, 
+                    o.counterparty_id as counterparty_id,
+                    true as is_order
+                FROM client_orders o
+                LEFT JOIN counterparties c ON o.counterparty_id = c.id
+                WHERE o.status IN ('pending', 'processing') AND o.pending_debt > 0
 
-        const apiInvoicesData = await pool.query(`
-            SELECT o.doc_number, o.pending_debt, o.status
-            FROM client_orders o
-            WHERE o.status IN ('pending', 'processing') AND o.pending_debt > 0
+                ORDER BY created_at DESC
         `);
-        const targetOrdInInvoices = apiInvoicesData.rows.find(row => row.doc_number === 'ЗК-00001' || row.doc_number.includes('00001'));
-        console.log('Is ЗК-00001 in /api/invoices? ', !!targetOrdInInvoices);
+        
+        // This is EXACTLY what res.json(result.rows) sends to the browser
+        const jsonOutput = JSON.stringify(result.rows);
+        const parsed = JSON.parse(jsonOutput);
+        
+        console.log(`Rows: ${parsed.length}`);
+        console.log('Type check: Array.isArray =', Array.isArray(parsed));
+        if (parsed.length > 0) {
+            console.log('First row keys:', Object.keys(parsed[0]));
+            console.log('First row:', JSON.stringify(parsed[0], null, 2));
+            
+            // Simulate frontend filter
+            const filtered = parsed.filter(i => i.status !== 'paid');
+            console.log(`After filter (status !== paid): ${filtered.length} rows`);
+        }
+
+        // Also check: does the invoices table even exist and have the right columns?
+        console.log('\n=== Check invoices table ===');
+        const invCols = await pool.query(`SELECT column_name FROM information_schema.columns WHERE table_name = 'invoices' ORDER BY ordinal_position`);
+        console.log('invoices columns:', invCols.rows.map(r => r.column_name).join(', '));
+        
+        const invCount = await pool.query(`SELECT COUNT(*) as cnt, COUNT(*) FILTER (WHERE status = 'pending') as pending FROM invoices`);
+        console.log('invoices total:', invCount.rows[0].cnt, '| pending:', invCount.rows[0].pending);
 
     } catch(e) {
-        console.error('SQL_ERROR:', e.message);
+        console.error('ERROR:', e.message);
+        console.error('DETAIL:', e.detail || 'none');
     } finally {
         await pool.end();
     }
