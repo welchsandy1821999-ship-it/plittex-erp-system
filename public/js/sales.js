@@ -136,7 +136,7 @@ window.loadClientContracts = async function (cpId) {
     const contractGroup = document.getElementById('sale-contract-group');
 
     if (!id) {
-        if (contractGroup) contractGroup.style.display = 'none';
+        if (contractGroup) contractGroup.classList.add('d-none');
         if (contractSelect) contractSelect.innerHTML = '';
         return;
     }
@@ -161,7 +161,7 @@ window.loadClientContracts = async function (cpId) {
                 contractSelect.tomselect.sync();
             }
         }
-        if (contractGroup) contractGroup.style.display = 'block';
+        if (contractGroup) contractGroup.classList.remove('d-none');
     } catch (e) { console.error('Ошибка загрузки договоров:', e); }
 };
 
@@ -187,7 +187,7 @@ window.onClientChange = async function () {
     // просто прячем розовую карточку и блок договоров.
     if (!cpId) {
         if (infoBox) infoBox.classList.add('sales-hidden');
-        if (contractGroup) contractGroup.style.display = 'none';
+        if (contractGroup) contractGroup.classList.add('d-none');
         return;
     }
 
@@ -218,8 +218,8 @@ window.onClientChange = async function () {
             }
 
             // Прячем блоки
-            if (infoBox) infoBox.style.display = 'none';
-            if (contractGroup) contractGroup.style.display = 'none';
+            if (infoBox) infoBox.classList.add('d-none');
+            if (contractGroup) contractGroup.classList.add('d-none');
             return;
         }
 
@@ -288,24 +288,24 @@ window.onClientChange = async function () {
         // Формирование стилизованной карточки
         const headerHtml = `
             <div class="sales-client-card bg-surface border-radius-8 p-15 shadow-sm mb-10 border w-100">
-                <div class="flex-between align-start gap-10 mb-10 pb-10 border-bottom dashed flex-wrap" style="border-color: var(--border-color);">
-                    <div class="flex-row gap-10 align-start flex-grow-1" style="min-width: 0;">
+                <div class="flex-between align-start gap-10 mb-10 pb-10 border-bottom dashed flex-wrap" >
+                    <div class="flex-row gap-10 align-start flex-grow-1" >
                         <i class="fas fa-building text-primary font-18 mt-3"></i>
-                        <div class="flex-column" style="min-width: 0;">
-                            <span class="font-bold font-13 text-primary d-block" style="word-break: break-word; line-height: 1.2;">${client.name}</span>
+                        <div class="flex-column" >
+                            <span class="font-bold font-13 text-primary d-block" >${client.name}</span>
                             <div class="mt-5">${badgeHtml}</div>
                         </div>
                     </div>
-                    <button class="btn btn-outline p-5 px-10 font-11 text-primary bg-surface flex-shrink-0" style="border-color: var(--primary);" onclick="openClientEditor(${cpId})">
+                    <button class="btn btn-outline p-5 px-10 font-11 text-primary bg-surface flex-shrink-0 border-primary" onclick="openClientEditor(${cpId})">
                         ⚙️ Карточка
                     </button>
                 </div>
                 <div class="flex-row justify-between align-start gap-15 flex-wrap mt-10">
-                    <div class="client-stat-box flex-grow-1" style="min-width: 100px;">
+                    <div class="client-stat-box flex-grow-1" >
                         <span class="text-muted font-11 block mb-3">Баланс контрагента:</span>
-                        <strong class="font-14 d-block" style="color: ${debtColor}; line-height: 1.2;">${debtText}</strong>
+                        <strong class="font-14 d-block font-14 d-block ${debtColor === 'var(--danger)' ? 'text-danger' : 'text-success'}">${debtText}</strong>
                     </div>
-                    <div class="client-stat-box flex-grow-1" style="min-width: 80px;">
+                    <div class="client-stat-box flex-grow-1" >
                         <span class="text-muted font-11 block mb-3">Долг по поддонам:</span>
                         <strong class="font-14 d-block" style="color: ${palletsColor}; line-height: 1.2;">${palletsText}</strong>
                     </div>
@@ -339,7 +339,7 @@ window.openClientEditor = async function (id) {
             : `<div class="bg-surface-hover text-muted p-10 border-radius-6 text-center font-14 font-bold mb-15 border dashed">👤 ТЕКУЩИЙ СТАТУС: БАЗОВЫЙ ПРАЙС (Розница)</div>`;
 
         const html = `
-            <div class="p-10 overflow-auto" style="max-height: 70vh;">
+            <div class="p-10 overflow-auto max-h-70vh">
                 ${badgeHtml}
                 <div class="form-grid gap-15 sales-two-cols">
                     <div class="form-group grid-span-2">
@@ -349,7 +349,7 @@ window.openClientEditor = async function (id) {
                     
                     <div class="form-group">
                         <label>Уровень цен (Прайс):</label>
-                        <select id="edit-cp-level" class="input-modern text-info font-bold" style="border-color: var(--info);">
+                        <select id="edit-cp-level" class="input-modern text-info font-bold border-info">
                             <option value="basic" ${!isDealer ? 'selected' : ''}>Основная (Розница)</option>
                             <option value="dealer" ${isDealer ? 'selected' : ''}>Дилерская (Опт)</option>
                         </select>
@@ -560,7 +560,7 @@ window.updateLivePreview = function () {
     if (costEl) {
         const total = qty * price;
         costEl.innerText = total.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' ₽';
-        costEl.style.color = total > 0 ? 'var(--primary)' : 'var(--text-muted)';
+        costEl.classList.toggle('text-primary', total > 0); costEl.classList.toggle('text-muted', total <= 0);
     }
 };
 
@@ -572,13 +572,13 @@ window.toggleDeliveryType = function () {
     const costInput = document.getElementById('sale-logistics-cost');
 
     if (selected === 'pickup') {
-        if (addressGroup) addressGroup.style.display = 'none';
-        if (costGroup) costGroup.style.display = 'none';
+        if (addressGroup) addressGroup.classList.add('d-none');
+        if (costGroup) costGroup.classList.add('d-none');
         if (costInput) { costInput.value = '0'; }
         renderCart();
     } else {
-        if (addressGroup) addressGroup.style.display = '';
-        if (costGroup) costGroup.style.display = '';
+        if (addressGroup) addressGroup.classList.remove('d-none');
+        if (costGroup) costGroup.classList.remove('d-none');
     }
 };
 
@@ -1128,7 +1128,7 @@ window.addToCart = async function () {
     document.getElementById('sale-qty').value = '';
     // Очистка live preview
     const liveCostEl = document.getElementById('sale-live-cost');
-    if (liveCostEl) { liveCostEl.innerText = '0 ₽'; liveCostEl.style.color = 'var(--text-muted)'; }
+    if (liveCostEl) { liveCostEl.innerText = '0 ₽'; liveCostEl.classList.add('text-muted'); liveCostEl.classList.remove('text-primary', 'text-success', 'text-danger'); }
     // Скрываем блок ввода до выбора нового товара
     const specAct = document.getElementById('sale-spec-actions');
     if (specAct) specAct.classList.add('sales-hidden');
@@ -1148,7 +1148,7 @@ window.renderCart = function () {
 
         // Прячем финансовый контроллер
         const profitInfo = document.getElementById('cart-profit-info');
-        if (profitInfo) profitInfo.style.display = 'none';
+        if (profitInfo) profitInfo.classList.add('d-none');
         const profitSummary = document.getElementById('cart-profit-summary');
         if (profitSummary) profitSummary.classList.add('sales-hidden');
 
@@ -1196,7 +1196,7 @@ window.renderCart = function () {
                 <td><b>${item.name}</b></td>
                 <td class="text-center">
                     <input type="number" class="input-modern sales-cart-qty-input" value="${qty}" min="0.01" step="0.01"
-                           style="width:80px; text-align:center;"
+                           class="w-80p text-center"
                            oninput="updateCartItem(${index}, 'qty', this.value)">
                     <span class="font-12 text-muted">${item.unit}</span>
                 </td>
@@ -1206,7 +1206,7 @@ window.renderCart = function () {
                 <td class="text-center">
                     <input type="number" class="input-modern sales-cart-discount-input" value="${discount}" min="0" max="100" oninput="updateCartItem(${index}, 'discount', this.value)">
                 </td>
-                <td class="sales-cart-sum" style="white-space:nowrap;">
+                <td class="sales-cart-sum whitespace-nowrap">
                     ${sum.toFixed(2)} ₽
                     ${unitCost > 0 ? `<div class="font-10 ${lineNetProfit >= 0 ? 'text-success' : 'text-danger'}" title="Чистая прибыль (после налога ${safeTaxPct}%)">= ${lineNetProfit >= 0 ? '+' : ''}${lineNetProfit.toFixed(0)} ₽</div>` : ''}
                 </td>
@@ -1231,9 +1231,9 @@ window.renderCart = function () {
     if (originalSumEl) {
         if (globalDiscount > 0) {
             originalSumEl.innerText = subtotal.toLocaleString('ru-RU') + ' ₽';
-            originalSumEl.style.display = 'inline';
+            originalSumEl.classList.remove('d-none');
         } else {
-            originalSumEl.style.display = 'none';
+            originalSumEl.classList.add('d-none');
         }
     }
 
@@ -1254,7 +1254,7 @@ window.renderCart = function () {
         let pct = finalProductRevenue > 0 ? (netProfit / finalProductRevenue * 100) : 0;
         
         profitEl.innerText = (netProfit > 0 ? '+' : '') + netProfit.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-        profitEl.style.color = netProfit >= 0 ? 'var(--success)' : 'var(--danger)';
+        profitEl.classList.toggle('text-success', netProfit >= 0); profitEl.classList.toggle('text-danger', netProfit < 0);
         
         profitPctEl.innerText = pct.toFixed(1);
     }
@@ -1286,12 +1286,12 @@ window.renderCart = function () {
 
             const profitTotalEl = document.getElementById('cart-profit-total');
             profitTotalEl.innerText = (isProfitable ? '+' : '') + netProfit.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽';
-            profitTotalEl.style.color = isProfitable ? '#1b5e20' : '#b71c1c';
+            profitTotalEl.classList.toggle('text-success', isProfitable); profitTotalEl.classList.toggle('text-danger', !isProfitable);
 
             const marginEl = document.getElementById('cart-profit-margin');
             marginEl.innerText = `${marginPct}%`;
             marginEl.style.background = isProfitable ? '#1b5e20' : '#b71c1c';
-            marginEl.style.color = '#fff';
+            marginEl.classList.add('text-white');
 
             // Разбивка по продуктам
             const breakdownEl = document.getElementById('cart-profit-breakdown');
@@ -1302,16 +1302,16 @@ window.renderCart = function () {
                         const p = productProfitMap[name];
                         const ok = p.profit >= 0;
                         return `<div style="display:flex; justify-content:space-between; padding: 3px 0; border-bottom: 1px dotted ${isProfitable ? '#a5d6a7' : '#ef9a9a'};">
-                            <span style="color: ${isProfitable ? '#2e7d32' : '#c62828'};">${name}</span>
-                            <span style="font-weight:700; color: ${ok ? '#1b5e20' : '#b71c1c'};">${ok ? '+' : ''}${p.profit.toFixed(2)} ₽</span>
+                            <span class="${isProfitable ? 'text-success' : 'text-danger'}">${name}</span>
+                            <span class="font-bold ${ok ? 'text-success' : 'text-danger'}">${ok ? '+' : ''}${p.profit.toFixed(2)} ₽</span>
                         </div>`;
                     }).join('');
-                    breakdownEl.style.display = 'block';
+                    breakdownEl.classList.remove('d-none');
                     breakdownEl.style.background = isProfitable ? '#e8f5e960' : '#ffebee60';
                     breakdownEl.style.padding = '6px 18px 10px';
                 } else {
                     breakdownEl.innerHTML = '';
-                    breakdownEl.style.display = 'none';
+                    breakdownEl.classList.add('d-none');
                 }
             }
         } else {
@@ -1320,7 +1320,7 @@ window.renderCart = function () {
     }
 
     const oldProfit = document.getElementById('cart-profit-info');
-    if (oldProfit) oldProfit.style.display = 'none';
+    if (oldProfit) oldProfit.classList.add('d-none');
 };
 
 
@@ -1625,31 +1625,31 @@ function renderBlankOrdersTable() {
         
         let debtLabel = '';
         if (debtAmt > 0) {
-            debtLabel = `<div style="font-size: 11px; color: #ef4444; margin-top: 3px; font-weight: 500;">Долг: ${debtAmt.toLocaleString('ru-RU')} ₽</div>`;
+            debtLabel = `<div class="font-11 text-danger mt-3 font-600">Долг: ${debtAmt.toLocaleString('ru-RU')} ₽</div>`;
             payColor = '#ef4444, #f87171'; // Красный
         }
 
         let statusHtml = `
-            <div style="text-align: left; margin-bottom: 12px; min-width: 140px;">
-                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
-                    <span style="font-size: 11px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: 0.5px;">📦 Отгрузка</span>
+            <div class="text-left mb-12">
+                <div class="flex-between align-baseline mb-4">
+                    <span class="font-11 font-600 text-muted text-uppercase tracking-wide">📦 Отгрузка</span>
                     <span style="font-size: 12px; font-weight: 700; color: ${shipPercent >= 100 ? '#10b981' : shipPercent === 0 ? '#94a3b8' : '#3b82f6'};">${shipPercent}%</span>
                 </div>
-                <div style="height: 6px; background-color: #e2e8f0; border-radius: 4px; overflow: hidden; margin-bottom: 3px;">
-                    <div style="height: 100%; width: ${shipPercent}%; background: linear-gradient(90deg, ${shipColor}); border-radius: 4px; transition: width 0.6s ease-out;"></div>
+                <div class="h-18p bg-surface-alt border-radius-4 overflow-hidden mb-3">
+                    <div style="width: ${shipPercent}%; background: linear-gradient(90deg, ${shipColor});"></div>
                 </div>
-                <div style="font-size: 10px; color: #64748b;">${shipText}</div>
+                <div class="font-11 text-muted">${shipText}</div>
             </div>
 
-            <div style="text-align: left; min-width: 140px;">
-                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
-                    <span style="font-size: 11px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: 0.5px;">💳 Оплата</span>
+            <div class="text-left">
+                <div class="flex-between align-baseline mb-4">
+                    <span class="font-11 font-600 text-muted text-uppercase tracking-wide">💳 Оплата</span>
                     <span style="font-size: 12px; font-weight: 700; color: ${payPercent >= 100 ? '#10b981' : debtAmt > 0 ? '#ef4444' : payPercent === 0 ? '#94a3b8' : '#f59e0b'};">${payPercent}%</span>
                 </div>
-                <div style="height: 6px; background-color: #e2e8f0; border-radius: 4px; overflow: hidden; margin-bottom: 3px;">
+                <div class="h-18p bg-surface-alt border-radius-4 overflow-hidden mb-3">
                     <div style="height: 100%; width: ${payPercent}%; background: linear-gradient(90deg, ${payColor}); border-radius: 4px; transition: width 0.6s ease-out;"></div>
                 </div>
-                <div style="font-size: 10px; color: #64748b;">${payText}</div>
+                <div class="font-11 text-muted">${payText}</div>
                 ${debtLabel}
             </div>
         `;
@@ -1687,14 +1687,14 @@ function renderBlankOrdersTable() {
                 <span class="sales-order-doc-link entity-link" onclick="window.app.openEntity('document_order', ${o.id})">${o.doc_number}</span><br>
                 <span class="sales-order-amount">${totalAmt.toLocaleString('ru-RU')} ₽</span>
             </td>
-            <td style="vertical-align: top;">
+            <td class="valign-top">
                 <span class="sales-order-client entity-link" onclick="window.app.openEntity('client', ${o.counterparty_id})">${escapeHTML(o.client_name || 'Неизвестный клиент')}</span><br>
                 <span class="sales-order-address">📍 ${escapeHTML(o.delivery_address || 'Самовывоз')}</span><br>
                 ${clientBalanceBadge}
                 ${projHtml}
             </td>
             <td class="sales-order-items">${escapeHTML(o.items_list || 'Пусто')}</td>
-            <td class="text-center" style="vertical-align: middle; min-width: 180px; padding: 12px 16px;">
+            <td class="text-center valign-middle min-w-180p p-12-16">
                 ${statusHtml}
             </td>
             <td class="sales-order-actions-cell">
@@ -1714,7 +1714,7 @@ function renderBlankOrdersTable() {
 window.confirmDeleteOrder = function (orderId, docNum) {
     const html = `
         <p>Вы уверены, что хотите отменить и удалить заказ <b>${docNum}</b>?</p>
-        <p style="font-size: 12px; color: var(--danger);">⚠️ Товар вернется из резерва на склад, задачи на производство будут отменены, а аванс будет списан из кассы обратно.</p>
+        <p class="font-12 text-danger">⚠️ Товар вернется из резерва на склад, задачи на производство будут отменены, а аванс будет списан из кассы обратно.</p>
     `;
     UI.showModal('Удаление Заказа', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
@@ -1766,20 +1766,20 @@ window.renderHistoryPeriodUI = function () {
 
     let activeInputHtml = '';
     if (histPeriodType === 'day') {
-        activeInputHtml = `<input type="date" class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px; width: 130px;" value="${histSpecificDate}" onchange="applyHistoryPeriod('date', this.value)">`;
+        activeInputHtml = `<input type="date" class="input-modern p-4-6 font-13 border-radius-6 h-32p w-130p" value="${histSpecificDate}" onchange="applyHistoryPeriod('date', this.value)">`;
     } else if (histPeriodType === 'custom') {
-        activeInputHtml = `<input type="text" id="hist-custom-date" class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px; width: 190px;" placeholder="Выберите даты...">`;
+        activeInputHtml = `<input type="text" id="hist-custom-date" class="input-modern p-4-6 font-13 border-radius-6 h-32p min-w-190p" placeholder="Выберите даты...">`;
     } else if (histPeriodType !== 'all' && histPeriodType !== 'year' && histPeriodType !== 'week') {
-        activeInputHtml = `<select class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px;" onchange="applyHistoryPeriod('value', this.value)">${valOptions}</select>`;
+        activeInputHtml = `<select class="input-modern p-4-6 font-13 border-radius-6 h-32p" onchange="applyHistoryPeriod('value', this.value)">${valOptions}</select>`;
     }
 
     let yearHtml = '';
     if (histPeriodType !== 'all' && histPeriodType !== 'day' && histPeriodType !== 'week' && histPeriodType !== 'custom') {
-        yearHtml = `<select class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px;" onchange="applyHistoryPeriod('year', this.value)">${yearOptions}</select>`;
+        yearHtml = `<select class="input-modern p-4-6 font-13 border-radius-6 h-32p" onchange="applyHistoryPeriod('year', this.value)">${yearOptions}</select>`;
     }
 
     const html = `
-        <select class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px;" onchange="applyHistoryPeriod('type', this.value)">${typeOptions}</select>
+        <select class="input-modern p-4-6 font-13 border-radius-6 h-32p" onchange="applyHistoryPeriod('type', this.value)">${typeOptions}</select>
         ${activeInputHtml}
         ${yearHtml}
     `;
@@ -1998,13 +1998,13 @@ function renderHistoryTable() {
                 <b class="entity-link" onclick="window.app.openEntity('client', ${h.client_id || 0})">${escapeHTML(h.client_name || 'Неизвестный клиент')}</b><br>
                 <span class="profit-sub">${h.payment || ''}</span>
             </td>
-            <td class="text-center" style="font-weight: bold;">${parseFloat(h.total_qty).toLocaleString('ru-RU')}</td>
+            <td class="text-center font-bold">${parseFloat(h.total_qty).toLocaleString('ru-RU')}</td>
             <td class="sales-hist-sum">${sumText}</td>
             <td class="sales-hist-actions">
             <div class="sales-order-actions-row">
                 <button class="btn btn-outline sales-btn-sm sales-btn-sm-info" onclick="window.open('/print/upd?docNum=${h.doc_num}' + (String('/print/upd?docNum=${h.doc_num}').includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank')" title="УПД и Пропуск на выезд">🖨️ УПД + Пропуск</button>
-                <button class="btn btn-outline sales-btn-sm" style="color: var(--warning-text); border-color: var(--warning-text);" onclick="window.open('/print/specification?docNum=${h.doc_num}' + (String('/print/specification?docNum=${h.doc_num}').includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank')" title="Спецификация">🖨️ Спец.</button>
-                <button class="btn btn-outline sales-btn-sm" style="color: var(--primary); border-color: var(--primary);" onclick="window.open('/print/waybill?docNum=${h.doc_num}' + (String('/print/waybill?docNum=${h.doc_num}').includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank')" title="Накладная">🖨️ Накладная</button>
+                <button class="btn btn-outline sales-btn-sm text-warning border-warning" onclick="window.open('/print/specification?docNum=${h.doc_num}' + (String('/print/specification?docNum=${h.doc_num}').includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank')" title="Спецификация">🖨️ Спец.</button>
+                <button class="btn btn-outline sales-btn-sm text-primary border-primary" onclick="window.open('/print/waybill?docNum=${h.doc_num}' + (String('/print/waybill?docNum=${h.doc_num}').includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank')" title="Накладная">🖨️ Накладная</button>
                 <button class="btn btn-outline sales-btn-sm sales-btn-sm-danger" onclick="cancelShipment('${h.doc_num}')" title="Отменить">❌</button>
             </div>
             </td>
@@ -2013,7 +2013,7 @@ function renderHistoryTable() {
     }).join('');
 }
 window.cancelShipment = function (docNum) {
-    const html = `<p>Отменить накладную <b>${docNum}</b>?<br><small style="color: var(--danger);">Плитка вернется на склады, финансы аннулируются.</small></p>`;
+    const html = `<p>Отменить накладную <b>${docNum}</b>?<br><small class="text-danger">Плитка вернется на склады, финансы аннулируются.</small></p>`;
     UI.showModal('Отмена отгрузки', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Назад</button>
         <button class="btn btn-red" onclick="executeCancelShipment('${docNum}')">Да, отменить</button>
@@ -2098,11 +2098,11 @@ window.openPriceListModal = async function () {
                 <div class="flex-row gap-10" style="flex: 1; min-width: 250px;">
                     <label class="btn btn-outline border-primary text-primary font-12 cursor-pointer m-0 px-10">
                         📥 Загрузить Базовый (Розница)
-                        <input type="file" accept=".csv" style="display: none;" onchange="handleBasicCsvImport(event)">
+                        <input type="file" accept=".csv" class="d-none" onchange="handleBasicCsvImport(event)">
                     </label>
                     <label class="btn btn-outline border-info text-info font-12 cursor-pointer m-0 px-10">
                         📥 Загрузить Дилерский (Опт)
-                        <input type="file" accept=".csv" style="display: none;" onchange="handleDealerCsvImport(event)">
+                        <input type="file" accept=".csv" class="d-none" onchange="handleDealerCsvImport(event)">
                     </label>
                 </div>
                 <div class="flex-row gap-10">
@@ -2117,7 +2117,7 @@ window.openPriceListModal = async function () {
 window.filterPriceList = function(query) {
     const rows = document.querySelectorAll('.price-list-row');
     if (!query) {
-        rows.forEach(r => r.style.display = '');
+        rows.forEach(r => r.classList.remove('d-none'));
         return;
     }
     
@@ -2143,7 +2143,7 @@ window.filterPriceList = function(query) {
             }
         }
         
-        row.style.display = match ? '' : 'none';
+        row.classList.toggle('d-none', !match);
     });
 };
 
@@ -2218,8 +2218,8 @@ window.openContractManager = async function () {
                                 <div class="flex-between align-center font-12 text-muted mb-5">
                                     <span>↳ Спецификация №${s.number} от ${s.date}</span>
                                     <div class="flex-row gap-5">
-                                        <button class="btn btn-outline p-5 border-info text-info font-11" style="border:none;" onclick="window.open('/print/specification_doc?id=${s.id}' + (String('/print/specification_doc?id=${s.id}').includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank')" title="Печать спецификации">🖨️</button>
-                                        <button class="btn btn-outline p-5 border-danger text-danger font-11" style="border:none;" onclick="deleteSpecification(${s.id})" title="Удалить спецификацию">❌</button>
+                                        <button class="btn btn-outline p-5 border-info text-info font-11 border-none" onclick="window.open('/print/specification_doc?id=${s.id}' + (String('/print/specification_doc?id=${s.id}').includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank')" title="Печать спецификации">🖨️</button>
+                                        <button class="btn btn-outline p-5 border-danger text-danger font-11 border-none" onclick="deleteSpecification(${s.id})" title="Удалить спецификацию">❌</button>
                                     </div>
                                 </div>
                             `).join('')}
@@ -2230,15 +2230,15 @@ window.openContractManager = async function () {
         }
 
         const html = `
-            <div class="mb-20 pr-5 border-bottom pb-15 overflow-auto" style="max-height: 350px;">
+            <div class="mb-20 pr-5 border-bottom pb-15 overflow-auto" class="max-h-350p">
                 <h4 class="m-0 mb-10 text-muted">Актуальные документы:</h4>
                 ${listHtml}
             </div>
 
             <div class="mb-15 p-15 bg-surface-hover border border-radius-6">
                 <h4 class="m-0 mb-10 text-primary">📄 Создать новый договор</h4>
-                <input type="text" style="display:none" autocomplete="username">
-                <input type="password" style="display:none" autocomplete="current-password">
+                <input type="text" class="d-none" autocomplete="username">
+                <input type="password" class="d-none" autocomplete="current-password">
                 <div class="form-grid gap-15 sales-two-cols">
                     <div class="form-group m-0"><label>Номер договора:</label><input type="text" id="new-contract-num" class="input-modern" autocomplete="nope" placeholder="Напр: 45-А"></div>
                     <div class="form-group m-0"><label>Дата:</label><input type="date" id="new-contract-date" class="input-modern" value="${new Date().toISOString().split('T')[0]}"></div>
@@ -2340,14 +2340,14 @@ window.executeDeleteContract = async function (id) {
 // === КРАСИВОЕ УДАЛЕНИЕ СПЕЦИФИКАЦИИ ===
 window.deleteSpecification = function (id) {
     const html = `
-        <div style="padding: 15px; text-align: center; font-size: 15px;">
+        <div class="p-15 text-center font-15">
             Вы уверены, что хотите удалить эту спецификацию?<br>
-            <small style="color: var(--text-muted);">Это действие нельзя отменить.</small>
+            <small class="text-muted">Это действие нельзя отменить.</small>
         </div>`;
 
     UI.showModal('⚠️ Удаление спецификации', html, `
         <button class="btn btn-outline" onclick="cancelDeleteSpecification()">Отмена</button>
-        <button class="btn btn-blue" style="background: #ef4444; border-color: #ef4444;" onclick="executeDeleteSpecification(${id})">🗑️ Да, удалить</button>
+        <button class="btn btn-blue" class="bg-danger-btn border-danger text-white" onclick="executeDeleteSpecification(${id})">🗑️ Да, удалить</button>
     `);
 };
 
@@ -2423,8 +2423,8 @@ window.saveNewSpecification = async function () {
 // (нужно добавить этот вызов в onChange твоего TomSelect продукции в продажах)
 window.onSalesProductChange = function (productId) {
     const btn = document.getElementById('btn-calc-sales-cost');
-    if (productId) btn.style.display = 'block';
-    else btn.style.display = 'none';
+    if (productId) btn.classList.remove('d-none');
+    else btn.classList.add('d-none');
 };
 
 // ==========================================
@@ -2465,13 +2465,13 @@ window.openCostAnalysisModal = async function () {
             <div style="padding: 8px 4px;">
                 
                 <!-- Шапка: Партия + Прибыль -->
-                <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 2px solid var(--border-color);">
+                <div class="flex-between align-end mb-18 pb-12 border-bottom-2">
                     <div>
                         <div class="font-13 text-muted">Объем партии: <b class="text-main">${qty} ${currentSelectedItem.unit || 'шт.'}</b> × <b class="text-main">${salePrice} ₽</b></div>
                     </div>
-                    <div style="text-align: right;">
+                    <div class="text-right">
                         <div class="font-11 text-muted text-uppercase" style="letter-spacing: 0.5px;">Чистая прибыль (Партия)</div>
-                        <div id="res-batch-profit" style="font-size: 28px; font-weight: 900; line-height: 1; color: var(--success);">0.00 ₽</div>
+                        <div id="res-batch-profit" class="font-28 font-900 text-success line-height-1">0.00 ₽</div>
                     </div>
                 </div>
 
@@ -2580,12 +2580,12 @@ window.openCostAnalysisModal = async function () {
                                 <b>${salePrice} ₽</b>
                             </div>
                             <div class="calc-row">
-                                <span style="color: var(--danger);">Налог (%):</span>
-                                <input type="number" id="calc-tax-pct" class="calc-input" style="border-color:var(--danger);" value="${window.FINANCE_TAX_PERCENT || 6}" step="1" max="100" onfocus="this.select()" oninput="recalcSalesMargin()">
+                                <span class="text-danger">Налог (%):</span>
+                                <input type="number" id="calc-tax-pct" class="calc-input border-danger" value="${window.FINANCE_TAX_PERCENT || 6}" step="1" max="100" onfocus="this.select()" oninput="recalcSalesMargin()">
                             </div>
                             <div class="calc-row">
                                 <span style="color: var(--info);">Бонус менедж. (%):</span>
-                                <input type="number" id="calc-bonus-pct" class="calc-input" style="border-color:var(--info);" value="0" step="0.5" max="100" onfocus="this.select()" oninput="recalcSalesMargin()">
+                                <input type="number" id="calc-bonus-pct" class="calc-input border-info" value="0" step="0.5" max="100" onfocus="this.select()" oninput="recalcSalesMargin()">
                             </div>
                         </div>
 
@@ -2597,11 +2597,11 @@ window.openCostAnalysisModal = async function () {
                             </div>
                             <div class="calc-row" style="border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 10px;">
                                 <span>Налоги и комиссии:</span>
-                                <strong id="res-taxes" style="color: var(--danger);">-0.00 ₽</strong>
+                                <strong id="res-taxes" class="text-danger">-0.00 ₽</strong>
                             </div>
                             <div style="display: flex; justify-content: space-between; align-items: center;">
                                 <div style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">Чистая прибыль (1 ед)</div>
-                                <div style="text-align: right;">
+                                <div class="text-right">
                                     <div id="res-net-profit" style="font-size: 22px; font-weight: 900; line-height: 1; color: var(--success);">0.00 ₽</div>
                                     <div id="res-margin-pct" style="font-size: 12px; font-weight: 700; color: var(--success); margin-top: 3px;">Рентабельность: 0%</div>
                                 </div>
@@ -2649,16 +2649,16 @@ window.recalcSalesMargin = function () {
 
     if (netProfit > 0) {
         profitEl.innerText = netProfit.toFixed(2) + ' ₽';
-        profitEl.style.color = 'var(--success)';
+        profitEl.classList.add('text-success'); profitEl.classList.remove('text-primary', 'text-muted', 'text-danger');
         marginEl.innerText = `Рентабельность сделки: ${netMargin}%`;
-        marginEl.style.color = 'var(--success-text)';
-        batchProfitEl.style.color = 'var(--success)';
+        marginEl.classList.add('text-success'); marginEl.classList.remove('text-primary', 'text-muted', 'text-danger');
+        batchProfitEl.classList.add('text-success'); batchProfitEl.classList.remove('text-primary', 'text-muted', 'text-danger');
     } else {
         profitEl.innerText = netProfit.toFixed(2) + ' ₽';
-        profitEl.style.color = 'var(--danger)';
+        profitEl.classList.add('text-danger'); profitEl.classList.remove('text-primary', 'text-success', 'text-muted');
         marginEl.innerText = `Убыток: ${netMargin}%`;
-        marginEl.style.color = 'var(--danger-text)';
-        batchProfitEl.style.color = 'var(--danger)';
+        marginEl.classList.add('text-danger'); marginEl.classList.remove('text-primary', 'text-success', 'text-muted');
+        batchProfitEl.classList.add('text-danger'); batchProfitEl.classList.remove('text-primary', 'text-success', 'text-muted');
     }
 
     batchProfitEl.innerText = batchProfit.toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽';
@@ -2953,7 +2953,7 @@ window.openReturnModal = async function () {
                     </select>
                 </div>
 
-                <div class="form-group" id="ret-acc-group" style="display: none;">
+                <div class="form-group" id="ret-acc-group" class="d-none">
                     <label>Из какой кассы выдаем?</label>
                     <select id="ret-account" class="input-modern">${accountOptions}</select>
                 </div>
@@ -3319,7 +3319,7 @@ window.openPalletsReport = async function () {
 
         let tbody = data.map(c => `
             <tr style="border-bottom: 1px solid var(--border);">
-                <td style="padding: 10px;"><b>${c.name}</b></td>
+                <td class="p-10"><b>${c.name}</b></td>
                 <td style="padding: 10px; color: var(--text-muted);">${c.phone || 'Нет телефона'}</td>
                 <td style="padding: 10px; text-align: right; color: var(--warning-text); font-weight: bold; font-size: 16px;">${c.pallets_balance} шт.</td>
             </tr>
@@ -3330,7 +3330,7 @@ window.openPalletsReport = async function () {
         const totalPallets = data.reduce((sum, c) => sum + parseInt(c.pallets_balance), 0);
 
         const html = `
-            <div style="padding: 10px;">
+            <div class="p-10">
                 <div style="background: #fffbeb; padding: 15px; border-radius: 8px; border: 1px solid #fde68a; margin-bottom: 15px; text-align: center;">
                     <span style="color: #b45309; font-size: 14px;">Всего деревянных поддонов зависло у клиентов:</span><br>
                     <strong style="font-size: 26px; color: var(--warning-text);">${totalPallets} шт.</strong>
@@ -3338,8 +3338,8 @@ window.openPalletsReport = async function () {
                 <table style="width: 100%; border-collapse: collapse;">
                     <thead style="background: var(--surface-hover); text-align: left;">
                         <tr>
-                            <th style="padding: 10px;">Клиент</th>
-                            <th style="padding: 10px;">Телефон для связи</th>
+                            <th class="p-10">Клиент</th>
+                            <th class="p-10">Телефон для связи</th>
                             <th style="padding: 10px; text-align: right;">Долг (шт)</th>
                         </tr>
                     </thead>
@@ -3681,14 +3681,14 @@ window.toggleSalesView = function (viewType) {
     const btnKanban = document.getElementById('view-btn-kanban');
 
     if (viewType === 'kanban') {
-        if (tableWrap) tableWrap.style.display = 'none';
-        kanbanWrap.style.display = 'flex';
+        if (tableWrap) tableWrap.classList.add('d-none');
+        kanbanWrap.classList.remove('d-none');
         btnList.className = 'btn btn-outline';
         btnKanban.className = 'btn btn-blue';
         renderKanbanBoard();
     } else {
-        kanbanWrap.style.display = 'none';
-        if (tableWrap) tableWrap.style.display = 'block';
+        kanbanWrap.classList.add('d-none');
+        if (tableWrap) tableWrap.classList.remove('d-none');
         btnList.className = 'btn btn-blue';
         btnKanban.className = 'btn btn-outline';
     }
@@ -3861,9 +3861,9 @@ window.openOrderDetails = async function (orderId) {
 
 window.openMiniClientModal = function () {
     const html = `
-        <div style="padding: 10px;">
-            <input type="text" style="display:none" autocomplete="username">
-            <input type="password" style="display:none" autocomplete="current-password">
+        <div class="p-10">
+            <input type="text" class="d-none" autocomplete="username">
+            <input type="password" class="d-none" autocomplete="current-password">
 
             <div class="form-group">
                 <label>Наименование (ФИО или Орг.):</label>
@@ -4040,9 +4040,9 @@ window.toggleSaleDelivery = function() {
     const addressGroup = document.getElementById('sale-delivery-address-group');
     if (addressGroup) {
         if (deliveryType && deliveryType.value === 'pickup') {
-            addressGroup.style.display = 'none';
+            addressGroup.classList.add('d-none');
         } else {
-            addressGroup.style.display = 'block';
+            addressGroup.classList.remove('d-none');
         }
     }
 };
