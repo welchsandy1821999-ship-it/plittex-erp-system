@@ -658,7 +658,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 SELECT 
                     o.id, 
                     o.doc_number as invoice_number, 
-                    (o.total_amount - o.paid_amount) as amount, 
+                    o.pending_debt as amount, 
                     'Остаток долга по заказу № ' || o.doc_number as description, 
                     'pending' as status, 
                     o.created_at,
@@ -668,7 +668,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     true as is_order
                 FROM client_orders o
                 LEFT JOIN counterparties c ON o.counterparty_id = c.id
-                WHERE (o.total_amount - o.paid_amount) > 0 AND o.status != 'cancelled'
+                WHERE o.status IN ('pending', 'processing') AND o.pending_debt > 0
 
                 ORDER BY created_at DESC
             `);
@@ -1579,13 +1579,23 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     o.doc_number,
                     o.total_amount as revenue,
                     c.name as client_name,
-                    COALESCE(SUM(ABS(m.quantity) * i.current_price), 0) as material_cost
+                    o.created_at,
+                    COALESCE(SUM(
+                        ABS(m.quantity) * COALESCE(
+                            (SELECT SUM(r.quantity_per_unit * ri_i.current_price) 
+                             FROM recipes r
+                             JOIN items ri_i ON ri_i.id = r.material_id
+                             WHERE r.product_id = m.item_id),
+                            i.purchase_price,
+                            0
+                        )
+                    ), 0) as material_cost
                 FROM client_orders o
                 JOIN counterparties c ON o.counterparty_id = c.id
                 LEFT JOIN inventory_movements m ON m.description LIKE '%' || o.doc_number || '%' AND m.movement_type = 'sales_shipment'
                 LEFT JOIN items i ON m.item_id = i.id
                 WHERE o.status = 'completed'
-                GROUP BY o.id, c.name
+                GROUP BY o.id, o.doc_number, o.total_amount, c.name, o.created_at
                 ORDER BY o.created_at DESC
                 LIMIT 10
             `);
