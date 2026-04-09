@@ -794,7 +794,8 @@ window.executeExport = function(mode) {
 // === ПРОСЕИВАНИЕ СЫРЬЯ ===
 window.openSiftingModal = function() {
     const modal = document.getElementById('modal-sifting');
-    modal.style.display = 'flex';
+    modal.classList.remove('d-none');
+    modal.classList.add('d-flex');
     // Небольшая задержка для плавности CSS-перехода, если он есть
     setTimeout(() => modal.classList.add('active'), 10);
 
@@ -808,7 +809,7 @@ window.openSiftingModal = function() {
 window.closeSiftingModal = function() {
     const modal = document.getElementById('modal-sifting');
     modal.classList.remove('active');
-    setTimeout(() => modal.style.display = 'none', 200);
+    setTimeout(() => { modal.classList.remove('d-flex'); modal.classList.add('d-none'); }, 200);
 };
 
 window.calculateSifting = function() {
@@ -911,8 +912,8 @@ window.renderInvHistoryPeriodUI = function () {
     const container = document.getElementById('history-period-selector');
     if (container) {
         container.innerHTML = html;
-        container.style.width = '100%'; 
-        container.style.display = 'flex';
+        container.classList.add('w-100', 'd-flex');
+        container.classList.remove('d-none');
     }
 
     if (invHistoryPeriodType === 'custom') {
@@ -1017,7 +1018,8 @@ window.openItemHistory = async function(itemId, warehouseId) {
     invHistoryYear = new Date().getFullYear();
     renderInvHistoryPeriodUI();
     
-    modal.style.display = 'flex';
+    modal.classList.remove('d-none');
+    modal.classList.add('d-flex');
     setTimeout(() => modal.classList.add('active'), 10);
     
     fetchItemHistory();
@@ -1026,7 +1028,7 @@ window.openItemHistory = async function(itemId, warehouseId) {
 window.closeItemHistory = function() {
     const modal = document.getElementById('modal-item-history');
     modal.classList.remove('active');
-    setTimeout(() => modal.style.display = 'none', 200);
+    setTimeout(() => { modal.classList.remove('d-flex'); modal.classList.add('d-none'); }, 200);
     historyCurrentItemId = null;
 };
 

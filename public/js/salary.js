@@ -49,14 +49,16 @@ function toggleAccordion(bodyId, headerEl) {
     const isCollapsed = window.getComputedStyle(body).display === 'none';
 
     if (isCollapsed) {
-        body.classList.remove('d-none');
+        body.classList.add('d-block');
+        body.classList.remove('d-none'); // На всякий случай зачищаем старые классы
         if (icon) icon.innerText = '▲';
         headerEl.classList.add('open');
 
         // Автоматическая загрузка данных при открытии нужных вкладок
         if (bodyId === 'acc-timesheet') loadMonthlyTimesheet();
     } else {
-        body.classList.add('d-none');
+        body.classList.remove('d-block');
+        body.classList.add('d-none'); // Альтернативно просто возвращаем d-none
         if (icon) icon.innerText = '▼';
         headerEl.classList.remove('open');
     }

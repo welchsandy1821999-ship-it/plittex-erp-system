@@ -95,8 +95,7 @@
     // === УПРАВЛЕНИЕ ФОРМОЙ И МАТРИЦАМИ ===
 
     function openRefForm() {
-        document.getElementById('ref-form-container').classList.remove('inv-hidden');
-        document.getElementById('ref-form-container').style.display = 'block';
+        document.getElementById('ref-form-container').classList.remove('inv-hidden', 'd-none');
         document.getElementById('ref-form-title').innerText = '✨ Добавление новой позиции';
         clearRefForm();
         loadMoldsForRefs();
@@ -104,7 +103,7 @@
     }
 
     function closeRefForm() {
-        document.getElementById('ref-form-container').style.display = 'none';
+        document.getElementById('ref-form-container').classList.add('d-none');
         clearRefForm();
     }
 

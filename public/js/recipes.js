@@ -122,15 +122,13 @@ window.switchRecipeMode = function(mode) {
     window.currentRecipeMode = mode;
     
     // Стили кнопок-табов
-    document.getElementById('tab-recipes-bom').className = mode === 'BOM' ? 'btn btn-blue shadow-primary' : 'btn btn-outline';
-    document.getElementById('tab-recipes-bom').style.color = mode === 'BOM' ? '' : 'var(--primary)';
+    document.getElementById('tab-recipes-bom').className = mode === 'BOM' ? 'btn btn-blue shadow-primary' : 'btn btn-outline text-primary';
     
-    document.getElementById('tab-recipes-mix').className = mode === 'MIX' ? 'btn btn-blue shadow-primary' : 'btn btn-outline';
-    document.getElementById('tab-recipes-mix').style.color = mode === 'MIX' ? '' : 'var(--primary)';
+    document.getElementById('tab-recipes-mix').className = mode === 'MIX' ? 'btn btn-blue shadow-primary' : 'btn btn-outline text-primary';
 
     // Видимость блоков выбора
-    document.getElementById('recipe-left-mode-bom').style.display = mode === 'BOM' ? 'block' : 'none';
-    document.getElementById('recipe-left-mode-mix').style.display = mode === 'MIX' ? 'block' : 'none';
+    document.getElementById('recipe-left-mode-bom').classList.toggle('d-none', mode !== 'BOM');
+    document.getElementById('recipe-left-mode-mix').classList.toggle('d-none', mode !== 'MIX');
 
     // Сбрасываем рабочую область
     document.getElementById('recipe-editor-area').classList.add('hidden');
@@ -150,15 +148,15 @@ window.switchRecipeMode = function(mode) {
         window.recalculateRecipeTotals();
     }
 
-    document.getElementById('mix-yield-container').style.display = mode === 'MIX' ? 'block' : 'none';
+    document.getElementById('mix-yield-container').classList.toggle('d-none', mode !== 'MIX');
     
     const massApplyBtn = document.getElementById('btn-mass-apply-recipe');
-    if (massApplyBtn) massApplyBtn.style.display = mode === 'BOM' ? 'block' : 'none';
+    if (massApplyBtn) massApplyBtn.classList.toggle('d-none', mode !== 'BOM');
 
     const topMassApplyPanel = document.getElementById('top-panel-mass-apply');
-    if (topMassApplyPanel) topMassApplyPanel.style.display = mode === 'BOM' ? 'flex' : 'none';
+    if (topMassApplyPanel) topMassApplyPanel.classList.toggle('d-none', mode !== 'BOM');
 
-    document.getElementById('recipe-editor-badge').style.display = 'none';
+    document.getElementById('recipe-editor-badge').classList.add('d-none');
 
     // Меняем подписи в сводке
     if (mode === 'BOM') {
@@ -185,15 +183,13 @@ window.loadMixTemplateDetails = function() {
     document.getElementById('recipe-editor-title').innerText = `Шаблон: ${templateName}`;
 
     const badgeEl = document.getElementById('recipe-editor-badge');
-    badgeEl.style.display = 'inline-block';
+    badgeEl.classList.remove('d-none', 'bg-warning', 'text-warning', 'bg-border', 'text-main');
     if (templateKey.startsWith('main_')) {
         badgeEl.innerText = 'ОСНОВНОЙ ЗАМЕС';
-        badgeEl.style.background = 'var(--border)';
-        badgeEl.style.color = 'var(--text-main)';
+        badgeEl.classList.add('bg-border', 'text-main');
     } else {
         badgeEl.innerText = 'ЛИЦЕВОЙ ЗАМЕС';
-        badgeEl.style.background = 'var(--warning)';
-        badgeEl.style.color = 'var(--warning-text)';
+        badgeEl.classList.add('bg-warning', 'text-warning');
     }
 
     const tplData = window.currentMixTemplates[templateKey] || [];
@@ -301,9 +297,9 @@ function renderRecipeTable() {
 
     if (currentRecipeData.length === 0) {
         tbody.innerHTML = '';
-        if (emptyMsg) emptyMsg.style.display = 'block';
+        if (emptyMsg) emptyMsg.classList.remove('d-none');
     } else {
-        if (emptyMsg) emptyMsg.style.display = 'none';
+        if (emptyMsg) emptyMsg.classList.add('d-none');
         tbody.innerHTML = currentRecipeData.map((ing, index) => {
             const cost = ing.qty * ing.price;
             totalWeight += ing.qty;
@@ -433,7 +429,7 @@ window.showMixCopyModal = function() {
 
 window.toggleMixGroup = function(groupId) {
     const el = document.getElementById(`mix-copy-${groupId}`);
-    if(el) el.style.display = el.style.display === 'none' || el.style.display === '' ? 'grid' : 'none';
+    if(el) el.classList.toggle('d-none');
 };
 
 window.toggleAllInGroup = function(groupId, checked) {
@@ -862,10 +858,10 @@ window.executeMassApply = async function() {
     if (progressText) {
         if (errorCount === 0) {
             progressText.innerHTML = `<span class="text-success font-bold">✅ Завершено! Успешно: ${successCount} из ${total}</span>`;
-            if (progressBar) progressBar.style.background = 'var(--success)';
+            if (progressBar) { progressBar.classList.remove('bg-danger', 'bg-warning'); progressBar.classList.add('bg-success'); }
         } else {
             progressText.innerHTML = `<span class="text-warning font-bold">⚠️ Завершено! Успешно: ${successCount}, Ошибок: ${errorCount}</span>`;
-            if (progressBar) progressBar.style.background = errorCount === total ? 'var(--danger)' : 'var(--warning-text)';
+            if (progressBar) { progressBar.classList.remove('bg-success'); progressBar.classList.add(errorCount === total ? 'bg-danger' : 'bg-warning'); }
         }
     }
 

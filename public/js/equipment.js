@@ -182,8 +182,8 @@ window.openEquipmentModal = function (id = null) {
     }
 
     // 4. Показываем окно (используем уже объявленную переменную eqModal)
-    eqModal.style.display = 'flex'; // Гарантируем видимость 
-    eqModal.classList.add('active'); // Для красоты и темной 
+    eqModal.classList.remove('d-none'); // Гарантируем видимость 
+    eqModal.classList.add('d-flex', 'active'); // Для красоты и темной 
 
     // 🚀 Финальный аккорд: TomSelect для карточки оборудования
     setTimeout(() => {
@@ -294,8 +294,8 @@ window.openMaintenanceModal = async function (id, name) {
     }
 
     // Активация окна
-    maintModal.style.display = 'flex'; // Гарантируем физическую видимость
-    maintModal.classList.add('active'); // Включаем CSS-анимацию и стили темы
+    maintModal.classList.remove('d-none'); // Гарантируем физическую видимость
+    maintModal.classList.add('d-flex', 'active'); // Включаем CSS-анимацию и стили темы
 };
 
 window.saveEquipmentMaintenance = async function () {

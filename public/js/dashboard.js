@@ -1022,16 +1022,10 @@ window.checkMrpStatus = async function (isSilent = false) {
             const hasDeficit = data.deficitReport.some(d => parseFloat(d.shortage) > 0);
 
             if (hasDeficit) {
-                btn.className = 'btn';
-                btn.style.background = 'var(--danger)';
-                btn.style.borderColor = 'var(--danger)';
-                btn.style.color = '#fff';
+                btn.className = 'btn btn-red text-white';
                 btn.innerHTML = '⚠️ Есть дефицит (MRP)';
             } else {
-                btn.className = 'btn';
-                btn.style.background = 'var(--success)';
-                btn.style.borderColor = 'var(--success)';
-                btn.style.color = '#fff';
+                btn.className = 'btn bg-success text-white border-success';
                 btn.innerHTML = '✅ Склад обеспечен (MRP)';
             }
 
