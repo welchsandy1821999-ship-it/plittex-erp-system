@@ -54,14 +54,14 @@
         </div>
     </div>
 
-    <div id="invoices-container" class="finance-invoices-wrap card mb-20 p-0" style="display: none; overflow: hidden;">
+    <div id="invoices-container" class="finance-invoices-wrap card mb-20 p-0 d-none overflow-hidden">
         <div class="p-15 cursor-pointer flex-between align-center bg-surface-hover"
-            onclick="const b=document.getElementById('invoices-body'); const i=this.querySelector('.acc-icon'); if(b.style.display==='none'){b.style.display='block';i.innerText='▲ СВЕРНУТЬ';}else{b.style.display='none';i.innerText='▼ РАСКРЫТЬ';}">
+            onclick="const b=document.getElementById('invoices-body'); const i=this.querySelector('.acc-icon'); b.classList.toggle('d-none'); if(b.classList.contains('d-none')){i.innerText='▼ РАСКРЫТЬ';}else{i.innerText='▲ СВЕРНУТЬ';}">
             <h3 class="m-0 text-main font-16">🟡 Ожидаемые платежи (Счета и Заказы)</h3>
-            <div class="text-muted font-11 font-bold acc-icon" style="user-select: none;">▼ РАСКРЫТЬ</div>
+            <div class="text-muted font-11 font-bold acc-icon user-select-none">▼ РАСКРЫТЬ</div>
         </div>
 
-        <div id="invoices-body" style="display: none; padding: 15px; border-top: 1px solid var(--border);">
+        <div id="invoices-body" class="d-none p-15 border-top">
             <div class="table-container flat invoice-alert-row m-0">
                 <table id="invoices-table" class="w-100">
                     <thead class="bg-surface-alt">
@@ -80,7 +80,7 @@
         </div>
     </div>
 
-    <div id="bulk-actions-panel" class="bulk-panel" style="display: none;">
+    <div id="bulk-actions-panel" class="bulk-panel d-none">
         <div class="font-bold text-danger">Выбрано платежей: <span id="bulk-selected-count">0</span></div>
         <button class="btn btn-red" onclick="executeBulkDelete()">🗑️ Удалить выбранные</button>
     </div>
@@ -92,7 +92,7 @@
     </div>
 
     <!-- Инфо-панель при активном поиске / фильтрации -->
-    <div id="finance-summary-bar" class="mb-15 finance-summary-bar" style="display: none;">
+    <div id="finance-summary-bar" class="mb-15 finance-summary-bar d-none">
         <div class="flex-row gap-15 align-center flex-wrap">
             <span class="font-14 text-main">🔍 Фильтр: <b id="summary-filter-name" class="text-primary"></b></span>
             <div id="summary-date-picker-placeholder" class="finance-period-selector flex-row gap-10"></div>

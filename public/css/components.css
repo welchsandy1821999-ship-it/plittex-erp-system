@@ -730,6 +730,13 @@ span.flatpickr-weekday {
 /* Отступы */
 .mr-10 { margin-right: 10px; }
 .mt-5 { margin-top: 5px; }
+.p-15 { padding: 15px; }
+
+/* Состояния и отображение */
+.d-none { display: none !important; }
+.overflow-hidden { overflow: hidden; }
+.user-select-none { user-select: none; }
+.border-top { border-top: 1px solid var(--border); }
 
 /* Типографика */
 .font-italic { font-style: italic; }
