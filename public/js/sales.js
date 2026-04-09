@@ -82,7 +82,7 @@ async function loadFinanceTaxPercent() {
 }
 
 function initStaticSalesSelects() {
-    ['sale-warehouse', 'sale-payment-method', 'sale-account', 'bo-client-filter', 'bo-status-filter', 'hist-client-filter'].forEach(id => {
+    ['sale-account', 'bo-client-filter', 'bo-status-filter', 'hist-client-filter'].forEach(id => {
         const el = document.getElementById(id);
         if (el && !el.tomselect) {
             new TomSelect(el, {
@@ -483,32 +483,6 @@ window.loadClientPoas = async function () {
         poaSelect.innerHTML = '<option value="">-- Выберите доверенность --</option>';
         data.forEach(poa => poaSelect.add(new Option(`${poa.driver_name} — №${poa.number} (действ. до ${poa.expiry_date})`, `№${poa.number} от ${poa.issue_date} (выдана: ${poa.driver_name})`)));
     } catch (e) { console.error(e); }
-};
-
-window.toggleSalePayment = function () {
-    const method = document.getElementById('sale-payment-method');
-    if (!method) return;
-    const methodVal = method.value;
-    const accountGroup = document.getElementById('sale-account-group');
-    const advanceGroup = document.getElementById('sale-advance-group');
-    if (!accountGroup || !advanceGroup) return;
-
-    // Кассу показываем ТОЛЬКО если есть реальная оплата (100% или аванс)
-    if (methodVal === 'paid' || methodVal === 'partial') {
-        accountGroup.classList.remove('sales-hidden');
-    } else {
-        accountGroup.classList.add('sales-hidden');
-    }
-
-    // Поле ввода аванса показываем ТОЛЬКО при частичной оплате
-    if (methodVal === 'partial') {
-        advanceGroup.classList.remove('sales-hidden');
-    } else {
-        advanceGroup.classList.add('sales-hidden');
-    }
-
-    // 💳 Применяем умную логику disabled
-    if (typeof smartAccountToggle === 'function') smartAccountToggle();
 };
 
 // 💳 УМНАЯ ЛОГИКА КАССЫ: hide если зачёт покрывает всю сумму
