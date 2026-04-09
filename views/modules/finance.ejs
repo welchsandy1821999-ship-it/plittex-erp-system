@@ -18,12 +18,16 @@
     <div id="cashflow-widget" class="mb-20"></div>
     <div id="tax-widget-container" class="mb-20"></div>
 
-    <div class="card mb-20">
-        <div class="flex-between mb-15">
-            <h3 class="mt-0 mb-0 font-16">💰 Прибыль по последним отгрузкам</h3>
-            <span class="text-muted font-11">Маржа = (Выручка - Себестоимость материалов)</span>
+    <div class="card mb-20 p-0 overflow-hidden">
+        <div class="p-15 cursor-pointer flex-between align-center bg-surface-hover"
+            onclick="const b=document.getElementById('profit-analysis-container'); const i=this.querySelector('.acc-icon'); b.classList.toggle('d-none'); if(b.classList.contains('d-none')){i.innerText='▼ РАСКРЫТЬ';}else{i.innerText='▲ СВЕРНУТЬ';}">
+            <div>
+                <h3 class="m-0 text-main font-16">💰 Прибыль по последним отгрузкам</h3>
+                <span class="text-muted font-11">Маржа = (Выручка - Себестоимость материалов)</span>
+            </div>
+            <div class="text-muted font-11 font-bold acc-icon user-select-none">▼ РАСКРЫТЬ</div>
         </div>
-        <div id="profit-analysis-container"></div>
+        <div id="profit-analysis-container" class="d-none border-top p-15"></div>
     </div>
 
     <div class="form-grid finance-charts-grid">

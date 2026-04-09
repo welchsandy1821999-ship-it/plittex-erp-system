@@ -638,13 +638,39 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     router.get('/api/invoices', async (req, res) => {
         try {
             const result = await pool.query(`
-                SELECT i.id, i.invoice_number, i.total_amount as amount, i.purpose as description, i.status, i.created_at,
-                       TO_CHAR(i.created_at, 'DD.MM.YYYY') as date_formatted,
-                       c.name as counterparty_name, c.id as cp_id
+                SELECT 
+                    i.id, 
+                    i.invoice_number, 
+                    i.total_amount as amount, 
+                    i.purpose as description, 
+                    i.status, 
+                    i.created_at,
+                    TO_CHAR(i.created_at, 'DD.MM.YYYY') as date_formatted,
+                    c.name as counterparty_name, 
+                    c.id as cp_id,
+                    false as is_order
                 FROM invoices i
                 JOIN counterparties c ON i.counterparty_id = c.id
                 WHERE i.status = 'pending'
-                ORDER BY i.created_at DESC
+
+                UNION ALL
+
+                SELECT 
+                    o.id, 
+                    o.doc_number as invoice_number, 
+                    (o.total_amount - o.paid_amount) as amount, 
+                    'Остаток долга по заказу № ' || o.doc_number as description, 
+                    'pending' as status, 
+                    o.created_at,
+                    TO_CHAR(o.created_at, 'DD.MM.YYYY') as date_formatted,
+                    c.name as counterparty_name, 
+                    o.counterparty_id as cp_id,
+                    true as is_order
+                FROM client_orders o
+                LEFT JOIN counterparties c ON o.counterparty_id = c.id
+                WHERE (o.total_amount - o.paid_amount) > 0 AND o.status != 'cancelled'
+
+                ORDER BY created_at DESC
             `);
             res.json(result.rows);
         } catch (err) {
