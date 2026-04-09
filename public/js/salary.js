@@ -49,14 +49,14 @@ function toggleAccordion(bodyId, headerEl) {
     const isCollapsed = window.getComputedStyle(body).display === 'none';
 
     if (isCollapsed) {
-        body.style.display = 'block';
+        body.classList.remove('d-none');
         if (icon) icon.innerText = '▲';
         headerEl.classList.add('open');
 
         // Автоматическая загрузка данных при открытии нужных вкладок
         if (bodyId === 'acc-timesheet') loadMonthlyTimesheet();
     } else {
-        body.style.display = 'none';
+        body.classList.add('d-none');
         if (icon) icon.innerText = '▼';
         headerEl.classList.remove('open');
     }
@@ -717,7 +717,7 @@ window.renderTimesheetMatrix = function (year, month) {
     // Управление видимостью кнопки отмены закрытия в верхней панели (рядом с селектом)
     const topReopenBtn = document.getElementById('reopen-month-btn-payroll');
     if (topReopenBtn) {
-        topReopenBtn.style.display = isClosed ? 'inline-block' : 'none';
+        topReopenBtn.classList.toggle('d-none', !isClosed);
     }
 
     // === ЧИСТАЯ ГЕНЕРАЦИЯ ПОДВАЛА ТАБЛИЦЫ ===
@@ -747,7 +747,7 @@ window.renderTimesheetMatrix = function (year, month) {
                     if (parts.length === 3) {
                         const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
                         if (payload.role !== 'admin') {
-                            document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
+                            document.querySelectorAll('.admin-only').forEach(el => el.classList.add('d-none'));
                         }
                     }
                 } catch (e) { }
@@ -1562,7 +1562,7 @@ window.openCellEditModal = function (empId, empName, dateStr, currentStatus, cur
             </select>
         </div>
 
-        <div id="multiplier-select-container" class="multiplier-block" style="display: ${currentStatus === 'partial' ? 'flex' : 'none'}">
+        <div id="multiplier-select-container" class="multiplier-block ${currentStatus === 'partial' ? 'd-flex' : 'd-none'}">
             <div class="multiplier-block-row">
                 <label class="multiplier-block-label">Отработанная доля:</label>
                 <label class="multiplier-radio-label">
@@ -1580,7 +1580,7 @@ window.openCellEditModal = function (empId, empName, dateStr, currentStatus, cur
             </div>
         </div>
 
-        <div id="penalty-check-container" class="penalty-check-block" style="display: ${currentStatus === 'absent' ? 'flex' : 'none'}">
+        <div id="penalty-check-container" class="penalty-check-block ${currentStatus === 'absent' ? 'd-flex' : 'd-none'}">
             <input type="checkbox" id="cell-auto-penalty" onchange="applyAutoPenalty(this.checked, ${costNum})">
             <label for="cell-auto-penalty">Вычесть стоимость смены за прогул (-${costNum} ₽)?</label>
         </div>
@@ -1617,7 +1617,8 @@ window.toggleCellStatusDeps = function (dailyCost) {
     const multContainer = document.getElementById('multiplier-select-container');
 
     if (penContainer) {
-        penContainer.style.display = (status === 'absent') ? 'flex' : 'none';
+        penContainer.classList.toggle('d-flex', status === 'absent');
+        penContainer.classList.toggle('d-none', status !== 'absent');
         if (status !== 'absent') {
             const penCheck = document.getElementById('cell-auto-penalty');
             if (penCheck) penCheck.checked = false;
@@ -1625,7 +1626,8 @@ window.toggleCellStatusDeps = function (dailyCost) {
     }
 
     if (multContainer) {
-        multContainer.style.display = (status === 'partial') ? 'flex' : 'none';
+        multContainer.classList.toggle('d-flex', status === 'partial');
+        multContainer.classList.toggle('d-none', status !== 'partial');
         if (status === 'partial') {
             updateModalDayResult(dailyCost);
         }
