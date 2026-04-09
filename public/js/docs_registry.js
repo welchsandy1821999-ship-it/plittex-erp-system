@@ -252,6 +252,14 @@ async function initRegistry() {
 
     // Инициализируем TomSelect для фильтра
     initStaticRegistrySelects();
+    
+    // Слушатель для чекбокса "Показывать аннулированные"
+    const toggleCancelled = document.getElementById('toggle-cancelled-docs');
+    if (toggleCancelled) {
+        toggleCancelled.addEventListener('change', () => {
+            renderRegistryTable(allRegistryDocs);
+        });
+    }
 
     // Вызываем первичную загрузку таблицы документов
     loadDocsRegistry();
