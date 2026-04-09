@@ -4939,6 +4939,8 @@
 .hidden-print-frame { position:absolute; width:0; height:0; border:none; }
 
 /* Utilities added for Inventory Module cleanups */
+.text-decoration-none { text-decoration: none !important; }
+.text-decoration-none:hover { text-decoration: none !important; }
 .bg-danger-light { background-color: #ffe6e6 !important; }
 .bg-warning-light { background-color: #fff8e1 !important; }
 .bg-success-light { background-color: rgba(16, 185, 129, 0.05) !important; }
