@@ -26,7 +26,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     }
 
     // 1. СЧЕТ НА ОПЛАТУ (Invoice - Режим "Нотариус")
-    router.all('/print/invoice', authenticateToken, async (req, res) => {
+    router.all('/print/invoice', requireAdmin, async (req, res) => {
         try {
             let params = { ...req.query, ...req.body };
             if (params.data) {
@@ -191,7 +191,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
         }
     });
     // 2. РАСХОДНАЯ НАКЛАДНАЯ (Waybill)
-    router.get('/print/waybill', authenticateToken, async (req, res) => {
+    router.get('/print/waybill', requireAdmin, async (req, res) => {
         try {
             const { docNum } = req.query;
             const isShipment = docNum && (docNum.startsWith('УТ') || docNum.startsWith('РН') || docNum.startsWith('PH'));
@@ -226,7 +226,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     });
 
     // 3. УПД (UPD)
-    router.get('/print/upd', authenticateToken, async (req, res) => {
+    router.get('/print/upd', requireAdmin, async (req, res) => {
         try {
             const { docNum } = req.query;
             const isShipment = docNum && (docNum.startsWith('УТ') || docNum.startsWith('РН') || docNum.startsWith('PH'));
@@ -269,7 +269,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     });
 
     // 4. ДОГОВОР (Contract)
-    router.get('/print/contract', authenticateToken, async (req, res) => {
+    router.get('/print/contract', requireAdmin, async (req, res) => {
         try {
             const result = await pool.query(`
                 SELECT c.number, TO_CHAR(c.date, 'DD.MM.YYYY') as date_formatted, cp.* FROM contracts c 
@@ -286,7 +286,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     });
 
     // 5. СПЕЦИФИКАЦИЯ (по номеру заказа)
-    router.get('/print/specification', authenticateToken, async (req, res) => {
+    router.get('/print/specification', requireAdmin, async (req, res) => {
         try {
             const { docNum } = req.query;
             const isShipment = docNum && (docNum.startsWith('УТ') || docNum.startsWith('РН') || docNum.startsWith('PH'));
@@ -315,7 +315,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     });
 
     // 6. СПЕЦИФИКАЦИЯ (по ID документа спецификации)
-    router.get('/print/specification_doc', authenticateToken, async (req, res) => {
+    router.get('/print/specification_doc', requireAdmin, async (req, res) => {
         try {
             const specRes = await pool.query(`
                 SELECT s.number, TO_CHAR(s.date, 'DD.MM.YYYY') as s_date, c.number as c_num, TO_CHAR(c.date, 'DD.MM.YYYY') as c_date, cp.name
@@ -346,7 +346,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     });
 
     // 7. АКТ СВЕРКИ (Act)
-    router.get('/print/act', authenticateToken, async (req, res) => {
+    router.get('/print/act', requireAdmin, async (req, res) => {
         try {
             const { cpId, start, end } = req.query;
             const cpRes = await pool.query('SELECT name, inn FROM counterparties WHERE id = $1', [cpId]);
@@ -376,7 +376,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     });
 
     // 8. БЛАНК ЗАКАЗА (Из сохраненного заказа)
-    router.get('/print/blank_order', authenticateToken, async (req, res) => {
+    router.get('/print/blank_order', requireAdmin, async (req, res) => {
         try {
             const { docNum } = req.query;
             const orderRes = await pool.query(`
@@ -406,7 +406,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     });
 
     // 8.1 БЛАНК ЗАКАЗА (Черновик из корзины до сохранения)
-    router.post('/print/blank_order_draft', authenticateToken, express.urlencoded({ extended: true }), async (req, res) => {
+    router.post('/print/blank_order_draft', requireAdmin, express.urlencoded({ extended: true }), async (req, res) => {
         try {
             if (!req.body || !req.body.data) return res.status(400).send('Нет данных');
             const data = JSON.parse(req.body.data);
@@ -433,7 +433,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     });
 
     // 9. ПАСПОРТ ПАРТИИ (Passport)
-    router.get('/print/passport', authenticateToken, async (req, res) => {
+    router.get('/print/passport', requireAdmin, async (req, res) => {
         try {
             const { batchId } = req.query;
             const batchRes = await pool.query('SELECT * FROM production_batches WHERE id = $1', [batchId]);
@@ -464,7 +464,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     });
 
     // 11. КАРТОЧКА ПРЕДПРИЯТИЯ (Реквизиты)
-    router.get('/print/requisites', authenticateToken, async (req, res) => {
+    router.get('/print/requisites', requireAdmin, async (req, res) => {
         try {
             const { bank } = req.query;
             if (bank === 'tochka') {
@@ -478,7 +478,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     });
 
     // 12. КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ (KP)
-    router.post('/print/kp', authenticateToken, express.urlencoded({ extended: true }), async (req, res) => {
+    router.post('/print/kp', requireAdmin, express.urlencoded({ extended: true }), async (req, res) => {
         try {
             if (!req.body || !req.body.data) return res.status(400).send('Нет данных для КП');
             const data = JSON.parse(req.body.data);
