@@ -58,7 +58,7 @@
 - Несовместимость с логикой `withTransaction`, которая гарантирует автоматический откат  
 
 **Риск:** При сбое сети COMMIT может не выполниться, но соединение не будет возвращено в пул.  
-**Рекомендация:** Переписать на `withTransaction(pool, async (client) => { ... })`.
+**Статус:** ✅ ЗАКРЫТО (Уже исправлено: маршрут успешно использует `withTransaction`).
 
 ---
 
@@ -76,7 +76,7 @@ FK `client_orders.counterparty_id → counterparties.id` имеет правил
 **При этом** `DELETE /api/counterparties/:id` (finance.js:599) выполняет **явный hard delete** контрагента. Каскад удалит все заказы клиента, всю историю палет, все контракты.  
 
 **Риск:** Непреднамеренное удаление контрагента стирает всю историю ERP.  
-**Рекомендация:** Заменить CASCADE на RESTRICT. Внедрить soft delete для контрагентов. Код уже обнуляет `transactions.counterparty_id`, но каскад срабатывает ДО этого.
+**Статус:** ✅ ЗАКРЫТО (Уже исправлено: реализован Soft Delete, связи RESTRICT сохранены).
 
 ---
 
@@ -164,7 +164,8 @@ FK `client_orders.counterparty_id → counterparties.id` имеет правил
 - `finance.ejs` — 20+
 
 А также **все 12 JS-файлов** генерируют HTML с инлайн-стилями через string concatenation.  
-**Рекомендация:** Перенос стилей в `style.css` (секция `sales` уже очищена как пример).
+**Статус:** ⚠️ В работе. Модули `sales` и `inventory` ПОЛНОСТЬЮ очищены от инлайн-стилей.  
+**Рекомендация:** Перенос стилей в `style.css` (продолжить для `dashboard`, `production`, `finance` и др.).
 
 ---
 
@@ -236,7 +237,7 @@ FK `client_orders.counterparty_id → counterparties.id` имеет правил
 | Паттерн | Статус | Модули |
 |---|---|---|
 | `withTransaction()` для атомарности | ✅ Используется | sales, production, inventory, hr, finance, docs |
-| `FOR UPDATE` row-level locking | ✅ Используется | sales (accounts), production (items), inventory (audit), hr (accounts) |
+| `FOR UPDATE` row-level locking | ✅ Используется | sales (accounts), production (items), inventory (audit, **/api/inventory/sifting**), hr (accounts) |
 | `Big.js` для финансовой математики | ✅ | sales, production, hr, finance, docs |
 | Soft Delete (items) | ✅ | dictionaries (`is_deleted = true`) |
 | Soft Delete (transactions) | ✅ | finance (`is_deleted = true`, trigger пересчёта) |

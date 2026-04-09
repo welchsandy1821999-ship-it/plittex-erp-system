@@ -423,6 +423,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                        MAX(t.transaction_date) as last_transaction_date
                 FROM counterparties c
                 LEFT JOIN transactions t ON c.id = t.counterparty_id AND COALESCE(t.is_deleted, false) = false
+                WHERE COALESCE(c.is_deleted, false) = false
                 GROUP BY c.id
                 ORDER BY last_transaction_date DESC NULLS LAST, c.name ASC
             `);
@@ -593,12 +594,10 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
     router.delete('/api/counterparties/:id', requireAdmin, async (req, res) => {
         try {
-            await withTransaction(pool, async (client) => {
-                await client.query('UPDATE transactions SET counterparty_id = NULL WHERE counterparty_id = $1', [req.params.id]);
-                await client.query('DELETE FROM counterparties WHERE id = $1', [req.params.id]);
-            });
+            await pool.query('UPDATE counterparties SET is_deleted = true WHERE id = $1', [req.params.id]);
             res.json({ success: true });
         } catch (err) {
+            console.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
