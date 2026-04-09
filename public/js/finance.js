@@ -774,11 +774,11 @@
         if (!bar) return;
 
         if (!searchValue) {
-            bar.style.display = 'none';
+            bar.classList.add('d-none');
             return;
         }
 
-        bar.style.display = 'flex';
+        bar.classList.remove('d-none');
         document.getElementById('summary-filter-name').innerText = searchValue;
 
         // Подсчет по загруженному массиву текущей страницы
@@ -801,7 +801,7 @@
         if (input) input.value = '';
 
         const bar = document.getElementById('finance-summary-bar');
-        if (bar) bar.style.display = 'none';
+        if (bar) bar.classList.add('d-none');
 
         if (typeof triggerFinanceSearch === 'function') {
             triggerFinanceSearch();
@@ -1915,11 +1915,11 @@
         }
 
         if (financeInvoices.length === 0) {
-            container.style.display = 'none';
+            container.classList.add('d-none');
             return;
         }
 
-        container.style.display = 'block';
+        container.classList.remove('d-none');
         tbody.innerHTML = financeInvoices.map(inv => `
         <tr style="${inv.is_order ? 'background: rgba(0, 123, 255, 0.03);' : ''}">
             <td style="font-size: 13px; color: var(--text-muted); font-weight: bold;">${inv.date_formatted}</td>
@@ -2321,10 +2321,10 @@
         const panel = document.getElementById('bulk-actions-panel');
         const countSpan = document.getElementById('bulk-selected-count');
         if (selectedTransIds.size > 0) {
-            panel.style.display = 'flex';
+            panel.classList.remove('d-none');
             countSpan.innerText = selectedTransIds.size;
         } else {
-            panel.style.display = 'none';
+            panel.classList.add('d-none');
         }
     };
 
