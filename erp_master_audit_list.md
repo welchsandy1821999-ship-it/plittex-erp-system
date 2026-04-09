@@ -191,8 +191,9 @@ FK `client_orders.counterparty_id → counterparties.id` имеет правил
 
 ### AUDIT-015 | DROP TABLE в inventory.js
 **Модуль:** inventory.js (строка 13)  
-**Описание:** Строка `pool.query("DROP TABLE IF EXISTS inventory CASCADE")` выполняется **при каждом старте сервера**. На практике таблицы `inventory` не существует (используется `inventory_movements`), но это — бомба замедленного действия.  
+**Описание:** Строка `pool.query("DROP TABLE IF EXISTS inventory CASCADE")` выполнялась **при каждом старте сервера**. На практике таблицы `inventory` не существует (используется `inventory_movements`), но это — бомба замедленного действия.  
 **Рекомендация:** Удалить строку. Если миграция требуется — перенести в файл миграций.  
+**Статус:** ✅ ЗАКРЫТО (Код удален)
 
 ---
 
