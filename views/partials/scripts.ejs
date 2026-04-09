@@ -89,8 +89,8 @@
         window.switchModule = function (moduleId, navElement) {
             document.querySelectorAll('.modal-overlay').forEach(m => {
                 m.classList.remove('active');
-                m.classList.add('hidden');
-                m.style.setProperty('display', 'none', 'important');
+                m.classList.add('d-none');
+                m.style.removeProperty('display');
             });
             document.querySelectorAll('.module').forEach(mod => {
                 mod.classList.remove('active');
