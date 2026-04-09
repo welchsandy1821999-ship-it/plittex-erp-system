@@ -205,7 +205,7 @@ FK `client_orders.counterparty_id → counterparties.id` имеет правил
 - `DELETE /api/production/batch/:id` — полное физическое удаление партии и всех связанных движений.
 - `DELETE /api/salary/payment/:id` — физическое удаление выплаты.
 - `DELETE /api/salary/adjustments/:id` — физическое удаление.  
-**Риск:** Отсутствие аудиторского следа. В `transactions` и `items` soft delete уже реализован.
+**Статус:** ✅ ЗАКРЫТО (Устранено. Внедрен Soft Delete для ЗП (колонка `is_deleted`) и статусы `status = 'deleted'` для Производства. Физическое удаление движений склада сохранено для корректного отката балансов.)
 
 ---
 

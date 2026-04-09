@@ -508,7 +508,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 // 🛡️ ЗАЩИТА: Черновик
                 if (batch.status === 'draft') {
                     await client.query('DELETE FROM inventory_movements WHERE batch_id = $1', [batchId]);
-                    await client.query('DELETE FROM production_batches WHERE id = $1', [batchId]);
+                    await client.query(`UPDATE production_batches SET status = 'deleted' WHERE id = $1`, [batchId]);
                     return;
                 }
                 
@@ -533,7 +533,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 }
 
                 // 3. УДАЛЯЕМ САМУ ПАРТИЮ ИЗ БАЗЫ
-                await client.query('DELETE FROM production_batches WHERE id = $1', [batchId]);
+                await client.query(`UPDATE production_batches SET status = 'deleted' WHERE id = $1`, [batchId]);
 
                 // 🔄 4. КАСКАДНЫЙ ПЕРЕСЧЕТ ЗАРПЛАТЫ
                 if (batch.is_salary_calculated) {

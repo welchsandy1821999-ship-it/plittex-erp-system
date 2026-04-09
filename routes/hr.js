@@ -47,7 +47,7 @@ module.exports = function (pool, withTransaction) {
     // ==========================================
     router.get('/api/salary/adjustments', async (req, res) => {
         try {
-            const result = await pool.query(`SELECT * FROM salary_adjustments WHERE month_str = $1`, [req.query.monthStr]);
+            const result = await pool.query(`SELECT * FROM salary_adjustments WHERE month_str = $1 AND COALESCE(is_deleted, false) = false`, [req.query.monthStr]);
             res.json(result.rows);
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
@@ -59,7 +59,7 @@ module.exports = function (pool, withTransaction) {
             if (adj.rows.length > 0 && await isMonthClosed(pool, adj.rows[0].month_str)) {
                 return res.status(403).json({ error: "Нельзя удалять операции из закрытого месяца." });
             }
-            await pool.query(`DELETE FROM salary_adjustments WHERE id = $1`, [req.params.id]);
+            await pool.query(`UPDATE salary_adjustments SET is_deleted = true WHERE id = $1`, [req.params.id]);
             res.json({ success: true });
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
@@ -255,7 +255,7 @@ module.exports = function (pool, withTransaction) {
             const result = await pool.query(`
                 SELECT id, employee_id, amount, TO_CHAR(payment_date, 'YYYY-MM-DD') as payment_date, description 
                 FROM salary_payments 
-                WHERE payment_date >= $1 AND payment_date <= $2 
+                WHERE payment_date >= $1 AND payment_date <= $2 AND COALESCE(is_deleted, false) = false
                 ORDER BY payment_date ASC
             `, [startDate, endDate]);
             res.json(result.rows);
@@ -347,11 +347,11 @@ module.exports = function (pool, withTransaction) {
                 // Если есть связь с транзакцией - удаляем её.
                 // 🚀 МАГИЯ ТРИГГЕРА: При удалении этой транзакции деньги сами вернутся на баланс счета!
                 if (payment.linked_transaction_id) {
-                    await client.query('DELETE FROM transactions WHERE id = $1', [payment.linked_transaction_id]);
+                    await client.query('UPDATE transactions SET is_deleted = true WHERE id = $1', [payment.linked_transaction_id]);
                 }
 
-                // Удаляем запись о выплате
-                await client.query('DELETE FROM salary_payments WHERE id = $1', [req.params.id]);
+                // Удаляем запись о выплате (Soft Delete)
+                await client.query('UPDATE salary_payments SET is_deleted = true WHERE id = $1', [req.params.id]);
             });
             res.json({ success: true });
         } catch (err) { res.status(500).json({ error: err.message }); }
