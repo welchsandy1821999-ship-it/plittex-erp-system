@@ -46,7 +46,7 @@
 
 **Риск:** Любой логин-оператор может провести финансовую операцию, изменить рецептуры или зафиксировать смену.  
 **Рекомендация:** Внедрить `requireAdmin` на все `POST/PUT/DELETE` маршруты. Рассмотреть multi-role RBAC (admin/manager/operator).
-**Статус:** ✅ ЗАКРЫТО (Все модули защищены requireAdmin)
+**Статус:** ✅ ЗАКРЫТО (Все модули защищены requireAdmin. *Примечание: доступ к реестру документов и формам просмотра переведен на уровень authenticateToken для стабильности UI.*)
 
 ---
 
@@ -107,6 +107,7 @@ FK `client_orders.counterparty_id → counterparties.id` имеет правил
 **Описание:**  
 `DELETE /api/equipment/:id` выполняет `DELETE FROM equipment WHERE id = $1`. При этом `items.mold_id` → FK на `equipment` с правилом `SET NULL`, а `transactions.equipment_id` → FK с `NO ACTION`. Если за оборудованием закреплены транзакции — удаление вызовет ошибку FK (код 23503), но обработчик просто показывает общую ошибку.  
 **Рекомендация:** Soft delete (`status = 'scrapped'`) уже существует на UI, но API позволяет hard delete.
+**Статус:** ✅ ЗАКРЫТО (Заменено на Soft Delete 'scrapped')
 
 ---
 
