@@ -1260,7 +1260,7 @@ window.handleProductionSearch = function () {
 
     // Если поиск пуст — возвращаемся к режиму календаря
     if (query.length === 0) {
-        document.getElementById('th-prod-date').style.display = 'none';
+        document.getElementById('th-prod-date').classList.add('d-none');
         if (typeof loadDailyHistory === 'function') loadDailyHistory();
         return;
     }
@@ -1276,7 +1276,7 @@ window.handleProductionSearch = function () {
             currentProdSearchResults = await API.get(`/api/production/search?q=${encodeURIComponent(query)}`);
 
             // Показываем колонку Дата, так как результаты будут за разные дни
-            document.getElementById('th-prod-date').style.display = 'table-cell';
+            document.getElementById('th-prod-date').classList.remove('d-none');
             renderProductionSearchResults();
         } catch (e) {
             console.error(e);

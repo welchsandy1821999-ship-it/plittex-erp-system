@@ -137,8 +137,7 @@
                             <input type="number" id="face-mix-count" class="input-modern text-center font-bold-18"
                                 placeholder="0" onfocus="this.select()"
                                 oninput="this.dataset.userEdited = 'true'">
-                            <button class="btn btn-outline p-10"
-                                style="border-color: var(--warning-text); color: var(--warning-text);"
+                            <button class="btn btn-outline-warning p-10"
                                 onclick="editMixTemplate(document.getElementById('face-template-select').value)"
                                 title="Настроить шаблон">⚙️</button>
                         </div>
@@ -175,7 +174,7 @@
                             Партии ↕️</th>
                         <th class="prod-th-sortable w-30p"  onclick="sortProductionResults('product_name')">
                             Продукция ↕️</th>
-                        <th id="th-prod-date" class="prod-th-date" style="display: none; width: 12%;"
+                        <th id="th-prod-date" class="prod-th-date d-none w-12"
                             onclick="sortProductionResults('production_date')">Дата ↕️</th>
 
                         <th class="prod-th-sortable text-right w-13p" 

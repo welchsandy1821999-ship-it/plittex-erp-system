@@ -77,6 +77,16 @@
     background-color: var(--surface-hover);
 }
 
+.btn-outline-warning {
+    background-color: transparent;
+    border: 1px solid var(--warning-text);
+    color: var(--warning-text);
+}
+
+.btn-outline-warning:hover {
+    background-color: var(--warning-bg);
+}
+
 .btn-gray {
     background-color: var(--surface-alt);
     color: var(--text-main);
