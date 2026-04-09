@@ -120,7 +120,7 @@ FK `client_orders.counterparty_id → counterparties.id` имеет правил
 - `client_orders.status` — нет ENUM/CHECK. Статусы ('pending', 'processing', 'completed', 'cancelled') не защищены на уровне БД.
 - `production_batches.status` — аналогично ('draft', 'in_drying', 'completed').
 
-**Рекомендация:** Добавить CHECK constraints или PostgreSQL ENUM для критических полей.
+**Статус:** ✅ ЗАКРЫТО (Миграция `005_add_check_constraints.sql` применена. Добавлены CHECK на: `items` (min_stock, dealer_price, weight_kg, piece_rate), `client_order_items` (qty_ordered, price, qty_reserved, qty_shipped), `employees` (salary_cash, salary_official, tax_rate 0–100), `salary_payments` (amount > 0). Итого 24 CHECK-ограничения. **Намеренно исключены:** `inventory_movements.quantity` (отрицательные = списания) и `salary_adjustments.amount` (отрицательные = штрафы/удержания).)
 
 ---
 
