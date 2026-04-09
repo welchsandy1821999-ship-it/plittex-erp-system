@@ -526,7 +526,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     });
 
     // 13. API: РЕЕСТР ДОКУМЕНТОВ ДЛЯ БУХГАЛТЕРИИ
-    router.get('/api/docs/registry', async (req, res) => {
+    router.get('/api/docs/registry', authenticateToken, async (req, res) => {
         try {
             const { clientId, startDate, endDate } = req.query;
             

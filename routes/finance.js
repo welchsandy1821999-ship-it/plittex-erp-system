@@ -3,7 +3,7 @@ const router = express.Router();
 const fs = require('fs');
 const path = require('path');
 const Big = require('big.js');
-const { requireAdmin } = require('../middleware/auth');
+const { requireAdmin, authenticateToken } = require('../middleware/auth');
 
 // 🚀 Единая функция поиска документов в тексте (Защита от опечаток)
 function extractDocNumber(description) {
@@ -399,7 +399,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     // ==========================================
     // 5. КОНТРАГЕНТЫ (CRM) И КАРТОЧКА 360°
     // ==========================================
-    router.get('/api/counterparties', async (req, res) => {
+    router.get('/api/counterparties', authenticateToken, async (req, res) => {
         try {
             const result = await pool.query(`
                 SELECT c.id, c.name, 

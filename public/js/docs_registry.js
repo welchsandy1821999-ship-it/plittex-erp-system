@@ -216,6 +216,12 @@ async function initRegistry() {
     try {
         // Загружаем список контрагентов для фильтра
         const counterparties = await API.get('/api/counterparties');
+        
+        if (!Array.isArray(counterparties)) {
+            console.warn('=> ДАННЫЕ ПУСТЫ ИЛИ НЕ МАССИВ (контрагенты)');
+            return;
+        }
+
         if (true) {
             const clientSelect = document.getElementById('clientFilter');
             
