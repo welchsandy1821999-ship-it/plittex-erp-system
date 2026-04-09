@@ -19,12 +19,12 @@
                 document.getElementById('app-modal-title').innerHTML = title;
                 document.getElementById('app-modal-body').innerHTML = htmlBody;
                 document.getElementById('app-modal-footer').innerHTML = buttonsHtml;
-                modal.style.display = 'flex';
+                modal.classList.remove('d-none');
                 modal.classList.add('active');
             },
             closeModal: (id = 'app-modal') => {
                 const targetModal = document.getElementById(id);
-                if (targetModal) { targetModal.classList.remove('active'); targetModal.style.display = 'none'; }
+                if (targetModal) { targetModal.classList.remove('active'); targetModal.classList.add('d-none'); targetModal.style.removeProperty('display'); }
             },
             confirm: (msg, onConfirm) => {
                 UI.showModal('⚠️ Подтверждение', `<div style="padding: 15px; text-align: center; font-size: 15px;">${msg}</div>`, `
@@ -206,7 +206,7 @@
         });
 
         document.addEventListener('click', (e) => {
-            if (e.target.classList.contains('modal-overlay')) { e.target.classList.remove('active'); e.target.style.display = 'none'; }
+            if (e.target.classList.contains('modal-overlay')) { e.target.classList.remove('active'); e.target.classList.add('d-none'); e.target.style.removeProperty('display'); }
         });
 
         window.getCssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
