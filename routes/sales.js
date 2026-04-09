@@ -940,7 +940,21 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
     router.get('/api/sales/history', async (req, res) => {
         try {
-            const result = await pool.query(`SELECT COALESCE(SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) as doc_num, TO_CHAR(MAX(m.movement_date), 'DD.MM.YYYY HH24:MI') as date_formatted, SUM(ABS(m.quantity)) as total_qty, (SELECT c.name FROM client_order_items coi JOIN client_orders co ON coi.order_id = co.id JOIN counterparties c ON co.counterparty_id = c.id WHERE coi.id = MAX(m.linked_order_item_id)) as client_name FROM inventory_movements m WHERE m.movement_type = 'sales_shipment' GROUP BY COALESCE(SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) HAVING COALESCE(SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) IS NOT NULL ORDER BY MAX(m.movement_date) DESC LIMIT 100`);
+            const result = await pool.query(`
+                SELECT 
+                    COALESCE(SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) as doc_num, 
+                    TO_CHAR(MAX(m.movement_date), 'DD.MM.YYYY HH24:MI') as date_formatted, 
+                    SUM(ABS(m.quantity)) as total_qty, 
+                    (SELECT c.name FROM client_order_items coi JOIN client_orders co ON coi.order_id = co.id JOIN counterparties c ON co.counterparty_id = c.id WHERE coi.id = MAX(m.linked_order_item_id)) as client_name,
+                    (SELECT co.id FROM client_order_items coi JOIN client_orders co ON coi.order_id = co.id WHERE coi.id = MAX(m.linked_order_item_id)) as order_id,
+                    (SELECT co.counterparty_id FROM client_order_items coi JOIN client_orders co ON coi.order_id = co.id WHERE coi.id = MAX(m.linked_order_item_id)) as client_id
+                FROM inventory_movements m 
+                WHERE m.movement_type = 'sales_shipment' 
+                GROUP BY COALESCE(SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) 
+                HAVING COALESCE(SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) IS NOT NULL 
+                ORDER BY MAX(m.movement_date) DESC 
+                LIMIT 100
+            `);
             if (result.rows.length === 0) return res.json([]);
             const validRows = result.rows.filter(r => r.doc_num);
             if (validRows.length === 0) return res.json([]);
