@@ -1581,19 +1581,18 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     c.name as client_name,
                     o.created_at,
                     COALESCE(SUM(
-                        ABS(m.quantity) * COALESCE(
-                            (SELECT SUM(r.quantity_per_unit * ri_i.current_price) 
-                             FROM recipes r
-                             JOIN items ri_i ON ri_i.id = r.material_id
-                             WHERE r.product_id = m.item_id),
-                            i.purchase_price,
-                            0
-                        )
+                        ABS(m.quantity) * COALESCE(recipe_data.recipe_cost, i.current_price, 0)
                     ), 0) as material_cost
                 FROM client_orders o
                 JOIN counterparties c ON o.counterparty_id = c.id
                 LEFT JOIN inventory_movements m ON m.description LIKE '%' || o.doc_number || '%' AND m.movement_type = 'sales_shipment'
                 LEFT JOIN items i ON m.item_id = i.id
+                LEFT JOIN LATERAL (
+                    SELECT SUM(r.quantity_per_unit * ri_i.current_price) as recipe_cost
+                    FROM recipes r
+                    JOIN items ri_i ON ri_i.id = r.material_id
+                    WHERE r.product_id = m.item_id
+                ) recipe_data ON true
                 WHERE o.status = 'completed'
                 GROUP BY o.id, o.doc_number, o.total_amount, c.name, o.created_at
                 ORDER BY o.created_at DESC
