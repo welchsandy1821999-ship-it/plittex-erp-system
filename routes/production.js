@@ -601,8 +601,13 @@ module.exports = function (pool, getWhId, withTransaction) {
                 }
 
                 await client.query('DELETE FROM recipes WHERE product_id = $1', [productId]);
-                for (let ing of ingredients) {
-                    await client.query(`INSERT INTO recipes (product_id, material_id, quantity_per_unit) VALUES ($1, $2, $3)`, [productId, ing.materialId, ing.qty]);
+                if (ingredients.length > 0) {
+                    const matIds = ingredients.map(i => i.materialId);
+                    const qtys = ingredients.map(i => i.qty);
+                    await client.query(`
+                        INSERT INTO recipes (product_id, material_id, quantity_per_unit)
+                        SELECT $1, * FROM UNNEST($2::int[], $3::numeric[])
+                    `, [productId, matIds, qtys]);
                 }
             });
             res.json({ success: true });
@@ -625,16 +630,22 @@ module.exports = function (pool, getWhId, withTransaction) {
             await withTransaction(pool, async (client) => {
                 if (!targetProductIds || targetProductIds.length === 0) throw new Error('Не выбраны товары для синхронизации.');
 
-                for (let targetId of targetProductIds) {
-                    for (let mat of materials) {
-                        const checkRes = await client.query(`SELECT 1 FROM recipes WHERE product_id = $1 AND material_id = $2`, [targetId, mat.materialId]);
-                        if (checkRes.rows.length > 0) {
-                            await client.query(`UPDATE recipes SET quantity_per_unit = $1 WHERE product_id = $2 AND material_id = $3`, [mat.qty, targetId, mat.materialId]);
-                        } else {
-                            await client.query(`INSERT INTO recipes (product_id, material_id, quantity_per_unit) VALUES ($1, $2, $3)`, [targetId, mat.materialId, mat.qty]);
-                        }
+                const productIds = [];
+                const materialIds = [];
+                const quantities = [];
+                for (const targetId of targetProductIds) {
+                    for (const mat of materials) {
+                        productIds.push(targetId);
+                        materialIds.push(mat.materialId);
+                        quantities.push(mat.qty);
                     }
                 }
+                await client.query(`
+                    INSERT INTO recipes (product_id, material_id, quantity_per_unit)
+                    SELECT * FROM UNNEST($1::int[], $2::int[], $3::numeric[])
+                    ON CONFLICT (product_id, material_id)
+                    DO UPDATE SET quantity_per_unit = EXCLUDED.quantity_per_unit
+                `, [productIds, materialIds, quantities]);
             });
             res.json({ success: true, message: `Успешно применено к ${targetProductIds.length} позициям.` });
         } catch (err) {
