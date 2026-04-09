@@ -229,6 +229,11 @@ async function initRegistry() {
                 // Сбрасываем опции, оставляя только "Все контрагенты"
                 clientSelect.innerHTML = '<option value="">Все контрагенты</option>';
                 
+                if (!Array.isArray(counterparties)) {
+                    console.error('КРИТИЧЕСКАЯ ОШИБКА: /api/counterparties вернул не массив!', counterparties);
+                    return; 
+                }
+
                 // Наполняем селектор реальными данными из БД
                 counterparties.forEach(c => {
                     const option = document.createElement('option');
