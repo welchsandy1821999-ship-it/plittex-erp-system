@@ -647,7 +647,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     i.created_at,
                     TO_CHAR(i.created_at, 'DD.MM.YYYY') as date_formatted,
                     c.name as counterparty_name, 
-                    c.id as cp_id,
+                    c.id as counterparty_id,
                     false as is_order
                 FROM invoices i
                 JOIN counterparties c ON i.counterparty_id = c.id
@@ -664,7 +664,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     o.created_at,
                     TO_CHAR(o.created_at, 'DD.MM.YYYY') as date_formatted,
                     c.name as counterparty_name, 
-                    o.counterparty_id as cp_id,
+                    o.counterparty_id as counterparty_id,
                     true as is_order
                 FROM client_orders o
                 LEFT JOIN counterparties c ON o.counterparty_id = c.id
@@ -1585,7 +1585,8 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     ), 0) as material_cost
                 FROM client_orders o
                 JOIN counterparties c ON o.counterparty_id = c.id
-                LEFT JOIN inventory_movements m ON m.description LIKE '%' || o.doc_number || '%' AND m.movement_type = 'sales_shipment'
+                LEFT JOIN client_order_items coi ON coi.order_id = o.id
+                LEFT JOIN inventory_movements m ON m.linked_order_item_id = coi.id AND m.movement_type = 'sales_shipment'
                 LEFT JOIN items i ON m.item_id = i.id
                 LEFT JOIN LATERAL (
                     SELECT SUM(r.quantity_per_unit * ri_i.current_price) as recipe_cost

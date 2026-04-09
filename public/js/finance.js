@@ -233,37 +233,25 @@
                 accUrl += `&end=${end}`;
             }
 
-            const [reportData, transData, currentAccounts_, catData, cpData, invData, activeOrders] = await Promise.all([
+            const [reportData, transData, currentAccounts_, catData, cpData, invData] = await Promise.all([
                 API.get(`/api/report/finance?${reportQueryParams.toString()}`),
                 API.get(`/api/transactions${queryStr}`),
                 API.get(accUrl),
                 API.get(`/api/finance/categories?_t=${timestamp}`),
                 API.get(`/api/counterparties?_t=${timestamp}`),
-                API.get(`/api/invoices?_t=${timestamp}`),
-                API.get(`/api/sales/orders?_t=${timestamp}`) // 👈 Запрашиваем заказы
+                API.get(`/api/invoices?_t=${timestamp}`)
             ]);
 
             allTransactions = transData.data || transData;
 
-            // 🚀 СЛИЯНИЕ ДЕБИТОРКИ: Превращаем долги по заказам в "Счета"
-            const unpaidOrders = (activeOrders || [])
-                .filter(o => parseFloat(o.pending_debt) > 0)
-                .map(o => ({
-                    id: o.id,
-                    is_order: true,
-                    invoice_number: o.doc_number, // 👈 Убрали двойной префикс
-                    date_formatted: o.date_formatted || new Date(o.created_at).toLocaleDateString('ru-RU'),
-                    counterparty_id: o.client_id || o.counterparty_id, // 👈 Добавили ID для кликабельности
-                    counterparty_name: o.client_name,
-                    description: `Остаток долга по заказу №${o.doc_number}`,
-                    amount: parseFloat(o.pending_debt),
-                    status: 'pending'
-                }));
-
-            // Объединяем ручные счета и долги, убираем уже оплаченные
-            financeInvoices = [...invData.filter(i => i.status !== 'paid'), ...unpaidOrders];
-            // Сортируем (самые старые долги сверху)
-            financeInvoices.sort((a, b) => new Date(a.date_formatted.split('.').reverse().join('-')) - new Date(b.date_formatted.split('.').reverse().join('-')));
+            // Бэкенд (UNION ALL) уже объединяет ручные счета и долги по заказам
+            financeInvoices = (invData || []).filter(i => i.status !== 'paid');
+            // Сортируем (самые старые долги сверху), с защитой от null-дат
+            financeInvoices.sort((a, b) => {
+                const da = a.date_formatted ? new Date(a.date_formatted.split('.').reverse().join('-')) : new Date(0);
+                const db = b.date_formatted ? new Date(b.date_formatted.split('.').reverse().join('-')) : new Date(0);
+                return da - db;
+            });
 
             // 🚀 ИСПРАВЛЕНИЕ: Читаем данные из объекта pagination, который прислал сервер
             if (transData.pagination) {
