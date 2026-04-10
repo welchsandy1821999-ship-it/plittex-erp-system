@@ -395,6 +395,7 @@ window.addProdToSession = async function () {
             materialsUsed: actualMaterials, // 👈 ТЕПЕРЬ ОТПРАВЛЯЕМ РЕАЛЬНОЕ СЫРЬЕ
             status: 'draft'
         };
+        console.log('[DRAFT] Отправка черновика, date =', shiftDateStr, 'payload:', JSON.stringify(draftPayload));
         await API.post('/api/production', draftPayload);
         if (true) {
             // Сохраняем в память только после успешного ответа сервера
@@ -529,27 +530,46 @@ window.submitDailyProduction = async function (btnElement) {
     isSubmittingProduction = true;
     // 🧹 Очищаем блок ошибок от предыдущей попытки
     const errBox = document.getElementById('shift-errors');
-    if (errBox) { errBox.style.display = 'none'; errBox.innerHTML = ''; }
+    if (errBox) { errBox.classList.add('hidden'); errBox.innerHTML = ''; }
 
     UI.toast('⏳ Фиксация смены: проверка остатков и списание...', 'info');
+    console.log('[FIXATE] Payload:', JSON.stringify(payload));
 
     try {
         // 🆕 Вызываем роут фиксации вместо создания партий (они уже есть как черновики)
         await API.post('/api/production/fixate-shift', payload);
 
         UI.toast('✅ Смена зафиксирована! Сырье списано, продукция на сушилке.', 'success');
-        if (errBox) { errBox.style.display = 'none'; errBox.innerHTML = ''; }
+        if (errBox) { errBox.classList.add('hidden'); errBox.innerHTML = ''; }
         sessionProducts = [];
         renderSessionProducts();
         loadDailyHistory();
         updateCalendarMarks();
     } catch (e) {
-        // API.post уже показывает toast с error.message, но для нехватки сырья
-        // закрепляем детальный отчёт прямо в интерфейсе (не исчезает)
-        if (e.body && e.body.details && errBox) {
-            const detailsHtml = e.body.details.replace(/\n/g, '<br>');
-            errBox.innerHTML = `<b>⚠️ ${e.body.error || 'Ошибка'}:</b><br>${detailsHtml}`;
-            errBox.style.display = 'block';
+        console.error('[FIXATE ERROR]', e);
+        console.log('[FIXATE ERROR] e.body =', e.body);
+        console.log('[FIXATE ERROR] e.message =', e.message);
+
+        // Универсальная обработка: ищем details в любом месте объекта ошибки
+        const errorBody = e.body || e.response || {};
+        const details = errorBody.details || null;
+        const errorTitle = errorBody.error || e.message || 'Ошибка фиксации';
+
+        if (details && errBox) {
+            // details может быть строкой или массивом
+            const detailsText = typeof details === 'string' 
+                ? details 
+                : Array.isArray(details) 
+                    ? details.join('\n') 
+                    : JSON.stringify(details);
+            const detailsHtml = detailsText.replace(/\n/g, '<br>');
+            errBox.innerHTML = `<b>⛔ ${errorTitle}:</b><br><br>${detailsHtml}`;
+            errBox.classList.remove('hidden');
+            errBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else if (errBox) {
+            // Даже без details — показываем общую ошибку в блоке
+            errBox.innerHTML = `<b>⛔ ${errorTitle}</b>`;
+            errBox.classList.remove('hidden');
             errBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
     } finally {

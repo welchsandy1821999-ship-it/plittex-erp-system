@@ -202,6 +202,7 @@ module.exports = function (pool, getWhId, withTransaction) {
     router.post('/api/production', requireAdmin, async (req, res) => {
         let { date, shiftName, products, materialsUsed, status: requestedStatus } = req.body;
         const isDraft = (requestedStatus === 'draft');
+        console.log(`[PRODUCTION] Получен запрос: date=${date}, isDraft=${isDraft}`);
 
         try {
             await withTransaction(pool, async (client) => {
