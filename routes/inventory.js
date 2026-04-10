@@ -409,10 +409,10 @@ module.exports = function (pool, getWhId, withTransaction) {
 
             // 2. Ищем последнюю цену закупки
             const lastPurchaseRes = await pool.query(`
-                SELECT (amount / NULLIF(quantity, 0)) as last_price, to_char(created_at, 'DD.MM.YYYY') as last_date
+                SELECT (amount / NULLIF(quantity, 0)) as last_price, to_char(movement_date, 'DD.MM.YYYY') as last_date
                 FROM inventory_movements
                 WHERE item_id = $1 AND movement_type = 'purchase'
-                ORDER BY created_at DESC
+                ORDER BY movement_date DESC
                 LIMIT 1
             `, [itemId]);
 
