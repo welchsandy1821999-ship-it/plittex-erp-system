@@ -898,8 +898,31 @@ module.exports = function (pool, getWhId, withTransaction) {
                 const markdownWh = await getWhId(client, 'markdown');
                 const defectWh = await getWhId(client, 'defect');
 
+                // 🔒 Row-Level Lock: Блокируем все записи партии на складе "Сушилка"
+                // и получаем РЕАЛЬНЫЙ остаток (защита от параллельных запросов)
+                const wipLockRes = await client.query(`
+                    SELECT COALESCE(SUM(quantity), 0) as real_balance
+                    FROM inventory_movements
+                    WHERE batch_id = $1 AND warehouse_id = $2
+                    FOR UPDATE
+                `, [batchId, dryingWh]);
+                const realWipBalance = parseFloat(wipLockRes.rows[0].real_balance);
+
+                // Защита от двойного клика: если партия уже пуста — отклоняем
+                if (realWipBalance <= 0) {
+                    throw new Error(`Партия #${batchId} уже полностью распалублена (остаток в сушилке: 0). Повторное списание невозможно.`);
+                }
+
                 let totalRemoved = goodQty + grade2Qty + scrapQty;
                 if (isComplete) totalRemoved = currentWipQty;
+
+                // Защита от перерасхода: если пытаются списать больше, чем реально есть
+                if (totalRemoved > realWipBalance) {
+                    throw new Error(
+                        `Невозможно списать ${totalRemoved} ед. из сушилки (партия #${batchId}). ` +
+                        `Реальный остаток: ${realWipBalance} ед. Возможно, другой пользователь уже провел распалубку.`
+                    );
+                }
 
                 await client.query(`
                     INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id)
@@ -1017,7 +1040,9 @@ module.exports = function (pool, getWhId, withTransaction) {
             res.json({ success: true });
         } catch (err) {
             console.error(err);
-            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+            const isBizError = err.message && (err.message.includes('Партия') || err.message.includes('Невозможно'));
+            res.status(isBizError ? 400 : 500)
+               .json({ error: isBizError ? err.message : 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
