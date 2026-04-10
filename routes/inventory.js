@@ -374,6 +374,25 @@ module.exports = function (pool, getWhId, withTransaction) {
     });
 
     // ------------------------------------------------------------------
+    // ПОСТАВЩИКИ ДЛЯ МАТЕРИАЛА (кто ранее поставлял данное сырье)
+    // ------------------------------------------------------------------
+    router.get('/api/inventory/material-suppliers/:id', async (req, res) => {
+        try {
+            const result = await pool.query(`
+                SELECT im.supplier_id, MAX(im.movement_date) as last_date
+                FROM inventory_movements im
+                WHERE im.item_id = $1 AND im.movement_type = 'purchase' AND im.supplier_id IS NOT NULL
+                GROUP BY im.supplier_id
+                ORDER BY last_date DESC
+            `, [req.params.id]);
+            res.json(result.rows.map(r => r.supplier_id));
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ error: 'Ошибка сервера' });
+        }
+    });
+
+    // ------------------------------------------------------------------
     // ИНФОРМЕР: ОСТАТОК И ПОСЛЕДНЯЯ ЦЕНА ЗАКУПКИ
     // ------------------------------------------------------------------
     router.get('/api/inventory/material-stats/:id', async (req, res) => {
@@ -1115,8 +1134,24 @@ module.exports = function (pool, getWhId, withTransaction) {
                 }
                 // ----------------------------------------------
 
+                // Находим account_id затронутых транзакций ДО удаления
+                const affectedTxRes = await client.query(`SELECT DISTINCT account_id FROM transactions WHERE source_module = 'purchase' AND description LIKE $1 AND account_id IS NOT NULL`, [`%движение склада #${purchaseId})%`]);
+                const affectedAccountIds = affectedTxRes.rows.map(r => r.account_id);
+
                 await client.query(`DELETE FROM transactions WHERE source_module = 'purchase' AND description LIKE $1`, [`%движение склада #${purchaseId})%`]);
                 await client.query(`DELETE FROM inventory_movements WHERE id = $1`, [purchaseId]);
+
+                // 🔄 Пересчёт балансов затронутых касс после удаления
+                if (affectedAccountIds.length > 0) {
+                    await client.query(`
+                        UPDATE accounts a
+                        SET balance = ROUND(COALESCE((
+                            SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE -amount END)
+                            FROM transactions t WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
+                        ), 0), 2)
+                        WHERE a.id = ANY($1::int[])
+                    `, [affectedAccountIds]);
+                }
             });
 
             const io = req.app.get('io');
@@ -1185,7 +1220,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 await client.query(`
                     UPDATE inventory_movements 
                     SET item_id = $1, supplier_id = $2, quantity = $3, amount = $4, delivery_cost = $5,
-                        created_at = COALESCE($6::timestamp, CURRENT_TIMESTAMP), 
+                        movement_date = COALESCE($6::timestamp, CURRENT_TIMESTAMP), 
                         description = $7
                     WHERE id = $8 AND movement_type = 'purchase'
                 `, [itemId, counterparty_id, qtyNum, totalAmount, delCostNum, purchaseDate || null, `Закупка сырья (Мат: ${materialCost}, Дост: ${delCostNum})`, purchaseId]);
@@ -1193,9 +1228,9 @@ module.exports = function (pool, getWhId, withTransaction) {
                 const oldMatTx = await client.query(`SELECT id FROM transactions WHERE source_module = 'purchase' AND description LIKE $1 AND category = 'Закупка сырья'`, [descMatch]);
                 if (account_id) {
                     if (oldMatTx.rows.length > 0) {
-                        await client.query(`UPDATE transactions SET account_id = $1, amount = $2, created_at = COALESCE($3::timestamp, CURRENT_TIMESTAMP) WHERE id = $4`, [account_id, materialCost, purchaseDate || null, oldMatTx.rows[0].id]);
+                        await client.query(`UPDATE transactions SET account_id = $1, amount = $2, transaction_date = COALESCE($3::timestamp, CURRENT_TIMESTAMP) WHERE id = $4`, [account_id, materialCost, purchaseDate || null, oldMatTx.rows[0].id]);
                     } else {
-                        await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, created_at, linked_purchase_id) VALUES ($1, $2, 'expense', 'Закупка сырья', $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [account_id, materialCost, `Оплата закупки (движение склада #${purchaseId})`, counterparty_id, purchaseDate || null, purchaseId]);
+                        await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, transaction_date, linked_purchase_id) VALUES ($1, $2, 'expense', 'Закупка сырья', $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [account_id, materialCost, `Оплата закупки (движение склада #${purchaseId})`, counterparty_id, purchaseDate || null, purchaseId]);
                     }
                 } else if (oldMatTx.rows.length > 0) {
                     await client.query(`DELETE FROM transactions WHERE id = $1`, [oldMatTx.rows[0].id]);
@@ -1204,12 +1239,25 @@ module.exports = function (pool, getWhId, withTransaction) {
                 const oldDelTx = await client.query(`SELECT id FROM transactions WHERE source_module = 'purchase' AND description LIKE $1 AND category = 'Транспортные расходы'`, [descMatch]);
                 if (delCostNum > 0 && deliveryAccountId) {
                     if (oldDelTx.rows.length > 0) {
-                        await client.query(`UPDATE transactions SET account_id = $1, amount = $2, created_at = COALESCE($3::timestamp, CURRENT_TIMESTAMP) WHERE id = $4`, [deliveryAccountId, delCostNum, purchaseDate || null, oldDelTx.rows[0].id]);
+                        await client.query(`UPDATE transactions SET account_id = $1, amount = $2, transaction_date = COALESCE($3::timestamp, CURRENT_TIMESTAMP) WHERE id = $4`, [deliveryAccountId, delCostNum, purchaseDate || null, oldDelTx.rows[0].id]);
                     } else {
-                        await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, created_at, linked_purchase_id) VALUES ($1, $2, 'expense', 'Транспортные расходы', $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [deliveryAccountId, delCostNum, `Оплата доставки (движение склада #${purchaseId})`, counterparty_id, purchaseDate || null, purchaseId]);
+                        await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, transaction_date, linked_purchase_id) VALUES ($1, $2, 'expense', 'Транспортные расходы', $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [deliveryAccountId, delCostNum, `Оплата доставки (движение склада #${purchaseId})`, counterparty_id, purchaseDate || null, purchaseId]);
                     }
                 } else if (oldDelTx.rows.length > 0) {
                     await client.query(`DELETE FROM transactions WHERE id = $1`, [oldDelTx.rows[0].id]);
+                }
+
+                // 🔄 Пересчёт балансов всех затронутых касс
+                const affectedAccounts = [account_id, deliveryAccountId].filter(Boolean);
+                if (affectedAccounts.length > 0) {
+                    await client.query(`
+                        UPDATE accounts a
+                        SET balance = ROUND(COALESCE((
+                            SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE -amount END)
+                            FROM transactions t WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
+                        ), 0), 2)
+                        WHERE a.id = ANY($1::int[])
+                    `, [affectedAccounts]);
                 }
             });
 
@@ -1270,10 +1318,23 @@ module.exports = function (pool, getWhId, withTransaction) {
                 `, [itemId, qtyNum, materialsWh, counterparty_id, totalAmount, delCostNum, `Закупка сырья (Мат: ${materialCost}, Дост: ${delCostNum})`, purchaseDate || null]);
 
                 if (account_id) {
-                    await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, created_at, linked_purchase_id) VALUES ($1, $2, 'expense', 'Закупка сырья', $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [account_id, materialCost, `Оплата закупки (движение склада #${moveRes.rows[0].id})`, counterparty_id, purchaseDate || null, moveRes.rows[0].id]);
+                    await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, transaction_date, linked_purchase_id) VALUES ($1, $2, 'expense', 'Закупка сырья', $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [account_id, materialCost, `Оплата закупки (движение склада #${moveRes.rows[0].id})`, counterparty_id, purchaseDate || null, moveRes.rows[0].id]);
                 }
                 if (delCostNum > 0 && deliveryAccountId) {
-                    await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, created_at, linked_purchase_id) VALUES ($1, $2, 'expense', 'Транспортные расходы', $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [deliveryAccountId, delCostNum, `Оплата доставки (движение склада #${moveRes.rows[0].id})`, counterparty_id, purchaseDate || null, moveRes.rows[0].id]);
+                    await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, transaction_date, linked_purchase_id) VALUES ($1, $2, 'expense', 'Транспортные расходы', $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [deliveryAccountId, delCostNum, `Оплата доставки (движение склада #${moveRes.rows[0].id})`, counterparty_id, purchaseDate || null, moveRes.rows[0].id]);
+                }
+
+                // 🔄 Пересчёт балансов всех затронутых касс
+                const affectedAccounts = [account_id, deliveryAccountId].filter(Boolean);
+                if (affectedAccounts.length > 0) {
+                    await client.query(`
+                        UPDATE accounts a
+                        SET balance = ROUND(COALESCE((
+                            SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE -amount END)
+                            FROM transactions t WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
+                        ), 0), 2)
+                        WHERE a.id = ANY($1::int[])
+                    `, [affectedAccounts]);
                 }
             });
 
@@ -1354,13 +1415,13 @@ module.exports = function (pool, getWhId, withTransaction) {
                     im.quantity, 
                     (im.amount - COALESCE(im.delivery_cost, 0)) / im.quantity as price, 
                     im.amount, 
-                    to_char(im.created_at, 'YYYY-MM-DD') as purchase_date
+                    to_char(im.movement_date, 'YYYY-MM-DD') as purchase_date
                 FROM inventory_movements im
                 JOIN items i ON im.item_id = i.id
                 LEFT JOIN counterparties c ON im.supplier_id = c.id
                 WHERE im.movement_type = 'purchase'
                   AND (i.name ILIKE $1 OR c.name ILIKE $1 OR c.inn ILIKE $1)
-                ORDER BY im.created_at DESC
+                ORDER BY im.movement_date DESC
                 LIMIT 50
             `;
             const result = await pool.query(query, [searchPattern]);
