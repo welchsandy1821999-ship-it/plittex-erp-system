@@ -898,15 +898,17 @@ module.exports = function (pool, getWhId, withTransaction) {
                 const markdownWh = await getWhId(client, 'markdown');
                 const defectWh = await getWhId(client, 'defect');
 
-                // 🔒 Row-Level Lock: Блокируем все записи партии на складе "Сушилка"
-                // и получаем РЕАЛЬНЫЙ остаток (защита от параллельных запросов)
-                const wipLockRes = await client.query(`
+                // 🔒 Шаг 1: Мьютекс партии — блокируем строку в production_batches
+                // (параллельный запрос встанет в очередь до конца транзакции)
+                await client.query('SELECT id FROM production_batches WHERE id = $1 FOR UPDATE', [batchId]);
+
+                // 🔒 Шаг 2: Читаем РЕАЛЬНЫЙ остаток (уже безопасно — партия заблокирована)
+                const wipBalanceRes = await client.query(`
                     SELECT COALESCE(SUM(quantity), 0) as real_balance
                     FROM inventory_movements
                     WHERE batch_id = $1 AND warehouse_id = $2
-                    FOR UPDATE
                 `, [batchId, dryingWh]);
-                const realWipBalance = parseFloat(wipLockRes.rows[0].real_balance);
+                const realWipBalance = parseFloat(wipBalanceRes.rows[0].real_balance);
 
                 // Защита от двойного клика: если партия уже пуста — отклоняем
                 if (realWipBalance <= 0) {
