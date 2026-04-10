@@ -65,22 +65,25 @@ ERP-система для управления производственным 
 ```
 [draft] → POST /api/production (status=draft)
     ↓ Черновик: сохраняет состав замесов и цены (production_draft)
+    ↓ Дата: принимает `date` из фронтенда (календарь смены) → production_date + movement_date
 [draft] → POST /api/production/fixate-shift
     ↓ Фиксация:
-    ↓   1. Удаление записей черновика
-    ↓   2. Проверка остатков (FOR UPDATE)
+    ↓   1. Удаление записей черновика (production_draft)
+    ↓   2. Проверка остатков с FOR UPDATE (row-level lock через production_batches)
     ↓   3. Списание сырья (production_expense)
     ↓   4. Приход на сушилку (production_receipt)
     ↓   5. Начисление износа формы/станка/поддонов
+    ↓   ⚠️ При нехватке сырья: 400 + JSON {error, details} → UI: красный блок #shift-errors
 [in_drying] → POST /api/production/complete (клиентский вызов)
     ↓ Перемещение с сушилки на склад ГП
 [completed] → Готово (is_salary_calculated = true после расчёта ЗП)
 ```
 
 #### Удаление партии (DELETE /api/production/batch/:id)
+- **Черновик (draft):** Hard Delete — физическое удаление inventory_movements + production_batches
+- **Завершённые:** Soft Delete (`status = 'deleted'`) + откат циклов оборудования + каскадный пересчёт ЗП
 - Проверка `is_salary_calculated` + `closed_periods`
-- Откат циклов оборудования (форма, станок, поддоны)
-- Каскадный пересчёт сдельной зарплаты за день (КТУ)
+- GET-маршруты (history, search, active-dates) фильтруют `status != 'deleted'`
 
 #### Шаблоны замесов
 - Хранятся в `settings` (key = 'mix_templates') как JSON
@@ -128,7 +131,14 @@ ERP-система для управления производственным 
 - `DELETE /api/inventory/purchase/:id` — Откат (удаление movement + transaction)
 
 #### Аудит (Инвентаризация)
-Использует `FOR UPDATE` для блокировки строк при пересчёте: `lockQuery + " FOR UPDATE"`, затем агрегация отдельно.
+- Использует двухшаговую блокировку: `SELECT id ... FOR UPDATE` (мьютекс), затем `SUM(quantity)` отдельно
+- Принимает `auditDate` из фронтенда → `movement_date = COALESCE(auditDate, CURRENT_TIMESTAMP)`
+- Фильтрация остатков по дате: `movement_date::date <= auditDate`
+
+#### Стандарт дат
+- **Все SELECT-запросы** используют `movement_date` (не `created_at`) для отображения и сортировки
+- **Все INSERT-запросы** с backdating принимают дату из фронтенда в поле `movement_date`
+- `created_at` сохраняется как аудитный timestamp, но не используется в UI
 
 ---
 
@@ -363,8 +373,8 @@ const res = await client.query(
 | Сотрудники (employees) | Soft | `status = 'deleted'` |
 | Счета (invoices) | Soft/Hard | Последний = hard delete, остальные = `status = 'cancelled'` |
 | Заказы (client_orders) | Hard | `DELETE FROM` с откатом резервов |
-| Партии (production_batches) | Hard | `DELETE FROM` с откатом циклов и зарплаты |
-| Контрагенты | Hard | `DELETE FROM` + CASCADE (⚠️ DANGER) |
+| Партии (production_batches) | **Draft → Hard** / **Completed → Soft** | Черновик: `DELETE FROM` (физическое). Завершённые: `status = 'deleted'` + откат циклов и зарплаты |
+| Контрагенты | Soft | `is_deleted = true` (AUDIT-003 закрыт, CASCADE заменён на RESTRICT) |
 
 ---
 
