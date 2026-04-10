@@ -97,7 +97,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 b.status
             FROM production_batches b
             JOIN items p ON b.product_id = p.id
-            WHERE b.production_date = $1
+            WHERE b.production_date = $1 AND b.status != 'deleted'
             ORDER BY b.created_at DESC
         `, [date]);
             res.json(result.rows); // Должен возвращать МАССИВ
@@ -516,10 +516,10 @@ module.exports = function (pool, getWhId, withTransaction) {
                     }
                 }
 
-                // 🛡️ ЗАЩИТА: Черновик
+                // 🛡️ ЗАЩИТА: Черновик — физическое удаление (Hard Delete)
                 if (batch.status === 'draft') {
                     await client.query('DELETE FROM inventory_movements WHERE batch_id = $1', [batchId]);
-                    await client.query(`UPDATE production_batches SET status = 'deleted' WHERE id = $1`, [batchId]);
+                    await client.query('DELETE FROM production_batches WHERE id = $1', [batchId]);
                     return;
                 }
                 
@@ -764,7 +764,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             const result = await pool.query(`
             SELECT DISTINCT to_char(production_date, 'YYYY-MM-DD') as date
             FROM production_batches
-            WHERE status != 'draft'
+            WHERE status NOT IN ('draft', 'deleted')
             ORDER BY date DESC
         `);
             const dates = result.rows.map(r => r.date);
@@ -799,7 +799,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     to_char(b.production_date, 'YYYY-MM-DD') as production_date
                 FROM production_batches b
                 JOIN items p ON b.product_id = p.id
-                WHERE (b.batch_number ILIKE $1 OR p.name ILIKE $1 OR b.shift_name ILIKE $1)
+                WHERE b.status != 'deleted' AND (b.batch_number ILIKE $1 OR p.name ILIKE $1 OR b.shift_name ILIKE $1)
                 ORDER BY b.created_at DESC
                 LIMIT 50
             `;
