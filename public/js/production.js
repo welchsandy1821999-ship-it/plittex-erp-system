@@ -527,6 +527,10 @@ window.submitDailyProduction = async function (btnElement) {
     };
 
     isSubmittingProduction = true;
+    // 🧹 Очищаем блок ошибок от предыдущей попытки
+    const errBox = document.getElementById('shift-errors');
+    if (errBox) { errBox.style.display = 'none'; errBox.innerHTML = ''; }
+
     UI.toast('⏳ Фиксация смены: проверка остатков и списание...', 'info');
 
     try {
@@ -534,16 +538,19 @@ window.submitDailyProduction = async function (btnElement) {
         await API.post('/api/production/fixate-shift', payload);
 
         UI.toast('✅ Смена зафиксирована! Сырье списано, продукция на сушилке.', 'success');
+        if (errBox) { errBox.style.display = 'none'; errBox.innerHTML = ''; }
         sessionProducts = [];
         renderSessionProducts();
         loadDailyHistory();
         updateCalendarMarks();
     } catch (e) {
         // API.post уже показывает toast с error.message, но для нехватки сырья
-        // нужно показать детальный отчёт (какого материала сколько не хватает)
-        if (e.body && e.body.details) {
+        // закрепляем детальный отчёт прямо в интерфейсе (не исчезает)
+        if (e.body && e.body.details && errBox) {
             const detailsHtml = e.body.details.replace(/\n/g, '<br>');
-            UI.toast(`<b>${e.body.error || 'Ошибка'}:</b><br>${detailsHtml}`, 'error');
+            errBox.innerHTML = `<b>⚠️ ${e.body.error || 'Ошибка'}:</b><br>${detailsHtml}`;
+            errBox.style.display = 'block';
+            errBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
     } finally {
         isSubmittingProduction = false;
