@@ -69,6 +69,7 @@ throw err;
                 const errBody = await res.json().catch(() => ({}));
 const err = new Error(errBody.error || errBody.warning || `HTTP ${res.status}`);
 err.body = errBody;
+err.details = errBody.details || null;
 throw err;
             }
             return await res.json();
@@ -95,6 +96,7 @@ throw err;
                 const errBody = await res.json().catch(() => ({}));
 const err = new Error(errBody.error || errBody.warning || `HTTP ${res.status}`);
 err.body = errBody;
+err.details = errBody.details || null;
 throw err;
             }
             return await res.json();

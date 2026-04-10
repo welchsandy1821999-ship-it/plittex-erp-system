@@ -547,28 +547,25 @@ window.submitDailyProduction = async function (btnElement) {
         updateCalendarMarks();
     } catch (e) {
         console.error('[FIXATE ERROR]', e);
-        console.log('[FIXATE ERROR] e.body =', e.body);
-        console.log('[FIXATE ERROR] e.message =', e.message);
+        console.log('[DEBUG CATCH] e.details =', e.details, '| e.body =', e.body, '| e.message =', e.message);
 
-        // Универсальная обработка: ищем details в любом месте объекта ошибки
-        const errorBody = e.body || e.response || {};
-        const details = errorBody.details || null;
-        const errorTitle = errorBody.error || e.message || 'Ошибка фиксации';
+        // Берём details из ТРЁХ возможных мест (по приоритету)
+        const details = e.details || (e.body && e.body.details) || null;
+        const errorTitle = (e.body && e.body.error) || e.message || 'Ошибка фиксации';
 
-        if (details && errBox) {
-            // details может быть строкой или массивом
-            const detailsText = typeof details === 'string' 
-                ? details 
-                : Array.isArray(details) 
-                    ? details.join('\n') 
-                    : JSON.stringify(details);
-            const detailsHtml = detailsText.replace(/\n/g, '<br>');
-            errBox.innerHTML = `<b>⛔ ${errorTitle}:</b><br><br>${detailsHtml}`;
-            errBox.classList.remove('hidden');
-            errBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        } else if (errBox) {
-            // Даже без details — показываем общую ошибку в блоке
-            errBox.innerHTML = `<b>⛔ ${errorTitle}</b>`;
+        if (errBox) {
+            if (details) {
+                // details может быть строкой или массивом
+                const detailsText = typeof details === 'string' 
+                    ? details 
+                    : Array.isArray(details) 
+                        ? details.join('\n') 
+                        : JSON.stringify(details);
+                const detailsHtml = detailsText.replace(/\n/g, '<br>');
+                errBox.innerHTML = `<b>⛔ ${errorTitle}:</b><br><br>${detailsHtml}`;
+            } else {
+                errBox.innerHTML = `<b>⛔ ${errorTitle}</b>`;
+            }
             errBox.classList.remove('hidden');
             errBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
