@@ -444,8 +444,50 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 const reserveWhId = await getWhId(client, 'reserve');
                 for (let item of items_to_ship) {
                     if (item.qty <= 0) continue;
-                    await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id) VALUES ($1, $2, 'sales_shipment', $3, $4, $5, $6)`, [item.item_id, -item.qty, desc, reserveWhId, user_id || null, item.coi_id]);
-                    await client.query(`UPDATE client_order_items SET qty_shipped = COALESCE(qty_shipped, 0) + $1 WHERE id = $2`, [item.qty, item.coi_id]);
+
+                    // 🔒 ШАГ 1: Блокируем позицию заказа (Row-Level Lock)
+                    const coiRes = await client.query(
+                        `SELECT id, item_id, qty_ordered, COALESCE(qty_shipped, 0) as qty_shipped
+                         FROM client_order_items WHERE id = $1 FOR UPDATE`,
+                        [item.coi_id]
+                    );
+                    if (coiRes.rows.length === 0) {
+                        throw new Error(`Позиция заказа #${item.coi_id} не найдена.`);
+                    }
+                    const coi = coiRes.rows[0];
+                    const remaining = parseFloat(coi.qty_ordered) - parseFloat(coi.qty_shipped);
+                    if (item.qty > remaining) {
+                        throw new Error(
+                            `Невозможно отгрузить ${item.qty} ед. товара (позиция #${coi.id}). ` +
+                            `Осталось к отгрузке: ${remaining} ед. (заказано: ${coi.qty_ordered}, уже отгружено: ${coi.qty_shipped}).`
+                        );
+                    }
+
+                    // 🔒 ШАГ 2: Проверяем реальный остаток на складе резерва
+                    const stockRes = await client.query(
+                        `SELECT COALESCE(SUM(quantity), 0) as balance
+                         FROM inventory_movements
+                         WHERE item_id = $1 AND warehouse_id = $2`,
+                        [item.item_id, reserveWhId]
+                    );
+                    const reserveBalance = parseFloat(stockRes.rows[0].balance);
+                    if (reserveBalance < item.qty) {
+                        throw new Error(
+                            `Недостаточно товара в резерве для отгрузки (позиция #${coi.id}). ` +
+                            `Запрошено: ${item.qty}, доступно в резерве: ${reserveBalance}.`
+                        );
+                    }
+
+                    // ✅ Всё проверено — выполняем списание и обновление
+                    await client.query(
+                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id)
+                         VALUES ($1, $2, 'sales_shipment', $3, $4, $5, $6)`,
+                        [item.item_id, -item.qty, desc, reserveWhId, user_id || null, item.coi_id]
+                    );
+                    await client.query(
+                        `UPDATE client_order_items SET qty_shipped = COALESCE(qty_shipped, 0) + $1 WHERE id = $2`,
+                        [item.qty, item.coi_id]
+                    );
                 }
 
                 const checkRes = await client.query(`SELECT qty_ordered, COALESCE(qty_shipped, 0) as qty_shipped FROM client_order_items WHERE order_id = $1`, [orderId]);
@@ -466,7 +508,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             res.json({ success: true, docNum, isCompleted: allCompleted });
         } catch (err) {
             console.error(err);
-            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+            res.status(err.message.includes('Невозможно') || err.message.includes('Недостаточно') || err.message.includes('не найдена') ? 400 : 500)
+               .json({ error: err.message || 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
 
