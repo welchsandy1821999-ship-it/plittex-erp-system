@@ -269,9 +269,9 @@ module.exports = function (pool, getWhId, withTransaction) {
 
                                 await client.query(`
                                     INSERT INTO inventory_movements 
-                                    (item_id, quantity, movement_type, description, warehouse_id, batch_id, unit_price) 
-                                    VALUES ($1, $2, 'production_draft', $3, $4, $5, $6)
-                                `, [mat.id, new Big(mat.qty).times(-1).toFixed(4), `Черновик состава: ${mat.name || 'Сырье'}`, materialsWh, newBatchId, price]);
+                                    (item_id, quantity, movement_type, description, warehouse_id, batch_id, unit_price, movement_date) 
+                                    VALUES ($1, $2, 'production_draft', $3, $4, $5, $6, $7)
+                                `, [mat.id, new Big(mat.qty).times(-1).toFixed(4), `Черновик состава: ${mat.name || 'Сырье'}`, materialsWh, newBatchId, price, date]);
                             }
                         }
                     }
@@ -355,12 +355,17 @@ module.exports = function (pool, getWhId, withTransaction) {
                         const available = new Big(stockItem ? stockItem.total_qty : 0);
                         const required = new Big(mat.qty || 0);
                         if (required.gt(available)) {
-                            insufficient.push(`${nameObj?.name || 'ID ' + mat.id}: не хватает ${required.minus(available).toFixed(2)}`);
+                            insufficient.push({
+                                name: nameObj?.name || 'ID ' + mat.id,
+                                required: required.toFixed(2),
+                                available: available.toFixed(2),
+                                shortage: required.minus(available).toFixed(2)
+                            });
                         }
                     }
                     if (insufficient.length > 0) {
                         const error = new Error('insufficient_stock');
-                        error.details = insufficient.join('; ');
+                        error.details = insufficient;
                         throw error;
                     }
                 }
@@ -465,10 +470,15 @@ module.exports = function (pool, getWhId, withTransaction) {
         } catch (err) {
             console.error('FIXATE ERROR:', err);
             const isStockErr = err.message === 'insufficient_stock';
-            res.status(isStockErr ? 400 : 500).json({
-                error: isStockErr ? 'Недостаточно сырья на складе' : err.message,
-                details: err.details || null
-            });
+            if (isStockErr && Array.isArray(err.details)) {
+                const lines = err.details.map(d => `• ${d.name}: нужно ${d.required}, в наличии ${d.available} (не хватает ${d.shortage})`);
+                res.status(400).json({
+                    error: 'Недостаточно сырья на складе',
+                    details: lines.join('\n')
+                });
+            } else {
+                res.status(500).json({ error: err.message });
+            }
         }
     });
 

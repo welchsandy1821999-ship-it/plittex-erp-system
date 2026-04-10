@@ -533,20 +533,18 @@ window.submitDailyProduction = async function (btnElement) {
         // 🆕 Вызываем роут фиксации вместо создания партий (они уже есть как черновики)
         await API.post('/api/production/fixate-shift', payload);
 
-        if (true) {
-            UI.toast('✅ Смена зафиксирована! Сырье списано, продукция на сушилке.', 'success');
-            sessionProducts = [];
-            renderSessionProducts();
-            loadDailyHistory();
-            updateCalendarMarks();
-        } else {
-            if (result.details) {
-                const missingList = result.details.split('; ').join('<br>• ');
-                UI.toast(`<b>${result.error}:</b><br>• ${missingList}`, 'error');
-            }
-        }
+        UI.toast('✅ Смена зафиксирована! Сырье списано, продукция на сушилке.', 'success');
+        sessionProducts = [];
+        renderSessionProducts();
+        loadDailyHistory();
+        updateCalendarMarks();
     } catch (e) {
-        
+        // API.post уже показывает toast с error.message, но для нехватки сырья
+        // нужно показать детальный отчёт (какого материала сколько не хватает)
+        if (e.body && e.body.details) {
+            const detailsHtml = e.body.details.replace(/\n/g, '<br>');
+            UI.toast(`<b>${e.body.error || 'Ошибка'}:</b><br>${detailsHtml}`, 'error');
+        }
     } finally {
         isSubmittingProduction = false;
         buttonsToDisable.forEach(b => {
