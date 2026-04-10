@@ -1384,7 +1384,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             const purchaseId = req.params.id;
 
             const moveRes = await pool.query(`
-                SELECT item_id, supplier_id, quantity, amount, COALESCE(delivery_cost, 0) as delivery_cost, to_char(created_at, 'YYYY-MM-DD') as purchase_date
+                SELECT item_id, supplier_id, quantity, amount, COALESCE(delivery_cost, 0) as delivery_cost, to_char(movement_date, 'YYYY-MM-DD') as purchase_date
                 FROM inventory_movements 
                 WHERE id = $1 AND movement_type = 'purchase'
             `, [purchaseId]);
@@ -1519,7 +1519,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                        ((machine_amort_cost + mold_amort_cost) / NULLIF(planned_quantity, 0)) as unit_amort
                 FROM production_batches
                 WHERE product_id = $1 AND status = 'completed'
-                ORDER BY created_at DESC LIMIT 10
+                ORDER BY production_date DESC LIMIT 10
             `, [productId]);
 
             let empiricalMatCost = new Big(0);
