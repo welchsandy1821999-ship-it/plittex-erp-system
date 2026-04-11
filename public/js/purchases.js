@@ -1,5 +1,5 @@
 ;(function() {
-﻿let allPurchaseMaterials = [];
+let allPurchaseMaterials = [];
 let allCounterparties = [];
 let allAccounts = [];
 window.activePurchaseDates = [];
@@ -56,6 +56,33 @@ async function loadPurchaseMaterials() {
     }
 }
 
+// Умная пересортировка поставщиков: прошлые поставщики материала — наверх
+function reorderSuppliers(prevSupplierIds) {
+    const supSelect = document.getElementById('purchase-supplier-select');
+    if (!supSelect || !supSelect.tomselect) return;
+
+    const ts = supSelect.tomselect;
+    const currentValue = ts.getValue();
+
+    ts.clearOptions();
+
+    const prevSet = new Set(prevSupplierIds.map(id => String(id)));
+    const sorted = [...allCounterparties].sort((a, b) => {
+        const aPrev = prevSet.has(String(a.id)) ? 0 : 1;
+        const bPrev = prevSet.has(String(b.id)) ? 0 : 1;
+        if (aPrev !== bPrev) return aPrev - bPrev;
+        return (a.name || '').localeCompare(b.name || '');
+    });
+
+    sorted.forEach(s => {
+        const isPrev = prevSet.has(String(s.id));
+        const label = s.inn ? `${s.name} (ИНН: ${s.inn})` : s.name;
+        ts.addOption({ value: s.id, text: isPrev ? `⭐ ${label}` : label });
+    });
+
+    if (currentValue) ts.setValue(currentValue, true);
+}
+
 function initStaticPurchaseSelects() {
     const matSelect = document.getElementById('purchase-material-select');
     if (matSelect && !matSelect.tomselect) {
@@ -74,6 +101,7 @@ function initStaticPurchaseSelects() {
 
                 if (!value) {
                     informer.classList.add('inv-hidden');
+                    reorderSuppliers([]);
                     return;
                 }
 
@@ -81,7 +109,10 @@ function initStaticPurchaseSelects() {
                 informer.innerHTML = '<i>⏳ Загрузка данных...</i>';
 
                 try {
-                    const stats = await API.get(`/api/inventory/material-stats/${value}`);
+                    const [stats, prevSupplierIds] = await Promise.all([
+                        API.get(`/api/inventory/material-stats/${value}`),
+                        API.get(`/api/inventory/material-suppliers/${value}`)
+                    ]);
                     let html = `<span class="text-main">📊 На складе: <b>${parseFloat(stats.balance).toFixed(2)} ${mat ? mat.unit : ''}</b></span>`;
                     if (stats.lastPrice) {
                         html += `<br><span class="text-muted">💸 Прошлая закупка (${stats.lastDate}): по <b>${parseFloat(stats.lastPrice).toFixed(2)} ₽</b></span>`;
@@ -89,6 +120,9 @@ function initStaticPurchaseSelects() {
                         html += `<br><span class="text-muted">💸 Ранее не закупалось</span>`;
                     }
                     informer.innerHTML = html;
+
+                    // Умная сортировка поставщиков
+                    reorderSuppliers(prevSupplierIds);
                 } catch (e) {
                     informer.innerHTML = '<span class="text-danger">❌ Ошибка загрузки данных</span>';
                 }
@@ -114,7 +148,7 @@ function initStaticPurchaseSelects() {
             plugins: ['clear_button'],
             options: allAccounts.map(acc => ({ value: acc.id, text: `${acc.name} (${parseFloat(acc.balance).toFixed(2)} ₽)` })),
             allowEmptyOption: true,
-            placeholder: "-- НЕ ОПЛАЧИВАТЬ (В ДОЛГ) --"
+            placeholder: "-- Взаиморасчет (в долг) --"
         });
     }
 
@@ -245,10 +279,8 @@ window.executePurchase = async function (materialId, counterparty_id, account_id
 
     try {
         await API.post('/api/inventory/purchase', { itemId: materialId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost, deliveryCost, deliveryAccountId });
-        if (true) {
-            UI.toast('✅ Закупка успешно оформлена!', 'success');
-            setTimeout(() => location.reload(), 1200);
-        }
+        UI.toast('✅ Закупка успешно оформлена!', 'success');
+        setTimeout(() => location.reload(), 1200);
     } catch (e) { console.error(e); }
 };
 
@@ -258,11 +290,9 @@ window.executeUpdatePurchase = async function (purchaseId, materialId, counterpa
 
     try {
         await API.put(`/api/inventory/purchase/${purchaseId}`, { itemId: materialId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost, deliveryCost, deliveryAccountId });
-        if (true) {
-            UI.toast('✅ Изменения успешно сохранены!', 'success');
-            cancelEditMode();
-            if (typeof loadDailyPurchases === 'function') loadDailyPurchases(purchaseDate);
-        }
+        UI.toast('✅ Изменения успешно сохранены!', 'success');
+        cancelEditMode();
+        if (typeof loadDailyPurchases === 'function') loadDailyPurchases(purchaseDate);
     } catch (e) { console.error(e); }
 };
 
@@ -372,13 +402,13 @@ async function loadDailyPurchases(dateStr) {
                 <td class="text-right">${parseFloat(p.price).toFixed(2)} ₽</td>
                 <td class="text-right"><strong class="text-danger">${Utils.formatMoney(parseFloat(p.amount))}</strong></td>
                 <td class="text-right white-space-nowrap">
-                    <button class="btn btn-outline" class="pur-row-btn border-border mr-5" 
+                    <button class="btn btn-outline pur-row-btn border-border mr-5" 
                             onclick="printReceipt('${p.id}', '${safeItem}', '${safeSupplier}', ${p.quantity}, '${p.unit}', ${p.price}, ${p.amount})" 
                             title="Распечатать приходный ордер">🖨️</button>
-                    <button class="btn btn-outline" class="pur-row-btn text-warning border-warning mr-5" 
+                    <button class="btn btn-outline pur-row-btn text-warning border-warning mr-5" 
                             onclick="editPurchase('${p.id}')" 
                             title="Редактировать закупку">✏️</button>
-                    <button class="btn btn-outline" class="pur-row-btn text-danger border-danger" 
+                    <button class="btn btn-outline pur-row-btn text-danger border-danger" 
                             onclick="deletePurchase('${p.id}', '${safeItem}')" 
                             title="Отменить закупку">❌</button>
                 </td>
@@ -469,20 +499,18 @@ window.submitNewSupplier = async function () {
 
     try {
         const newSup = await API.post('/api/inventory/quick-supplier', { name, inn });
-        if (true) {
-            allCounterparties.push(newSup);
+        allCounterparties.push(newSup);
 
-            const selectEl = document.getElementById('purchase-supplier-select');
-            if (selectEl && selectEl.tomselect) {
-                const ts = selectEl.tomselect;
-                const textLabel = `${newSup.name}${newSup.inn ? ` (ИНН: ${newSup.inn})` : ''}`;
-                ts.addOption({ value: newSup.id, text: textLabel });
-                ts.setValue(newSup.id);
-            }
-
-            UI.closeModal();
-            UI.toast('✅ Поставщик добавлен!', 'success');
+        const selectEl = document.getElementById('purchase-supplier-select');
+        if (selectEl && selectEl.tomselect) {
+            const ts = selectEl.tomselect;
+            const textLabel = `${newSup.name}${newSup.inn ? ` (ИНН: ${newSup.inn})` : ''}`;
+            ts.addOption({ value: newSup.id, text: textLabel });
+            ts.setValue(newSup.id);
         }
+
+        UI.closeModal();
+        UI.toast('✅ Поставщик добавлен!', 'success');
     } catch (e) { console.error(e); }
 };
 
@@ -650,11 +678,11 @@ window.renderSearchResults = function () {
             <td class="text-right">${parseFloat(p.price).toFixed(2)} ₽</td>
             <td class="text-right"><strong class="text-danger">${Utils.formatMoney(parseFloat(p.amount))}</strong></td>
             <td class="text-right white-space-nowrap">
-                <button class="btn btn-outline" class="pur-row-btn border-border mr-5" 
+                <button class="btn btn-outline pur-row-btn border-border mr-5" 
                         onclick="printReceipt('${p.id}', '${safeItem}', '${safeSupplier}', ${p.quantity}, '${p.unit}', ${p.price}, ${p.amount})" title="Распечатать">🖨️</button>
-                <button class="btn btn-outline" class="pur-row-btn text-warning border-warning mr-5" 
+                <button class="btn btn-outline pur-row-btn text-warning border-warning mr-5" 
                         onclick="editPurchase('${p.id}')" title="Редактировать">✏️</button>
-                <button class="btn btn-outline" class="pur-row-btn text-danger border-danger" 
+                <button class="btn btn-outline pur-row-btn text-danger border-danger" 
                         onclick="deletePurchase('${p.id}', '${safeItem}')" title="Отменить">❌</button>
             </td>
         </tr>
@@ -694,8 +722,6 @@ window.sortSearchResults = function (field) {
 
     renderSearchResults();
 };
-
-
 
     // === ГЛОБАЛЬНЫЙ ЭКСПОРТ ===
     if (typeof loadPurchaseMaterials === 'function') window.loadPurchaseMaterials = loadPurchaseMaterials;

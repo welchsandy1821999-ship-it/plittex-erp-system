@@ -9,8 +9,8 @@
     </div>
 
     <div class="card pur-main-panel">
-        <div class="form-grid">
-            <div class="form-group col-span-2">
+        <div class="form-grid pur-form-grid">
+            <div class="form-group col-span-3">
                 <label>Материал (Сырье):</label>
                 <select id="purchase-material-select" class="input-modern" placeholder="-- Выберите сырье --">
                     <option value="">-- Загрузка... --</option>
@@ -19,7 +19,7 @@
                 </div>
             </div>
 
-            <div class="form-group col-span-2">
+            <div class="form-group col-span-3">
                 <label>Поставщик (Поиск по Имени или ИНН):</label>
                 <div class="pur-supplier-flex">
                     <div class="flex-1 min-w-0">
@@ -34,8 +34,8 @@
             </div>
 
             <div class="form-group col-span-2">
-                <label>Счет оплаты (оставьте пустым для закупки в долг):</label>
-                <select id="purchase-account-select" class="input-modern" placeholder="-- НЕ ОПЛАЧИВАТЬ (В ДОЛГ) --">
+                <label>Счет оплаты:</label>
+                <select id="purchase-account-select" class="input-modern" placeholder="-- Взаиморасчет (в долг) --">
                     <option value="">-- Загрузка... --</option>
                 </select>
             </div>
@@ -51,6 +51,7 @@
                 <input type="number" id="purchase-price" class="input-modern" oninput="calculatePurchaseTotal()"
                     placeholder="0.00">
             </div>
+
 
             <div class="form-group col-span-2 pur-delivery-toggle-wrap">
                 <label class="pur-delivery-label">

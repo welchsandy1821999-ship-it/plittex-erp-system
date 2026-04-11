@@ -4457,6 +4457,19 @@
    25. ЗАКУПКИ И ПРИЕМКА (PURCHASE)
    ============================================================ */
 
+/* --- 25.0 Сетка формы закупки (6 колонок) --- */
+.pur-form-grid {
+    grid-template-columns: repeat(6, 1fr);
+}
+
+.col-span-2 {
+    grid-column: span 2;
+}
+
+.col-span-3 {
+    grid-column: span 3;
+}
+
 /* --- 25.1 Главная панель прихода --- */
 .pur-main-panel {
     border-left: 4px solid var(--primary);
