@@ -76,6 +76,12 @@
     flex: 1 1 auto;
     display: flex;
     flex-direction: column;
+    gap: 16px;
+}
+
+/* Внутри step-body отступы управляются gap, поэтому убираем margin у form-group */
+.step-body .form-group {
+    margin-bottom: 0;
 }
 
 /* Подвал карточки — прижат к низу */
@@ -91,7 +97,6 @@
     padding: 10px;
     border-radius: 8px;
     min-height: 60px;
-    margin-top: 12px;
 }
 
 /* Иконка-заглушка в TomSelect-опции продукции */
