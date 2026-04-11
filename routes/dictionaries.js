@@ -180,7 +180,8 @@ module.exports = function (pool, withTransaction) {
     router.get('/api/employees', async (req, res) => {
         try {
             const result = await pool.query(`
-                SELECT e.*, COALESCE(a.balance, 0) AS imprest_debt 
+                SELECT e.*, COALESCE(a.balance, 0) AS imprest_debt,
+                       (SELECT MAX(production_date) FROM production_batches WHERE shift_name = e.full_name) AS last_shift_at
                 FROM employees e 
                 LEFT JOIN accounts a ON a.name = 'Подотчет: ' || e.full_name AND a.type = 'imprest'
                 WHERE e.status != 'deleted' 

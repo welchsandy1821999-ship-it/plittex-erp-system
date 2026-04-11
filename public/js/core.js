@@ -194,7 +194,8 @@ throw err;
     // --- Производство ---
     socket.on('production_updated', () => {
         debouncedRefresh('production', () => {
-            if (typeof initProduction === 'function') initProduction();
+            if (typeof window.loadDailyHistory === 'function') window.loadDailyHistory();
+            if (typeof window.updateCalendarMarks === 'function') window.updateCalendarMarks();
             if (typeof window.loadDashboardWidgets === 'function') window.loadDashboardWidgets();
         });
     });

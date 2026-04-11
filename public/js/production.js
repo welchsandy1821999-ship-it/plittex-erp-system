@@ -92,10 +92,30 @@ async function initProduction() {
             shiftSel.innerHTML = '<option value="">-- Выберите бригадира --</option>';
             let activeEmps = empData.filter(e => e.status === 'active');
             activeEmps.sort((a, b) => {
+                // 1. Приоритет: Дата последней смены (от свежей к старой)
+                if (a.last_shift_at && !b.last_shift_at) return -1;
+                if (!a.last_shift_at && b.last_shift_at) return 1;
+                if (a.last_shift_at && b.last_shift_at) {
+                    const dateA = new Date(a.last_shift_at);
+                    const dateB = new Date(b.last_shift_at);
+                    if (dateA.getTime() !== dateB.getTime()) {
+                        return dateB.getTime() - dateA.getTime();
+                    }
+                }
+                // 2. Приоритет: Принадлежность к цеху (оставляем старую логику как fall-back)
                 const isWorkshop = (emp) => (emp.department && emp.department.toLowerCase().includes('цех')) || (emp.position && (emp.position.toLowerCase().includes('цех') || emp.position.toLowerCase().includes('формов')));
                 return (isWorkshop(b) ? 1 : 0) - (isWorkshop(a) ? 1 : 0);
             });
-            activeEmps.forEach(emp => shiftSel.add(new Option(emp.full_name, emp.full_name)));
+            activeEmps.forEach(emp => {
+                let displayName = emp.full_name;
+                if (emp.last_shift_at) {
+                    const d = new Date(emp.last_shift_at);
+                    const dd = String(d.getDate()).padStart(2, '0');
+                    const mm = String(d.getMonth() + 1).padStart(2, '0');
+                    displayName += ` (был: ${dd}.${mm})`;
+                }
+                shiftSel.add(new Option(displayName, emp.full_name));
+            });
         }
 
         renderSelectedTemplates();
@@ -127,18 +147,24 @@ function populateCategories() {
     const sel = document.getElementById('prod-product-select');
     if (!sel) return;
 
-    const options = allProductsList.map(p => ({ value: String(p.id), text: p.name }));
+    const options = allProductsList.map(p => ({ 
+        value: String(p.id), 
+        text: p.name,
+        article: p.article || 'Нет артикула',
+        category: p.category || 'Продукция'
+    }));
 
     if (sel.tomselect) {
-        // 🛡️ Уже инициализирован — обновляем список
         const ts = sel.tomselect;
         ts.clearOptions();
         ts.addOptions(options);
     } else {
-        // 🆕 Первая инициализация
         new TomSelect(sel, {
             plugins: ['clear_button'],
             options: options,
+            valueField: 'value',
+            labelField: 'text',
+            searchField: ['text', 'article'],
             placeholder: '— Выберите продукцию —',
             allowEmptyOption: true,
             score: function(search) {
@@ -147,7 +173,7 @@ function populateCategories() {
                 const tokens = query.split(/\s+/).filter(Boolean);
                 
                 return function(item) {
-                    const text = (item.text || '').toLowerCase();
+                    const text = ((item.text || '') + ' ' + (item.article || '')).toLowerCase();
                     const textCondensed = text.replace(/[\.\s-]/g, '');
                     
                     let multiTargetMatch = true;
@@ -173,6 +199,25 @@ function populateCategories() {
                     
                     return baseScore; 
                 };
+            },
+            render: {
+                option: function(data, escape) {
+                    return `<div class="ts-option-product d-flex align-items-center gap-2" style="padding: 8px 12px;">
+                        <div style="flex-shrink: 0; width: 32px; height: 32px; background: var(--surface-hover); border-radius: 6px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border);">
+                            <span class="text-muted font-14">🧱</span>
+                        </div>
+                        <div class="d-flex flex-column">
+                            <span class="font-bold-14 text-main mb-1" style="line-height:1.2;">${escape(data.text)}</span>
+                            <span class="font-11 text-muted" style="line-height:1;">Артикул: ${escape(data.article)} | <span>${escape(data.category)}</span></span>
+                        </div>
+                    </div>`;
+                },
+                item: function(data, escape) {
+                    return `<div class="d-flex align-items-center gap-2">
+                        <span class="font-14">🧱</span> 
+                        <span class="font-bold-14">${escape(data.text)}</span>
+                    </div>`;
+                }
             },
             onChange: function () {
                 handleProductSelection();
@@ -221,24 +266,103 @@ window.renderSelectedTemplates = function () {
     const mainKey = document.getElementById('main-template-select').value;
     const faceKey = document.getElementById('face-template-select').value;
 
-    const drawEditableList = (templateList, containerId, prefix) => {
+    const drawEditableList = (templateList, containerId, prefix, templateKey) => {
         let html = '<div class="prod-tpl-hint">На 1 замес (можно изменить сейчас):</div>';
 
-        html += (templateList || []).map(m => `
+        html += (templateList || []).map((m, idx) => `
             <div class="prod-tpl-row">
                 <span class="prod-tpl-name">${Utils.escapeHtml(m.name)}</span>
                 <div class="flex-row gap-5 align-center">
                     <input type="number" class="input-modern ${prefix}-qty prod-tpl-input" data-id="${m.id}" data-name="${m.name}" data-unit="${m.unit}" value="${m.qty}" onfocus="this.select()" title="Изменить для этого конкретного замеса">
                     <span class="prod-tpl-unit">${m.unit}</span>
+                    <button type="button" class="btn btn-sm text-danger border-0 px-2" onclick="removeInlineRow(this)" title="Удалить">✖</button>
                 </div>
             </div>
         `).join('');
-        document.getElementById(containerId).innerHTML = html || '<i>Шаблон пуст</i>';
+        
+        let addHtml = `
+            <div class="prod-inline-add mt-10 pt-10" style="border-top: 1px dashed var(--border-color); opacity: 0.9;">
+                <div class="font-bold-12 text-muted mb-5">➕ Добавить сырье (вне шаблона):</div>
+                <div class="flex-row gap-10 align-center">
+                    <select id="add-mat-${prefix}" class="input-modern flex-grow-1 font-12" style="padding: 6px 12px; height: 36px; min-height: 36px;">
+                        <option value="" disabled selected>-- Выбрать --</option>
+                        ${allMaterialsForMix.map(m => `<option value="${m.id}" data-name="${Utils.escapeHtml(m.name)}" data-unit="${m.unit || 'кг'}">${Utils.escapeHtml(m.name)}</option>`).join('')}
+                    </select>
+                    <input type="number" id="add-qty-${prefix}" class="input-modern text-center font-12" style="width: 80px; height: 36px;" step="any" placeholder="0" onfocus="this.select()">
+                    <button type="button" class="btn btn-blue font-12 m-0" style="height: 36px; padding: 0 16px;" onclick="addInlineMaterial('${prefix}')">➕</button>
+                </div>
+            </div>
+        `;
+
+        document.getElementById(containerId).innerHTML = (html || '<i>Шаблон пуст</i>') + addHtml;
+        
+        setTimeout(() => {
+            const addSel = document.getElementById(`add-mat-${prefix}`);
+            if (addSel && !addSel.tomselect) {
+                new TomSelect(addSel, {
+                    plugins: ['clear_button']
+                });
+            }
+        }, 50);
     };
 
     drawEditableList(window.currentMixTemplates[mainKey], 'main-mix-norms', 'main-mix-mat');
     drawEditableList(window.currentMixTemplates[faceKey], 'face-mix-norms', 'face-mix-mat');
     calculateMixesPreview();
+};
+
+window.removeInlineRow = function(btn) {
+    const row = btn.closest('.prod-tpl-row');
+    if (row) {
+        row.remove();
+        if (typeof calculateMixesPreview === 'function') calculateMixesPreview();
+    }
+};
+
+window.addInlineMaterial = function(prefix) {
+    const selEl = document.getElementById(`add-mat-${prefix}`);
+    const qtyInput = document.getElementById(`add-qty-${prefix}`);
+    const val = selEl.tomselect ? selEl.tomselect.getValue() : selEl.value;
+    const qty = parseFloat(qtyInput.value) || 0;
+    
+    if (!val) return UI.toast('Выберите сырье', 'warning');
+    if (qty <= 0) return UI.toast('Введите количество больше 0', 'warning');
+
+    let name = '';
+    let unit = 'кг';
+    if (selEl.tomselect) {
+        const optionEl = selEl.tomselect.getOption(val);
+        if (optionEl) {
+            name = optionEl.getAttribute('data-name');
+            unit = optionEl.getAttribute('data-unit') || 'кг';
+        }
+    } else {
+        const optionEl = selEl.options[selEl.selectedIndex];
+        if (optionEl) {
+            name = optionEl.getAttribute('data-name');
+            unit = optionEl.getAttribute('data-unit') || 'кг';
+        }
+    }
+
+    const newHtml = `
+        <div class="prod-tpl-row">
+            <span class="prod-tpl-name">${Utils.escapeHtml(name)}</span>
+            <div class="flex-row gap-5 align-center">
+                <input type="number" class="input-modern ${prefix}-qty prod-tpl-input" data-id="${val}" data-name="${Utils.escapeHtml(name)}" data-unit="${unit}" value="${qty}" onfocus="this.select()" title="Изменить для этого конкретного замеса">
+                <span class="prod-tpl-unit">${unit}</span>
+                <button type="button" class="btn btn-sm text-danger border-0 px-2" onclick="removeInlineRow(this)" title="Удалить">✖</button>
+            </div>
+        </div>
+    `;
+
+    const addBlock = qtyInput.closest('.prod-inline-add');
+    if (addBlock) addBlock.insertAdjacentHTML('beforebegin', newHtml);
+
+    if (selEl.tomselect) selEl.tomselect.clear();
+    else selEl.value = '';
+    qtyInput.value = '';
+
+    if (typeof calculateMixesPreview === 'function') calculateMixesPreview();
 };
 
 // === РАСЧЕТ ИДЕАЛЬНЫХ ЗАМЕСОВ ПО РЕЦЕПТУ ===
@@ -426,6 +550,16 @@ window.addProdToSession = async function () {
     document.getElementById('prod-cycles-input').value = '';
     document.getElementById('main-mix-count').value = '';
     document.getElementById('face-mix-count').value = '';
+    
+    // Очистка дополнительных полей (Продукт и Бригадир)
+    const selEl = document.getElementById('prod-product-select');
+    if (selEl && selEl.tomselect) selEl.tomselect.setValue('');
+    else if (selEl) selEl.value = '';
+    
+    const shiftSelEl = document.getElementById('prod-shift-name');
+    if (shiftSelEl && shiftSelEl.tomselect) shiftSelEl.tomselect.setValue('');
+    else if (shiftSelEl) shiftSelEl.value = '';
+
     // Сбрасываем флаг ручного ввода для следующей партии
     delete document.getElementById('main-mix-count').dataset.userEdited;
     delete document.getElementById('face-mix-count').dataset.userEdited;

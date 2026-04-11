@@ -1,8 +1,8 @@
 # 📘 ERP PLITTEX — ТЕХНИЧЕСКАЯ ДОКУМЕНТАЦИЯ (Операция «ПАНОПТИКУМ»)
 
-> **Версия:** 1.0.0  
-> **Дата:** 01.04.2026  
-> **Стек:** Node.js + Express + PostgreSQL + EJS + Socket.IO + Big.js
+> **Версия:** 2.0.0 (Autonomous Edition)  
+> **Дата:** Полная актуализация  
+> **Стек:** Node.js + Express + PostgreSQL + EJS + Socket.IO + Big.js + Docker + Jest
 
 ---
 
@@ -85,9 +85,10 @@ ERP-система для управления производственным 
 - Проверка `is_salary_calculated` + `closed_periods`
 - GET-маршруты (history, search, active-dates) фильтруют `status != 'deleted'`
 
-#### Шаблоны замесов
-- Хранятся в `settings` (key = 'mix_templates') как JSON
+#### Шаблоны замесов и Кастомные спецификации (Custom BOM)
+- Шаблоны хранятся в `settings` (key = 'mix_templates') как JSON
 - Двухслойная архитектура: `mix_main_tpl` + `mix_face_tpl` для каждого продукта
+- **Новинка (Phase 6+):** Пользователь может редактировать состав компонентов локально («на лету») для каждого замеса через UI (удаление/добавление сырья) без мутации глобального шаблона. Фронтенд собирает точный слепок DOM, а сервер записывает реальный состав замеса.
 
 #### MRP-модуль (`GET /api/production/mrp-summary`)
 - Агрегирует `planned_production` из заказов со статусом `pending`/`processing`
@@ -308,7 +309,18 @@ UPDATE accounts a SET balance = ROUND(COALESCE((
 
 ---
 
-## 3. БЕЗОПАСНОСТЬ
+### 2.10 🛡️ Центр Управления / Admin Hub (admin.js)
+- **Точка доступа:** `/api/admin/*`
+- Защищено `requireAdmin`. Предоставляет панель с 4 блоками:
+  1. **Бэкапы:** Запуск `pg_dump` через `child_process.exec`, скачивание и удаление SQL-дампов.
+  2. **Система:** Мониторинг RAM, CPU, Uptime сервера и пула соединений PostgreSQL + экспорт CSV (Items, Employees, Counterparties, Transactions, Inventory).
+  3. **Аудит-логи:** Просмотр пагинированных audit-записей об удалении транзакций, счетов и т.д.
+  4. **Настройки:** Управление глобальным `system_settings`.
+- **Логгирование:** Отдельная вкладка позволяет читать файлы логов `winston` (напр., `logs/error.log`).
+
+---
+
+## 3. БЕЗОПАСНОСТЬ И HARDENING (PHASE 5)
 
 ### 3.1 Аутентификация
 - JWT (jsonwebtoken) через cookie `token`
@@ -363,6 +375,15 @@ UPDATE accounts a SET balance = ROUND(COALESCE((
 - **Утилиты:** `_isValidInn(inn)`, `_isValidKpp(kpp)`, `_isValidEmail(email)` — приватные функции
 - **Всего экспортов:** 32 валидатора, 40 маршрутов покрыто
 - **Покрыто модулей:** ✅ ВСЕ — Справочники, Кадры, Финансы, Склад, Производство, Продажи, HR (AUDIT-018 ЗАКРЫТ)
+
+### 3.5 Аудит и Журналирование
+- Имеется таблица `audit_logs` для фиксации критических деструктивных действий (удаление финансовых документов и транзакций).
+- Функция `auditLog(userId, action, entity, entityId, ip)` гарантирует отсутствие сбоев в основном потоке даже при падении логирования.
+
+### 3.6 Инфраструктурный Hardening
+- **Helmet.js** интегрирован для защиты HTTP-заголовков.
+- **express-rate-limit** установлен (глобально 400 запросов/10 мин., строгий лимит 20/15 на `/login`).
+- CORS настроен, `winston` логирует все необработанные исключения и ошибки.
 
 ---
 
@@ -434,29 +455,17 @@ const res = await client.query(
 
 ---
 
-## 6. РЕКОМЕНДАЦИИ ПО РАЗВИТИЮ
+## 6. ВЫПОЛНЕННЫЕ ВЕХИ РАЗВИТИЯ (Phase 1-6)
 
-### 6.1 Краткосрочные (1-2 недели)
-1. Закрыть RBAC-дыры (AUDIT-001)
-2. Заменить CASCADE на RESTRICT для counterparties (AUDIT-003)
-3. Добавить CHECK constraints на критические поля (AUDIT-007)
-4. Добавить индексы на production_batches (AUDIT-010)
-5. Удалить мёртвый код: DROP TABLE, legacy маршруты, дубликаты
-
-### 6.2 Среднесрочные (1-2 месяца)
-1. Внедрить express-validator на все POST-маршруты
-2. Перенести инлайн-стили в CSS (AUDIT-011)
-3. Оптимизировать N+1 запросы в production и sales
-4. Внедрить rate-limiting (express-rate-limit)
-5. Multi-role RBAC (admin → manager → operator → viewer)
-
-### 6.3 Долгосрочные (3-6 месяцев)
-1. Миграция на REST API + SPA (React/Vue) для улучшения UX
-2. Полноценный аудит-лог (who/what/when на каждое изменение)
-3. Автоматические бекапы БД с ротацией
-4. Docker-контейнеризация для CI/CD
-5. Unit/Integration тесты (Jest + Supertest)
+### ✅ Выполнено
+1. Внедрен express-validator на все маршруты.
+2. Закрыты RBAC-дыры (requireAdmin везде).
+3. Автоматические бекапы БД внедрены (admin hub).
+4. Docker-контейнеризация для production-запуска (docker-compose).
+5. Unit тесты (Jest) добавлены.
+6. Внедрен Центр Администрирования (Admin Hub).
+7. Добавлена возможность кастомных спецификаций сырья "на лету" (Custom BOM).
 
 ---
 
-*Документ является частью операции «ПАНОПТИКУМ» — полного аудита ERP-системы.*
+*Документ актуализирован в рамках операции «ПАНОПТИКУМ» — Phase 6 (Autonomous Edition).*
