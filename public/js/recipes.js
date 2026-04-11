@@ -845,11 +845,11 @@ window.executeMassApply = async function() {
                 }))
             });
             successCount++;
-            if (progressLog) progressLog.innerHTML += `<div class="text-success">✅ ${target.name}</div>`;
+            if (progressLog) progressLog.innerHTML += `<div class="text-success">✅ ${Utils.escapeHtml(target.name)}</div>`;
         } catch (e) {
             errorCount++;
             const errMsg = (e.body && e.body.warning) ? e.body.warning : (e.body && e.body.error) ? e.body.error : (e.message || 'Ошибка');
-            if (progressLog) progressLog.innerHTML += `<div class="text-danger">❌ ${target.name}: ${errMsg}</div>`;
+            if (progressLog) progressLog.innerHTML += `<div class="text-danger">❌ ${Utils.escapeHtml(target.name)}: ${Utils.escapeHtml(errMsg)}</div>`;
         }
     }
 

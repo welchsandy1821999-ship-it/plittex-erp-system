@@ -226,7 +226,7 @@ window.renderSelectedTemplates = function () {
 
         html += (templateList || []).map(m => `
             <div class="prod-tpl-row">
-                <span class="prod-tpl-name">${m.name}</span>
+                <span class="prod-tpl-name">${Utils.escapeHtml(m.name)}</span>
                 <div class="flex-row gap-5 align-center">
                     <input type="number" class="input-modern ${prefix}-qty prod-tpl-input" data-id="${m.id}" data-name="${m.name}" data-unit="${m.unit}" value="${m.qty}" onfocus="this.select()" title="Изменить для этого конкретного замеса">
                     <span class="prod-tpl-unit">${m.unit}</span>
@@ -445,7 +445,7 @@ function renderSessionProducts() {
     container.innerHTML = sessionProducts.map((p, i) => `
         <div class="prod-session-item">
             <div>
-                <b class="text-primary">${p.name}</b><br>
+                <b class="text-primary">${Utils.escapeHtml(p.name)}</b><br>
                 <small class="text-muted">${p.fromServer ? '<em>📝 Сохранён на сервере</em>' : `Циклов: <b class="text-main">${p.cycles}</b> | Итого: <b class="text-main">${p.quantity.toFixed(2)} ${p.unit || ''}</b>`}</small><br>
                 <small class="text-muted">${p.fromServer ? '' : `Замесы: Осн (${p.mainCount || 0}), Лиц (${p.faceCount || 0})`}</small>
             </div>
@@ -562,9 +562,9 @@ window.submitDailyProduction = async function (btnElement) {
                         ? details.join('\n') 
                         : JSON.stringify(details);
                 const detailsHtml = detailsText.replace(/\n/g, '<br>');
-                errBox.innerHTML = `<b>⛔ ${errorTitle}:</b><br><br>${detailsHtml}`;
+                errBox.innerHTML = `<b>⛔ ${Utils.escapeHtml(errorTitle)}:</b><br><br>${detailsHtml}`;
             } else {
-                errBox.innerHTML = `<b>⛔ ${errorTitle}</b>`;
+                errBox.innerHTML = `<b>⛔ ${Utils.escapeHtml(errorTitle)}</b>`;
             }
             errBox.classList.remove('hidden');
             errBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -756,7 +756,7 @@ async function loadDailyHistory() {
         const data = await API.get(`/api/production/history?date=${date}`);
 
         if (!Array.isArray(data)) {
-            tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger">Ошибка: ${data.error || 'нет данных'}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger">Ошибка: ${Utils.escapeHtml(data.error || 'нет данных')}</td></tr>`;
             return;
         }
 
@@ -797,8 +797,8 @@ async function loadDailyHistory() {
 
             return `
             <tr id="row-${b.id}" class="${isDraft ? 'prod-row-draft' : ''}">
-                <td class="w-15" onclick="toggleBatchDetails(${b.id})"><strong>${b.batch_number}</strong>${draftBadge}</td>
-                <td class="w-30p" onclick="toggleBatchDetails(${b.id})">${b.product_name}</td>
+                <td class="w-15" onclick="toggleBatchDetails(${b.id})"><strong>${Utils.escapeHtml(b.batch_number)}</strong>${draftBadge}</td>
+                <td class="w-30p" onclick="toggleBatchDetails(${b.id})">${Utils.escapeHtml(b.product_name)}</td>
                 <td class="w-13p text-right" onclick="toggleBatchDetails(${b.id})">${volume.toFixed(2)}</td>
                 <td class="w-15p text-right" onclick="toggleBatchDetails(${b.id})">${costDisplay}</td>
                 <td class="w-15 text-right whitespace-nowrap">
@@ -947,7 +947,7 @@ async function toggleBatchDetails(batchId) {
 
             return `
                             <tr class="prod-tr-styled">
-                                <td class="prod-td-styled prod-mat-name">${m.name}</td>
+                                <td class="prod-td-styled prod-mat-name">${Utils.escapeHtml(m.name)}</td>
                                 <td class="prod-td-styled prod-td-right">${qBatch.toFixed(2)} <small class="text-muted">${m.unit}</small></td>
                                 <td class="prod-td-styled prod-td-right text-primary">${qUnit.toFixed(3)} <small>${m.unit}</small></td>
                                 <td class="prod-td-styled prod-td-right text-muted font-12">${pricePerKg.toFixed(2)}</td>

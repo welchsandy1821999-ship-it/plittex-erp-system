@@ -62,7 +62,7 @@ async function loadSalesAccounts() {
         if (!sel) return;
         sel.innerHTML = '<option value="">-- Выберите кассу --</option>';
         accounts.filter(a => a.type !== 'imprest').forEach(a => {
-            sel.innerHTML += `<option value="${a.id}">${a.name} (${parseFloat(a.balance || 0).toLocaleString('ru-RU')} ₽)</option>`;
+            sel.innerHTML += `<option value="${a.id}">${Utils.escapeHtml(a.name)} (${parseFloat(a.balance || 0).toLocaleString('ru-RU')} ₽)</option>`;
         });
     } catch (e) { console.error('Ошибка загрузки касс:', e); }
 }

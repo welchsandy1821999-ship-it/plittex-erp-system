@@ -951,7 +951,7 @@ window.openMrpPanel = async function () {
                 totalShortageItems++;
                 deficitHtml += `
                     <tr style="background: var(--danger-bg);">
-                        <td style="padding: 12px 10px; border-bottom: 1px solid var(--danger-border);"><b>${d.name}</b></td>
+                        <td style="padding: 12px 10px; border-bottom: 1px solid var(--danger-border);"><b>${Utils.escapeHtml(d.name)}</b></td>
                         <td style="padding: 12px 10px; border-bottom: 1px solid var(--danger-border); text-align: center; color: var(--text-muted);">${d.stock} ${d.unit}</td>
                         <td style="padding: 12px 10px; border-bottom: 1px solid var(--danger-border); text-align: center; font-weight: bold;">${d.needed} ${d.unit}</td>
                         <td style="padding: 12px 10px; border-bottom: 1px solid var(--danger-border); text-align: right; color: var(--danger-text); font-weight: 900; font-size: 14px;">-${shortage.toLocaleString('ru-RU')} ${d.unit}</td>
@@ -960,7 +960,7 @@ window.openMrpPanel = async function () {
             } else {
                 okHtml += `
                     <tr style="opacity: 0.8;">
-                        <td style="padding: 10px; border-bottom: 1px solid var(--border);"><b>${d.name}</b></td>
+                        <td style="padding: 10px; border-bottom: 1px solid var(--border);"><b>${Utils.escapeHtml(d.name)}</b></td>
                         <td style="padding: 10px; border-bottom: 1px solid var(--border); text-align: center;">${d.stock} ${d.unit}</td>
                         <td style="padding: 10px; border-bottom: 1px solid var(--border); text-align: center;">${d.needed} ${d.unit}</td>
                         <td style="padding: 10px; border-bottom: 1px solid var(--border); text-align: right; color: var(--success-text); font-weight: bold;">Хватает ✅</td>
@@ -1061,7 +1061,7 @@ window.openCategoryMatrix = async function () {
                     ${items.map(c => `
                         <div style="background: var(--surface); border: 1px solid var(--border); padding: 8px 10px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; gap: 10px;">
                             <div style="font-size: 12px; font-weight: 500; line-height: 1.2;">
-                                ${c.name}
+                                ${Utils.escapeHtml(c.name)}
                                 <div style="font-size: 9px; color: var(--text-muted); margin-top: 2px;">${c.type === 'income' ? 'Доход' : 'Расход'}</div>
                             </div>
                             <select class="input-modern matrix-cat-select" data-id="${c.id}" style="padding: 2px 5px; font-size: 11px; height: 24px; width: 110px; cursor: pointer;">
@@ -1152,7 +1152,7 @@ window.loadStockValuation = async function () {
             html += `
                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; ${borderStyle}">
                     <div style="font-size: 14px; color: var(--text-main);">
-                        ${w.name} 
+                        ${Utils.escapeHtml(w.name)} 
                         <span style="font-size: 11px; color: var(--text-muted); margin-left: 5px;" title="Количество уникальных позиций">(${w.items_count} поз.)</span>
                     </div>
                     <div style="font-size: 14px; font-weight: bold; color: var(--text-main);">
@@ -1165,7 +1165,7 @@ window.loadStockValuation = async function () {
 
     } catch (e) {
         console.error(e);
-        listEl.innerHTML = `<div class="text-danger" style="font-size: 13px;">❌ ${e.message}</div>`;
+        listEl.innerHTML = `<div class="text-danger" style="font-size: 13px;">❌ ${Utils.escapeHtml(e.message)}</div>`;
         totalEl.innerHTML = '0 ₽';
     }
 };

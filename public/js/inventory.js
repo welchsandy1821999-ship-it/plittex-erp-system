@@ -1091,7 +1091,7 @@ window.fetchItemHistory = async function() {
         
     } catch (e) {
         UI.toast(e.message || 'Ошибка загрузки истории', 'error');
-        document.getElementById('history-table-body').innerHTML = `<tr><td colspan="6" class="text-center p-20 text-danger">Ошибка загрузки: ${e.message}</td></tr>`;
+        document.getElementById('history-table-body').innerHTML = `<tr><td colspan="6" class="text-center p-20 text-danger">Ошибка загрузки: ${Utils.escapeHtml(e.message)}</td></tr>`;
     }
 };
 
@@ -1286,7 +1286,7 @@ window.openClientStatsModal = async function(clientId, clientName) {
         body.innerHTML = html;
         
     } catch(e) {
-        body.innerHTML = `<div class="p-20 text-center text-danger border-top">Ошибка загрузки профиля: ${e.message}</div>`;
+        body.innerHTML = `<div class="p-20 text-center text-danger border-top">Ошибка загрузки профиля: ${Utils.escapeHtml(e.message)}</div>`;
     }
 }
 

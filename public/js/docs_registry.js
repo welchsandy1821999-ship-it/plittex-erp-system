@@ -119,7 +119,7 @@ function renderRegistryTable(data) {
         checkExportButtonState();
     } catch (error) {
         console.error('Render Table Error:', error);
-        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Ошибка отрисовки: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Ошибка загрузки: ${Utils.escapeHtml(error.message)}</td></tr>`;
     }
 }
 

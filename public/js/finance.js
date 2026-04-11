@@ -822,7 +822,7 @@
     window.openCategoriesModal = function () {
         let listHtml = window.financeCategories.map(c => `
         <div style="display: flex; justify-content: space-between; padding: 8px; border-bottom: 1px solid var(--border);">
-            <span>${c.type === 'income' ? '🟢' : '🔴'} ${c.name}</span>
+            <span>${c.type === 'income' ? '🟢' : '🔴'} ${Utils.escapeHtml(c.name)}</span>
             <button onclick="deleteCategory(${c.id})" style="color: var(--danger); border: none; background: none; cursor:pointer;">❌</button>
         </div>
     `).join('');
@@ -1020,7 +1020,7 @@
         }
 
         const currentVal = select.value;
-        select.innerHTML = allowedAccounts.filter(acc => acc.type === 'bank' || acc.type === 'cash').map(acc => `<option value="${acc.id}">${acc.name} (${Utils.formatMoney(acc.balance)})</option>`).join('');
+        select.innerHTML = allowedAccounts.filter(acc => acc.type === 'bank' || acc.type === 'cash').map(acc => `<option value="${acc.id}">${Utils.escapeHtml(acc.name)} (${Utils.formatMoney(acc.balance)})</option>`).join('');
 
         if (allowedAccounts.some(a => a.id == currentVal)) {
             select.value = currentVal;
@@ -1064,8 +1064,8 @@
 
     // === ОКНО ДОБАВЛЕНИЯ ОПЕРАЦИИ ===
     window.openTransactionModal = function () {
-        const accountOptions = currentAccounts.filter(acc => acc.type === 'bank' || acc.type === 'cash').map(acc => `<option value="${acc.id}" ${currentAccountFilter === acc.id ? 'selected' : ''}>${acc.name} (${Utils.formatMoney(acc.balance)})</option>`).join('');
-        const cpOptionsList = financeCounterparties.map(cp => `<option value="${cp.name}">`).join('');
+        const accountOptions = currentAccounts.filter(acc => acc.type === 'bank' || acc.type === 'cash').map(acc => `<option value="${acc.id}" ${currentAccountFilter === acc.id ? 'selected' : ''}>${Utils.escapeHtml(acc.name)} (${Utils.formatMoney(acc.balance)})</option>`).join('');
+        const cpOptionsList = financeCounterparties.map(cp => `<option value="${Utils.escapeHtml(cp.name)}">`).join('');
 
         const html = `
         <div class="form-grid" style="grid-template-columns: 1fr 1fr;">
@@ -1206,7 +1206,7 @@
 
         // Оставляем в списке только категории нужного типа (доход/расход)
         const filteredCats = window.financeCategories.filter(c => c.type === type);
-        datalist.innerHTML = filteredCats.map(c => `<option value="${c.name}">`).join('');
+        datalist.innerHTML = filteredCats.map(c => `<option value="${Utils.escapeHtml(c.name)}">`).join('');
 
         // При переключении схода на расход очищаем поле
         const catInput = document.getElementById('trans-category');
@@ -1231,7 +1231,7 @@
                 else if (data.cost_group === 'overhead' || data.cost_group === 'opex') { groupName = 'OPEX (Косвенные)'; color = 'var(--warning)'; }
                 else if (data.cost_group === 'capital') { groupName = 'CAPEX (Капитал)'; color = 'var(--primary)'; }
 
-                previewEl.innerHTML = `<span style="color: ${color};">📌 Автоматически: ${groupName}</span>`;
+                previewEl.innerHTML = `<span style="color: ${color};">📌 Автоматически: ${Utils.escapeHtml(groupName)}</span>`;
             } else {
                 previewEl.innerHTML = `<span style="color: var(--text-muted);">📌 Новая категория (будет создана)</span>`;
             }
@@ -1328,7 +1328,7 @@
 
     window.openTransferModal = function () {
         if (currentAccounts.length < 2) return UI.toast('Нужно минимум 2 счета!', 'warning');
-        const options = currentAccounts.map(acc => `<option value="${acc.id}">${acc.name} (${Utils.formatMoney(acc.balance)})</option>`).join('');
+        const options = currentAccounts.map(acc => `<option value="${acc.id}">${Utils.escapeHtml(acc.name)} (${Utils.formatMoney(acc.balance)})</option>`).join('');
 
         const html = `
         <div class="form-group"><label>Дата перевода:</label><input type="date" id="transfer-date" class="input-modern" required></div>
@@ -1379,7 +1379,7 @@
 
         const currentVal = select.value;
         select.innerHTML = '<option value="">-- ⚖️ Без движения денег (Корректировка) --</option>' +
-            allowedAccounts.map(acc => `<option value="${acc.id}">${acc.name} (${Utils.formatMoney(acc.balance)})</option>`).join('');
+            allowedAccounts.map(acc => `<option value="${acc.id}">${Utils.escapeHtml(acc.name)} (${Utils.formatMoney(acc.balance)})</option>`).join('');
 
         if (allowedAccounts.some(a => a.id == currentVal)) {
             select.value = currentVal;
@@ -1407,7 +1407,7 @@
         <option value="">-- ⚖️ Без движения денег (Корректировка) --</option>
         ${allowedAccounts.map(acc => `
             <option value="${acc.id}" ${tr.account_id == acc.id ? 'selected' : ''}>
-                ${acc.name}
+                ${Utils.escapeHtml(acc.name)}
             </option>`).join('')}
     `;
 
@@ -2041,7 +2041,7 @@
         if (!file) return;
 
         const infoDiv = document.getElementById('import-file-name');
-        infoDiv.innerHTML = `Файл: <b>${file.name}</b> ⏳ Распознаем банк...`;
+        infoDiv.innerHTML = `Файл: <b>${Utils.escapeHtml(file.name)}</b> ⏳ Распознаем банк...`;
 
         const reader = new FileReader();
         reader.readAsText(file, 'windows-1251');
