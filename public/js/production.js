@@ -165,8 +165,9 @@ function populateCategories() {
             valueField: 'value',
             labelField: 'text',
             searchField: ['text', 'article'],
-            placeholder: '— Выберите продукцию —',
-            allowEmptyOption: true,
+            maxItems: 1,
+            placeholder: '— Начните вводить название —',
+            closeAfterSelect: true,
             score: function(search) {
                 const query = search.toLowerCase();
                 const queryCondensed = query.replace(/[\.\s-]/g, '');
@@ -191,7 +192,7 @@ function populateCategories() {
                         }
                     }
                     
-                    let baseScore = 100 / (text.length + 1); 
+                    let baseScore = 100 / (text.length + 1);
                     
                     if (queryCondensed.length >= 2 && textCondensed.includes(queryCondensed)) {
                         baseScore += 1000;
@@ -202,19 +203,17 @@ function populateCategories() {
             },
             render: {
                 option: function(data, escape) {
-                    return `<div class="ts-option-product d-flex align-items-center gap-2" style="padding: 8px 12px;">
-                        <div style="flex-shrink: 0; width: 32px; height: 32px; background: var(--surface-hover); border-radius: 6px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border);">
-                            <span class="text-muted font-14">🧱</span>
-                        </div>
-                        <div class="d-flex flex-column">
-                            <span class="font-bold-14 text-main mb-1" style="line-height:1.2;">${escape(data.text)}</span>
-                            <span class="font-11 text-muted" style="line-height:1;">Артикул: ${escape(data.article)} | <span>${escape(data.category)}</span></span>
+                    return `<div class="flex-row gap-10 align-center p-10">
+                        <div class="prod-ts-icon flex-center">🧱</div>
+                        <div class="flex-col">
+                            <span class="font-bold-14 text-main">${escape(data.text)}</span>
+                            <span class="font-11 text-muted">Арт: ${escape(data.article)} · ${escape(data.category)}</span>
                         </div>
                     </div>`;
                 },
                 item: function(data, escape) {
-                    return `<div class="d-flex align-items-center gap-2">
-                        <span class="font-14">🧱</span> 
+                    return `<div class="flex-row gap-5 align-center">
+                        <span class="font-14">🧱</span>
                         <span class="font-bold-14">${escape(data.text)}</span>
                     </div>`;
                 }
