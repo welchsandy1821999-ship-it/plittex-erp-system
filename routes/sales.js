@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const logger = require('../utils/logger');
 const Big = require('big.js');
 const { sendNotify } = require('../utils/telegram');
 
@@ -89,7 +90,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
             res.json({ success: true, message: 'Взаимозачет проведен с использованием Big.js' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -209,7 +210,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
             res.json({ success: true, docNum, message: 'Возврат оформлен' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -409,7 +410,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             res.json({ success: true, docNum, totalAmount: finalAmount, deficitReport });
 
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(400).json({ error: err.message });
         }
     });
@@ -510,7 +511,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
             res.json({ success: true, docNum, isCompleted: allCompleted });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(err.message.includes('Невозможно') || err.message.includes('Недостаточно') || err.message.includes('не найдена') ? 400 : 500)
                .json({ error: err.message || 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
@@ -585,7 +586,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             if (io) io.emit('inventory_updated');
             res.json({ success: true, message: 'Отгрузка отменена, товар возвращён в резерв' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(400).json({ error: err.message });
         }
     });
@@ -719,7 +720,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             if (io) io.emit('inventory_updated');
             res.json({ success: true, message: 'Заказ удалён, резервы возвращены на склад' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(400).json({ error: err.message });
         }
     });
@@ -741,7 +742,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             if (io) io.emit('inventory_updated');
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -817,7 +818,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             const result = await pool.query(query, params);
             res.json(result.rows);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -842,7 +843,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             const result = await pool.query(query, [item_id, exclude_order_id]);
             res.json(result.rows);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера.' });
         }
     });
@@ -920,7 +921,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             res.json({ success: true, message: 'Резервы успешно переброшены!' });
 
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(400).json({ error: err.message });
         }
     });
@@ -951,7 +952,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
             res.json({ order: orderRes.rows[0], items: itemsRes.rows });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -968,7 +969,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             });
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(400).json({ error: err.message });
         }
     });
@@ -980,7 +981,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             });
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1040,7 +1041,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             }
             res.json(validRows);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1052,7 +1053,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             const monthRevenue = await pool.query(`SELECT SUM(total_amount) as total FROM client_orders WHERE EXTRACT(MONTH FROM created_at) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE) AND status != 'cancelled'`);
             res.json({ topItems: topItems.rows, topClients: topClients.rows, monthRevenue: monthRevenue.rows[0].total || 0 });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1062,7 +1063,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             const result = await pool.query(`SELECT id, name, phone, pallets_balance FROM counterparties WHERE pallets_balance > 0 ORDER BY pallets_balance DESC`);
             res.json(result.rows);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1074,7 +1075,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             const result = await pool.query(`INSERT INTO blank_orders (doc_number, counterparty_id, item_id, item_name, warehouse_id, quantity, price) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, doc_number`, [docNum, counterparty_id, item_id, item_name, warehouse_id, quantity, price]);
             res.json({ success: true, docNum: result.rows[0].doc_number, id: result.rows[0].id });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1084,7 +1085,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             const result = await pool.query(`SELECT b.*, c.name as client_name, TO_CHAR(b.created_at, 'DD.MM.YYYY HH24:MI') as date_formatted FROM blank_orders b LEFT JOIN counterparties c ON b.counterparty_id = c.id WHERE b.status = 'pending' ORDER BY b.created_at DESC`);
             res.json(result.rows);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1092,7 +1093,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
     router.delete('/api/blank-orders/:id', requireAdmin, async (req, res) => {
         try { await pool.query('DELETE FROM blank_orders WHERE id = $1', [req.params.id]); res.json({ success: true }); }
         catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1119,7 +1120,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
             res.json({ availableAdvance, realBalance });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Ошибка расчёта баланса' });
         }
     });
@@ -1129,7 +1130,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             const result = await pool.query(`SELECT id, driver_name, number, TO_CHAR(issue_date, 'DD.MM.YYYY') as issue_date, TO_CHAR(expiry_date, 'DD.MM.YYYY') as expiry_date FROM powers_of_attorney WHERE counterparty_id = $1 AND expiry_date >= CURRENT_DATE ORDER BY expiry_date ASC`, [req.params.id]);
             res.json(result.rows);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1140,7 +1141,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             await pool.query(`INSERT INTO powers_of_attorney (counterparty_id, driver_name, number, issue_date, expiry_date) VALUES ($1, $2, $3, $4, $5)`, [counterparty_id, driver_name, number, issue_date, expiry_date]);
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1150,7 +1151,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             const result = await pool.query(`SELECT c.id as contract_id, c.number as contract_number, TO_CHAR(c.date, 'DD.MM.YYYY') as contract_date, s.id as spec_id, s.number as spec_number, TO_CHAR(s.date, 'DD.MM.YYYY') as spec_date FROM contracts c LEFT JOIN specifications s ON c.id = s.contract_id WHERE c.counterparty_id = $1 ORDER BY c.date DESC, s.date DESC`, [req.params.id]);
             res.json(result.rows);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1164,7 +1165,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             });
             res.json({ success: true, contract_id: contractId });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1176,7 +1177,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             });
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1207,7 +1208,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             res.setHeader('Content-Disposition', `attachment; filename="Export_1C_${month}_${year}.csv"`);
             res.send(csv);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).send('Внутренняя ошибка сервера. Обратитесь к администратору.');
         }
     });

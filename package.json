@@ -13,6 +13,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@sentry/node": "^10.48.0",
     "bcrypt": "^6.0.0",
     "big.js": "^7.0.1",
     "dotenv": "^17.3.1",

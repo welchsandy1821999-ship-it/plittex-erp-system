@@ -1,6 +1,7 @@
-﻿// === ФАЙЛ: routes/production.js ===
+// === ФАЙЛ: routes/production.js ===
 const express = require('express');
 const router = express.Router();
+const logger = require('../utils/logger');
 const Big = require('big.js');
 const { sendNotify } = require('../utils/telegram');
 
@@ -17,7 +18,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             if (result.rows.length > 0) res.json(result.rows[0].value);
             else res.json({ big: [], small: [] });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -30,7 +31,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             `, [JSON.stringify(req.body)]);
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -42,7 +43,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             if (result.rows.length > 0) res.json(result.rows[0].value);
             else res.json({});
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера.' });
         }
     });
@@ -76,7 +77,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             });
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Ошибка сохранения шаблона.' });
         }
     });
@@ -103,7 +104,7 @@ module.exports = function (pool, getWhId, withTransaction) {
         `, [date]);
             res.json(result.rows); // Должен возвращать МАССИВ
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' }); // Возвращает ОБЪЕКТ (причина ошибки .map)
         }
     });
@@ -122,7 +123,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             `, [req.params.id]);
             res.json(result.rows);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -138,7 +139,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             if (result.rows.length === 0) return res.status(404).json({ error: 'Партия не найдена' });
             res.json(result.rows[0]);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -148,7 +149,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             const result = await pool.query(`SELECT pb.id, pb.batch_number, pb.product_id, i.name as product_name, pb.planned_quantity, pb.created_at FROM production_batches pb JOIN items i ON pb.product_id = i.id WHERE pb.status = 'in_drying' ORDER BY pb.created_at ASC`);
             res.json(result.rows);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -164,7 +165,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             `);
             res.json(result.rows);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -174,7 +175,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             const result = await pool.query(`SELECT r.id, r.material_id, r.quantity_per_unit, i.name as material_name, i.unit, i.current_price FROM recipes r JOIN items i ON r.material_id = i.id WHERE r.product_id = $1`, [req.params.productId]);
             res.json(result.rows);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -193,7 +194,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             if (result.rows.length === 0) return res.status(404).send('Партия не найдена');
             res.render('docs/passport', { batch: result.rows[0] });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).send('Внутренняя ошибка сервера. Обратитесь к администратору.');
         }
     });
@@ -284,7 +285,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             if (io) io.emit('inventory_updated');
             res.json({ success: true, message: isDraft ? 'Черновик сохранён' : 'Смена успешно зафиксирована' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -464,7 +465,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             if (io) io.emit('inventory_updated');
             res.json({ success: true, message: 'Смена зафиксирована! Сырье списано, продукция на сушилке.' });
         } catch (err) {
-            console.error('FIXATE ERROR:', err);
+            logger.error('FIXATE ERROR:', err);
             const isStockErr = err.message === 'insufficient_stock';
             if (isStockErr && Array.isArray(err.details)) {
                 const lines = err.details.map(d => `• ${d.name}: нужно ${d.required}, в наличии ${d.available} (не хватает ${d.shortage})`);
@@ -473,7 +474,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     details: lines.join('\n')
                 });
             } else {
-                console.error(err);
+                logger.error(err);
                 res.status(500).json({ error: 'Внутренняя ошибка сервера' });
             }
         }
@@ -623,7 +624,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             if (err.message.includes('ВНИМАНИЕ!')) {
                 res.status(400).json({ warning: err.message });
             } else {
-                console.error(err);
+                logger.error(err);
                 res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
             }
         }
@@ -656,7 +657,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             });
             res.json({ success: true, message: `Успешно применено к ${targetProductIds.length} позициям.` });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -749,7 +750,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
             res.json({ success: true, productionPlan, deficitReport });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -766,7 +767,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             const dates = result.rows.map(r => r.date);
             res.json(dates);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -802,7 +803,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             const result = await pool.query(query, [searchPattern]);
             res.json(result.rows);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });

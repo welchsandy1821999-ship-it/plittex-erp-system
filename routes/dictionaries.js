@@ -1,6 +1,7 @@
-﻿// === ФАЙЛ: routes/dictionaries.js (Справочники: Товары, Кадры, Оборудование) ===
+// === ФАЙЛ: routes/dictionaries.js (Справочники: Товары, Кадры, Оборудование) ===
 const express = require('express');
 const router = express.Router();
+const logger = require('../utils/logger');
 
 // 👈 Добавили withTransaction
 const { requireAdmin } = require('../middleware/auth');
@@ -14,7 +15,7 @@ module.exports = function (pool, withTransaction) {
         try {
             const result = await pool.query(`SELECT DISTINCT category FROM items WHERE category IS NOT NULL AND category != '' ORDER BY category`);
             res.json(result.rows.map(r => r.category));
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     router.get('/api/items', async (req, res) => {
@@ -70,7 +71,7 @@ module.exports = function (pool, withTransaction) {
                 currentPage: parseInt(page),
                 totalPages: Math.ceil(totalItems / limit) || 1
             });
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     router.post('/api/items', requireAdmin, validateItem, async (req, res) => {
@@ -82,7 +83,7 @@ module.exports = function (pool, withTransaction) {
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             `, [name, item_type, category, unit, price, weight, qty_per_cycle || 1, mold_id || null, gost_mark || '', article || null, piece_rate || 0, mix_main_tpl || null, mix_face_tpl || null]);
             res.json({ success: true, message: 'Позиция добавлена' });
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     router.put('/api/items/:id', requireAdmin, async (req, res) => {
@@ -126,7 +127,7 @@ module.exports = function (pool, withTransaction) {
             );
             res.json({ success: true, message: 'Позиция обновлена' });
         } catch (err) {
-            console.error('Ошибка PUT /api/items:', err.message);
+            logger.error('Ошибка PUT /api/items:', err.message);
             res.status(500).json({ error: 'Ошибка при сохранении данных' });
         }
     });
@@ -137,7 +138,7 @@ module.exports = function (pool, withTransaction) {
             await pool.query(`UPDATE items SET is_deleted = true WHERE id = $1`, [req.params.id]);
             res.json({ success: true, message: 'Позиция перенесена в архив' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -146,7 +147,7 @@ module.exports = function (pool, withTransaction) {
         try {
             const result = await pool.query(`SELECT * FROM items WHERE item_type = 'product' AND COALESCE(is_deleted, false) = false ORDER BY name ASC`);
             res.json(result.rows);
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     router.post('/api/products/update-prices', requireAdmin, validateUpdatePrices, async (req, res) => {
@@ -168,7 +169,7 @@ module.exports = function (pool, withTransaction) {
             });
             res.json({ success: true, message: 'Прайс-лист обновлен' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -186,7 +187,7 @@ module.exports = function (pool, withTransaction) {
                 ORDER BY e.department, e.full_name
             `);
             res.json(result.rows);
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     router.post('/api/employees', requireAdmin, validateEmployee, async (req, res) => {
@@ -214,7 +215,7 @@ module.exports = function (pool, withTransaction) {
                 `, ['Подотчет: ' + full_name]);
             });
             res.json({ success: true, message: 'Сотрудник добавлен' });
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     router.put('/api/employees/:id', requireAdmin, validateEmployee, async (req, res) => {
@@ -249,7 +250,7 @@ module.exports = function (pool, withTransaction) {
             });
             res.json({ success: true, message: 'Данные обновлены' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -278,7 +279,7 @@ module.exports = function (pool, withTransaction) {
             });
             res.json({ success: true, message: 'Сотрудник перенесен в архив (уволен)' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -290,7 +291,7 @@ module.exports = function (pool, withTransaction) {
         try {
             const result = await pool.query(`SELECT * FROM equipment ORDER BY equipment_type, name`);
             res.json(result.rows);
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     router.post('/api/equipment', requireAdmin, validateEquipment, async (req, res) => {
@@ -301,7 +302,7 @@ module.exports = function (pool, withTransaction) {
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
             `, [name, equipment_type, purchase_cost, planned_cycles, current_cycles || 0, qty_per_cycle, status || 'active']);
             res.json({ success: true, message: 'Оборудование добавлено' });
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     router.put('/api/equipment/:id', requireAdmin, validateEquipment, async (req, res) => {
@@ -312,7 +313,7 @@ module.exports = function (pool, withTransaction) {
                 WHERE id=$8
             `, [name, equipment_type, purchase_cost, planned_cycles, current_cycles || 0, qty_per_cycle, status, req.params.id]);
             res.json({ success: true, message: 'Оборудование обновлено' });
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     router.post('/api/equipment/:id/maintenance', requireAdmin, async (req, res) => {
@@ -343,7 +344,7 @@ module.exports = function (pool, withTransaction) {
             });
             res.json({ success: true, message: 'Ремонт зафиксирован' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -353,7 +354,7 @@ module.exports = function (pool, withTransaction) {
             await pool.query(`UPDATE equipment SET status = 'scrapped' WHERE id = $1`, [req.params.id]);
             res.json({ success: true, message: 'Успешно списано (Soft Delete)' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });

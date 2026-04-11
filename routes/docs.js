@@ -1,5 +1,6 @@
-﻿const express = require('express');
+const express = require('express');
 const router = express.Router();
+const logger = require('../utils/logger');
 const Big = require('big.js');
 const path = require('path');
 const fs = require('fs');
@@ -22,7 +23,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
             for (const f of toDelete) {
                 await fsPromises.unlink(path.join(directory, f.name));
             }
-        } catch (e) { console.error('Ошибка ротации файлов:', e.message); }
+        } catch (e) { logger.error('Ошибка ротации файлов:', e.message); }
     }
 
     // 1. СЧЕТ НА ОПЛАТУ (Invoice - Режим "Нотариус")
@@ -186,7 +187,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
                 company: COMPANY_CONFIG
             });
         } catch (err) {
-            console.error('Invoice Error:', err);
+            logger.error('Invoice Error:', err);
             res.status(500).json({ error: 'Внутренняя ошибка при печати документа' });
         }
     });
@@ -222,7 +223,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
                 vatRate: ERP_CONFIG.vatRate,
                 date: new Date().toLocaleDateString('ru-RU')
             });
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     // 3. УПД (UPD)
@@ -265,7 +266,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
                 date: new Date().toLocaleDateString('ru-RU'),
                 time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
             });
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     // 4. ДОГОВОР (Contract)
@@ -282,7 +283,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
                 myCompany: COMPANY_CONFIG,
                 vatRate: ERP_CONFIG.vatRate
             });
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     // 5. СПЕЦИФИКАЦИЯ (по номеру заказа)
@@ -311,7 +312,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
                 contractInfo: o.c_num ? `Договор № ${o.c_num} от ${o.c_date}` : 'Разовая сделка',
                 items: itemsRes.rows, vatRate: ERP_CONFIG.vatRate, date: new Date().toLocaleDateString('ru-RU')
             });
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     // 6. СПЕЦИФИКАЦИЯ (по ID документа спецификации)
@@ -342,7 +343,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
                 contractInfo: `Договор № ${s.c_num} от ${s.c_date}`, items,
                 vatRate: ERP_CONFIG.vatRate, date: s.s_date
             });
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     // 7. АКТ СВЕРКИ (Act)
@@ -372,7 +373,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
                 cp: cpRes.rows[0], transactions: transactions.rows,
                 period: { start, end }, company: COMPANY_CONFIG
             });
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     // 8. БЛАНК ЗАКАЗА (Из сохраненного заказа)
@@ -402,7 +403,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
                 paymentMethod: orderInfo.payment_method, advanceAmount: orderInfo.advance_amount,
                 vatRate: ERP_CONFIG.vatRate || 20
             });
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     // 8.1 БЛАНК ЗАКАЗА (Черновик из корзины до сохранения)
@@ -429,7 +430,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
                 paymentMethod: data.paymentMethod, advanceAmount: data.advanceAmount,
                 vatRate: ERP_CONFIG.vatRate || 20
             });
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     // 9. ПАСПОРТ ПАРТИИ (Passport)
@@ -440,7 +441,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
             if (batchRes.rows.length === 0) return res.status(404).send('Партия не найдена');
 
             res.render('docs/passport', { batch: batchRes.rows[0], company: COMPANY_CONFIG });
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     // 10. API: СОХРАНЕНИЕ PDF
@@ -460,7 +461,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
 
             rotateDocs(dir, 500);
             res.json({ success: true, filename: finalFilename });
-        console.error(err);
+        logger.error(err);
         } catch (err) { res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
@@ -475,7 +476,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
             } else {
                 res.status(404).send('Банк не найден');
             }
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     // 12. КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ (KP)
@@ -521,7 +522,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
                 company: COMPANY_CONFIG
             });
         } catch (err) {
-            console.error('Ошибка генерации КП:', err);
+            logger.error('Ошибка генерации КП:', err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -575,7 +576,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
             const result = await pool.query(queryText, queryParams);
             res.json(result.rows);
         } catch (err) {
-            console.error('Registry API error:', err);
+            logger.error('Registry API error:', err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -598,7 +599,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
 
             res.json(result.rows[0]);
         } catch (err) {
-            console.error('Ошибка получения счета:', err.message);
+            logger.error('Ошибка получения счета:', err.message);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -644,7 +645,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
                             kpp: snap.kpp || ''
                         };
                     }
-                } catch (e) { console.error('Ошибка парсинга client_snapshot'); }
+                } catch (e) { logger.error('Ошибка парсинга client_snapshot'); }
 
                 xml += `  <Документ>\n`;
                 xml += `    <Ид>${doc.id}</Ид>\n`;
@@ -682,7 +683,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
             res.send(xml);
 
         } catch (err) {
-            console.error('Ошибка генерации XML для 1С:', err.message);
+            logger.error('Ошибка генерации XML для 1С:', err.message);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });

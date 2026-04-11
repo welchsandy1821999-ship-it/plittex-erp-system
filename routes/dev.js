@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const router = express.Router();
 
 module.exports = function (pool, withTransaction, logger) {
@@ -21,7 +21,7 @@ module.exports = function (pool, withTransaction, logger) {
             });
             res.json({ success: true, message: 'Заказ успешно разблокирован' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -55,7 +55,7 @@ module.exports = function (pool, withTransaction, logger) {
             });
             res.json({ success: true, message: 'Транзакция тотально удалена с откатами' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -93,7 +93,7 @@ module.exports = function (pool, withTransaction, logger) {
             });
             res.json({ success: true, message: 'Партия тотально удалена с откатами' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });

@@ -1,6 +1,7 @@
-﻿// === ФАЙЛ: routes/hr.js ===
+// === ФАЙЛ: routes/hr.js ===
 const express = require('express');
 const router = express.Router();
+const logger = require('../utils/logger');
 const Big = require('big.js');
 const { requireAdmin } = require('../middleware/auth');
 const { validateSalaryAdjustment, validateTimesheetCell, validateMassBonus, validateSalaryPay } = require('../middleware/validator');
@@ -39,7 +40,7 @@ module.exports = function (pool, withTransaction) {
                 [employee_id, month_str, safeAmount, description]
             );
             res.json({ success: true });
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     // ==========================================
@@ -49,7 +50,7 @@ module.exports = function (pool, withTransaction) {
         try {
             const result = await pool.query(`SELECT * FROM salary_adjustments WHERE month_str = $1 AND COALESCE(is_deleted, false) = false`, [req.query.monthStr]);
             res.json(result.rows);
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     router.delete('/api/salary/adjustments/:id', requireAdmin, async (req, res) => {
@@ -61,7 +62,7 @@ module.exports = function (pool, withTransaction) {
             }
             await pool.query(`UPDATE salary_adjustments SET is_deleted = true WHERE id = $1`, [req.params.id]);
             res.json({ success: true });
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     // ==========================================
@@ -78,7 +79,7 @@ module.exports = function (pool, withTransaction) {
             `, [monthStr]);
             const result = await pool.query(`SELECT * FROM monthly_salary_stats WHERE month_str = $1`, [monthStr]);
             res.json(result.rows);
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     // ==========================================
@@ -93,7 +94,7 @@ module.exports = function (pool, withTransaction) {
                 ORDER BY e.department, e.full_name
             `, [req.query.date]);
             res.json(result.rows);
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     router.get('/api/timesheet/month', async (req, res) => {
@@ -108,7 +109,7 @@ module.exports = function (pool, withTransaction) {
                 WHERE record_date >= $1 AND record_date <= $2
             `, [startDate, endDate]);
             res.json(result.rows);
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     // ОБНОВЛЕННЫЙ РОУТ: Сохранение ячейки табеля
@@ -144,7 +145,7 @@ module.exports = function (pool, withTransaction) {
         `, [employee_id, date, status, safeBonus.toFixed(2), safePenalty.toFixed(2), bonus_comment || '', penalty_comment || '', safeMultiplier]);
 
             res.json({ success: true });
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     router.post('/api/timesheet', requireAdmin, async (req, res) => {
@@ -159,7 +160,7 @@ module.exports = function (pool, withTransaction) {
                 }
             });
             res.json({ success: true });
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     router.post('/api/timesheet/mass-bonus', requireAdmin, validateMassBonus, async (req, res) => {
@@ -229,7 +230,7 @@ module.exports = function (pool, withTransaction) {
             });
             res.json({ success: true });
         } catch (err) {
-            console.error('Ошибка массовой премии:', err.message);
+            logger.error('Ошибка массовой премии:', err.message);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -250,7 +251,7 @@ module.exports = function (pool, withTransaction) {
                 ORDER BY payment_date ASC
             `, [startDate, endDate]);
             res.json(result.rows);
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     router.post('/api/salary/pay', requireAdmin, validateSalaryPay, async (req, res) => {
@@ -316,7 +317,7 @@ module.exports = function (pool, withTransaction) {
 
             res.json({ success: true });
         } catch (err) {
-            console.error('Ошибка выплаты:', err.message);
+            logger.error('Ошибка выплаты:', err.message);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -345,7 +346,7 @@ module.exports = function (pool, withTransaction) {
                 await client.query('UPDATE salary_payments SET is_deleted = true WHERE id = $1', [req.params.id]);
             });
             res.json({ success: true });
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     // ==================================================================
@@ -368,7 +369,7 @@ module.exports = function (pool, withTransaction) {
                OR EXISTS (SELECT 1 FROM timesheet_records WHERE employee_id = e.id AND record_date >= $1::date AND record_date < ($1::date + interval '1 month'))
         `, [monthStr + '-01']);
             res.json(result.rows);
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     // ==========================================
@@ -382,7 +383,7 @@ module.exports = function (pool, withTransaction) {
             } else {
                 res.json({ isClosed: false });
             }
-        } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     // ==========================================
@@ -429,7 +430,7 @@ module.exports = function (pool, withTransaction) {
 
             res.json({ success: true, message: `Месяц закрыт. Балансы перенесены.` });
         } catch (err) {
-            console.error('Ошибка закрытия:', err.message);
+            logger.error('Ошибка закрытия:', err.message);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -472,7 +473,7 @@ module.exports = function (pool, withTransaction) {
 
             res.json({ success: true, message: `Месяц ${monthStr} открыт. Балансы успешно откачены.` });
         } catch (err) {
-            console.error('Ошибка отмены закрытия:', err.message);
+            logger.error('Ошибка отмены закрытия:', err.message);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -494,7 +495,7 @@ module.exports = function (pool, withTransaction) {
                 fund: result.rows[0].total_fund
             });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });

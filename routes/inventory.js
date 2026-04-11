@@ -1,7 +1,8 @@
-﻿// === ФАЙЛ: routes/inventory.js (Бэкенд-маршруты для модуля Склада) ===
+// === ФАЙЛ: routes/inventory.js (Бэкенд-маршруты для модуля Склада) ===
 
 const express = require('express');
 const router = express.Router();
+const logger = require('../utils/logger');
 const Big = require('big.js');
 const { sendNotify } = require('../utils/telegram');
 const ExcelJS = require('exceljs');
@@ -136,7 +137,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
             res.send(html);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).send('Внутренняя ошибка сервера при формировании бланка.');
         }
     });
@@ -234,7 +235,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             await workbook.xlsx.write(res);
             res.end();
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера.' });
         }
     });
@@ -321,7 +322,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
             res.json(results);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Ошибка обработки файла' });
         }
     });
@@ -341,7 +342,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             const dates = result.rows.map(r => r.date);
             res.json(dates);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -369,7 +370,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             `, [date]);
             res.json(result.rows);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -388,7 +389,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             `, [req.params.id]);
             res.json(result.rows.map(r => r.supplier_id));
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Ошибка сервера' });
         }
     });
@@ -423,7 +424,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 lastDate: lastPurchaseRes.rows[0]?.last_date || null
             });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -478,7 +479,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 warehouses: warehouses
             });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -593,7 +594,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
             res.json(rows);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -643,7 +644,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
             res.json({ success: true, message: 'Просеивание успешно выполнено' });
         } catch (err) {
-            console.error('SIFTING ERROR:', err);
+            logger.error('SIFTING ERROR:', err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -736,7 +737,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             });
 
         } catch (err) {
-            console.error('INVENTORY HISTORY ERROR:', err);
+            logger.error('INVENTORY HISTORY ERROR:', err);
             res.status(500).json({ error: 'Ошибка сервера при получении истории движения' });
         }
     });
@@ -781,7 +782,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
             res.json({ success: true, message: 'Успешно перемещено' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -871,7 +872,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
             res.json({ success: true, message: 'Инвентаризация завершена успешно' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1046,7 +1047,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             const isBizError = err.message && (err.message.includes('Партия') || err.message.includes('Невозможно'));
             res.status(isBizError ? 400 : 500)
                .json({ error: isBizError ? err.message : 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
@@ -1104,7 +1105,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
             res.json({ success: true, message: 'Успешно утилизировано' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1125,7 +1126,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
             res.json(result.rows[0]);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1190,7 +1191,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             if (io) io.emit('inventory_updated');
             res.json({ success: true, message: 'Закупка успешно отменена' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1294,7 +1295,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             if (io) io.emit('inventory_updated');
             res.json({ success: true, message: 'Закупка обновлена' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -1369,7 +1370,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             if (io) io.emit('inventory_updated');
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -1419,7 +1420,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 delivery_account_id: txDelRes.rows.length > 0 ? txDelRes.rows[0].account_id : ''
             });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -1456,7 +1457,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             const result = await pool.query(query, [searchPattern]);
             res.json(result.rows);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1617,7 +1618,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 batchCount: historyRes.rows.length
             });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1643,7 +1644,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 overhead_per_cycle: settings.overhead_per_cycle || 136.36
             });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1667,7 +1668,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             });
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1758,7 +1759,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             if (io) io.emit('inventory_updated');
             res.json({ success: true, message: action === 'release' ? 'Резерв снят, товар возвращён на Склад №4' : 'Резерв переброшен на другой заказ' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(400).json({ error: err.message });
         }
     });
@@ -1780,7 +1781,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             `, [itemId]);
             res.json(result.rows);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Ошибка получения заказов.' });
         }
     });

@@ -1,6 +1,19 @@
 // [Блок 1: Подключение модулей и конфигурация]
 require('dotenv').config();
 
+// [Блок 1.1: Sentry — Мониторинг ошибок (безопасная инициализация)]
+const Sentry = require('@sentry/node');
+if (process.env.SENTRY_DSN) {
+    Sentry.init({
+        dsn: process.env.SENTRY_DSN,
+        environment: process.env.NODE_ENV || 'development',
+        tracesSampleRate: 0.2, // 20% транзакций для мониторинга производительности
+    });
+    console.log('✅ Sentry инициализирован.');
+} else {
+    console.log('ℹ️  SENTRY_DSN не задан — мониторинг Sentry отключен.');
+}
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -203,6 +216,12 @@ app.use('/', hrRoutes);
 app.use('/', salesRoutes);
 app.use('/', docsRoutes);
 app.use('/api/dev', devRoutes);
+
+// [Блок 7.5: Глобальный обработчик ошибок Express + Sentry]
+app.use((err, req, res, next) => {
+    logger.error(err);
+    res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+});
 
 // [Блок 8: Telegram Бот (Интеграция)]
 if (bot) {

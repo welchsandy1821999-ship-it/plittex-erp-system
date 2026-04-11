@@ -1,5 +1,6 @@
-﻿const express = require('express');
+const express = require('express');
 const router = express.Router();
+const logger = require('../utils/logger');
 const fs = require('fs');
 const path = require('path');
 const Big = require('big.js');
@@ -39,7 +40,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             `);
             res.json(result.rows);
         } catch (err) {
-            console.error('[API] Error in GET /api/finance/categories:', err);
+            logger.error('[API] Error in GET /api/finance/categories:', err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -158,7 +159,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             });
 
         } catch (err) {
-            console.error('КРИТИЧЕСКАЯ ОШИБКА P&L:', err.message, err.stack);
+            logger.error('КРИТИЧЕСКАЯ ОШИБКА P&L:', err.message, err.stack);
             res.status(500).json({ error: "Внутренняя ошибка сервера. Обратитесь к администратору." });
         }
     });
@@ -174,7 +175,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             `);
             res.json(result.rows);
         } catch (err) {
-            console.error('Ошибка загрузки календаря:', err.message);
+            logger.error('Ошибка загрузки календаря:', err.message);
             res.json([]);
         }
     });
@@ -288,7 +289,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 }
             });
         } catch (err) {
-            console.error('Ошибка загрузки транзакций:', err);
+            logger.error('Ошибка загрузки транзакций:', err);
             res.status(500).json({ error: 'Ошибка сервера при загрузке данных' });
         }
     });
@@ -334,7 +335,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             });
             res.json({ success: true });
         } catch (e) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -348,7 +349,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             await pool.query('INSERT INTO transaction_categories (name, type) VALUES ($1, $2)', [req.body.name, req.body.type]);
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -358,7 +359,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             await pool.query('DELETE FROM transaction_categories WHERE id = $1', [req.params.id]);
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -370,7 +371,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             await pool.query('UPDATE transaction_categories SET cost_group = $1 WHERE id = $2', [cost_group, req.params.id]);
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -432,7 +433,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             `);
             res.json(result.rows);
         } catch (err) {
-            console.error('Ошибка в списке контрагентов:', err);
+            logger.error('Ошибка в списке контрагентов:', err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -456,7 +457,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
             res.json({ cp: cpRes.rows[0], finances: { ...finances, balance } });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -517,7 +518,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 invoices: [], contracts: []
             });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -538,7 +539,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             `, [cpId]);
             res.json(result.rows);
         } catch (err) {
-            console.error('Ошибка загрузки договоров:', err.message);
+            logger.error('Ошибка загрузки договоров:', err.message);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -558,7 +559,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             `, [name, finalRole, client_category || 'Обычный', inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type || 'legal', buyer, supplier, price_level || 'basic']);
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -575,7 +576,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             `, [name, finalRole, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type || 'legal', is_buyer || false, is_supplier || false, price_level || 'basic', req.params.id]);
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -590,7 +591,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             `, [amount, type, description, cpId, date]);
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -600,7 +601,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             await pool.query('UPDATE counterparties SET is_deleted = true WHERE id = $1', [req.params.id]);
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -618,7 +619,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             const data = await response.json();
             res.json(data);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Сбой сети на сервере Node.js' });
         }
     });
@@ -631,7 +632,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             const transRes = await pool.query(`SELECT amount, transaction_type, category, description, TO_CHAR(created_at, 'DD.MM.YYYY') as date FROM transactions WHERE counterparty_id = $1 AND COALESCE(is_deleted, false) = false ORDER BY created_at ASC`, [cp_id]);
             res.render('docs/act', { cp: cpRes.rows[0], transactions: transRes.rows });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -678,7 +679,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             `);
             res.json(result.rows);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -731,7 +732,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             res.json({ success: true, invoiceNumber: generatedInvoiceNumber });
         } catch (err) {
             if (client) await client.query('ROLLBACK');
-            console.error('Ошибка сервера при сохранении счета:', err);
+            logger.error('Ошибка сервера при сохранении счета:', err);
             res.status(500).json({ error: 'Ошибка сервера при сохранении счета' });
         } finally {
             if (client) client.release();
@@ -795,7 +796,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
@@ -833,7 +834,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             }
         } catch (err) {
             await client.query('ROLLBACK');
-            console.error('Ошибка при удалении счета:', err);
+            logger.error('Ошибка при удалении счета:', err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         } finally {
             client.release();
@@ -902,7 +903,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             res.json(result.rows);
 
         } catch (err) {
-            console.error("Критическая ошибка агрегации финансов:", err);
+            logger.error("Критическая ошибка агрегации финансов:", err);
             res.status(500).json({ error: 'Ошибка сервера при расчете финансовых итогов' });
         }
     });
@@ -945,7 +946,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
             res.json(accounts);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -956,7 +957,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             await pool.query('INSERT INTO accounts (name, type, balance) VALUES ($1, $2, $3)', [name, type, balance || 0]);
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -968,7 +969,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             await pool.query('UPDATE accounts SET name = $1 WHERE id = $2', [name, req.params.id]);
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1088,7 +1089,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             });
             res.json({ success: true, message: 'Операция сохранена' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1108,7 +1109,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             });
             res.json({ success: true, message: 'Перевод выполнен' });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1184,7 +1185,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
             res.json({ success: true, message: 'Отчет сохранен' });
         } catch (err) {
-            console.error('[API] Error in imprest-report:', err);
+            logger.error('[API] Error in imprest-report:', err);
             res.status(400).json({ error: err.message || 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1316,7 +1317,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             });
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1327,7 +1328,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             await pool.query('UPDATE transactions SET cost_group_override = $1 WHERE id = $2', [req.body.cost_group_override || null, req.params.id]);
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1345,7 +1346,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             );
             res.json({ success: true, updated: result.rowCount });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1390,7 +1391,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
             res.json({ success: true, updated: transactionIds.length });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1545,7 +1546,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             });
             res.json({ success: true, count: importedCount, autoPaid: autoPaidInvoicesCount });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1560,7 +1561,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 const fileUrl = '/uploads/' + req.file.filename;
                 await pool.query('UPDATE transactions SET receipt_url = $1 WHERE id = $2', [fileUrl, req.params.id]);
                 res.json({ success: true, url: fileUrl });
-            console.error(err);
+            logger.error(err);
             } catch (err) { res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' }); }
         });
     }
@@ -1571,12 +1572,12 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             if (transRes.rows.length > 0 && transRes.rows[0].receipt_url) {
                 const filePath = path.join(__dirname, '..', 'public', transRes.rows[0].receipt_url);
                 fs.unlink(filePath, (err) => {
-                    if (err && err.code !== 'ENOENT') console.error('Ошибка удаления файла:', err);
+                    if (err && err.code !== 'ENOENT') logger.error('Ошибка удаления файла:', err);
                 });
             }
             await pool.query('UPDATE transactions SET receipt_url = NULL WHERE id = $1', [req.params.id]);
             res.json({ success: true, message: 'Чек удален с сервера' });
-        console.error(err);
+        logger.error(err);
         } catch (err) { res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' }); }
     });
 
@@ -1616,7 +1617,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
             res.json(data);
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1734,7 +1735,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 groupedExpenses: groupedExpenses // 👈 Новый формат для Drill-down
             });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1794,7 +1795,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
             res.json({ currentBalance, forecast });
         } catch (err) {
-            console.error('Ошибка прогноза кассовых разрывов:', err);
+            logger.error('Ошибка прогноза кассовых разрывов:', err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1909,7 +1910,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     vatDivider: ERP_CONFIG.vatDivider
                 }
             });
-        console.error(err);
+        logger.error(err);
         } catch (err) { res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' }); }
     });
 
@@ -1927,7 +1928,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             await pool.query(`UPDATE transactions SET ${field} = $1 WHERE id = $2`, [is_checked, id]);
             res.json({ success: true });
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1941,7 +1942,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value
             `, [key, value.toString()]);
             res.json({ success: true });
-        console.error(err);
+        logger.error(err);
         } catch (err) { res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' }); }
     });
 
@@ -1954,7 +1955,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 settings[r.setting_key] = r.setting_value;
             });
             res.json(settings);
-        console.error(err);
+        logger.error(err);
         } catch (err) { res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' }); }
     });
 
@@ -1985,7 +1986,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 res.json({ category: null });
             }
         } catch (err) {
-            console.error(err);
+            logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -2045,7 +2046,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 min_stock: stockRes.rows
             });
         } catch (err) {
-            console.error('[dashboard-widgets]', err);
+            logger.error('[dashboard-widgets]', err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
