@@ -859,9 +859,13 @@ window.updateProductSelectUI = function () {
             labelField: 'text',
             searchField: ['text'],
             maxItems: 1,
+            maxOptions: 500,
             plugins: ['clear_button'],
             placeholder: 'Начните вводить название...',
             score: function(search) {
+                // ЕСЛИ ПОИСК ПУСТОЙ — НЕ ЛОМАЕМ АЛФАВИТНЫЙ ПОРЯДОК
+                if (!search) return function() { return 1; };
+
                 const query = search.toLowerCase();
                 const queryCondensed = query.replace(/[\.\s-]/g, '');
                 const tokens = query.split(/\s+/).filter(Boolean);
@@ -904,6 +908,15 @@ window.updateProductSelectUI = function () {
                 },
                 item: function (data, escape) {
                     return `<div>${escape(data.text)}</div>`;
+                }
+            },
+            onDropdownOpen: function (dropdown) {
+                var content = dropdown.querySelector('.ts-dropdown-content');
+                var selected = content && content.querySelector('.active, .selected');
+                if (selected && content) {
+                    setTimeout(function () {
+                        content.scrollTop = selected.offsetTop - (content.clientHeight / 2) + (selected.clientHeight / 2);
+                    }, 0);
                 }
             },
             onChange: function (value) {
