@@ -1,0 +1,200 @@
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Модуль: Центр Управления (Admin Hub)                     -->
+<!-- Доступен только для role=admin. Управление через admin.js -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="admin-mod" class="module hidden">
+    <h2 class="module-title">🛡️ Центр Управления</h2>
+
+    <!-- Табы -->
+    <div class="admin-tabs">
+        <button class="admin-tab active" onclick="switchAdminTab('admin-tab-backups', this)">💾 Бэкапы и Задачи</button>
+        <button class="admin-tab" onclick="switchAdminTab('admin-tab-system', this)">📡 Система и Логи</button>
+        <button class="admin-tab" onclick="switchAdminTab('admin-tab-audit', this)">🔍 Аудит и Экспорт</button>
+        <button class="admin-tab" onclick="switchAdminTab('admin-tab-settings', this)">⚙️ Настройки</button>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════ -->
+    <!-- TAB 1: Бэкапы и Задачи                       -->
+    <!-- ═══════════════════════════════════════════════ -->
+    <div id="admin-tab-backups" class="admin-panel active">
+        <div class="admin-section">
+            <div class="admin-section-header">
+                <h3>💾 Бэкапы базы данных</h3>
+                <div class="admin-actions">
+                    <button class="btn btn-primary" id="btn-create-backup" onclick="adminCreateBackup()">➕ Создать бэкап</button>
+                    <button class="btn btn-outline" onclick="adminLoadBackups()">🔄 Обновить</button>
+                </div>
+            </div>
+            <table class="data-table" id="admin-backups-table">
+                <thead>
+                    <tr>
+                        <th>Файл</th>
+                        <th>Размер</th>
+                        <th>Дата создания</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="admin-backups-body">
+                    <tr><td colspan="4" class="text-center text-muted">Загрузка...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="admin-section">
+            <div class="admin-section-header">
+                <h3>🧹 Обслуживание БД</h3>
+            </div>
+            <div class="admin-card-row">
+                <div class="admin-card">
+                    <div class="admin-card-icon">🗄️</div>
+                    <div class="admin-card-title">VACUUM ANALYZE</div>
+                    <div class="admin-card-desc">Оптимизация и пересбор статистики PostgreSQL для основных таблиц.</div>
+                    <button class="btn btn-warning" id="btn-vacuum" onclick="adminRunVacuum()">Запустить VACUUM</button>
+                </div>
+                <div class="admin-card">
+                    <div class="admin-card-icon">⏰</div>
+                    <div class="admin-card-title">Расписание</div>
+                    <div class="admin-card-desc">
+                        <strong>02:00</strong> — ежедневный бэкап (pg_dump)<br>
+                        <strong>03:00 Вс</strong> — VACUUM ANALYZE
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════ -->
+    <!-- TAB 2: Система и Логи                         -->
+    <!-- ═══════════════════════════════════════════════ -->
+    <div id="admin-tab-system" class="admin-panel">
+        <div class="admin-section">
+            <div class="admin-section-header">
+                <h3>📡 Статус системы</h3>
+                <button class="btn btn-outline" onclick="adminLoadSystemStatus()">🔄 Обновить</button>
+            </div>
+            <div class="admin-metrics" id="admin-metrics">
+                <div class="admin-metric">
+                    <div class="admin-metric-label">CPU</div>
+                    <div class="admin-metric-value" id="metric-cpu">—</div>
+                </div>
+                <div class="admin-metric">
+                    <div class="admin-metric-label">RAM</div>
+                    <div class="admin-metric-value" id="metric-ram">—</div>
+                    <div class="admin-metric-bar"><div class="admin-metric-fill" id="bar-ram"></div></div>
+                </div>
+                <div class="admin-metric">
+                    <div class="admin-metric-label">Uptime</div>
+                    <div class="admin-metric-value" id="metric-uptime">—</div>
+                </div>
+                <div class="admin-metric">
+                    <div class="admin-metric-label">БД</div>
+                    <div class="admin-metric-value" id="metric-db">—</div>
+                </div>
+                <div class="admin-metric">
+                    <div class="admin-metric-label">Размер БД</div>
+                    <div class="admin-metric-value" id="metric-db-size">—</div>
+                </div>
+                <div class="admin-metric">
+                    <div class="admin-metric-label">Подключения</div>
+                    <div class="admin-metric-value" id="metric-connections">—</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="admin-section">
+            <div class="admin-section-header">
+                <h3>📜 Live Logs (Winston)</h3>
+                <button class="btn btn-outline" onclick="adminLoadLogs()">🔄 Обновить</button>
+            </div>
+            <div class="admin-log-info">
+                <span id="log-file-name">—</span>
+                <span id="log-line-count">—</span>
+            </div>
+            <div class="admin-terminal" id="admin-terminal">
+                <pre id="admin-log-content">Нажмите "Обновить" для загрузки логов...</pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════ -->
+    <!-- TAB 3: Аудит и Экспорт                        -->
+    <!-- ═══════════════════════════════════════════════ -->
+    <div id="admin-tab-audit" class="admin-panel">
+        <div class="admin-section">
+            <div class="admin-section-header">
+                <h3>🔍 Журнал аудита</h3>
+                <button class="btn btn-outline" onclick="adminLoadAudit()">🔄 Обновить</button>
+            </div>
+            <table class="data-table" id="admin-audit-table">
+                <thead>
+                    <tr>
+                        <th>Время</th>
+                        <th>Пользователь</th>
+                        <th>Действие</th>
+                        <th>Объект</th>
+                        <th>ID</th>
+                        <th>Детали</th>
+                        <th>IP</th>
+                    </tr>
+                </thead>
+                <tbody id="admin-audit-body">
+                    <tr><td colspan="7" class="text-center text-muted">Загрузка...</td></tr>
+                </tbody>
+            </table>
+            <div class="admin-pagination" id="admin-audit-pagination"></div>
+        </div>
+
+        <div class="admin-section">
+            <div class="admin-section-header">
+                <h3>📊 Экспорт данных (CSV)</h3>
+            </div>
+            <div class="admin-export-grid">
+                <button class="admin-export-btn" onclick="adminExport('inventory_movements')">
+                    <span class="admin-export-icon">📦</span>
+                    <span>Складские движения</span>
+                </button>
+                <button class="admin-export-btn" onclick="adminExport('transactions')">
+                    <span class="admin-export-icon">💰</span>
+                    <span>Транзакции</span>
+                </button>
+                <button class="admin-export-btn" onclick="adminExport('items')">
+                    <span class="admin-export-icon">🏷️</span>
+                    <span>Номенклатура</span>
+                </button>
+                <button class="admin-export-btn" onclick="adminExport('counterparties')">
+                    <span class="admin-export-icon">🤝</span>
+                    <span>Контрагенты</span>
+                </button>
+                <button class="admin-export-btn" onclick="adminExport('employees')">
+                    <span class="admin-export-icon">👷</span>
+                    <span>Сотрудники</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════ -->
+    <!-- TAB 4: Настройки                              -->
+    <!-- ═══════════════════════════════════════════════ -->
+    <div id="admin-tab-settings" class="admin-panel">
+        <div class="admin-section">
+            <div class="admin-section-header">
+                <h3>⚙️ Глобальные настройки</h3>
+                <button class="btn btn-outline" onclick="adminLoadSettings()">🔄 Обновить</button>
+            </div>
+            <table class="data-table" id="admin-settings-table">
+                <thead>
+                    <tr>
+                        <th>Ключ</th>
+                        <th>Значение</th>
+                        <th>Описание</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="admin-settings-body">
+                    <tr><td colspan="4" class="text-center text-muted">Загрузка...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

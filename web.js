@@ -59,6 +59,10 @@ pool.on('error', (err) => {
 
 app.set('io', io);
 
+// [Блок 2.2: Инициализация системных таблиц]
+const { initSystemTables, auditLog } = require('./utils/db_init');
+initSystemTables(pool);
+
 // [Блок 3: Система загрузки файлов (Multer)]
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
@@ -221,6 +225,7 @@ const financeRoutes = require('./routes/finance')(pool, upload, withTransaction,
 const salesRoutes = require('./routes/sales')(pool, getWhId, getNextDocNumber, withTransaction, ERP_CONFIG);
 const docsRoutes = require('./routes/docs')(pool, ERP_CONFIG, withTransaction, getNextDocNumber);
 const devRoutes = require('./routes/dev')(pool, withTransaction, logger);
+const adminRoutes = require('./routes/admin')(pool);
 
 // Защита API (Глобальная проверка токена JWT)
 // Health-check идёт ДО JWT — доступен без авторизации (для Docker/мониторинга)
@@ -253,6 +258,7 @@ app.use('/', hrRoutes);
 app.use('/', salesRoutes);
 app.use('/', docsRoutes);
 app.use('/api/dev', devRoutes);
+app.use('/api/admin', adminRoutes);
 
 // [Блок 7.5: Глобальный обработчик ошибок Express + Sentry]
 if (process.env.SENTRY_DSN) {

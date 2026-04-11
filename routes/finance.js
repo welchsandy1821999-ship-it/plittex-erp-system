@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
+const { auditLog } = require('../utils/db_init');
 const fs = require('fs');
 const path = require('path');
 const Big = require('big.js');
@@ -333,6 +334,12 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     ), 0), 2)
                 `);
             });
+
+            // Аудит: запись о массовом удалении
+            for (const id of ids) {
+                auditLog(pool, req, 'delete_transaction', 'transaction', id, `Массовое удаление (bulk-delete)`);
+            }
+
             res.json({ success: true });
         } catch (e) {
             logger.error(err);
@@ -1261,6 +1268,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
             const io = req.app.get('io');
             if (io) io.emit('finance_updated');
+            auditLog(pool, req, 'delete_transaction', 'transaction', parseInt(id), `Удаление транзакции #${id}`);
             res.json({ success: true, message: "Транзакция удалена и балансы пересчитаны" });
         } catch (err) {
             const statusCode = err.message.includes('модуле "Кадры"') ? 403 : 500;

@@ -53,6 +53,7 @@
     <script src="/js/docs_registry.js"></script>
     <script src="/js/dashboard.js"></script>
     <script src="/js/equipment.js"></script>
+    <script src="/js/admin.js"></script>
 
     <script>
         const originalFetch = window.fetch;
@@ -115,6 +116,7 @@
                 if (moduleId === 'ref-mod' && typeof loadReferences === 'function') loadReferences();
                 if (moduleId === 'equipment-mod' && typeof loadEquipment === 'function') loadEquipment();
                 if (moduleId === 'dashboard-mod' && typeof initDashboard === 'function') initDashboard();
+                if (moduleId === 'admin-mod' && typeof initAdmin === 'function') initAdmin();
             } catch (err) { console.error(err); }
         };
 

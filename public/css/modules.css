@@ -4977,3 +4977,201 @@
 .border-bottom { border-bottom: 1px solid var(--border) !important; }
 .font-italic { font-style: italic !important; }
 .ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ==========================================================================
+   ADMIN HUB — Центр Управления
+   ========================================================================== */
+
+/* Табы админки */
+.admin-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.admin-tab {
+    padding: 10px 20px;
+    cursor: pointer;
+    border-radius: 6px;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-muted);
+    transition: all 0.2s;
+}
+
+.admin-tab:hover { background: var(--surface-hover); }
+.admin-tab.active { background: var(--primary); color: white; border-color: var(--primary); }
+
+/* Панели контента */
+.admin-panel { display: none; animation: fadeIn 0.3s ease; }
+.admin-panel.active { display: block; }
+
+/* Секции */
+.admin-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.admin-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.admin-section-header h3 { margin: 0; font-size: 16px; }
+.admin-actions { display: flex; gap: 8px; }
+
+/* Карточки */
+.admin-card-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.admin-card {
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+}
+
+.admin-card-icon { font-size: 36px; margin-bottom: 10px; }
+.admin-card-title { font-weight: 700; font-size: 15px; margin-bottom: 8px; }
+.admin-card-desc { font-size: 13px; color: var(--text-muted); margin-bottom: 14px; line-height: 1.5; }
+
+/* Метрики */
+.admin-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 14px;
+}
+
+.admin-metric {
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+}
+
+.admin-metric-label { font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+.admin-metric-value { font-size: 18px; font-weight: 700; color: var(--text-main); }
+.admin-metric-value small { font-size: 12px; color: var(--text-muted); font-weight: 400; }
+.admin-metric-value.text-success { color: var(--success); }
+.admin-metric-value.text-danger { color: var(--danger); }
+
+/* Прогресс-бар метрик */
+.admin-metric-bar {
+    width: 100%;
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    margin-top: 8px;
+    overflow: hidden;
+}
+
+.admin-metric-fill {
+    height: 100%;
+    background: var(--success);
+    border-radius: 3px;
+    transition: width 0.5s ease;
+}
+
+.admin-metric-fill.warning { background: var(--warning); }
+.admin-metric-fill.danger { background: var(--danger); }
+
+/* Терминал для логов */
+.admin-terminal {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 16px;
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+}
+
+.admin-terminal pre {
+    color: #c9d1d9;
+    font-size: 12px;
+    line-height: 1.6;
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.admin-log-info {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* Экспорт — сетка кнопок */
+.admin-export-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+}
+
+.admin-export-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 20px 16px;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.admin-export-btn:hover {
+    background: var(--surface-hover);
+    border-color: var(--primary);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.admin-export-icon { font-size: 28px; }
+
+/* Бейджи действий */
+.badge { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-block; }
+.badge-danger { background: var(--danger-bg); color: var(--danger-text); }
+.badge-success { background: var(--success-bg); color: var(--success-text); }
+.badge-warning { background: var(--warning-bg); color: var(--warning-text); }
+.badge-info { background: rgba(59, 130, 246, 0.1); color: var(--primary); }
+
+/* Пагинация */
+.admin-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+/* Input в настройках */
+.admin-setting-input {
+    max-width: 300px;
+}
+
