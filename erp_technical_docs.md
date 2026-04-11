@@ -349,8 +349,13 @@ UPDATE accounts a SET balance = ROUND(COALESCE((
   - `validateProductionDraft` → `POST /api/production` (date ≤ сегодня, products массив с id и quantity > 0)
   - `validateRecipeSave` → `POST /api/recipes/save` (productId, ingredients массив с materialId и qty > 0)
   - `validateRecipeSync` → `POST /api/recipes/sync-category` (targetProductIds и materials массивы)
+  - `validateCheckout` → `POST /api/sales/checkout` (counterparty_id, items массив с id/qty > 0/price ≥ 0)
+  - `validateReturn` → `POST /api/sales/returns` (order_id, items массив с id/qty > 0)
+  - `validateShipment` → `POST /api/sales/orders/:id/ship` (items_to_ship массив с coi_id/qty > 0)
+  - `validateTransferReserve` → `POST /api/sales/transfer-reserve` (donor_coi_id, recipient_coi_id, transfer_qty > 0)
+  - `validateOrderStatus` → `PUT /api/sales/orders/:id/status` (status ∈ pending/processing/completed/cancelled)
 - **Утилиты:** `_isValidInn(inn)`, `_isValidKpp(kpp)`, `_isValidEmail(email)` — приватные функции
-- **Покрыто модулей:** Справочники, Кадры, Финансы, Склад, Производство
+- **Покрыто модулей:** Справочники, Кадры, Финансы, Склад, Производство, Продажи
 
 ---
 

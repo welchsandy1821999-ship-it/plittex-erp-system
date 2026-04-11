@@ -542,5 +542,129 @@ module.exports = {
 
         if (errors.length > 0) return _validationError(res, errors);
         next();
+    },
+
+    // ------------------------------------------
+    // ПРОДАЖИ (sales.js) — Phase 6.15
+    // ------------------------------------------
+
+    /** POST /api/sales/checkout — оформление заказа */
+    validateCheckout: (req, res, next) => {
+        const { counterparty_id, items } = req.body;
+        const errors = [];
+
+        if (!counterparty_id || isNaN(parseInt(counterparty_id))) {
+            errors.push('Не указан контрагент.');
+        }
+
+        if (!items || !Array.isArray(items) || items.length === 0) {
+            errors.push('Корзина пуста.');
+        } else {
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                if (!item.id || isNaN(parseInt(item.id))) {
+                    errors.push(`Позиция #${i + 1}: не указан ID товара.`);
+                }
+                const qty = parseFloat(item.qty);
+                if (isNaN(qty) || qty <= 0) {
+                    errors.push(`Позиция #${i + 1}: количество должно быть больше нуля.`);
+                }
+                const price = parseFloat(item.price);
+                if (isNaN(price) || price < 0) {
+                    errors.push(`Позиция #${i + 1}: цена не может быть отрицательной.`);
+                }
+            }
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
+    },
+
+    /** POST /api/sales/returns — возврат от клиента */
+    validateReturn: (req, res, next) => {
+        const { order_id, items } = req.body;
+        const errors = [];
+
+        if (!order_id || isNaN(parseInt(order_id))) {
+            errors.push('Не указан заказ (order_id).');
+        }
+
+        if (!items || !Array.isArray(items) || items.length === 0) {
+            errors.push('Список возвращаемых позиций пуст.');
+        } else {
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                if (!item.id || isNaN(parseInt(item.id))) {
+                    errors.push(`Возврат #${i + 1}: не указан ID товара.`);
+                }
+                const qty = parseFloat(item.qty);
+                if (isNaN(qty) || qty <= 0) {
+                    errors.push(`Возврат #${i + 1}: количество должно быть больше нуля.`);
+                }
+            }
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
+    },
+
+    /** POST /api/sales/orders/:id/ship — отгрузка */
+    validateShipment: (req, res, next) => {
+        const { items_to_ship } = req.body;
+        const errors = [];
+
+        if (!items_to_ship || !Array.isArray(items_to_ship) || items_to_ship.length === 0) {
+            errors.push('Список позиций для отгрузки пуст.');
+        } else {
+            for (let i = 0; i < items_to_ship.length; i++) {
+                const item = items_to_ship[i];
+                if (!item.coi_id || isNaN(parseInt(item.coi_id))) {
+                    errors.push(`Отгрузка #${i + 1}: не указан ID позиции заказа (coi_id).`);
+                }
+                const qty = parseFloat(item.qty);
+                if (isNaN(qty) || qty <= 0) {
+                    errors.push(`Отгрузка #${i + 1}: количество должно быть больше нуля.`);
+                }
+            }
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
+    },
+
+    /** POST /api/sales/transfer-reserve — переброска резерва */
+    validateTransferReserve: (req, res, next) => {
+        const { donor_coi_id, recipient_coi_id, transfer_qty } = req.body;
+        const errors = [];
+
+        if (!donor_coi_id || isNaN(parseInt(donor_coi_id))) {
+            errors.push('Не указан заказ-донор (donor_coi_id).');
+        }
+
+        if (!recipient_coi_id || isNaN(parseInt(recipient_coi_id))) {
+            errors.push('Не указан заказ-реципиент (recipient_coi_id).');
+        }
+
+        const qty = parseFloat(transfer_qty);
+        if (isNaN(qty) || qty <= 0) {
+            errors.push('Количество для переброски должно быть больше нуля.');
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
+    },
+
+    /** PUT /api/sales/orders/:id/status — обновление статуса заказа */
+    validateOrderStatus: (req, res, next) => {
+        const { status } = req.body;
+        const errors = [];
+
+        const VALID_STATUSES = ['pending', 'processing', 'completed', 'cancelled'];
+        if (!status || !VALID_STATUSES.includes(status)) {
+            errors.push(`Статус должен быть одним из: ${VALID_STATUSES.join(', ')}.`);
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
     }
 };
