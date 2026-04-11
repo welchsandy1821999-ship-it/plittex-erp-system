@@ -218,6 +218,9 @@ app.use('/', docsRoutes);
 app.use('/api/dev', devRoutes);
 
 // [Блок 7.5: Глобальный обработчик ошибок Express + Sentry]
+if (process.env.SENTRY_DSN) {
+    Sentry.setupExpressErrorHandler(app);
+}
 app.use((err, req, res, next) => {
     logger.error(err);
     res.status(500).json({ error: 'Внутренняя ошибка сервера' });
