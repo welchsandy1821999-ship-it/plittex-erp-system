@@ -147,34 +147,26 @@ function populateCategories() {
     const sel = document.getElementById('prod-product-select');
     if (!sel) return;
 
-    const options = allProductsList.map(p => ({ 
-        value: String(p.id), 
-        text: p.name,
-        article: p.article || 'Нет артикула',
-        category: p.category || 'Продукция'
-    }));
+    const options = allProductsList.map(p => {
+        return { value: String(p.id), text: p.name, free: '', reserved: '', price: '', unit: p.unit || '', reservedLabel: '', article: p.article || '' };
+    });
 
-    if (sel.tomselect) {
-        const ts = sel.tomselect;
-        ts.clearOptions();
-        ts.addOptions(options);
-    } else {
+    if (!sel.tomselect) {
         new TomSelect(sel, {
-            plugins: ['clear_button'],
             options: options,
             valueField: 'value',
             labelField: 'text',
-            searchField: ['text', 'article'],
+            searchField: ['text'],
             maxItems: 1,
-            placeholder: '— Начните вводить название —',
-            closeAfterSelect: true,
+            plugins: ['clear_button'],
+            placeholder: 'Начните вводить название...',
             score: function(search) {
                 const query = search.toLowerCase();
                 const queryCondensed = query.replace(/[\.\s-]/g, '');
                 const tokens = query.split(/\s+/).filter(Boolean);
                 
                 return function(item) {
-                    const text = ((item.text || '') + ' ' + (item.article || '')).toLowerCase();
+                    const text = (item.text || '').toLowerCase();
                     const textCondensed = text.replace(/[\.\s-]/g, '');
                     
                     let multiTargetMatch = true;
@@ -202,26 +194,24 @@ function populateCategories() {
                 };
             },
             render: {
-                option: function(data, escape) {
-                    return `<div class="flex-row gap-10 align-center p-10">
-                        <div class="prod-ts-icon flex-center">🧱</div>
-                        <div class="flex-col">
-                            <span class="font-bold-14 text-main">${escape(data.text)}</span>
-                            <span class="font-11 text-muted">Арт: ${escape(data.article)} · ${escape(data.category)}</span>
-                        </div>
+                option: function (data, escape) {
+                    return `<div class="ts-option-product">
+                        <span class="ts-product-name">${escape(data.text)}</span>
+                        <span class="ts-product-meta">${data.article ? 'Арт: ' + escape(data.article) : ''}</span>
                     </div>`;
                 },
-                item: function(data, escape) {
-                    return `<div class="flex-row gap-5 align-center">
-                        <span class="font-14">🧱</span>
-                        <span class="font-bold-14">${escape(data.text)}</span>
-                    </div>`;
+                item: function (data, escape) {
+                    return `<div>${escape(data.text)}</div>`;
                 }
             },
-            onChange: function () {
+            onChange: function (value) {
                 handleProductSelection();
             }
         });
+    } else {
+        const ts = sel.tomselect;
+        ts.clearOptions();
+        ts.addOptions(options);
     }
 }
 
