@@ -19,6 +19,7 @@ yarn-error.log*
 
 # === 5. БАЗЫ ДАННЫХ И БЭКАПЫ ===
 db_backups/
+backups/
 postgres_data/
 *.sql
 

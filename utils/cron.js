@@ -1,14 +1,20 @@
 const cron = require('node-cron');
 const { Pool } = require('pg');
 const logger = require('./logger');
+const { runBackup } = require('./backup');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-// Запуск каждую субботу в 03:00 (ночь)
-// cron.schedule('0 3 * * 6', async () => {
 const initCronJobs = () => {
     logger.info('🕒 Планировщик задач инициализирован.');
 
+    // ═══════ 02:00 — Ежедневный бэкап БД (pg_dump) ═══════
+    cron.schedule('0 2 * * *', () => {
+        logger.info('💾 [CRON] Запуск ежедневного бэкапа БД...');
+        runBackup();
+    });
+
+    // ═══════ 03:00 (воскресенье) — Обслуживание БД (VACUUM) ═══════
     cron.schedule('0 3 * * 0', async () => {
         logger.info('🧹 Запуск автоматического обслуживания БД (VACUUM ANALYZE)...');
         let client;
