@@ -282,7 +282,10 @@ module.exports = function (pool, getWhId, withTransaction) {
             });
 
             const io = req.app.get('io');
-            if (io) io.emit('inventory_updated');
+            if (io) {
+                io.emit('inventory_updated');
+                io.emit('production_updated');
+            }
             res.json({ success: true, message: isDraft ? 'Черновик сохранён' : 'Смена успешно зафиксирована' });
         } catch (err) {
             logger.error(err);
@@ -462,7 +465,10 @@ module.exports = function (pool, getWhId, withTransaction) {
             });
 
             const io = req.app.get('io');
-            if (io) io.emit('inventory_updated');
+            if (io) {
+                io.emit('inventory_updated');
+                io.emit('production_updated');
+            }
             res.json({ success: true, message: 'Смена зафиксирована! Сырье списано, продукция на сушилке.' });
         } catch (err) {
             logger.error('FIXATE ERROR:', err);

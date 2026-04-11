@@ -156,3 +156,59 @@ throw err;
         }
     }
 };
+
+// =========================================================
+// [WebSocket Live Updates — Живая ERP]
+// =========================================================
+(function () {
+    if (typeof io === 'undefined') return; // socket.io не подключен
+
+    const socket = io();
+    let debounceTimers = {};
+
+    // Дебаунс: предотвращает множественные перезагрузки при пачке событий
+    function debouncedRefresh(eventName, callback, delay) {
+        if (debounceTimers[eventName]) clearTimeout(debounceTimers[eventName]);
+        debounceTimers[eventName] = setTimeout(() => {
+            console.log(`🔄 [WS] ${eventName} → обновление данных`);
+            callback();
+        }, delay || 500);
+    }
+
+    // --- Склад ---
+    socket.on('inventory_updated', () => {
+        debouncedRefresh('inventory', () => {
+            if (typeof loadTable === 'function') loadTable();
+            if (typeof window.loadDashboardWidgets === 'function') window.loadDashboardWidgets();
+        });
+    });
+
+    // --- Финансы ---
+    socket.on('finance_updated', () => {
+        debouncedRefresh('finance', () => {
+            if (typeof loadFinanceData === 'function') loadFinanceData();
+            if (typeof window.loadDashboardWidgets === 'function') window.loadDashboardWidgets();
+        });
+    });
+
+    // --- Производство ---
+    socket.on('production_updated', () => {
+        debouncedRefresh('production', () => {
+            if (typeof initProduction === 'function') initProduction();
+            if (typeof window.loadDashboardWidgets === 'function') window.loadDashboardWidgets();
+        });
+    });
+
+    // --- Продажи ---
+    socket.on('sales_updated', () => {
+        debouncedRefresh('sales', () => {
+            if (typeof initSales === 'function') initSales();
+            if (typeof window.loadDashboardWidgets === 'function') window.loadDashboardWidgets();
+        });
+    });
+
+    socket.on('connect', () => console.log('🔌 WebSocket подключен'));
+    socket.on('disconnect', () => console.log('⚡ WebSocket отключен'));
+
+    window._erpSocket = socket; // Экспорт для отладки
+})();

@@ -205,7 +205,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 }
             });
             const io = req.app.get('io');
-            if (io) io.emit('inventory_updated');
+            if (io) { io.emit('inventory_updated'); io.emit('sales_updated'); }
             sendNotify(`♻️ <b>Возврат товара: ${docNum}</b>\nСумма: ${refund_amount || 0} ₽\nПричина: ${reason || 'Не указана'}`);
 
             res.json({ success: true, docNum, message: 'Возврат оформлен' });
@@ -506,7 +506,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 }
             });
             const io = req.app.get('io');
-            if (io) io.emit('inventory_updated');
+            if (io) { io.emit('inventory_updated'); io.emit('sales_updated'); }
             sendNotify(`🚚 <b>Отгрузка: ${docNum}</b>\nМашина уехала к клиенту.`);
 
             res.json({ success: true, docNum, isCompleted: allCompleted });
@@ -583,7 +583,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             });
 
             const io = req.app.get('io');
-            if (io) io.emit('inventory_updated');
+            if (io) { io.emit('inventory_updated'); io.emit('sales_updated'); }
             res.json({ success: true, message: 'Отгрузка отменена, товар возвращён в резерв' });
         } catch (err) {
             logger.error(err);
@@ -717,7 +717,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             });
 
             const io = req.app.get('io');
-            if (io) io.emit('inventory_updated');
+            if (io) { io.emit('inventory_updated'); io.emit('sales_updated'); }
             res.json({ success: true, message: 'Заказ удалён, резервы возвращены на склад' });
         } catch (err) {
             logger.error(err);
@@ -739,7 +739,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
             await pool.query(`UPDATE client_orders SET status = $1 WHERE id = $2`, [status, orderId]);
             const io = req.app.get('io');
-            if (io) io.emit('inventory_updated');
+            if (io) { io.emit('inventory_updated'); io.emit('sales_updated'); }
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
@@ -917,7 +917,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             });
 
             const io = req.app.get('io');
-            if (io) io.emit('inventory_updated');
+            if (io) { io.emit('inventory_updated'); io.emit('sales_updated'); }
             res.json({ success: true, message: 'Резервы успешно переброшены!' });
 
         } catch (err) {

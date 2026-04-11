@@ -1087,6 +1087,9 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     `, [counterparty_id, category, cost_group_override || null]);
                 }
             });
+
+            const io = req.app.get('io');
+            if (io) io.emit('finance_updated');
             res.json({ success: true, message: 'Операция сохранена' });
         } catch (err) {
             logger.error(err);
@@ -1107,6 +1110,9 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 await client.query(`INSERT INTO transactions (amount, transaction_type, category, description, account_id, linked_id, transaction_date) VALUES ($1, 'expense', 'Перевод', $2, $3, $4, $5)`, [amount, comment, from_account_id, linkedId, finalDate]);
                 await client.query(`INSERT INTO transactions (amount, transaction_type, category, description, account_id, linked_id, transaction_date) VALUES ($1, 'income', 'Перевод', $2, $3, $4, $5)`, [amount, comment, to_account_id, linkedId, finalDate]);
             });
+
+            const io = req.app.get('io');
+            if (io) io.emit('finance_updated');
             res.json({ success: true, message: 'Перевод выполнен' });
         } catch (err) {
             logger.error(err);
@@ -1253,6 +1259,8 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 `);
             });
 
+            const io = req.app.get('io');
+            if (io) io.emit('finance_updated');
             res.json({ success: true, message: "Транзакция удалена и балансы пересчитаны" });
         } catch (err) {
             const statusCode = err.message.includes('модуле "Кадры"') ? 403 : 500;
@@ -1315,6 +1323,9 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     ), 0), 2);
                 `);
             });
+
+            const io = req.app.get('io');
+            if (io) io.emit('finance_updated');
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
