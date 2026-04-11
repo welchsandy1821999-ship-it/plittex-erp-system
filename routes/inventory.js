@@ -610,11 +610,17 @@ module.exports = function (pool, getWhId, withTransaction) {
             await withTransaction(pool, async (client) => {
                 const materialsWh = await getWhId(client, 'materials');
                 
-                // 1. Проверяем наличие основного песка (или другого исходного сырья)
+                // 1. Блокируем строки (физический уровень) для предотвращения race condition
+                await client.query(`
+                    SELECT id FROM inventory_movements 
+                    WHERE item_id = $1 AND warehouse_id = $2 FOR UPDATE
+                `, [sourceId, materialsWh]);
+
+                // 2. Считаем агрегированный остаток (логический уровень) уже после блокировки
                 const stockRes = await client.query(`
                     SELECT COALESCE(SUM(quantity), 0) as balance 
                     FROM inventory_movements 
-                    WHERE item_id = $1 AND warehouse_id = $2 FOR UPDATE
+                    WHERE item_id = $1 AND warehouse_id = $2
                 `, [sourceId, materialsWh]);
                 
                 const available = Number(new Big(stockRes.rows[0].balance || 0));
