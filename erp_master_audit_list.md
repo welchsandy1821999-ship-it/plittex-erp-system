@@ -218,6 +218,7 @@ FK `client_orders.counterparty_id → counterparties.id` имеет правил
 **Тип:** Безопасность  
 **Описание:** Все API-эндпоинты не имеют rate limiting. При DDoS или скриптовой атаке пул БД может быть исчерпан.  
 **Рекомендация:** express-rate-limit middleware.
+**Статус:** ✅ ЗАКРЫТО (Реализован собственный rate limiter в `middleware/rateLimit.js`: 100 запросов/мин на IP, Map-based хранение с автоочисткой. Подключён в `web.js:74` на префикс `/api` — статика (`express.static`) обслуживается ДО лимитера (строка 69) и не блокируется. HTTP 429 с JSON-ошибкой при превышении.)
 
 ---
 
@@ -227,6 +228,7 @@ FK `client_orders.counterparty_id → counterparties.id` имеет правил
 - `POST /api/counterparties` — не валидирует формат ИНН (10/12 цифр), КПП (9 цифр).
 - `POST /api/invoices` — `amount` и `cp_id` не проверяются на числовой тип.  
 **Рекомендация:** Joi / express-validator на уровне middleware.
+**Статус:** 🟡 ЧАСТИЧНО (Создан `middleware/validator.js` с 2 валидаторами: `validateItem` и `validateSalaryAdjustment`. Подключены к `POST /api/items` и `POST /api/salary/adjustments`. Остальные ~68 POST/PUT/PATCH маршрутов полагаются на ad-hoc проверки внутри обработчиков. **Масштаб:** 70 POST/PUT/PATCH маршрутов, 20 DELETE. Требуется систематический подход.)
 
 ---
 
