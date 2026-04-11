@@ -281,15 +281,17 @@ window.renderSelectedTemplates = function () {
         `).join('');
         
         let addHtml = `
-            <div class="prod-inline-add mt-10 pt-10" style="border-top: 1px dashed var(--border-color); opacity: 0.9;">
-                <div class="font-bold-12 text-muted mb-5">➕ Добавить сырье (вне шаблона):</div>
+            <div class="prod-inline-add mt-10 pt-10 border-top">
+                <div class="form-group mb-5">
+                    <label class="label-sm text-muted">➕ Добавить сырье (вне шаблона):</label>
+                </div>
                 <div class="flex-row gap-10 align-center">
-                    <select id="add-mat-${prefix}" class="input-modern flex-grow-1 font-12" style="padding: 6px 12px; height: 36px; min-height: 36px;">
+                    <select id="add-mat-${prefix}" class="input-modern flex-grow-1 font-12">
                         <option value="" disabled selected>-- Выбрать --</option>
                         ${allMaterialsForMix.map(m => `<option value="${m.id}" data-name="${Utils.escapeHtml(m.name)}" data-unit="${m.unit || 'кг'}">${Utils.escapeHtml(m.name)}</option>`).join('')}
                     </select>
-                    <input type="number" id="add-qty-${prefix}" class="input-modern text-center font-12" style="width: 80px; height: 36px;" step="any" placeholder="0" onfocus="this.select()">
-                    <button type="button" class="btn btn-blue font-12 m-0" style="height: 36px; padding: 0 16px;" onclick="addInlineMaterial('${prefix}')">➕</button>
+                    <input type="number" id="add-qty-${prefix}" class="input-modern text-center font-12 w-80" step="any" placeholder="0" onfocus="this.select()">
+                    <button type="button" class="btn btn-blue font-12 m-0" onclick="addInlineMaterial('${prefix}')">➕</button>
                 </div>
             </div>
         `;
