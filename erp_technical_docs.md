@@ -146,19 +146,23 @@ ERP-система для управления производственным 
 
 #### Жизненный цикл заказа
 ```
-[pending] → POST /api/sales/checkout (requireAdmin)
+[pending] → POST /api/sales/checkout (requireAdmin, Bearer Token)
     ↓ 1. Валидация остатков
     ↓ 2. Резервирование (sales_reserve → WH7)
     ↓ 3. Создание planned_production (если нехватка)
     ↓ 4. Финансовый расчёт (Big.js): себестоимость, налоги, маржа
     ↓ 5. Создание транзакции дохода (если оплата = 'prepaid')
-[processing] → POST /api/sales/orders/:id/ship (requireAdmin)
+    ↓ 🛡️ user_id: из JWT-токена (req.user.id), НЕ из payload
+[processing] → POST /api/sales/orders/:id/ship (requireAdmin, Bearer Token)
     ↓ Отгрузка частями (qty_to_ship ≤ qty_ordered)
     ↓ Перемещение: WH7 (резерв) → списание
     ↓ Автоматическое обновление qty_shipped, статуса
+    ↓ 🛡️ user_id: из JWT-токена (req.user.id), НЕ из payload
 [completed] → Полностью отгружен
 [cancelled] → Отмена: снятие резервов, удаление planned_production
 ```
+
+> **ВАЖНО (Phase 6.10):** Все write-эндпоинты модуля Продаж (`checkout`, `ship`, `returns`, `transfer-reserve`) используют `req.user.id` из JWT-токена для всех операций записи в БД. Клиент не передаёт `user_id` в payload. Фронтенд использует `API.post()`/`API.delete()` для автоматической передачи Bearer Token.
 
 #### Интеграция со складом №7 (Резервы)
 - При `checkout`: товар перемещается с Склада ГП (WH3) на WH7 через парные движения
@@ -314,7 +318,7 @@ UPDATE accounts a SET balance = ROUND(COALESCE((
 ### 3.2 Авторизация (RBAC)
 - Два уровня: `user` и `admin`
 - `requireAdmin` — middleware проверяющий `req.user.role === 'admin'`
-- **Проблема:** Не все мутирующие маршруты защищены (см. Audit #001)
+- **Проблема (AUDIT-001):** ЗАКРЫТО — все мутирующие маршруты защищены `requireAdmin`. Модуль Продаж дополнительно защищён от user_id spoofing (Phase 6.10)
 
 ### 3.3 Целостность данных
 - `withTransaction()` — обёртка над `BEGIN/COMMIT/ROLLBACK` с автоматическим release

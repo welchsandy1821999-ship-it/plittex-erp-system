@@ -1399,6 +1399,7 @@ window.processCheckout = async function () {
     if (btn) btn.disabled = true;
 
     // Собираем данные (учитывая все проверки)
+    // 🛡️ SECURITY: user_id НЕ передаётся — сервер берёт из JWT
     const payload = {
         counterparty_id: client_id,
         items: cart.map(i => ({
@@ -1427,66 +1428,54 @@ window.processCheckout = async function () {
         planned_shipment_date: plannedDateStr,
         pallets_qty: document.getElementById('sale-pallets').value || 0,
         poa_info: poa_info, // Передаем проверенную информацию
-        order_date: document.getElementById('sale-order-date')?.value || new Date().toISOString().split('T')[0],
-        user_id: JSON.parse(localStorage.getItem('user'))?.id || null
+        order_date: document.getElementById('sale-order-date')?.value || new Date().toISOString().split('T')[0]
     };
 
     try {
-        const res = await fetch('/api/sales/checkout', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
+        const result = await API.post('/api/sales/checkout', payload);
 
-        if (res.ok) {
-            const result = await res.json();
+        // Очищаем форму
+        clearOrderForm();
 
-            // Очищаем форму
-            clearOrderForm();
+        // 🛡️ ЗАЩИТА: проверяем наличие отчета перед тем как запускать .map
+        if (result.deficitReport && Array.isArray(result.deficitReport) && result.deficitReport.length > 0) {
+            let deficitHtml = `
+                <div class="bg-warning-lt border-warning p-15 border-radius-8 mb-15">
+                    <h4 class="text-warning mt-0">⚠️ Внимание! Нехватка сырья</h4>
+                    <p class="font-13 text-warning">Для производства заказа не хватает материалов на Складе №1:</p>
+                    <table class="table-modern w-100 font-13 mt-10">
+                        <thead>
+                            <tr class="text-left border-bottom">
+                                <th class="p-5">Материал</th>
+                                <th class="p-5">Нужно</th>
+                                <th class="p-5">Дефицит</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        ${result.deficitReport.map(m => `
+                            <tr>
+                                <td class="p-5"><b>${m.name || 'Материал'}</b></td>
+                                <td class="p-5">${m.needed || 0}</td>
+                                <td class="p-5 text-danger"><b>-${m.shortage || 0}</b></td>
+                            </tr>
+                        `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
 
-            // 🛡️ ЗАЩИТА: проверяем наличие отчета перед тем как запускать .map
-            if (result.deficitReport && Array.isArray(result.deficitReport) && result.deficitReport.length > 0) {
-                let deficitHtml = `
-                    <div class="bg-warning-lt border-warning p-15 border-radius-8 mb-15">
-                        <h4 class="text-warning mt-0">⚠️ Внимание! Нехватка сырья</h4>
-                        <p class="font-13 text-warning">Для производства заказа не хватает материалов на Складе №1:</p>
-                        <table class="table-modern w-100 font-13 mt-10">
-                            <thead>
-                                <tr class="text-left border-bottom">
-                                    <th class="p-5">Материал</th>
-                                    <th class="p-5">Нужно</th>
-                                    <th class="p-5">Дефицит</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                            ${result.deficitReport.map(m => `
-                                <tr>
-                                    <td class="p-5"><b>${m.name || 'Материал'}</b></td>
-                                    <td class="p-5">${m.needed || 0}</td>
-                                    <td class="p-5 text-danger"><b>-${m.shortage || 0}</b></td>
-                                </tr>
-                            `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                `;
-
-                UI.showModal(`Заказ ${result.docNum} оформлен`, deficitHtml, `
-                    <button class="btn btn-blue" onclick="UI.closeModal()">Принято</button>
-                `);
-            } else {
-                UI.toast(`✅ Заказ ${result.docNum} оформлен!`, 'success');
-            }
-
-            if (typeof loadActiveOrders === 'function') loadActiveOrders();
-            switchSalesTab('tab-active-orders', document.querySelectorAll('.sales-tab-btn')[1]);
-
+            UI.showModal(`Заказ ${result.docNum} оформлен`, deficitHtml, `
+                <button class="btn btn-blue" onclick="UI.closeModal()">Принято</button>
+            `);
         } else {
-            const err = await res.text();
-            UI.toast('Ошибка: ' + err, 'error');
+            UI.toast(`✅ Заказ ${result.docNum} оформлен!`, 'success');
         }
+
+        if (typeof loadActiveOrders === 'function') loadActiveOrders();
+        switchSalesTab('tab-active-orders', document.querySelectorAll('.sales-tab-btn')[1]);
+
     } catch (e) {
-        UI.toast('Ошибка связи с сервером', 'error');
+        console.error('[Checkout Error]', e);
     } finally {
         // Разблокируем кнопку в любом случае
         if (btn) btn.disabled = false;
@@ -1505,8 +1494,7 @@ async function loadActiveOrders() {
     }).toString();
 
     try {
-        const res = await fetch(`/api/sales/orders?${query}`);
-        allActiveOrders = await res.json();
+        allActiveOrders = await API.get(`/api/sales/orders?${query}`);
 
         // 🔧 Заполняем фильтр клиентов уникальными именами
         const clientFilter = document.getElementById('bo-client-filter');
@@ -1698,17 +1686,13 @@ window.confirmDeleteOrder = function (orderId, docNum) {
 
 window.executeDeleteOrder = async function (orderId) {
     try {
-        const res = await fetch(`/api/sales/orders/${orderId}`, { method: 'DELETE' });
-        if (res.ok) {
-            UI.closeModal();
-            UI.toast('Заказ полностью удален, резервы отменены!', 'success');
-            loadActiveOrders();
-            loadSalesData(false);
-            if (typeof loadTable === 'function') loadTable();
-        } else {
-            UI.toast('Ошибка удаления: ' + await res.text(), 'error');
-        }
-    } catch (e) { console.error(e); UI.toast('Ошибка связи', 'error'); }
+        await API.delete(`/api/sales/orders/${orderId}`);
+        UI.closeModal();
+        UI.toast('Заказ полностью удален, резервы отменены!', 'success');
+        loadActiveOrders();
+        loadSalesData(false);
+        if (typeof loadTable === 'function') loadTable();
+    } catch (e) { console.error(e); }
 };
 
 // ==========================================
@@ -1996,24 +1980,20 @@ window.cancelShipment = function (docNum) {
 
 window.executeCancelShipment = async function (docNum) {
     try {
-        const res = await fetch(`/api/sales/shipments/${docNum}`, { method: 'DELETE' });
-        if (res.ok) {
-            UI.closeModal();
-            UI.toast(`Отгрузка отменена`, 'success');
+        await API.delete(`/api/sales/shipments/${docNum}`);
+        UI.closeModal();
+        UI.toast(`Отгрузка отменена`, 'success');
 
-            // Обновляем все связанные таблицы в интерфейсе
-            loadSalesHistory();
-            loadSalesData(false);
-            if (typeof loadTable === 'function') loadTable();
+        // Обновляем все связанные таблицы в интерфейсе
+        loadSalesHistory();
+        loadSalesData(false);
+        if (typeof loadTable === 'function') loadTable();
 
-            // НОВОЕ: Мгновенно обновляем Канбан-доску заказов (чтобы откатился процент)
-            if (typeof loadActiveOrders === 'function') loadActiveOrders();
+        // НОВОЕ: Мгновенно обновляем Канбан-доску заказов (чтобы откатился процент)
+        if (typeof loadActiveOrders === 'function') loadActiveOrders();
 
-            // Обновляем долг клиента
-            onClientChange();
-        } else {
-            UI.toast('Ошибка отмены: ' + await res.text(), 'error');
-        }
+        // Обновляем долг клиента
+        onClientChange();
     } catch (e) { console.error(e); }
 };
 
@@ -2644,9 +2624,7 @@ window.recalcSalesMargin = function () {
 // ==========================================
 window.openOrderManager = async function (orderId) {
     try {
-        const res = await fetch(`/api/sales/orders/${orderId}`);
-        if (!res.ok) return UI.toast('Ошибка загрузки заказа', 'error');
-        const data = await res.json();
+        const data = await API.get(`/api/sales/orders/${orderId}`);
         const order = data.order;
         const items = data.items;
 
@@ -2750,12 +2728,11 @@ window.openOrderManager = async function (orderId) {
         // Загрузка доверенностей
         setTimeout(async () => {
             try {
-                const res = await fetch(`/api/counterparties/${order.counterparty_id}/poas`);
-                const data = await res.json();
+                const poasData = await API.get(`/api/counterparties/${order.counterparty_id}/poas`);
                 const sel = document.getElementById('ship-poa-select');
                 if (sel) {
                     sel.innerHTML = '<option value="">-- Выберите доверенность --</option>';
-                    data.forEach(poa => sel.add(new Option(`${poa.driver_name} — №${poa.number} (до ${poa.expiry_date})`, `№${poa.number} (выдана: ${poa.driver_name})`)));
+                    poasData.forEach(poa => sel.add(new Option(`${poa.driver_name} — №${poa.number} (до ${poa.expiry_date})`, `№${poa.number} (выдана: ${poa.driver_name})`)));
                 }
             } catch(e) {}
         }, 50);
@@ -2832,31 +2809,20 @@ window.executePartialShipment = async function (orderId, btnElement) {
     }
 
     try {
-        const res = await fetch(`/api/sales/orders/${orderId}/ship`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ items_to_ship, driver, auto, poa_info, pallets, ship_date: shipDate })
-        });
+        const data = await API.post(`/api/sales/orders/${orderId}/ship`, { items_to_ship, driver, auto, poa_info, pallets, ship_date: shipDate });
+        UI.closeModal();
+        UI.toast(`✅ Накладная ${data.docNum} успешно создана!`, 'success');
 
-        if (res.ok) {
-            const data = await res.json();
-            UI.closeModal();
-            UI.toast(`✅ Накладная ${data.docNum} успешно создана!`, 'success');
-
-            if (data.isCompleted) {
-                UI.toast('🎉 Заказ полностью выполнен!', 'success');
-            }
-
-            // Обновляем таблицы и канбан
-            if (typeof loadActiveOrders === 'function') loadActiveOrders();
-            if (typeof loadSalesHistory === 'function') loadSalesHistory();
-            if (typeof loadTable === 'function') loadTable();
-        } else {
-            UI.toast('Ошибка отгрузки: ' + await res.text(), 'error');
+        if (data.isCompleted) {
+            UI.toast('🎉 Заказ полностью выполнен!', 'success');
         }
+
+        // Обновляем таблицы и канбан
+        if (typeof loadActiveOrders === 'function') loadActiveOrders();
+        if (typeof loadSalesHistory === 'function') loadSalesHistory();
+        if (typeof loadTable === 'function') loadTable();
     } catch (e) {
-        console.error(e);
-        UI.toast('Ошибка', 'error');
+        console.error('[Shipment Error]', e);
     } finally {
         if (btnElement) btnElement.disabled = false;
     }
@@ -3004,23 +2970,13 @@ window.executeReturn = async function () {
     if (method === 'cash' && refundAmt > 0 && !accId) return UI.toast('Выберите кассу для выдачи денег!', 'warning');
 
     try {
-        const res = await fetch('/api/sales/returns', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ counterparty_id: clientId, items: window.returnCart, pallets_returned: pallets, refund_amount: refundAmt, refund_method: method, account_id: accId, reason: reason })
-        });
-
-        if (res.ok) {
-            const data = await res.json();
-            UI.closeModal();
-            UI.toast(`✅ Возврат ${data.docNum} успешно оформлен!`, 'success');
-            loadSalesData(false);
-            if (typeof loadTable === 'function') loadTable();
-            onClientChange();
-        } else {
-            UI.toast('Ошибка: ' + await res.text(), 'error');
-        }
-    } catch (e) { console.error(e); UI.toast('Ошибка связи с сервером', 'error'); }
+        const data = await API.post('/api/sales/returns', { counterparty_id: clientId, items: window.returnCart, pallets_returned: pallets, refund_amount: refundAmt, refund_method: method, account_id: accId, reason: reason });
+        UI.closeModal();
+        UI.toast(`✅ Возврат ${data.docNum} успешно оформлен!`, 'success');
+        loadSalesData(false);
+        if (typeof loadTable === 'function') loadTable();
+        onClientChange();
+    } catch (e) { console.error('[Return Error]', e); }
 };
 
 // ==========================================
@@ -3226,13 +3182,10 @@ window.executePrintInvoice = function (docNum) {
 window.offsetOrderAdvance = async function (docNum, amount) {
     let accOptions = '<option value="">Автоматически (Основная касса)</option>';
     try {
-        const accRes = await fetch('/api/accounts');
-        if (accRes.ok) {
-            const accounts = await accRes.json();
-            accounts.forEach(a => {
-                accOptions += `<option value="${a.id}">${a.name} (${a.balance} ₽)</option>`;
-            });
-        }
+        const accounts = await API.get('/api/accounts');
+        accounts.forEach(a => {
+            accOptions += `<option value="${a.id}">${a.name} (${a.balance} ₽)</option>`;
+        });
     } catch (e) { }
 
     UI.showModal('Взаимозачет аванса', `
@@ -3263,23 +3216,13 @@ window.executeOffset = async function (docNum, amount, btnElement) {
     const accountId = document.getElementById('offset-account-select')?.value || null;
 
     try {
-        const res = await fetch('/api/sales/orders/offset', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ docNum, amount, account_id: accountId })
-        });
-
-        if (res.ok) {
-            UI.closeModal();
-            UI.toast('Взаимозачет успешно проведен!', 'success');
-            if (typeof loadActiveOrders === 'function') loadActiveOrders();
-            if (typeof onClientChange === 'function') onClientChange();
-        } else {
-            UI.toast('Ошибка: ' + await res.text(), 'error');
-        }
+        await API.post('/api/sales/orders/offset', { docNum, amount, account_id: accountId });
+        UI.closeModal();
+        UI.toast('Взаимозачет успешно проведен!', 'success');
+        if (typeof loadActiveOrders === 'function') loadActiveOrders();
+        if (typeof onClientChange === 'function') onClientChange();
     } catch (e) {
-        console.error(e);
-        UI.toast('Ошибка сети', 'error');
+        console.error('[Offset Error]', e);
     } finally {
         if (btnElement) btnElement.disabled = false;
     }
@@ -4099,27 +4042,15 @@ window.executeReserveTransfer = async function(donorCoiId, recipientCoiId, input
     if (!confirmed) return;
 
     try {
-        const res = await fetch('/api/sales/transfer-reserve', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ donor_coi_id: donorCoiId, recipient_coi_id: recipientCoiId, transfer_qty: qty })
-        });
-        const data = await res.json();
+        const data = await API.post('/api/sales/transfer-reserve', { donor_coi_id: donorCoiId, recipient_coi_id: recipientCoiId, transfer_qty: qty });
+        UI.closeModal();
+        UI.toast(data.message, 'success');
         
-        if (res.ok) {
-            UI.closeModal();
-            UI.toast(data.message, 'success');
-            
-            // Перезагружаем интерфейс
-            if (typeof loadActiveOrders === 'function') loadActiveOrders();
-            // Обновляем текущую модалку Управления Заказом (с небольшой задержкой для анимации)
-            setTimeout(() => openOrderManager(recOrderId), 200);
-
-        } else {
-            UI.toast(data.error, 'error');
-        }
+        // Перезагружаем интерфейс
+        if (typeof loadActiveOrders === 'function') loadActiveOrders();
+        // Обновляем текущую модалку Управления Заказом (с небольшой задержкой для анимации)
+        setTimeout(() => openOrderManager(recOrderId), 200);
     } catch (e) {
-        console.error(e);
-        UI.toast('Ошибка выполнения перехвата', 'error');
+        console.error('[Transfer Error]', e);
     }
 };

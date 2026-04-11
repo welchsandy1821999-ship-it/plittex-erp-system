@@ -97,7 +97,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
     // 2. Возврат от клиента с правильным НДС
     // ------------------------------------------------------------------
     router.post('/api/sales/returns', requireAdmin, async (req, res) => {
-        const { order_id, counterparty_id, items, pallets_returned, refund_method, refund_amount, account_id, reason, user_id } = req.body;
+        const { order_id, counterparty_id, items, pallets_returned, refund_method, refund_amount, account_id, reason } = req.body;
+        const user_id = req.user.id; // 🛡️ SECURITY: user_id из JWT, не из req.body
 
         try {
             let docNum;
@@ -216,7 +217,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
     // 3. Оформление заказа (Без изменений, структура отличная)
     // ------------------------------------------------------------------
     router.post('/api/sales/checkout', requireAdmin, async (req, res) => {
-        const { counterparty_id, items, payment_method, account_id, advance_amount, offset_amount, discount, driver, auto, contract_info, contract_id, delivery_address, logistics_cost, planned_shipment_date, pallets_qty, poa_info, user_id } = req.body;
+        const { counterparty_id, items, payment_method, account_id, advance_amount, offset_amount, discount, driver, auto, contract_info, contract_id, delivery_address, logistics_cost, planned_shipment_date, pallets_qty, poa_info } = req.body;
+        const user_id = req.user.id; // 🛡️ SECURITY: user_id из JWT, не из req.body
 
         if (!items || items.length === 0) return res.status(400).json({ error: 'Корзина пуста!' });
 
@@ -421,7 +423,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
     // ------------------------------------------------------------------
     router.post('/api/sales/orders/:id/ship', requireAdmin, async (req, res) => {
         const orderId = req.params.id;
-        const { items_to_ship, driver, auto, poa_info, pallets, user_id } = req.body;
+        const { items_to_ship, driver, auto, poa_info, pallets } = req.body;
+        const user_id = req.user.id; // 🛡️ SECURITY: user_id из JWT, не из req.body
 
         try {
             let docNum;
@@ -845,7 +848,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
     });
 
     router.post('/api/sales/transfer-reserve', requireAdmin, async (req, res) => {
-        const { donor_coi_id, recipient_coi_id, transfer_qty, user_id } = req.body;
+        const { donor_coi_id, recipient_coi_id, transfer_qty } = req.body;
+        const user_id = req.user.id; // 🛡️ SECURITY: user_id из JWT, не из req.body
         const qty = parseFloat(transfer_qty);
         if (qty <= 0) return res.status(400).json({ error: 'Количество должно быть больше нуля' });
 
