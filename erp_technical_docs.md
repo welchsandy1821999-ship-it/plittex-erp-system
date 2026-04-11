@@ -346,8 +346,11 @@ UPDATE accounts a SET balance = ROUND(COALESCE((
   - `validateScrap` → `POST /api/inventory/scrap, /dispose` (itemId, warehouseId, qty > 0)
   - `validateAudit` → `POST /api/inventory/audit` (warehouseId, adjustments массив с itemId и actualQty ≥ 0)
   - `validateReserveAction` → `POST /api/inventory/reserve-action` (action ∈ release/transfer, itemId, qty > 0)
+  - `validateProductionDraft` → `POST /api/production` (date ≤ сегодня, products массив с id и quantity > 0)
+  - `validateRecipeSave` → `POST /api/recipes/save` (productId, ingredients массив с materialId и qty > 0)
+  - `validateRecipeSync` → `POST /api/recipes/sync-category` (targetProductIds и materials массивы)
 - **Утилиты:** `_isValidInn(inn)`, `_isValidKpp(kpp)`, `_isValidEmail(email)` — приватные функции
-- **Покрыто модулей:** Справочники, Кадры, Финансы, Склад
+- **Покрыто модулей:** Справочники, Кадры, Финансы, Склад, Производство
 
 ---
 

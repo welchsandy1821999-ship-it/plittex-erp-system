@@ -442,5 +442,105 @@ module.exports = {
 
         if (errors.length > 0) return _validationError(res, errors);
         next();
+    },
+
+    // ------------------------------------------
+    // ПРОИЗВОДСТВО (production.js) — Phase 6.14
+    // ------------------------------------------
+
+    /** POST /api/production — создание черновика/смены */
+    validateProductionDraft: (req, res, next) => {
+        const { date, products } = req.body;
+        const errors = [];
+
+        if (!date) {
+            errors.push('Не указана дата производства.');
+        } else {
+            // Формат YYYY-MM-DD и не позже сегодня
+            const requestDate = new Date(date);
+            if (isNaN(requestDate.getTime())) {
+                errors.push('Некорректный формат даты.');
+            } else {
+                const today = new Date();
+                today.setHours(23, 59, 59, 999);
+                if (requestDate > today) {
+                    errors.push('Нельзя создавать производство будущим числом.');
+                }
+            }
+        }
+
+        if (!products || !Array.isArray(products) || products.length === 0) {
+            errors.push('Список продукции пуст.');
+        } else {
+            for (let i = 0; i < products.length; i++) {
+                const p = products[i];
+                if (!p.id || isNaN(parseInt(p.id))) {
+                    errors.push(`Продукт #${i + 1}: не указан ID товара.`);
+                }
+                const qty = parseFloat(p.quantity);
+                if (isNaN(qty) || qty <= 0) {
+                    errors.push(`Продукт #${i + 1}: количество должно быть больше нуля.`);
+                }
+            }
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
+    },
+
+    /** POST /api/recipes/save — сохранение рецепта */
+    validateRecipeSave: (req, res, next) => {
+        const { productId, ingredients } = req.body;
+        const errors = [];
+
+        if (!productId || isNaN(parseInt(productId))) {
+            errors.push('Не указан товар (productId).');
+        }
+
+        if (!Array.isArray(ingredients)) {
+            errors.push('Поле ingredients должно быть массивом.');
+        } else {
+            for (let i = 0; i < ingredients.length; i++) {
+                const ing = ingredients[i];
+                if (!ing.materialId || isNaN(parseInt(ing.materialId))) {
+                    errors.push(`Ингредиент #${i + 1}: не указан ID материала.`);
+                }
+                const qty = parseFloat(ing.qty);
+                if (isNaN(qty) || qty <= 0) {
+                    errors.push(`Ингредиент #${i + 1}: количество должно быть больше нуля.`);
+                }
+            }
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
+    },
+
+    /** POST /api/recipes/sync-category — синхронизация рецепта на категорию */
+    validateRecipeSync: (req, res, next) => {
+        const { targetProductIds, materials } = req.body;
+        const errors = [];
+
+        if (!targetProductIds || !Array.isArray(targetProductIds) || targetProductIds.length === 0) {
+            errors.push('Не выбраны товары для синхронизации.');
+        }
+
+        if (!materials || !Array.isArray(materials) || materials.length === 0) {
+            errors.push('Список материалов для синхронизации пуст.');
+        } else {
+            for (let i = 0; i < materials.length; i++) {
+                const mat = materials[i];
+                if (!mat.materialId || isNaN(parseInt(mat.materialId))) {
+                    errors.push(`Материал #${i + 1}: не указан ID.`);
+                }
+                const qty = parseFloat(mat.qty);
+                if (isNaN(qty) || qty <= 0) {
+                    errors.push(`Материал #${i + 1}: количество должно быть больше нуля.`);
+                }
+            }
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
     }
 };

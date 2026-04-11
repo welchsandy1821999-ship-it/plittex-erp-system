@@ -5,6 +5,7 @@ const Big = require('big.js');
 const { sendNotify } = require('../utils/telegram');
 
 const { requireAdmin, authenticateToken } = require('../middleware/auth');
+const { validateProductionDraft, validateRecipeSave, validateRecipeSync } = require('../middleware/validator');
 
 // 👈 Добавили withTransaction
 module.exports = function (pool, getWhId, withTransaction) {
@@ -199,20 +200,14 @@ module.exports = function (pool, getWhId, withTransaction) {
 
 
     // --- ТРАНЗАКЦИОННЫЕ МАРШРУТЫ (БЕЗОПАСНЫЕ) ---
-    router.post('/api/production', requireAdmin, async (req, res) => {
+    router.post('/api/production', requireAdmin, validateProductionDraft, async (req, res) => {
         let { date, shiftName, products, materialsUsed, status: requestedStatus } = req.body;
         const isDraft = (requestedStatus === 'draft');
         console.log(`[PRODUCTION] Получен запрос: date=${date}, isDraft=${isDraft}`);
 
         try {
             await withTransaction(pool, async (client) => {
-                // Валидация даты
-                const requestDate = new Date(date);
-                const today = new Date();
-                today.setHours(23, 59, 59, 999);
-                if (requestDate > today) throw new Error('Нельзя закрывать смену будущим числом.');
-
-                if (!products || products.length === 0) throw new Error('Список продукции пуст.');
+                // 🛡️ AUDIT-018: проверки date и products перенесены в validateProductionDraft middleware
 
                 const materialsWh = await getWhId(client, 'materials');
                 const dryingWh = await getWhId(client, 'drying');
@@ -590,7 +585,7 @@ module.exports = function (pool, getWhId, withTransaction) {
         }
     });
 
-    router.post('/api/recipes/save', requireAdmin, async (req, res) => {
+    router.post('/api/recipes/save', requireAdmin, validateRecipeSave, async (req, res) => {
         const { productId, productName, ingredients, force } = req.body;
         try {
             await withTransaction(pool, async (client) => {
@@ -635,11 +630,11 @@ module.exports = function (pool, getWhId, withTransaction) {
 
 
 
-    router.post('/api/recipes/sync-category', requireAdmin, async (req, res) => {
+    router.post('/api/recipes/sync-category', requireAdmin, validateRecipeSync, async (req, res) => {
         const { targetProductIds, materials } = req.body;
         try {
             await withTransaction(pool, async (client) => {
-                if (!targetProductIds || targetProductIds.length === 0) throw new Error('Не выбраны товары для синхронизации.');
+                // 🛡️ AUDIT-018: проверка targetProductIds перенесена в validateRecipeSync middleware
 
                 const productIds = [];
                 const materialIds = [];
