@@ -93,6 +93,17 @@
     min-height: 60px;
 }
 
+/* Иконка-заглушка в TomSelect-опции продукции */
+.prod-ts-icon {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    background: var(--surface-hover);
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    font-size: 14px;
+}
+
 /* ==========================================================================
    8. СПЕЦИФИЧНЫЕ СТИЛИ МОДУЛЕЙ
    ========================================================================== */
