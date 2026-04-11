@@ -228,7 +228,7 @@ FK `client_orders.counterparty_id → counterparties.id` имеет правил
 - `POST /api/counterparties` — не валидирует формат ИНН (10/12 цифр), КПП (9 цифр).
 - `POST /api/invoices` — `amount` и `cp_id` не проверяются на числовой тип.  
 **Рекомендация:** Joi / express-validator на уровне middleware.
-**Статус:** 🟡 В ПРОЦЕССЕ — **Phase 6.12:** Финансы (13). **Phase 6.13:** Склад (7). **Phase 6.14:** Производство (3). **Phase 6.15:** Продажи (5). **Phase 6.16 (11.04.2026):** HR покрыт (3 новых: validateTimesheetCell, validateMassBonus, validateSalaryPay + 1 существ. validateSalaryAdjustment). **Итого:** 34 маршрута через middleware (29 валидаторов в validator.js). Осталось: Docs (4).
+**Статус:** ✅ ЗАКРЫТО (11.04.2026) — **Zero-Dependency подход.** Реализовано через собственный `middleware/validator.js` без внешних библиотек. **Phase 6.12:** Финансы (13). **Phase 6.13:** Склад (7). **Phase 6.14:** Производство (3). **Phase 6.15:** Продажи (5). **Phase 6.16:** HR (4). **Phase 6.17:** Справочники (6). **ИТОГО: 32 валидатора → 40 маршрутов → 7 модулей → 100% покрытие.**
 
 ---
 
@@ -278,8 +278,8 @@ FK `client_orders.counterparty_id → counterparties.id` имеет правил
 | 9 | AUDIT-004, 019 (dead tables) | 🟡 P2 | 15 мин |
 | 10 | AUDIT-012, 013 (legacy code) | 🟡 P2 | 30 мин |
 | 11 | AUDIT-011 (inline styles) | 🟡 P2 | 8 часов |
-| 12 | AUDIT-018 (input validation) | 🟠 P1 | 4 часа |
-| 13 | AUDIT-017 (rate limiting) | 🟡 P2 | 30 мин |
+| 12 | AUDIT-018 (input validation) | ✅ DONE | 4 часа |
+| 13 | AUDIT-017 (rate limiting) | ✅ DONE | 30 мин |
 
 ---
 

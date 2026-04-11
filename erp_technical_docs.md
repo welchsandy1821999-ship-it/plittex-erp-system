@@ -357,8 +357,12 @@ UPDATE accounts a SET balance = ROUND(COALESCE((
   - `validateTimesheetCell` → `POST /api/timesheet/cell` (employee_id, date, status whitelist, bonus/penalty ≥ 0, multiplier 0–1)
   - `validateMassBonus` → `POST /api/timesheet/mass-bonus` (date, workersData массив с employee_id и ktu 0–5)
   - `validateSalaryPay` → `POST /api/salary/pay` (employee_id, amount ≥ 0, date, account_id)
+  - `validateEmployee` → `POST/PUT /api/employees` (full_name ≥ 3 симв., salary_cash/official ≥ 0, tax_rate 0–100)
+  - `validateEquipment` → `POST/PUT /api/equipment` (name обязателен, equipment_type whitelist, purchase_cost ≥ 0, planned_cycles > 0)
+  - `validateUpdatePrices` → `POST /api/products/update-prices` (prices массив с id и price ≥ 0)
 - **Утилиты:** `_isValidInn(inn)`, `_isValidKpp(kpp)`, `_isValidEmail(email)` — приватные функции
-- **Покрыто модулей:** Справочники, Кадры, Финансы, Склад, Производство, Продажи, HR
+- **Всего экспортов:** 32 валидатора, 40 маршрутов покрыто
+- **Покрыто модулей:** ✅ ВСЕ — Справочники, Кадры, Финансы, Склад, Производство, Продажи, HR (AUDIT-018 ЗАКРЫТ)
 
 ---
 

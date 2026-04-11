@@ -771,5 +771,101 @@ module.exports = {
 
         if (errors.length > 0) return _validationError(res, errors);
         next();
+    },
+
+    // ------------------------------------------
+    // СПРАВОЧНИКИ (dictionaries.js) — Phase 6.17 (FINAL)
+    // ------------------------------------------
+
+    /** POST/PUT /api/employees — создание/обновление сотрудника */
+    validateEmployee: (req, res, next) => {
+        const { full_name, salary_cash, salary_official, tax_rate } = req.body;
+        const errors = [];
+
+        if (!full_name || typeof full_name !== 'string' || full_name.trim().length < 3) {
+            errors.push('ФИО обязательно и должно содержать не менее 3 символов.');
+        }
+
+        if (salary_cash !== undefined && salary_cash !== null) {
+            const sc = parseFloat(salary_cash);
+            if (isNaN(sc) || sc < 0) {
+                errors.push('Зарплата (нал.) не может быть отрицательной.');
+            }
+        }
+
+        if (salary_official !== undefined && salary_official !== null) {
+            const so = parseFloat(salary_official);
+            if (isNaN(so) || so < 0) {
+                errors.push('Зарплата (офиц.) не может быть отрицательной.');
+            }
+        }
+
+        if (tax_rate !== undefined && tax_rate !== null) {
+            const tr = parseFloat(tax_rate);
+            if (isNaN(tr) || tr < 0 || tr > 100) {
+                errors.push('Ставка налога должна быть от 0 до 100%.');
+            }
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
+    },
+
+    /** POST/PUT /api/equipment — создание/обновление оборудования */
+    validateEquipment: (req, res, next) => {
+        const { name, equipment_type, purchase_cost, planned_cycles } = req.body;
+        const errors = [];
+
+        if (!name || typeof name !== 'string' || name.trim().length === 0) {
+            errors.push('Название оборудования обязательно.');
+        }
+
+        const VALID_TYPES = ['machine', 'mold', 'pallets'];
+        if (!equipment_type || !VALID_TYPES.includes(equipment_type)) {
+            errors.push(`Тип оборудования должен быть одним из: ${VALID_TYPES.join(', ')}.`);
+        }
+
+        if (purchase_cost !== undefined && purchase_cost !== null) {
+            const pc = parseFloat(purchase_cost);
+            if (isNaN(pc) || pc < 0) {
+                errors.push('Стоимость не может быть отрицательной.');
+            }
+        }
+
+        if (planned_cycles !== undefined && planned_cycles !== null) {
+            const cy = parseFloat(planned_cycles);
+            if (isNaN(cy) || cy <= 0) {
+                errors.push('Плановый ресурс (циклы) должен быть больше нуля.');
+            }
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
+    },
+
+    /** POST /api/products/update-prices — массовое обновление прайс-листа */
+    validateUpdatePrices: (req, res, next) => {
+        const { prices } = req.body;
+        const errors = [];
+
+        if (!prices || !Array.isArray(prices) || prices.length === 0) {
+            errors.push('Список цен пуст.');
+        } else {
+            for (let i = 0; i < prices.length; i++) {
+                const p = prices[i];
+                if (!p.id || isNaN(parseInt(p.id))) {
+                    errors.push(`Позиция #${i + 1}: не указан ID товара.`);
+                }
+                if (p.price !== undefined) {
+                    const pr = parseFloat(p.price);
+                    if (isNaN(pr) || pr < 0) {
+                        errors.push(`Позиция #${i + 1}: цена не может быть отрицательной.`);
+                    }
+                }
+            }
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
     }
 };

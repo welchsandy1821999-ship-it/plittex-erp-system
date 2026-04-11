@@ -4,7 +4,7 @@ const router = express.Router();
 
 // 👈 Добавили withTransaction
 const { requireAdmin } = require('../middleware/auth');
-const { validateItem } = require('../middleware/validator');
+const { validateItem, validateEmployee, validateEquipment, validateUpdatePrices } = require('../middleware/validator');
 module.exports = function (pool, withTransaction) {
 
     // ==========================================
@@ -148,9 +148,9 @@ module.exports = function (pool, withTransaction) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    router.post('/api/products/update-prices', requireAdmin, async (req, res) => {
+    router.post('/api/products/update-prices', requireAdmin, validateUpdatePrices, async (req, res) => {
         const { prices } = req.body;
-        if (!prices || !Array.isArray(prices) || prices.length === 0) return res.json({ success: true });
+        // 🛡️ AUDIT-018: ad-hoc проверка удалена — покрыта validateUpdatePrices middleware
 
         try {
             await withTransaction(pool, async (client) => {
@@ -187,7 +187,7 @@ module.exports = function (pool, withTransaction) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    router.post('/api/employees', requireAdmin, async (req, res) => {
+    router.post('/api/employees', requireAdmin, validateEmployee, async (req, res) => {
         const { full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, status } = req.body;
         try {
             await withTransaction(pool, async (client) => {
@@ -215,7 +215,7 @@ module.exports = function (pool, withTransaction) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    router.put('/api/employees/:id', requireAdmin, async (req, res) => {
+    router.put('/api/employees/:id', requireAdmin, validateEmployee, async (req, res) => {
         const { full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, status } = req.body;
         const currentMonthStr = new Date().toISOString().substring(0, 7);
 
@@ -289,7 +289,7 @@ module.exports = function (pool, withTransaction) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    router.post('/api/equipment', requireAdmin, async (req, res) => {
+    router.post('/api/equipment', requireAdmin, validateEquipment, async (req, res) => {
         const { name, equipment_type, purchase_cost, planned_cycles, current_cycles, qty_per_cycle, status } = req.body;
         try {
             await pool.query(`
@@ -300,7 +300,7 @@ module.exports = function (pool, withTransaction) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    router.put('/api/equipment/:id', requireAdmin, async (req, res) => {
+    router.put('/api/equipment/:id', requireAdmin, validateEquipment, async (req, res) => {
         const { name, equipment_type, purchase_cost, planned_cycles, current_cycles, qty_per_cycle, status } = req.body;
         try {
             await pool.query(`
