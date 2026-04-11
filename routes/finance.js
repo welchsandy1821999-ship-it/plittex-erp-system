@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const router = express.Router();
 const fs = require('fs');
 const path = require('path');
@@ -40,7 +40,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             res.json(result.rows);
         } catch (err) {
             console.error('[API] Error in GET /api/finance/categories:', err);
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
 
@@ -334,6 +334,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             });
             res.json({ success: true });
         } catch (e) {
+            console.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -369,6 +370,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             await pool.query('UPDATE transaction_categories SET cost_group = $1 WHERE id = $2', [cost_group, req.params.id]);
             res.json({ success: true });
         } catch (err) {
+            console.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -616,6 +618,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             const data = await response.json();
             res.json(data);
         } catch (err) {
+            console.error(err);
             res.status(500).json({ error: 'Сбой сети на сервере Node.js' });
         }
     });
@@ -793,7 +796,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             res.json({ success: true });
         } catch (err) {
             console.error(err);
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
 
@@ -965,6 +968,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             await pool.query('UPDATE accounts SET name = $1 WHERE id = $2', [name, req.params.id]);
             res.json({ success: true });
         } catch (err) {
+            console.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1084,6 +1088,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             });
             res.json({ success: true, message: 'Операция сохранена' });
         } catch (err) {
+            console.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1103,6 +1108,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             });
             res.json({ success: true, message: 'Перевод выполнен' });
         } catch (err) {
+            console.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1310,6 +1316,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             });
             res.json({ success: true });
         } catch (err) {
+            console.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1538,6 +1545,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             });
             res.json({ success: true, count: importedCount, autoPaid: autoPaidInvoicesCount });
         } catch (err) {
+            console.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1552,6 +1560,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 const fileUrl = '/uploads/' + req.file.filename;
                 await pool.query('UPDATE transactions SET receipt_url = $1 WHERE id = $2', [fileUrl, req.params.id]);
                 res.json({ success: true, url: fileUrl });
+            console.error(err);
             } catch (err) { res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' }); }
         });
     }
@@ -1567,6 +1576,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             }
             await pool.query('UPDATE transactions SET receipt_url = NULL WHERE id = $1', [req.params.id]);
             res.json({ success: true, message: 'Чек удален с сервера' });
+        console.error(err);
         } catch (err) { res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' }); }
     });
 
@@ -1606,6 +1616,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
             res.json(data);
         } catch (err) {
+            console.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1898,6 +1909,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     vatDivider: ERP_CONFIG.vatDivider
                 }
             });
+        console.error(err);
         } catch (err) { res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' }); }
     });
 
@@ -1915,6 +1927,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             await pool.query(`UPDATE transactions SET ${field} = $1 WHERE id = $2`, [is_checked, id]);
             res.json({ success: true });
         } catch (err) {
+            console.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -1928,6 +1941,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value
             `, [key, value.toString()]);
             res.json({ success: true });
+        console.error(err);
         } catch (err) { res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' }); }
     });
 
@@ -1940,6 +1954,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 settings[r.setting_key] = r.setting_value;
             });
             res.json(settings);
+        console.error(err);
         } catch (err) { res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' }); }
     });
 
@@ -2031,7 +2046,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             });
         } catch (err) {
             console.error('[dashboard-widgets]', err);
-            res.status(500).json({ error: err.message });
+            res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
 

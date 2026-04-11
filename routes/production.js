@@ -1,4 +1,4 @@
-// === ФАЙЛ: routes/production.js ===
+﻿// === ФАЙЛ: routes/production.js ===
 const express = require('express');
 const router = express.Router();
 const Big = require('big.js');
@@ -473,7 +473,8 @@ module.exports = function (pool, getWhId, withTransaction) {
                     details: lines.join('\n')
                 });
             } else {
-                res.status(500).json({ error: err.message });
+                console.error(err);
+                res.status(500).json({ error: 'Внутренняя ошибка сервера' });
             }
         }
     });

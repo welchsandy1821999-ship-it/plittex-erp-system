@@ -1,4 +1,4 @@
-// === ФАЙЛ: routes/inventory.js (Бэкенд-маршруты для модуля Склада) ===
+﻿// === ФАЙЛ: routes/inventory.js (Бэкенд-маршруты для модуля Склада) ===
 
 const express = require('express');
 const router = express.Router();
@@ -644,7 +644,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             res.json({ success: true, message: 'Просеивание успешно выполнено' });
         } catch (err) {
             console.error('SIFTING ERROR:', err);
-            res.status(500).json({ error: err.message || 'Ошибка сервера при просеивании' });
+            res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
 
@@ -1294,7 +1294,8 @@ module.exports = function (pool, getWhId, withTransaction) {
             if (io) io.emit('inventory_updated');
             res.json({ success: true, message: 'Закупка обновлена' });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
 
@@ -1368,7 +1369,8 @@ module.exports = function (pool, getWhId, withTransaction) {
             if (io) io.emit('inventory_updated');
             res.json({ success: true });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
 
@@ -1417,7 +1419,8 @@ module.exports = function (pool, getWhId, withTransaction) {
                 delivery_account_id: txDelRes.rows.length > 0 ? txDelRes.rows[0].account_id : ''
             });
         } catch (err) {
-            res.status(500).json({ error: err.message });
+            console.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера' });
         }
     });
 
