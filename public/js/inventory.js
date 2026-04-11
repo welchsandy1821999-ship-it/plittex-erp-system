@@ -268,7 +268,7 @@ function renderInventoryTable() {
                        onfocus="this.select()">
             </td>`;
         } else {
-            qtyHtml = `<td class="inv-qty-cell">${parseFloat(item.total).toLocaleString('ru-RU')}</td>`;
+            qtyHtml = `<td class="inv-qty-cell">${parseFloat(item.total).toLocaleString('ru-RU', { maximumFractionDigits: 2 })}</td>`;
 
             if (isReserveView) {
                 // Склад №7: кнопка управления резервом
