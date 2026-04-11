@@ -11,6 +11,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 // 👈 Добавили withTransaction третьим аргументом
 module.exports = function (pool, getWhId, withTransaction) {
     const { requireAdmin } = require('../middleware/auth');
+    const { validatePurchase, validateSifting, validateScrap, validateAudit, validateReserveAction } = require('../middleware/validator');
 
     // ------------------------------------------------------------------
     // ИНВЕНТАРИЗАЦИЯ: ПЕЧАТЬ БЛАНКА (HTML)
@@ -600,12 +601,9 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     // 2. МАРШРУТ: ПРОСЕИВАНИЕ (ПЕРЕРАБОТКА) СЫРЬЯ
     // ------------------------------------------------------------------
-    router.post('/api/inventory/sifting', requireAdmin, async (req, res) => {
+    router.post('/api/inventory/sifting', requireAdmin, validateSifting, async (req, res) => {
         const { sourceId, sourceQty, outputs } = req.body;
-        
-        if (!sourceId || !sourceQty || !outputs || !Array.isArray(outputs)) {
-            return res.status(400).json({ error: 'Неверные данные для просеивания' });
-        }
+        // 🛡️ AUDIT-018: ad-hoc проверка удалена — покрыта validateSifting middleware
 
         try {
             await withTransaction(pool, async (client) => {
@@ -746,7 +744,7 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     // 3. МАРШРУТ: СПИСАНИЕ В БРАК ИЛИ УТИЛЬ (POST /api/inventory/scrap)
     // ------------------------------------------------------------------
-    router.post('/api/inventory/scrap', requireAdmin, async (req, res) => {
+    router.post('/api/inventory/scrap', requireAdmin, validateScrap, async (req, res) => {
         const { itemId, batchId, warehouseId, targetWarehouseId, scrapQty, description } = req.body;
 
         try {
@@ -791,7 +789,7 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     // ИНВЕНТАРИЗАЦИЯ: КОРРЕКТИРОВКА ОСТАТКОВ (ИСПРАВЛЕННЫЙ БЕЗОПАСНЫЙ МЕТОД)
     // ------------------------------------------------------------------
-    router.post('/api/inventory/audit', requireAdmin, async (req, res) => {
+    router.post('/api/inventory/audit', requireAdmin, validateAudit, async (req, res) => {
         const { warehouseId, adjustments, auditDate } = req.body;
         const userId = req.user ? req.user.id : null;
 
@@ -1051,7 +1049,7 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     // 5. МАРШРУТ: БЕЗВОЗВРАТНАЯ УТИЛИЗАЦИЯ
     // ------------------------------------------------------------------
-    router.post('/api/inventory/dispose', requireAdmin, async (req, res) => {
+    router.post('/api/inventory/dispose', requireAdmin, validateScrap, async (req, res) => {
         const { itemId, batchId, warehouseId, disposeQty, description } = req.body;
 
         try {
@@ -1193,17 +1191,14 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     // СОХРАНЕНИЕ ИЗМЕНЕНИЙ ЗАКУПКИ (UPDATE + ПЕРЕСЧЕТ СРЕДНЕЙ ЦЕНЫ)
     // ------------------------------------------------------------------
-    router.put('/api/inventory/purchase/:id', requireAdmin, async (req, res) => {
+    router.put('/api/inventory/purchase/:id', requireAdmin, validatePurchase, async (req, res) => {
         const purchaseId = req.params.id;
         const { itemId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost: frontendTotal, deliveryCost, deliveryAccountId } = req.body;
 
         const qtyNum = Number(new Big(quantity || 0));
         const priceNum = Number(new Big(pricePerUnit || 0));
         const delCostNum = Number(new Big(deliveryCost || 0));
-
-        if (!itemId || !counterparty_id || isNaN(qtyNum) || qtyNum <= 0 || isNaN(priceNum) || priceNum <= 0) {
-            return res.status(400).json({ error: 'Некорректные данные' });
-        }
+        // 🛡️ AUDIT-018: ad-hoc проверка удалена — покрыта validatePurchase middleware
 
         try {
             await withTransaction(pool, async (client) => {
@@ -1299,15 +1294,12 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     // СОЗДАНИЕ НОВОЙ ЗАКУПКИ (POST + РАСЧЕТ СРЕДНЕЙ ЦЕНЫ)
     // ------------------------------------------------------------------
-    router.post('/api/inventory/purchase', requireAdmin, async (req, res) => {
+    router.post('/api/inventory/purchase', requireAdmin, validatePurchase, async (req, res) => {
         const { itemId, quantity, pricePerUnit, counterparty_id, account_id, purchaseDate, totalCost: frontendTotal, deliveryCost, deliveryAccountId } = req.body;
-
-        if (!itemId || !counterparty_id) return res.status(400).json({ error: 'Не указан товар или поставщик!' });
+        // 🛡️ AUDIT-018: ad-hoc проверки itemId, counterparty_id, qtyNum удалены — покрыты validatePurchase middleware
         const qtyNum = Number(new Big(quantity || 0));
         const priceNum = Number(new Big(pricePerUnit || 0));
         const delCostNum = Number(new Big(deliveryCost || 0));
-
-        if (isNaN(qtyNum) || qtyNum <= 0) return res.status(400).json({ error: 'Количество должно быть положительным!' });
 
         try {
             await withTransaction(pool, async (client) => {
@@ -1673,12 +1665,9 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     // 8. УПРАВЛЕНИЕ РЕЗЕРВАМИ: Снятие / Переброска
     // ------------------------------------------------------------------
-    router.post('/api/inventory/reserve-action', requireAdmin, async (req, res) => {
+    router.post('/api/inventory/reserve-action', requireAdmin, validateReserveAction, async (req, res) => {
         const { action, itemId, batchId, linkedOrderItemId, qty, targetOrderItemId } = req.body;
-
-        if (!action || !itemId || !qty || qty <= 0) {
-            return res.status(400).json({ error: 'Некорректные параметры запроса.' });
-        }
+        // 🛡️ AUDIT-018: ad-hoc проверка удалена — покрыта validateReserveAction middleware
 
         try {
             await withTransaction(pool, async (client) => {

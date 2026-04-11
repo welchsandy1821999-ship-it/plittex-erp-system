@@ -296,5 +296,151 @@ module.exports = {
 
         if (errors.length > 0) return _validationError(res, errors);
         next();
+    },
+
+    // ------------------------------------------
+    // СКЛАД (inventory.js) — Phase 6.13
+    // ------------------------------------------
+
+    /** POST/PUT /api/inventory/purchase — закупка сырья */
+    validatePurchase: (req, res, next) => {
+        const { itemId, counterparty_id, quantity, pricePerUnit } = req.body;
+        const errors = [];
+
+        if (!itemId || isNaN(parseInt(itemId))) {
+            errors.push('Не указан товар (itemId).');
+        }
+
+        if (!counterparty_id || isNaN(parseInt(counterparty_id))) {
+            errors.push('Не указан поставщик.');
+        }
+
+        const parsedQty = parseFloat(quantity);
+        if (isNaN(parsedQty) || parsedQty <= 0) {
+            errors.push('Количество должно быть положительным числом.');
+        }
+
+        if (pricePerUnit !== undefined && pricePerUnit !== null && pricePerUnit !== '') {
+            const parsedPrice = parseFloat(pricePerUnit);
+            if (isNaN(parsedPrice) || parsedPrice < 0) {
+                errors.push('Цена за единицу не может быть отрицательной.');
+            }
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
+    },
+
+    /** POST /api/inventory/sifting — просеивание сырья */
+    validateSifting: (req, res, next) => {
+        const { sourceId, sourceQty, outputs } = req.body;
+        const errors = [];
+
+        if (!sourceId || isNaN(parseInt(sourceId))) {
+            errors.push('Не указано исходное сырьё (sourceId).');
+        }
+
+        const parsedQty = parseFloat(sourceQty);
+        if (isNaN(parsedQty) || parsedQty <= 0) {
+            errors.push('Количество исходного сырья должно быть больше нуля.');
+        }
+
+        if (!outputs || !Array.isArray(outputs) || outputs.length === 0) {
+            errors.push('Не указаны выходные фракции (outputs).');
+        } else {
+            for (let i = 0; i < outputs.length; i++) {
+                const out = outputs[i];
+                if (!out.id || isNaN(parseInt(out.id))) {
+                    errors.push(`Выход #${i + 1}: не указан ID товара.`);
+                }
+                if (out.qty !== undefined && out.qty !== 0) {
+                    const oQty = parseFloat(out.qty);
+                    if (isNaN(oQty) || oQty < 0) {
+                        errors.push(`Выход #${i + 1}: количество не может быть отрицательным.`);
+                    }
+                }
+            }
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
+    },
+
+    /** POST /api/inventory/scrap, /api/inventory/dispose — списание / утилизация */
+    validateScrap: (req, res, next) => {
+        const { itemId, warehouseId, scrapQty, disposeQty } = req.body;
+        const errors = [];
+        const qty = scrapQty || disposeQty; // Универсальный: оба маршрута
+
+        if (!itemId || isNaN(parseInt(itemId))) {
+            errors.push('Не указан товар (itemId).');
+        }
+
+        if (!warehouseId || isNaN(parseInt(warehouseId))) {
+            errors.push('Не указан склад-источник.');
+        }
+
+        const parsedQty = parseFloat(qty);
+        if (isNaN(parsedQty) || parsedQty <= 0) {
+            errors.push('Количество для списания должно быть больше нуля.');
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
+    },
+
+    /** POST /api/inventory/audit — инвентаризация (корректировка остатков) */
+    validateAudit: (req, res, next) => {
+        const { warehouseId, adjustments } = req.body;
+        const errors = [];
+
+        if (!warehouseId || isNaN(parseInt(warehouseId))) {
+            errors.push('Не указан склад для инвентаризации.');
+        }
+
+        if (!adjustments || !Array.isArray(adjustments) || adjustments.length === 0) {
+            errors.push('Список корректировок пуст.');
+        } else {
+            for (let i = 0; i < adjustments.length; i++) {
+                const adj = adjustments[i];
+                if (!adj.itemId || isNaN(parseInt(adj.itemId))) {
+                    errors.push(`Корректировка #${i + 1}: не указан товар.`);
+                    continue;
+                }
+                if (adj.actualQty === undefined || adj.actualQty === null) {
+                    errors.push(`Корректировка #${i + 1}: не указан фактический остаток.`);
+                } else {
+                    const nq = parseFloat(adj.actualQty);
+                    if (isNaN(nq) || nq < 0) {
+                        errors.push(`Корректировка #${i + 1}: остаток не может быть отрицательным.`);
+                    }
+                }
+            }
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
+    },
+
+    /** POST /api/inventory/reserve-action — управление резервами */
+    validateReserveAction: (req, res, next) => {
+        const { action, itemId, qty } = req.body;
+        const errors = [];
+
+        if (!action || !['release', 'transfer'].includes(action)) {
+            errors.push('Действие должно быть "release" или "transfer".');
+        }
+
+        if (!itemId || isNaN(parseInt(itemId))) {
+            errors.push('Не указан товар (itemId).');
+        }
+
+        const parsedQty = parseFloat(qty);
+        if (isNaN(parsedQty) || parsedQty <= 0) {
+            errors.push('Количество должно быть больше нуля.');
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
     }
 };

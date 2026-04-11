@@ -228,7 +228,7 @@ FK `client_orders.counterparty_id → counterparties.id` имеет правил
 - `POST /api/counterparties` — не валидирует формат ИНН (10/12 цифр), КПП (9 цифр).
 - `POST /api/invoices` — `amount` и `cp_id` не проверяются на числовой тип.  
 **Рекомендация:** Joi / express-validator на уровне middleware.
-**Статус:** 🟡 В ПРОЦЕССЕ — **Phase 6.12 (11.04.2026):** Модуль Финансы покрыт: 13 маршрутов защищены middleware-валидаторами (`validateTransaction`, `validateTransfer`, `validateCounterparty`, `validateInvoice`, `validateAccount`, `validateCategory`, `validateCorrection`, `validatePayment`, `validateCostGroup`). Валидация ИНН (10/12), КПП (9 цифр), email. Стандартный формат ошибки: `{ error, details[] }`. Модули Справочники и Кадры покрыты ранее (2 валидатора). **Итого:** 15 маршрутов через middleware, остальные — через ad-hoc. Осталось покрыть: Inventory, Production, Sales, HR, Docs.
+**Статус:** 🟡 В ПРОЦЕССЕ — **Phase 6.12 (11.04.2026):** Финансы покрыт (13 маршрутов: validateTransaction, validateTransfer, validateCounterparty, validateInvoice, validateAccount, validateCategory, validateCorrection, validatePayment, validateCostGroup). **Phase 6.13 (11.04.2026):** Склад покрыт (7 маршрутов: validatePurchase ×2, validateSifting, validateScrap ×2, validateAudit, validateReserveAction). **Итого:** 22 маршрута через middleware (18 валидаторов в validator.js), модули Справочники и Кадры покрыты ранее. Осталось: Production (6), Sales (10), HR (6), Docs (4).
 
 ---
 

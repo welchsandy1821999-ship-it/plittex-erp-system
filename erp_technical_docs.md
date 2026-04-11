@@ -341,8 +341,13 @@ UPDATE accounts a SET balance = ROUND(COALESCE((
   - `validateCostGroup` → `PUT /api/finance/categories/:id/group` (∈ direct/opex/capex/overhead)
   - `validateCorrection` → `POST /api/counterparties/:id/correction` (amount > 0, type, date)
   - `validatePayment` → `POST .../pay` (account_id обязателен)
+  - `validatePurchase` → `POST/PUT /api/inventory/purchase` (itemId, counterparty_id, quantity > 0, price ≥ 0)
+  - `validateSifting` → `POST /api/inventory/sifting` (sourceId, sourceQty > 0, outputs массив)
+  - `validateScrap` → `POST /api/inventory/scrap, /dispose` (itemId, warehouseId, qty > 0)
+  - `validateAudit` → `POST /api/inventory/audit` (warehouseId, adjustments массив с itemId и actualQty ≥ 0)
+  - `validateReserveAction` → `POST /api/inventory/reserve-action` (action ∈ release/transfer, itemId, qty > 0)
 - **Утилиты:** `_isValidInn(inn)`, `_isValidKpp(kpp)`, `_isValidEmail(email)` — приватные функции
-- **Отсутствует:** Центральная библиотека валидации (Joi/express-validator)
+- **Покрыто модулей:** Справочники, Кадры, Финансы, Склад
 
 ---
 
