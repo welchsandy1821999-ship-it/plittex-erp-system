@@ -913,11 +913,17 @@ module.exports = function (pool, getWhId, withTransaction) {
                     throw new Error(`Партия #${batchId} уже полностью распалублена (остаток в сушилке: 0). Повторное списание невозможно.`);
                 }
 
-                let totalRemoved = goodQty + grade2Qty + scrapQty;
-                if (isComplete) totalRemoved = currentWipQty;
+                // ✅ FIX (п.5): Округляем все qty до 2 знаков через Big.js ДО любых вычислений
+                const safeGood = Number(new Big(goodQty || 0).round(2));
+                const safeGrade2 = Number(new Big(grade2Qty || 0).round(2));
+                const safeScrap = Number(new Big(scrapQty || 0).round(2));
+                const reportedQty = Number(new Big(safeGood).plus(safeGrade2).plus(safeScrap).round(2));
 
-                // Защита от перерасхода: если пытаются списать больше, чем реально есть
-                if (totalRemoved > realWipBalance) {
+                // ✅ FIX (п.3): Жесткое обнуление — isComplete списывает весь реальный остаток из БД
+                const totalRemoved = isComplete ? realWipBalance : reportedQty;
+
+                // Защита от перерасхода (только для частичной распалубки)
+                if (!isComplete && totalRemoved > realWipBalance) {
                     throw new Error(
                         `Невозможно списать ${totalRemoved} ед. из сушилки (партия #${batchId}). ` +
                         `Реальный остаток: ${realWipBalance} ед. Возможно, другой пользователь уже провел распалубку.`
@@ -929,8 +935,8 @@ module.exports = function (pool, getWhId, withTransaction) {
                     VALUES ($1, $2, 'wip_expense', 'Распалубка: Выход из сушилки', $3, $4, $5)
                 `, [tileId, -totalRemoved, dryingWh, batchId, userId]);
 
-                if (goodQty > 0) {
-                    let remainingGood = Number(new Big(goodQty));
+                if (safeGood > 0) {
+                    let remainingGood = safeGood;
                     const reserveWhId = await getWhId(client, 'reserve');
 
                     const pendingOrders = await client.query(`
@@ -945,7 +951,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
                     for (let order of pendingOrders.rows) {
                         if (remainingGood <= 0) break;
-                        const orderNeeds = Number(new Big(order.qty_production));
+                        const orderNeeds = Number(new Big(order.qty_production).round(2));
                         const allocate = Math.min(remainingGood, orderNeeds);
                         remainingGood -= allocate;
 
@@ -974,7 +980,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                         await client.query(`
                             INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id)
                             VALUES ($1, $2, 'finished_receipt', 'Распалубка: 1-й сорт', $3, $4, $5)
-                        `, [tileId, remainingGood, finishedWh, batchId, userId]);
+                        `, [tileId, Number(new Big(remainingGood).round(2)), finishedWh, batchId, userId]);
                     }
                 }
 
@@ -987,8 +993,9 @@ module.exports = function (pool, getWhId, withTransaction) {
                         if (!orig.name.toLowerCase().includes('2 сорт') && !orig.name.toLowerCase().includes('2-й сорт')) {
                             const newName = `${orig.name.trim()} 2 сорт`;
                             const newArticle = orig.article ? `${orig.article.trim()}2S` : `${tileId}-2S`;
-                            const newPrice = orig.current_price ? (orig.current_price / 2) : 0;
-                            const newDealerPrice = orig.dealer_price ? (orig.dealer_price / 2) : 0;
+                            // ✅ FIX (п.6): Big.js для точного расчёта цены 2-го сорта
+                            const newPrice = orig.current_price ? Number(new Big(orig.current_price).div(2).round(2)) : 0;
+                            const newDealerPrice = orig.dealer_price ? Number(new Big(orig.dealer_price).div(2).round(2)) : 0;
 
                             const checkExistRes = await client.query('SELECT id FROM items WHERE name = $1 AND is_deleted = false LIMIT 1', [newName]);
 
@@ -1008,23 +1015,23 @@ module.exports = function (pool, getWhId, withTransaction) {
                     await client.query(`
                         INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id)
                         VALUES ($1, $2, 'markdown_receipt', 'Распалубка: 2-й сорт (Уценка)', $3, $4, $5)
-                    `, [markdownTileId, grade2Qty, markdownWh, batchId, userId]);
+                    `, [markdownTileId, safeGrade2, markdownWh, batchId, userId]);
                 }
 
                 if (scrapQty > 0) {
                     await client.query(`
                         INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id)
                         VALUES ($1, $2, 'scrap_receipt', 'Распалубка: Брак (Бой)', $3, $4, $5)
-                    `, [tileId, scrapQty, defectWh, batchId, userId]);
+                    `, [tileId, safeScrap, defectWh, batchId, userId]);
                 }
 
                 // 🚀 НОВОЕ: Накапливаем 1-й сорт для сдельной зарплаты при каждой распалубке партии
-                if (batchId && goodQty > 0) {
+                if (batchId && safeGood > 0) {
                     await client.query(`
                         UPDATE production_batches 
                         SET actual_good_qty = COALESCE(actual_good_qty, 0) + $1 
                         WHERE id = $2
-                    `, [goodQty, batchId]);
+                    `, [safeGood, batchId]);
                 }
 
                 if (isComplete && batchId) {

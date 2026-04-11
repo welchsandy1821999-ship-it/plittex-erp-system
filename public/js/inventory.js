@@ -439,13 +439,20 @@ window.executeDemolding = async function (batchId, tileId, currentWipQty) {
     if (goodQty < 0 || grade2Qty < 0 || scrapQty < 0) return UI.toast('Количество не может быть отрицательным!', 'error');
     if (goodQty + grade2Qty + scrapQty === 0) return UI.toast('Укажите хотя бы одну позицию выхода!', 'error');
 
+    // ✅ FIX (п.4): Блокировка кнопки от повторного клика
+    const btn = event && event.target ? event.target.closest('button') : null;
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Сохранение...'; }
+
     try {
         await API.post('/api/move-wip', { batchId, tileId, currentWipQty, goodQty, grade2Qty, scrapQty, isComplete });
 
         UI.closeModal();
         UI.toast('Партия успешно распределена по складам!', 'success');
         loadTable();
-    } catch (e) { console.error(e); }
+    } catch (e) {
+        console.error(e);
+        if (btn) { btn.disabled = false; btn.textContent = '💾 Сохранить выход'; }
+    }
 };
 
 // === ПЕРЕМЕЩЕНИЕ В УЦЕНКУ (5) ИЛИ УТИЛЬ (6) ===
