@@ -325,9 +325,23 @@ UPDATE accounts a SET balance = ROUND(COALESCE((
 - `FOR UPDATE` — row-level locking на критических операциях (баланс счетов, остатки)
 - `Big.js` — точная финансовая арифметика (избежание IEEE 754 ошибок)
 
-### 3.4 Валидация
-- **Серверная:** Точечная проверка на критических маршрутах (hr.js — VALID_STATUSES, multiplier bounds)
-- **Клиентская:** TomSelect для выбора товаров, datepicker валидация
+### 3.4 Входная валидация (AUDIT-018)
+- **Архитектура:** Zero-dependency middleware (`middleware/validator.js`), без Joi/express-validator
+- **Стандарт ответа ошибки:** `{ error: "Ошибка валидации", details: ["..."] }` — HTTP 400
+- **Покрытие:**
+  - `validateItem` → `POST /api/items` (name обязательно, price ≥ 0)
+  - `validateSalaryAdjustment` → `POST /api/salary/adjustments` (employee_id, amount)
+  - `validateTransaction` → `POST /api/transactions` (amount > 0, type, account_id, category)
+  - `validateTransactionEdit` → `PUT /api/transactions/:id` (amount > 0, category не пустая)
+  - `validateTransfer` → `POST /api/transactions/transfer` (amount > 0, from ≠ to, оба ID)
+  - `validateCounterparty` → `POST/PUT /api/counterparties` (name ≥ 2, ИНН 10/12 цифр, КПП 9 цифр, email формат)
+  - `validateInvoice` → `POST /api/invoices` (cp_id число, amount > 0)
+  - `validateAccount` / `validateAccountEdit` → `POST/PUT /api/accounts` (name непустое, balance ≥ 0)
+  - `validateCategory` → `POST /api/finance/categories` (name непустое)
+  - `validateCostGroup` → `PUT /api/finance/categories/:id/group` (∈ direct/opex/capex/overhead)
+  - `validateCorrection` → `POST /api/counterparties/:id/correction` (amount > 0, type, date)
+  - `validatePayment` → `POST .../pay` (account_id обязателен)
+- **Утилиты:** `_isValidInn(inn)`, `_isValidKpp(kpp)`, `_isValidEmail(email)` — приватные функции
 - **Отсутствует:** Центральная библиотека валидации (Joi/express-validator)
 
 ---

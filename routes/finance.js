@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const Big = require('big.js');
 const { requireAdmin, authenticateToken } = require('../middleware/auth');
+const { validateTransaction, validateTransactionEdit, validateTransfer, validateCounterparty, validateInvoice, validateAccount, validateAccountEdit, validateCategory, validateCorrection, validatePayment, validateCostGroup } = require('../middleware/validator');
 
 // 🚀 Единая функция поиска документов в тексте (Защита от опечаток)
 function extractDocNumber(description) {
@@ -178,7 +179,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
-    router.post('/api/finance/planned-expenses/:id/pay', async (req, res) => {
+    router.post('/api/finance/planned-expenses/:id/pay', validatePayment, async (req, res) => {
         const { account_id } = req.body;
 
         try {
@@ -341,7 +342,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     // 4. КАТЕГОРИИ ТРАНЗАКЦИЙ (СПРАВОЧНИК)
     // ==========================================
 
-    router.post('/api/finance/categories', requireAdmin, async (req, res) => {
+    router.post('/api/finance/categories', requireAdmin, validateCategory, async (req, res) => {
         try {
             await pool.query('INSERT INTO transaction_categories (name, type) VALUES ($1, $2)', [req.body.name, req.body.type]);
             res.json({ success: true });
@@ -362,7 +363,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     });
 
     // Обновление группы затрат (Матрица статей)
-    router.put('/api/finance/categories/:id/group', requireAdmin, async (req, res) => {
+    router.put('/api/finance/categories/:id/group', requireAdmin, validateCostGroup, async (req, res) => {
         try {
             const { cost_group } = req.body;
             await pool.query('UPDATE transaction_categories SET cost_group = $1 WHERE id = $2', [cost_group, req.params.id]);
@@ -540,7 +541,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
-    router.post('/api/counterparties', requireAdmin, async (req, res) => {
+    router.post('/api/counterparties', requireAdmin, validateCounterparty, async (req, res) => {
         // 🚀 ИСПРАВЛЕНИЕ: Добавили price_level и type
         const { name, role, type, price_level, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type, is_buyer, is_supplier } = req.body;
         try {
@@ -560,7 +561,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
-    router.put('/api/counterparties/:id', requireAdmin, async (req, res) => {
+    router.put('/api/counterparties/:id', requireAdmin, validateCounterparty, async (req, res) => {
         // 🚀 ИСПРАВЛЕНИЕ: Добавили price_level и type
         const { name, role, type, price_level, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type, is_buyer, is_supplier } = req.body;
         try {
@@ -577,7 +578,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
-    router.post('/api/counterparties/:id/correction', requireAdmin, async (req, res) => {
+    router.post('/api/counterparties/:id/correction', requireAdmin, validateCorrection, async (req, res) => {
         const cpId = req.params.id;
         const { amount, type, date, description } = req.body;
         try {
@@ -679,7 +680,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
-    router.post('/api/invoices', requireAdmin, async (req, res) => {
+    router.post('/api/invoices', requireAdmin, validateInvoice, async (req, res) => {
         const { cp_id, amount, desc } = req.body;
         let client;
         try {
@@ -734,7 +735,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
-    router.post('/api/invoices/:id/pay', async (req, res) => {
+    router.post('/api/invoices/:id/pay', validatePayment, async (req, res) => {
         const { account_id, is_order } = req.body;
         const docId = req.params.id;
 
@@ -946,7 +947,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
-    router.post('/api/accounts', requireAdmin, async (req, res) => {
+    router.post('/api/accounts', requireAdmin, validateAccount, async (req, res) => {
         const { name, type, balance } = req.body;
         try {
             await pool.query('INSERT INTO accounts (name, type, balance) VALUES ($1, $2, $3)', [name, type, balance || 0]);
@@ -958,7 +959,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     });
 
     // 🚀 ПЕРЕНЕСЕННЫЙ МАРШРУТ ИЗ WEB.JS: Переименование счета
-    router.put('/api/accounts/:id', requireAdmin, async (req, res) => {
+    router.put('/api/accounts/:id', requireAdmin, validateAccountEdit, async (req, res) => {
         const { name } = req.body;
         try {
             await pool.query('UPDATE accounts SET name = $1 WHERE id = $2', [name, req.params.id]);
@@ -968,7 +969,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
-    router.post('/api/transactions', requireAdmin, async (req, res) => {
+    router.post('/api/transactions', requireAdmin, validateTransaction, async (req, res) => {
         // 🚀 1. ДОБАВИЛИ ПРИЕМ НОВЫХ ПОЛЕЙ: cost_group_override и remember_rule
         let { amount, type, category, description, method, account_id, counterparty_id, employee_mode, cost_group_override, remember_rule, date } = req.body;
 
@@ -979,9 +980,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             category = 'Перевод';
         }
 
-        if (parseFloat(amount) <= 0 || isNaN(parseFloat(amount))) {
-            return res.status(400).json({ error: 'Сумма операции должна быть больше нуля!' });
-        }
+        // 🛡️ AUDIT-018: ad-hoc проверка amount удалена — покрыта validateTransaction middleware
 
         try {
             await withTransaction(pool, async (client) => {
@@ -1089,10 +1088,9 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
-    router.post('/api/transactions/transfer', requireAdmin, async (req, res) => {
+    router.post('/api/transactions/transfer', requireAdmin, validateTransfer, async (req, res) => {
         const { from_account_id, to_account_id, amount, description, date } = req.body;
-        if (parseFloat(amount) <= 0 || isNaN(parseFloat(amount))) return res.status(400).json({ error: 'Сумма перевода должна быть больше нуля!' });
-        if (String(from_account_id) === String(to_account_id)) return res.status(400).json({ error: 'Нельзя перевести деньги на тот же счет!' });
+        // 🛡️ AUDIT-018: ad-hoc проверки amount и from===to удалены — покрыты validateTransfer middleware
 
         const finalDate = date ? new Date(date).toISOString() : new Date().toISOString();
 
@@ -1255,7 +1253,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
-    router.put('/api/transactions/:id', requireAdmin, async (req, res) => {
+    router.put('/api/transactions/:id', requireAdmin, validateTransactionEdit, async (req, res) => {
         const { id } = req.params;
         // 🚀 Добавили прием cost_group_override и remember_rule
         const { description, amount, category, account_id, counterparty_id, transaction_date, cost_group_override, remember_rule } = req.body;
