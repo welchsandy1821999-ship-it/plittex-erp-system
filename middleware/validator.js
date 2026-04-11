@@ -333,7 +333,7 @@ module.exports = {
 
     /** POST /api/inventory/sifting — просеивание сырья */
     validateSifting: (req, res, next) => {
-        const { sourceId, sourceQty, outputs } = req.body;
+        const { sourceId, sourceQty, outputs, date } = req.body;
         const errors = [];
 
         if (!sourceId || isNaN(parseInt(sourceId))) {
@@ -343,6 +343,20 @@ module.exports = {
         const parsedQty = parseFloat(sourceQty);
         if (isNaN(parsedQty) || parsedQty <= 0) {
             errors.push('Количество исходного сырья должно быть больше нуля.');
+        }
+
+        // Валидация даты (опциональное поле)
+        if (date) {
+            const parsedDate = new Date(date);
+            if (isNaN(parsedDate.getTime())) {
+                errors.push('Некорректный формат даты переработки.');
+            } else {
+                const today = new Date();
+                today.setHours(23, 59, 59, 999);
+                if (parsedDate > today) {
+                    errors.push('Дата переработки не может быть в будущем.');
+                }
+            }
         }
 
         if (!outputs || !Array.isArray(outputs) || outputs.length === 0) {

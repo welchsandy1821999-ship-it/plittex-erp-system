@@ -803,14 +803,30 @@ window.openSiftingModal = function() {
     const modal = document.getElementById('modal-sifting');
     modal.classList.remove('d-none');
     modal.classList.add('d-flex');
-    // Небольшая задержка для плавности CSS-перехода, если он есть
     setTimeout(() => modal.classList.add('active'), 10);
 
     document.getElementById('sifting-amount').value = '';
     document.getElementById('sifting-out1-qty').value = '';
     document.getElementById('sifting-out2-qty').value = '';
-    
-    // По умолчанию стоит Песок основной (155)
+
+    // Инициализация Flatpickr для даты переработки
+    const dateEl = document.getElementById('sifting-date');
+    if (dateEl) {
+        if (dateEl._flatpickr) dateEl._flatpickr.destroy();
+        // Берём дату из глобального фильтра "Остатки на дату", или текущую
+        let defaultDate = new Date();
+        if (inventoryDatePicker && inventoryDatePicker.selectedDates.length > 0) {
+            defaultDate = inventoryDatePicker.selectedDates[0];
+        }
+        flatpickr(dateEl, {
+            dateFormat: 'Y-m-d',
+            altInput: true,
+            altFormat: 'd.m.Y',
+            locale: 'ru',
+            maxDate: 'today',
+            defaultDate: defaultDate
+        });
+    }
 };
 
 window.closeSiftingModal = function() {
@@ -843,9 +859,11 @@ window.executeSifting = async function() {
     if (isNaN(out1Qty) || isNaN(out2Qty)) return UI.toast('Ошибка в расчетах выхода сырья', 'error');
 
     try {
+        const siftingDate = document.getElementById('sifting-date').value || null;
         const res = await API.post('/api/inventory/sifting', {
             sourceId,
             sourceQty,
+            date: siftingDate,
             outputs: [
                 { id: out1Id, qty: out1Qty },
                 { id: out2Id, qty: out2Qty }

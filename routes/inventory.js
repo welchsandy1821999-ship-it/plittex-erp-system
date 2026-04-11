@@ -603,7 +603,7 @@ module.exports = function (pool, getWhId, withTransaction) {
     // 2. МАРШРУТ: ПРОСЕИВАНИЕ (ПЕРЕРАБОТКА) СЫРЬЯ
     // ------------------------------------------------------------------
     router.post('/api/inventory/sifting', requireAdmin, validateSifting, async (req, res) => {
-        const { sourceId, sourceQty, outputs } = req.body;
+        const { sourceId, sourceQty, outputs, date } = req.body;
         // 🛡️ AUDIT-018: ad-hoc проверка удалена — покрыта validateSifting middleware
 
         try {
@@ -624,17 +624,17 @@ module.exports = function (pool, getWhId, withTransaction) {
 
                 // 2. Списываем исходное сырье
                 await client.query(`
-                    INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id)
-                    VALUES ($1, $2, 'sifting_expense', $3, $4)
-                `, [sourceId, -sourceQty, `Просеивание`, materialsWh]);
+                    INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, movement_date)
+                    VALUES ($1, $2, 'sifting_expense', $3, $4, COALESCE($5::timestamp, CURRENT_TIMESTAMP))
+                `, [sourceId, -sourceQty, `Просеивание`, materialsWh, date || null]);
 
                 // 3. Приходуем выходы
                 for (let out of outputs) {
                     if (out.qty > 0) {
                         await client.query(`
-                            INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id)
-                            VALUES ($1, $2, 'sifting_receipt', $3, $4)
-                        `, [out.id, out.qty, `Из просеивания (исходник ID: ${sourceId})`, materialsWh]);
+                            INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, movement_date)
+                            VALUES ($1, $2, 'sifting_receipt', $3, $4, COALESCE($5::timestamp, CURRENT_TIMESTAMP))
+                        `, [out.id, out.qty, `Из просеивания (исходник ID: ${sourceId})`, materialsWh, date || null]);
                     }
                 }
             });
