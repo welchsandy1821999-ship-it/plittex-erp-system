@@ -1,5 +1,6 @@
 // [Блок 1: Подключение модулей и конфигурация]
 require('dotenv').config();
+const logger = require('./utils/logger');
 
 // [Блок 1.1: Sentry — Мониторинг ошибок (безопасная инициализация)]
 const Sentry = require('@sentry/node');
@@ -9,9 +10,9 @@ if (process.env.SENTRY_DSN) {
         environment: process.env.NODE_ENV || 'development',
         tracesSampleRate: 0.2, // 20% транзакций для мониторинга производительности
     });
-    console.log('✅ Sentry инициализирован.');
+    logger.info('✅ Sentry инициализирован.');
 } else {
-    console.log('ℹ️  SENTRY_DSN не задан — мониторинг Sentry отключен.');
+    logger.info('ℹ️  SENTRY_DSN не задан — мониторинг Sentry отключен.');
 }
 
 const express = require('express');
@@ -24,8 +25,10 @@ const path = require('path');
 const jwt = require('jsonwebtoken');
 const Big = require('big.js');
 const bcrypt = require('bcrypt');
+const helmet = require('helmet');
+const cors = require('cors');
+const compression = require('compression');
 
-const logger = require('./utils/logger');
 const { sendNotify, bot, chatId } = require('./utils/telegram');
 
 Big.RM = Big.roundHalfUp;
@@ -43,11 +46,15 @@ const pool = new Pool({
     host: process.env.DB_HOST,
     database: process.env.DB_NAME,
     password: process.env.DB_PASSWORD,
-    port: process.env.DB_PORT
+    port: process.env.DB_PORT,
+    max: 20,                        // Максимум подключений в пуле
+    idleTimeoutMillis: 30000,       // Закрывать idle через 30с
+    connectionTimeoutMillis: 5000,  // Таймаут на подключение к БД
+    statement_timeout: 30000        // Убивать запросы длиннее 30с
 });
 
 pool.on('error', (err) => {
-    console.error('🚨 Непредвиденная ошибка в пуле соединений БД:', err.message);
+    logger.error(`🚨 Непредвиденная ошибка в пуле соединений БД: ${err.message}`);
 });
 
 app.set('io', io);
@@ -78,6 +85,17 @@ const upload = multer({ storage: storage, fileFilter: fileFilter });
 
 app.set('view engine', 'ejs');
 app.set('views', './views');
+
+// [Блок 2.1: Security & Performance Middleware]
+app.use(helmet({
+    contentSecurityPolicy: false // Отключаем CSP для inline-скриптов в EJS
+}));
+app.use(cors({
+    origin: process.env.CORS_ORIGIN || '*',
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    credentials: true
+}));
+app.use(compression());
 
 app.use(express.static('public'));
 app.use(express.json({ limit: '50mb' }));
@@ -205,6 +223,25 @@ const docsRoutes = require('./routes/docs')(pool, ERP_CONFIG, withTransaction, g
 const devRoutes = require('./routes/dev')(pool, withTransaction, logger);
 
 // Защита API (Глобальная проверка токена JWT)
+// Health-check идёт ДО JWT — доступен без авторизации (для Docker/мониторинга)
+app.get('/api/health', async (req, res) => {
+    const start = Date.now();
+    try {
+        await pool.query('SELECT 1');
+        res.json({
+            status: 'healthy',
+            uptime: Math.round(process.uptime()),
+            dbResponseMs: Date.now() - start,
+            timestamp: new Date().toISOString()
+        });
+    } catch (err) {
+        res.status(503).json({
+            status: 'degraded',
+            error: 'Database unavailable',
+            timestamp: new Date().toISOString()
+        });
+    }
+});
 app.use('/api', authenticateToken);
 
 // Регистрация маршрутов
