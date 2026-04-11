@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const Big = require('big.js');
 const { requireAdmin } = require('../middleware/auth');
-const { validateSalaryAdjustment } = require('../middleware/validator');
+const { validateSalaryAdjustment, validateTimesheetCell, validateMassBonus, validateSalaryPay } = require('../middleware/validator');
 
 // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (Вне экспорта) ===
 
@@ -112,9 +112,9 @@ module.exports = function (pool, withTransaction) {
     });
 
     // ОБНОВЛЕННЫЙ РОУТ: Сохранение ячейки табеля
-    router.post('/api/timesheet/cell', requireAdmin, async (req, res) => {
+    router.post('/api/timesheet/cell', requireAdmin, validateTimesheetCell, async (req, res) => {
         const { employee_id, date, status, bonus, penalty, bonus_comment, penalty_comment, multiplier } = req.body;
-        const monthStr = date.substring(0, 7); // Получаем YYYY-MM из даты
+        const monthStr = date.substring(0, 7);
 
         try {
             // 🛡️ ЗАЩИТА: Проверяем, не закрыт ли месяц
@@ -122,23 +122,14 @@ module.exports = function (pool, withTransaction) {
                 return res.status(403).json({ error: "Этот месяц уже закрыт для редактирования" });
             }
 
-            // 🛡️ ВАЛИДАЦИЯ СТАТУСА: Белый список допустимых значений
-            const VALID_STATUSES = ['present', 'partial', 'weekend', 'absent', 'sick', 'vacation'];
-            if (!VALID_STATUSES.includes(status)) {
-                return res.status(400).json({ error: `Недопустимый статус: ${status}` });
-            }
+            // 🛡️ AUDIT-018: status whitelist, bonus/penalty/multiplier перенесены в validateTimesheetCell middleware
 
-            // 🧮 ВАЛИДАЦИЯ: Гарантируем точность чисел через Big.js
+            // 🧲 Big.js конверсия (после валидации)
             const safeBonus = new Big(bonus || 0);
             const safePenalty = new Big(penalty || 0);
-            if (safeBonus.lt(0)) return res.status(400).json({ error: 'Премия не может быть отрицательной' });
-            if (safePenalty.lt(0)) return res.status(400).json({ error: 'Штраф не может быть отрицательным' });
 
-            // 🛡️ ВАЛИДАЦИЯ МНОЖИТЕЛЯ: Жёсткие лимиты 0.0 - 1.0
             let safeMultiplier = multiplier !== undefined ? parseFloat(multiplier) : 1.0;
-            if (isNaN(safeMultiplier) || safeMultiplier < 0 || safeMultiplier > 1.0) {
-                safeMultiplier = 1.0;
-            }
+            if (isNaN(safeMultiplier)) safeMultiplier = 1.0;
 
             await pool.query(`
             INSERT INTO timesheet_records (employee_id, record_date, status, bonus, penalty, bonus_comment, penalty_comment, multiplier)
@@ -171,7 +162,7 @@ module.exports = function (pool, withTransaction) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    router.post('/api/timesheet/mass-bonus', requireAdmin, async (req, res) => {
+    router.post('/api/timesheet/mass-bonus', requireAdmin, validateMassBonus, async (req, res) => {
         // 🚀 1. Принимаем только дату и список рабочих
         const { date, workersData } = req.body;
         const monthStr = date.substring(0, 7);
@@ -194,9 +185,9 @@ module.exports = function (pool, withTransaction) {
                 let totalKtu = 0;
                 let validWorkers = [];
 
+                // 🛡️ AUDIT-018: проверка ktu 0-5 перенесена в validateMassBonus middleware
                 for (let w of (workersData || [])) {
                     const k = parseFloat(w.ktu) || 0;
-                    if (k < 0 || k > 5) throw new Error("КТУ должно быть от 0 до 5");
                     totalKtu += k;
                     validWorkers.push({ id: w.employee_id, ktu: k, custom_rate: parseFloat(w.custom_rate) || 0, bonus: 0 });
                 }
@@ -262,9 +253,9 @@ module.exports = function (pool, withTransaction) {
         } catch (err) { res.status(500).json({ error: err.message }); }
     });
 
-    router.post('/api/salary/pay', requireAdmin, async (req, res) => {
+    router.post('/api/salary/pay', requireAdmin, validateSalaryPay, async (req, res) => {
         const { employee_id, amount, date, description, account_id, imprest_deduction } = req.body;
-        const monthStr = date.substring(0, 7); // Извлекаем YYYY-MM из даты выплаты
+        const monthStr = date.substring(0, 7);
 
         try {
             // 🛡️ ЗАЩИТА: Проверяем, не закрыт ли месяц
@@ -272,8 +263,8 @@ module.exports = function (pool, withTransaction) {
                 return res.status(403).json({ error: "Этот месяц уже закрыт. Проводить выплаты этим числом нельзя." });
             }
 
+            // 🛡️ AUDIT-018: проверка amount < 0 перенесена в validateSalaryPay middleware
             const payAmount = new Big(amount || 0);
-            if (payAmount.lt(0)) throw new Error('Сумма не может быть отрицательной');
             const amountStr = payAmount.toFixed(2);
             const deductionAmount = new Big(imprest_deduction || 0);
 

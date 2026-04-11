@@ -666,5 +666,110 @@ module.exports = {
 
         if (errors.length > 0) return _validationError(res, errors);
         next();
+    },
+
+    // ------------------------------------------
+    // HR & ЗАРПЛАТЫ (hr.js) — Phase 6.16
+    // ------------------------------------------
+
+    /** POST /api/timesheet/cell — сохранение ячейки табеля */
+    validateTimesheetCell: (req, res, next) => {
+        const { employee_id, date, status, bonus, penalty, multiplier } = req.body;
+        const errors = [];
+
+        if (!employee_id || isNaN(parseInt(employee_id))) {
+            errors.push('Не указан сотрудник (employee_id).');
+        }
+
+        if (!date) {
+            errors.push('Не указана дата.');
+        }
+
+        const VALID_STATUSES = ['present', 'partial', 'weekend', 'absent', 'sick', 'vacation'];
+        if (!status || !VALID_STATUSES.includes(status)) {
+            errors.push(`Недопустимый статус. Допустимые: ${VALID_STATUSES.join(', ')}.`);
+        }
+
+        if (bonus !== undefined && bonus !== null && bonus !== '') {
+            const b = parseFloat(bonus);
+            if (isNaN(b) || b < 0) {
+                errors.push('Премия не может быть отрицательной.');
+            }
+        }
+
+        if (penalty !== undefined && penalty !== null && penalty !== '') {
+            const p = parseFloat(penalty);
+            if (isNaN(p) || p < 0) {
+                errors.push('Штраф не может быть отрицательным.');
+            }
+        }
+
+        if (multiplier !== undefined && multiplier !== null) {
+            const m = parseFloat(multiplier);
+            if (isNaN(m) || m < 0 || m > 1.0) {
+                errors.push('Множитель должен быть от 0.0 до 1.0.');
+            }
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
+    },
+
+    /** POST /api/timesheet/mass-bonus — массовое начисление сделки */
+    validateMassBonus: (req, res, next) => {
+        const { date, workersData } = req.body;
+        const errors = [];
+
+        if (!date) {
+            errors.push('Не указана дата.');
+        }
+
+        if (!workersData || !Array.isArray(workersData) || workersData.length === 0) {
+            errors.push('Список рабочих пуст.');
+        } else {
+            for (let i = 0; i < workersData.length; i++) {
+                const w = workersData[i];
+                if (!w.employee_id || isNaN(parseInt(w.employee_id))) {
+                    errors.push(`Рабочий #${i + 1}: не указан ID сотрудника.`);
+                }
+                const ktu = parseFloat(w.ktu);
+                if (isNaN(ktu) || ktu < 0 || ktu > 5) {
+                    errors.push(`Рабочий #${i + 1}: КТУ должно быть от 0 до 5.`);
+                }
+            }
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
+    },
+
+    /** POST /api/salary/pay — выплата зарплаты */
+    validateSalaryPay: (req, res, next) => {
+        const { employee_id, amount, date, account_id } = req.body;
+        const errors = [];
+
+        if (!employee_id || isNaN(parseInt(employee_id))) {
+            errors.push('Не указан сотрудник (employee_id).');
+        }
+
+        if (amount === undefined || amount === null) {
+            errors.push('Не указана сумма выплаты.');
+        } else {
+            const a = parseFloat(amount);
+            if (isNaN(a) || a < 0) {
+                errors.push('Сумма выплаты не может быть отрицательной.');
+            }
+        }
+
+        if (!date) {
+            errors.push('Не указана дата выплаты.');
+        }
+
+        if (!account_id || isNaN(parseInt(account_id))) {
+            errors.push('Не указан счёт/касса (account_id).');
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
     }
 };

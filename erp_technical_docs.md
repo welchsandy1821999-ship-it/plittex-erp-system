@@ -354,8 +354,11 @@ UPDATE accounts a SET balance = ROUND(COALESCE((
   - `validateShipment` → `POST /api/sales/orders/:id/ship` (items_to_ship массив с coi_id/qty > 0)
   - `validateTransferReserve` → `POST /api/sales/transfer-reserve` (donor_coi_id, recipient_coi_id, transfer_qty > 0)
   - `validateOrderStatus` → `PUT /api/sales/orders/:id/status` (status ∈ pending/processing/completed/cancelled)
+  - `validateTimesheetCell` → `POST /api/timesheet/cell` (employee_id, date, status whitelist, bonus/penalty ≥ 0, multiplier 0–1)
+  - `validateMassBonus` → `POST /api/timesheet/mass-bonus` (date, workersData массив с employee_id и ktu 0–5)
+  - `validateSalaryPay` → `POST /api/salary/pay` (employee_id, amount ≥ 0, date, account_id)
 - **Утилиты:** `_isValidInn(inn)`, `_isValidKpp(kpp)`, `_isValidEmail(email)` — приватные функции
-- **Покрыто модулей:** Справочники, Кадры, Финансы, Склад, Производство, Продажи
+- **Покрыто модулей:** Справочники, Кадры, Финансы, Склад, Производство, Продажи, HR
 
 ---
 

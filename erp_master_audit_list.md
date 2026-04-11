@@ -228,7 +228,7 @@ FK `client_orders.counterparty_id → counterparties.id` имеет правил
 - `POST /api/counterparties` — не валидирует формат ИНН (10/12 цифр), КПП (9 цифр).
 - `POST /api/invoices` — `amount` и `cp_id` не проверяются на числовой тип.  
 **Рекомендация:** Joi / express-validator на уровне middleware.
-**Статус:** 🟡 В ПРОЦЕССЕ — **Phase 6.12:** Финансы (13). **Phase 6.13:** Склад (7). **Phase 6.14:** Производство (3). **Phase 6.15 (11.04.2026):** Продажи покрыт (5 маршрутов: validateCheckout, validateReturn, validateShipment, validateTransferReserve, validateOrderStatus). **Итого:** 30 маршрутов через middleware (26 валидаторов в validator.js). Осталось: HR (6), Docs (4).
+**Статус:** 🟡 В ПРОЦЕССЕ — **Phase 6.12:** Финансы (13). **Phase 6.13:** Склад (7). **Phase 6.14:** Производство (3). **Phase 6.15:** Продажи (5). **Phase 6.16 (11.04.2026):** HR покрыт (3 новых: validateTimesheetCell, validateMassBonus, validateSalaryPay + 1 существ. validateSalaryAdjustment). **Итого:** 34 маршрута через middleware (29 валидаторов в validator.js). Осталось: Docs (4).
 
 ---
 
