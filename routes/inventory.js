@@ -891,7 +891,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     STRING_AGG(DISTINCT m.movement_type, ', ') as movement_types,
                     m.batch_id, MAX(b.batch_number) as batch_number,
                     m.user_id, MAX(u.username) as user_name,
-                    m.order_id, MAX(o.doc_number) as order_doc,
+                    COALESCE(m.order_id, coi.order_id) as order_id, MAX(COALESCE(o.doc_number, o2.doc_number)) as order_doc,
                     m.supplier_id, MAX(c.name) as supplier_name,
                     SUM(CASE WHEN m.quantity > 0 THEN m.quantity ELSE 0 END) as qty_in,
                     SUM(CASE WHEN m.quantity < 0 THEN ABS(m.quantity) ELSE 0 END) as qty_out,
@@ -906,12 +906,14 @@ module.exports = function (pool, getWhId, withTransaction) {
                 LEFT JOIN warehouses w ON m.warehouse_id = w.id
                 LEFT JOIN production_batches b ON m.batch_id = b.id
                 LEFT JOIN client_orders o ON m.order_id = o.id
+                LEFT JOIN client_order_items coi ON m.linked_order_item_id = coi.id
+                LEFT JOIN client_orders o2 ON coi.order_id = o2.id
                 LEFT JOIN counterparties c ON m.supplier_id = c.id
                 LEFT JOIN users u ON m.user_id = u.id
                 WHERE ${filterConditions.join(' AND ')}
                 GROUP BY 
                     date_trunc('minute', m.movement_date), 
-                    m.item_id, m.batch_id, m.user_id, m.order_id, m.supplier_id
+                    m.item_id, m.batch_id, m.user_id, COALESCE(m.order_id, coi.order_id), m.supplier_id
                 ORDER BY op_date ASC
             `;
 

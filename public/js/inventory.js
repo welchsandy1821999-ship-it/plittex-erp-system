@@ -1407,14 +1407,18 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
                 <span class="badge bg-light text-dark border">${rawDest}</span>
             `;
 
-            let decryption = '';
+            let chips = [];
             if (m.supplier_name) {
-                 decryption = `<a class="chip" href="javascript:void(0)" onclick="openClientStatsModal(${m.supplier_id}, '${Utils.escapeHtml(m.supplier_name)}')">Поставщик: ${Utils.escapeHtml(m.supplier_name)} 🔗</a>`;
-            } else if (m.order_doc) {
-                 decryption = `<a class="chip" href="javascript:void(0)" onclick="app.openEntity('document_order', ${m.order_id})">Заказ: ${Utils.escapeHtml(m.order_doc)} 🔗</a>`;
-            } else if (m.batch_number) {
-                 decryption = `<a class="chip" href="javascript:void(0)" onclick="openBatchCard(${m.batch_id})">Партия: #${Utils.escapeHtml(m.batch_number)} 🔗</a>`;
+                 chips.push(`<a class="chip" href="javascript:void(0)" onclick="openClientStatsModal(${m.supplier_id}, '${Utils.escapeHtml(m.supplier_name)}')">Поставщик: ${Utils.escapeHtml(m.supplier_name)} 🔗</a>`);
             }
+            if (m.order_doc) {
+                 chips.push(`<a class="chip" href="javascript:void(0)" onclick="app.openEntity('document_order', ${m.order_id})">Заказ: ${Utils.escapeHtml(m.order_doc)} 🔗</a>`);
+            }
+            if (m.batch_number) {
+                 chips.push(`<a class="chip" href="javascript:void(0)" onclick="openBatchCard(${m.batch_id})">Партия: #${Utils.escapeHtml(m.batch_number)} 🔗</a>`);
+            }
+            
+            let decryption = chips.length > 0 ? chips.join(' <span style="margin: 0 4px;"></span> ') : '';
 
             let priceHtml = '';
             if (m.unit_price && parseFloat(m.unit_price) > 0) {
