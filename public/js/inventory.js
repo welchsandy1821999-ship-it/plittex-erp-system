@@ -1360,6 +1360,15 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
         html += `<div class="p-20 text-center text-muted font-italic">Движений не найдено</div>`;
     } else {
         let matchCount = 0;
+        let lastGroupKey = '';
+        
+        let unitStrShared = history.length > 0 && history[0].unit ? ' ' + Utils.escapeHtml(history[0].unit) : '';
+        html += `
+        <div class="mc-start-balance">
+            <span>🏁 [Начало периода]</span>
+            <span class="ms-2">Начальный остаток: <b>${parseFloat(startBalance).toLocaleString('ru-RU', {minimumFractionDigits: 2})}${unitStrShared}</b></span>
+        </div>`;
+
         history.forEach(m => {
             const qty_in = parseFloat(m.qty_in || 0);
             const qty_out = parseFloat(m.qty_out || 0);
@@ -1373,7 +1382,10 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
             sumOut += outQty;
             currentBalance += qty_diff;
             
-            let dateStr = new Date(m.op_date || m.movement_date).toLocaleString('ru-RU', {day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'});
+            let dateObj = new Date(m.op_date || m.movement_date);
+            let dateStr = dateObj.toLocaleString('ru-RU', {day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'});
+            let dateDay = dateObj.toLocaleDateString('ru-RU', {day: '2-digit', month: '2-digit', year: 'numeric'});
+            let timeStr = dateObj.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
             
             let whFrom = m.warehouse_from;
             let whTo = m.warehouse_to;
@@ -1401,12 +1413,6 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
             
             let rawDest = whTo ? Utils.escapeHtml(whTo) : (m.movement_type === 'sale' ? 'Клиент' : (m.movement_type === 'scrap' ? 'Утиль' : 'Списание'));
             
-            let routeHtml = `
-                <span class="badge bg-light text-dark border">${rawSource}</span> 
-                <span class="movement-route-arrow text-muted">➔</span> 
-                <span class="badge bg-light text-dark border">${rawDest}</span>
-            `;
-
             let chips = [];
             if (m.supplier_name) {
                  chips.push(`<a class="chip" href="javascript:void(0)" onclick="app.openEntity('client', ${m.supplier_id})">Поставщик: ${Utils.escapeHtml(m.supplier_name)} 🔗</a>`);
@@ -1456,36 +1462,44 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
             else if (routeClass === 'out') bgClass = 'bg-danger-light';
             else if (routeClass === 'transfer') bgClass = 'bg-warning-light';
 
+            let groupKey = `${dateDay}_${typeName}_${rawSource}_${rawDest}_${m.supplier_name||''}`;
+            
+            if (groupKey !== lastGroupKey) {
+                let counterpartyHtml = m.supplier_name ? `<span class="mc-gh-client"> | ${Utils.escapeHtml(m.supplier_name)}</span>` : '';
+                html += `
+                <div class="mc-group-header">
+                    <span class="mc-gh-date">[${dateDay}]</span>
+                    <span class="mc-gh-type">${typeName}</span>
+                    <span class="mc-gh-route">${rawSource} ➔ ${rawDest}</span>
+                    ${counterpartyHtml}
+                </div>`;
+                lastGroupKey = groupKey;
+            }
+
             html += `
-                <div class="movement-card ${bgClass}">
-                    <div class="mc-left">
-                        <div class="mc-meta">
-                            <span>🕒 ${dateStr}</span>
-                            <span>👤 ${Utils.escapeHtml(m.user_name || 'Авто')}</span>
-                            <span>🏷️ ${typeName}</span>
-                        </div>
-                        <div class="mc-route-badge">
-                            ${routeHtml}
-                        </div>
-                        ${(() => {
-                            // Дедупликация: убираем из description упоминания,
-                            // которые уже показаны как кликабельные чипы
-                            let cleanDesc = (m.description || '');
-                            if (m.batch_number) {
-                                cleanDesc = cleanDesc.replace(/,?\s*Партия[:\s#]*\S+/gi, '');
-                            }
-                            if (m.order_doc) {
-                                cleanDesc = cleanDesc.replace(/,?\s*(?:Заказ[у]?|по заказу)[:\s]*ЗК-\d+/gi, '');
-                            }
-                            cleanDesc = cleanDesc.replace(/^[\s,|:]+|[\s,|:]+$/g, '').replace(/\s{2,}/g, ' ').trim();
-                            return cleanDesc ? `<div class="mc-desc">${Utils.escapeHtml(cleanDesc)}</div>` : '';
-                        })()}
-                        ${decryption ? `<div class="mc-link">${decryption}</div>` : ''}
+                <div class="movement-card mc-compact ${bgClass}">
+                    <div class="mc-compact-col mc-col-time">
+                        🕒 <b>${timeStr}</b>
                     </div>
-                    <div class="mc-right">
+                    <div class="mc-compact-col mc-col-user">
+                        👤 ${Utils.escapeHtml(m.user_name || 'Авто')}
+                    </div>
+                    <div class="mc-compact-col mc-col-amount">
                         ${amountHtml}
-                        <div class="mc-balance">Остаток: ${balanceStr}</div>
-                        ${priceHtml ? `<div class="mc-finance">${priceHtml}</div>` : ''}
+                        ${priceHtml ? `<div style="font-weight:normal; font-size:11px; margin-top:2px;">${priceHtml}</div>` : ''}
+                    </div>
+                    <div class="mc-compact-col mc-col-balance text-muted">
+                        Ост: ${balanceStr}
+                    </div>
+                    <div class="mc-compact-col mc-col-desc text-muted">
+                        ${(() => {
+                            let cleanDesc = (m.description || '');
+                            if (m.batch_number) cleanDesc = cleanDesc.replace(/,?\s*Партия[:\s#]*\S+/gi, '');
+                            if (m.order_doc) cleanDesc = cleanDesc.replace(/,?\s*(?:Заказ[у]?|по заказу)[:\s]*ЗК-\d+/gi, '');
+                            cleanDesc = cleanDesc.replace(/^[\s,|:]+|[\s,|:]+$/g, '').replace(/\s{2,}/g, ' ').trim();
+                            return cleanDesc ? `📝 ${Utils.escapeHtml(cleanDesc)}` : '';
+                        })()}
+                        ${decryption ? `<div class="mc-link" style="margin-top: 2px;">${decryption}</div>` : ''}
                     </div>
                 </div>
             `;

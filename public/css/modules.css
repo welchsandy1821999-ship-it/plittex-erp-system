@@ -5483,6 +5483,73 @@
 .mc-summary-balance b { font-size: 16px; font-weight: 700; }
 .mc-summary-totals { display: flex; gap: 20px; align-items: center; font-size: 13px; }
 
+/* --- Банковский реестр (Новый дизайн Карточки Движения) --- */
+.mc-start-balance {
+    background: var(--surface-alt);
+    padding: 10px 15px;
+    border-radius: 6px;
+    margin-bottom: 15px;
+    font-size: 13px;
+    color: var(--text-main);
+    display: flex;
+}
+
+.mc-group-header {
+    background: var(--surface-alt);
+    padding: 8px 12px;
+    margin-top: 15px;
+    border-radius: 6px 6px 0 0;
+    font-size: 13px;
+    font-weight: bold;
+    color: var(--text-main);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.mc-gh-date { color: var(--text-muted); font-weight: normal; }
+.mc-gh-client { color: var(--text-muted); font-weight: normal; }
+
+.movement-card.mc-compact {
+    padding: 8px 12px;
+    margin-bottom: 0;
+    border-radius: 0;
+    border-top: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: 80px 100px 180px 180px auto;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    min-height: 44px;
+}
+
+.movement-card.mc-compact:last-child {
+    border-radius: 0 0 6px 6px;
+    margin-bottom: 12px;
+}
+
+.mc-compact-col {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.mc-col-time { color: var(--text-main); }
+.mc-col-amount { font-weight: bold; }
+.mc-col-balance { font-size: 11px; }
+.mc-col-desc { font-style: italic; overflow: hidden; text-overflow: ellipsis; }
+
+/* Адаптивность для мобильных */
+@media (max-width: 768px) {
+    .movement-card.mc-compact {
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto auto auto;
+    }
+    .mc-col-desc { grid-column: 1 / -1; }
+}
+
 /* Жёсткий каркас модалки истории движения */
 #modal-item-history .modal-content {
     max-height: 90vh;
