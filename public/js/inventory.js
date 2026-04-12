@@ -347,6 +347,10 @@ function renderInventoryTable() {
         let actionHtml = '';
         let qtyHtml = '';
 
+        const batchCell = item.batch_number && item.batch_id
+            ? `<button class="btn-link-modern border-0 bg-transparent text-primary font-bold p-0" style="cursor:pointer;" onclick="openBatchCard(${item.batch_id})">#${Utils.escapeHtml(item.batch_number)}</button>`
+            : (item.batch_number ? '#' + Utils.escapeHtml(item.batch_number) : `<span class="text-muted">—</span>`);
+
         if (isAuditMode) {
             qtyHtml = `<td class="inv-actions-cell">
                 <input type="number" class="input-modern audit-qty-input" 
@@ -395,7 +399,7 @@ function renderInventoryTable() {
                 : '<span class="badge inv-wh-badge">Без привязки</span>';
             tbody.innerHTML += `
             <tr>
-                <td class="inv-batch-cell">${item.batch_number ? '#' + Utils.escapeHtml(item.batch_number) : '-'}</td>
+                <td class="inv-batch-cell">${batchCell}</td>
                 <td class="inv-name-cell" title="${Utils.escapeHtml(item.item_name)}">
                     <a href="javascript:void(0)" onclick="openItemHistory(${item.item_id}, ${item.warehouse_id})" class="text-primary text-decoration-none">
                         <strong>${Utils.escapeHtml(item.item_name)}</strong>
@@ -410,7 +414,7 @@ function renderInventoryTable() {
             tbody.innerHTML += `
             <tr>
                 <td><span class="badge inv-wh-badge">${Utils.escapeHtml(item.warehouse_name)}</span></td>
-                <td class="inv-batch-cell">${item.batch_number ? '#' + Utils.escapeHtml(item.batch_number) : (item.batch_id ? '#' + item.batch_id : '-')}</td>
+                <td class="inv-batch-cell">${batchCell}</td>
                 <td class="inv-name-cell" title="${Utils.escapeHtml(item.item_name)}">
                     <a href="javascript:void(0)" onclick="openItemHistory(${item.item_id}, ${item.warehouse_id === 'all' ? 'null' : item.warehouse_id})" class="text-primary text-decoration-none">
                         <strong>${Utils.escapeHtml(item.item_name)}</strong>
@@ -1481,6 +1485,7 @@ window.openBatchCard = async function(batchId) {
     badges.innerHTML = '';
     body.innerHTML = '<div class="p-20 text-center text-muted">⏳ Загрузка данных партии...</div>';
     modal.classList.remove('d-none');
+    modal.classList.add('active');
 
     try {
         const data = await API.get(`/api/inventory/batch/${batchId}/card`);
