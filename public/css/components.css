@@ -432,11 +432,11 @@ tr:hover {
 }
 
 /* Умное распределение ширины */
-.filter-panel .filter-period   { flex: 1.5; min-width: 250px; }
-.filter-panel .filter-warehouse{ flex: 1; min-width: 160px; }
-.filter-panel .filter-item     { flex: 1.5; min-width: 200px; }
-.filter-panel .filter-search   { flex: 1; min-width: 180px; }
-.filter-panel .filter-btn      { flex: 0 0 auto; width: 120px; }
+.filter-panel .filter-period   { flex: 1.5; min-width: 180px; }
+.filter-panel .filter-warehouse{ flex: 1; min-width: 130px; }
+.filter-panel .filter-item     { flex: 1.5; min-width: 150px; }
+.filter-panel .filter-search   { flex: 1; min-width: 140px; }
+.filter-panel .filter-btn      { flex: 0 0 auto; width: 110px; }
 
 /* [BACKUP ВРЕМЕННО ПРОСТРАНСТВА ОТКЛЮЧЕНО]
    ========================================================================== 
