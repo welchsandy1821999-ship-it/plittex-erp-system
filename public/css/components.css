@@ -415,13 +415,17 @@ tr:hover {
     display: flex;
     gap: 15px;
     align-items: flex-end;
-    flex-wrap: wrap;
+    /* ИЗМЕНЕНИЕ 1: Жестко запрещаем перенос кнопки на новую строку */
+    flex-wrap: nowrap; 
+    overflow-x: auto; /* Добавляем скролл, если экран сжимают до смартфона */
 }
 
 .filter-panel .form-group {
     margin-bottom: 0;
     display: flex;
     flex-direction: column;
+    /* ИЗМЕНЕНИЕ 2: Разрешаем обертке сжиматься меньше контента */
+    min-width: 0; 
 }
 
 .filter-panel label {
@@ -429,13 +433,22 @@ tr:hover {
     font-size: 12px;
     font-weight: 600;
     color: var(--text-muted);
+    /* Запрещаем тексту лейблов ломаться в 2 строки при сжатии */
+    white-space: nowrap; 
 }
 
-/* Умное распределение ширины */
-.filter-panel .filter-period   { flex: 1.5; min-width: 180px; }
-.filter-panel .filter-warehouse{ flex: 1; min-width: 130px; }
-.filter-panel .filter-item     { flex: 1.5; min-width: 150px; }
-.filter-panel .filter-search   { flex: 1; min-width: 140px; }
+/* ИЗМЕНЕНИЕ 3: Возвращаем правило для инпутов, которое я случайно удалил */
+.filter-panel .input-modern {
+    width: 100%;
+    min-width: 0; 
+    text-overflow: ellipsis;
+}
+
+/* Умное распределение ширины (убрали жесткие min-width, оставили только пропорции) */
+.filter-panel .filter-period   { flex: 1.5; }
+.filter-panel .filter-warehouse{ flex: 1.2; }
+.filter-panel .filter-item     { flex: 1.5; }
+.filter-panel .filter-search   { flex: 1; }
 .filter-panel .filter-btn      { flex: 0 0 auto; width: 110px; }
 
 /* [BACKUP ВРЕМЕННО ПРОСТРАНСТВА ОТКЛЮЧЕНО]
