@@ -1558,6 +1558,25 @@ function renderBatchCard(data, titleEl, badgesEl, bodyEl) {
     html += `<div class="text-muted font-12 mt-5">Объём: ${b.planned_quantity.toLocaleString('ru-RU')} ${b.product_unit} | Смена: ${b.shift_name || '—'} | Дата: ${b.production_date || '—'}</div>`;
     html += '</div>';
 
+    // === Аналитика ===
+    html += '<div class="batch-section-card">';
+    html += '<div class="batch-section-title">📈 Аналитика</div>';
+    html += '<div class="batch-analytics-grid">';
+    html += `<div class="batch-analytics-item"><div class="batch-analytics-value">${a.grade1_yield_pct !== null ? a.grade1_yield_pct + '%' : '—'}</div><div class="batch-analytics-label">Выход 1 сорта</div></div>`;
+    html += `<div class="batch-analytics-item"><div class="batch-analytics-value">${d.remaining.toLocaleString('ru-RU')}</div><div class="batch-analytics-label">Остаток (${b.product_unit})</div></div>`;
+    html += `<div class="batch-analytics-item"><div class="batch-analytics-value">${a.is_closed ? 'Закрыта' : 'Открыта'}</div><div class="batch-analytics-label">Статус партии</div></div>`;
+    html += '</div>';
+
+    // Распределение выхода
+    if (out.grade1 > 0 || out.grade2 > 0 || out.scrap > 0) {
+        html += '<div class="mt-10 font-12 text-muted">';
+        html += `1 сорт: <strong class="text-success">${out.grade1.toLocaleString('ru-RU')}</strong> | `;
+        html += `2 сорт: <strong class="text-warning">${out.grade2.toLocaleString('ru-RU')}</strong> | `;
+        html += `Утиль: <strong class="text-danger">${out.scrap.toLocaleString('ru-RU')}</strong>`;
+        html += '</div>';
+    }
+    html += '</div>';
+
     // === Сырьё и Экономика ===
     html += '<div class="batch-section-card">';
     html += '<div class="batch-section-title">💰 Сырьё и Экономика</div>';
@@ -1590,24 +1609,7 @@ function renderBatchCard(data, titleEl, badgesEl, bodyEl) {
     }
     html += '</div>';
 
-    // === Аналитика ===
-    html += '<div class="batch-section-card">';
-    html += '<div class="batch-section-title">📈 Аналитика</div>';
-    html += '<div class="batch-analytics-grid">';
-    html += `<div class="batch-analytics-item"><div class="batch-analytics-value">${a.grade1_yield_pct !== null ? a.grade1_yield_pct + '%' : '—'}</div><div class="batch-analytics-label">Выход 1 сорта</div></div>`;
-    html += `<div class="batch-analytics-item"><div class="batch-analytics-value">${d.remaining.toLocaleString('ru-RU')}</div><div class="batch-analytics-label">Остаток (${b.product_unit})</div></div>`;
-    html += `<div class="batch-analytics-item"><div class="batch-analytics-value">${a.is_closed ? 'Закрыта' : 'Открыта'}</div><div class="batch-analytics-label">Статус партии</div></div>`;
-    html += '</div>';
 
-    // Распределение выхода
-    if (out.grade1 > 0 || out.grade2 > 0 || out.scrap > 0) {
-        html += '<div class="mt-10 font-12 text-muted">';
-        html += `1 сорт: <strong class="text-success">${out.grade1.toLocaleString('ru-RU')}</strong> | `;
-        html += `2 сорт: <strong class="text-warning">${out.grade2.toLocaleString('ru-RU')}</strong> | `;
-        html += `Утиль: <strong class="text-danger">${out.scrap.toLocaleString('ru-RU')}</strong>`;
-        html += '</div>';
-    }
-    html += '</div>';
 
     bodyEl.innerHTML = html;
 }

@@ -444,11 +444,11 @@ module.exports = function (pool, getWhId, withTransaction) {
             let totalIn = 0, totalOut = 0, grade1 = 0, grade2 = 0, scrap = 0;
             for (const m of movements) {
                 const qty = parseFloat(m.quantity) || 0;
-                if (m.warehouse_id === dryingWh && qty > 0) totalIn += qty;
-                if (m.warehouse_id === dryingWh && qty < 0) totalOut += Math.abs(qty);
-                if (m.warehouse_id === finishedWh && qty > 0) grade1 += qty;
-                if (m.warehouse_id === markdownWh && qty > 0) grade2 += qty;
-                if (m.warehouse_id === defectWh && qty > 0) scrap += qty;
+                if (m.warehouse_id === dryingWh && m.movement_type === 'production_receipt' && qty > 0) totalIn += qty;
+                if (m.warehouse_id === dryingWh && m.movement_type === 'wip_expense' && qty < 0) totalOut += Math.abs(qty);
+                if (m.warehouse_id === finishedWh && m.movement_type === 'finished_receipt' && qty > 0) grade1 += qty;
+                if (m.warehouse_id === markdownWh && m.movement_type === 'markdown_receipt' && qty > 0) grade2 += qty;
+                if (m.warehouse_id === defectWh && m.movement_type === 'defect_receipt' && qty > 0) scrap += qty;
             }
 
             const remaining = Math.max(totalIn - totalOut, 0);
