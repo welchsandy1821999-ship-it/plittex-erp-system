@@ -19,12 +19,18 @@
                 document.getElementById('app-modal-title').innerHTML = title;
                 document.getElementById('app-modal-body').innerHTML = htmlBody;
                 document.getElementById('app-modal-footer').innerHTML = buttonsHtml;
+                modal.style.zIndex = "2000"; // Форсируем поверх всех остальных
                 modal.classList.remove('d-none');
                 modal.classList.add('active');
             },
             closeModal: (id = 'app-modal') => {
                 const targetModal = document.getElementById(id);
-                if (targetModal) { targetModal.classList.remove('active'); targetModal.classList.add('d-none'); targetModal.style.removeProperty('display'); }
+                if (targetModal) { 
+                    targetModal.classList.remove('active'); 
+                    targetModal.classList.add('d-none'); 
+                    targetModal.style.removeProperty('display');
+                    if (id === 'app-modal') targetModal.style.removeProperty('z-index');
+                }
             },
             confirm: (msg, onConfirm) => {
                 UI.showModal('⚠️ Подтверждение', `<div style="padding: 15px; text-align: center; font-size: 15px;">${msg}</div>`, `
