@@ -56,17 +56,17 @@
 }
 
 .btn-green:hover {
-    background-color: #059669;
+    background-color: var(--success-hover);
 }
 
 .btn-purple {
-    background-color: #8b5cf6;
+    background-color: var(--purple);
     color: white;
-    border-color: #7c3aed;
+    border-color: var(--purple-hover);
 }
 
 .btn-purple:hover {
-    background-color: #7c3aed;
+    background-color: var(--purple-hover);
     color: white;
 }
 
@@ -76,7 +76,7 @@
 }
 
 .btn-red:hover {
-    background-color: #dc2626;
+    background-color: var(--danger-hover);
 }
 
 .btn-outline {

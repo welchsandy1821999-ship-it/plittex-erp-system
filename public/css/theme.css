@@ -8,9 +8,13 @@
     --primary: #3b82f6;
     --primary-hover: #2563eb;
     --success: #10b981;
+    --success-hover: #059669;
     --danger: #ef4444;
+    --danger-hover: #dc2626;
     --warning: #f59e0b;
     --info: #0ea5e9;
+    --purple: #8b5cf6;
+    --purple-hover: #7c3aed;
 
     /* Фоны и Поверхности */
     --bg-main: #f8fafc;
@@ -58,9 +62,13 @@
     --primary: #60a5fa;
     --primary-hover: #3b82f6;
     --success: #34d399;
+    --success-hover: #10b981;
     --danger: #f87171;
+    --danger-hover: #ef4444;
     --warning: #fbbf24;
     --info: #38bdf8;
+    --purple: #a78bfa;
+    --purple-hover: #8b5cf6;
 
     /* Темные фоны */
     --bg-main: #0f172a;
