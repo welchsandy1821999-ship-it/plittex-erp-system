@@ -27,6 +27,19 @@ ERP-система для управления производственным 
 → Регистрация маршрутов → Express.listen() + Socket.IO.attach()
 ```
 
+### 1.4 Среда запуска (Docker)
+- **Режим:** `NODE_ENV=development` в `docker-compose.yml` (отключает кэш EJS-шаблонов)
+- **Volumes:** `.:/app` — hot-reload статических файлов (JS/CSS/EJS) без перезапуска контейнера
+- **DB:** PostgreSQL запускается локально (не в Docker), `DB_HOST=host.docker.internal`
+- **Перезапуск контейнера** требуется только при изменении `web.js`, `routes/*.js`, `middleware/*.js`
+
+### 1.5 Архитектура UI-модальных окон
+- **Глобальная модалка:** `#app-modal` (в `partials/modals.ejs`) — используется для всех drill-down карточек через `UI.showModal(title, html, buttons)`
+- **Локальные модалки:** объявлены непосредственно в `modules/*.ejs` (например, `#modal-item-history`)
+- **Z-index иерархия:** `.modal-overlay { z-index: 9998 }`, `#app-modal { z-index: 10000 !important }` — гарантирует что глобальная карточка всегда поверх локальных модалок
+- **Stacking Context:** `.content-area` НЕ имеет `overflow-x: hidden` (убран) — чтобы не создавать изолированный stacking context для `position: fixed` дочерних модалок
+- **Роутер сущностей:** `window.app.openEntity(type, id)` — универсальная точка входа для drill-down навигации
+
 ---
 
 ## 2. МОДУЛИ СИСТЕМЫ
@@ -135,6 +148,20 @@ ERP-система для управления производственным 
 - Использует двухшаговую блокировку: `SELECT id ... FOR UPDATE` (мьютекс), затем `SUM(quantity)` отдельно
 - Принимает `auditDate` из фронтенда → `movement_date = COALESCE(auditDate, CURRENT_TIMESTAMP)`
 - Фильтрация остатков по дате: `movement_date::date <= auditDate`
+
+#### История движений (Карточка движения)
+- **API:** `GET /api/inventory/history/:itemId` — агрегирующий запрос с группировкой по `date_trunc('minute', movement_date)`, `batch_id`, `supplier_id`, `order_id`
+- **Кросс-линкинг (drill-down):**
+  - Чип **Партия** → `openBatchCard(batch_id)` → `GET /api/inventory/batch/:id/card`
+  - Чип **Поставщик** → `app.openEntity('client', supplier_id)` → `openCounterpartyProfile(id)`
+  - Чип **Заказ** → `app.openEntity('document_order', order_id)` → `openOrderDetails(id)`
+- **Парсинг order_id:** Для старых записей `order_id` извлекается через `substring(description from 'ЗК-[0-9]+')` с подзапросом к `client_orders`
+- **CRUD истории:** `PUT /api/inventory/movements/:id` (дата/описание), `DELETE /api/inventory/movements/:id` (полный откат с восстановлением баланса)
+- **Политика редактирования:** Изменение объёма — запрещено. Только "Откат + Повторный ввод".
+
+#### Прослеживаемость партий (Batch Traceability)
+- **API:** `GET /api/inventory/batch/:id/card` — агрегирует: факт производства, движения, расход по продукции
+- **UI:** Модальное окно `#modal-batch-card`. Номера партий во всех таблицах — кликабельные ссылки → `openBatchCard(id)`
 
 #### Стандарт дат
 - **Все SELECT-запросы** используют `movement_date` (не `created_at`) для отображения и сортировки
@@ -468,4 +495,17 @@ const res = await client.query(
 
 ---
 
-*Документ актуализирован в рамках операции «ПАНОПТИКУМ» — Phase 6 (Autonomous Edition).*
+## 7. ИЗМЕНЕНИЯ СЕССИИ (Phase 7 — Batch Traceability & History UI)
+
+### ✅ Реализовано
+1. **Прослеживаемость партий (Batch Traceability):** `GET /api/inventory/batch/:id/card` + модалка `#modal-batch-card`. Партии кликабельны во всех таблицах склада.
+2. **Редизайн Истории Движений:** Карточка движения заменена на Event Feed с кросс-линкингом (Партия / Поставщик / Заказ — кликабельные чипы).
+3. **CRUD истории:** `PUT` (дата/описание) и `DELETE` (полный откат) для движений. Политика: изменение объёма запрещено — только «Откат + Повторный ввод».
+4. **Парсинг order_id из текста:** SQL-паттерн `ЗК-[0-9]+` для старых записей `sales_reserve`.
+5. **Фикс stacking context модалок:** `#app-modal` получил `z-index: 10000 !important` в CSS. Убран `overflow-x: hidden` у `.content-area` (создавал изолированный stacking context).
+6. **NODE_ENV=development** в docker-compose — EJS-шаблоны не кэшируются, изменения применяются без перезапуска.
+7. **Локализация Flatpickr:** `flatpickr.localize(flatpickr.l10ns.ru)` применён глобально.
+
+---
+
+*Документ актуализирован — Phase 7 (Batch Traceability & History UI).*
