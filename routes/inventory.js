@@ -328,6 +328,37 @@ module.exports = function (pool, getWhId, withTransaction) {
     });
 
     // ------------------------------------------------------------------
+    // ПОЛУЧЕНИЕ ДАТ СОБЫТИЙ СУШИЛКИ (ДЛЯ ДВУХЦВЕТНЫХ ТОЧЕК КАЛЕНДАРЯ)
+    // ------------------------------------------------------------------
+    router.get('/api/inventory/drying-dates', async (req, res) => {
+        try {
+            const dryingWh = await getWhId(pool, 'drying');
+
+            const receipts = await pool.query(`
+                SELECT DISTINCT to_char(movement_date, 'YYYY-MM-DD') as date
+                FROM inventory_movements
+                WHERE warehouse_id = $1 AND movement_type = 'production_receipt'
+                ORDER BY date DESC
+            `, [dryingWh]);
+
+            const expenses = await pool.query(`
+                SELECT DISTINCT to_char(movement_date, 'YYYY-MM-DD') as date
+                FROM inventory_movements
+                WHERE warehouse_id = $1 AND movement_type = 'wip_expense'
+                ORDER BY date DESC
+            `, [dryingWh]);
+
+            res.json({
+                receiptDates: receipts.rows.map(r => r.date),
+                expenseDates: expenses.rows.map(r => r.date)
+            });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера.' });
+        }
+    });
+
+    // ------------------------------------------------------------------
     // ПОЛУЧЕНИЕ ДАТ, В КОТОРЫЕ БЫЛИ ЗАКУПКИ (ДЛЯ КАЛЕНДАРЯ)
     // ------------------------------------------------------------------
 

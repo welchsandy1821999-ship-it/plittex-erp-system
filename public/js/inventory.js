@@ -25,6 +25,18 @@ window.goToPage = function(page) {
 }
 
 let inventoryDatePicker = null;
+window.dryingReceiptDates = [];
+window.dryingExpenseDates = [];
+
+// Функция загрузки дат событий сушилки для календаря
+window.updateInventoryCalendarMarks = async function () {
+    try {
+        const data = await API.get('/api/inventory/drying-dates');
+        window.dryingReceiptDates = data.receiptDates || [];
+        window.dryingExpenseDates = data.expenseDates || [];
+        if (inventoryDatePicker) inventoryDatePicker.redraw();
+    } catch (e) { console.error('Ошибка обновления меток календаря:', e); }
+};
 
 function loadTable() {
     // Инициализация календаря если еще нет
@@ -35,8 +47,23 @@ function loadTable() {
             onChange: function(selectedDates, dateStr, instance) {
                 // При смене даты сразу загружаем новые данные
                 loadTable();
+            },
+            onDayCreate: function (dObj, dStr, fp, dayElem) {
+                const year = dayElem.dateObj.getFullYear();
+                const month = String(dayElem.dateObj.getMonth() + 1).padStart(2, '0');
+                const day = String(dayElem.dateObj.getDate()).padStart(2, '0');
+                const dateStr = `${year}-${month}-${day}`;
+
+                if (window.dryingReceiptDates && window.dryingReceiptDates.includes(dateStr)) {
+                    dayElem.innerHTML += '<span class="inv-cal-dot-receipt"></span>';
+                }
+                if (window.dryingExpenseDates && window.dryingExpenseDates.includes(dateStr)) {
+                    dayElem.innerHTML += '<span class="inv-cal-dot-expense"></span>';
+                }
             }
         });
+        // Загружаем даты сразу после инициализации календаря
+        updateInventoryCalendarMarks();
     }
 
     let params = [];
