@@ -1564,7 +1564,7 @@
 }
 
 .sales-original-sum {
-    color: #94a3b8;
+    color: var(--text-muted);
     font-size: 14px;
     display: none;
     margin-right: 10px;
@@ -1869,8 +1869,8 @@
 }
 
 .sales-btn-sm-success {
-    color: #059669;
-    border-color: #059669;
+    color: var(--success);
+    border-color: var(--success);
 }
 
 /* --- 17.12 Badges статусов --- */
@@ -1909,9 +1909,9 @@
 }
 
 .badge-advance {
-    background: #fef3c7;
-    color: #b45309;
-    border: 1px solid #fde68a;
+    background: var(--warning-bg);
+    color: var(--warning-text);
+    border: 1px solid var(--warning-border);
     margin-top: 5px;
 }
 
@@ -1933,15 +1933,15 @@
 }
 
 .balance-overpaid {
-    color: #059669;
-    background: #d1fae5;
-    border: 1px solid #34d399;
+    color: var(--success-text);
+    background: var(--success-bg);
+    border: 1px solid var(--success-border);
 }
 
 .balance-debt {
-    color: #dc2626;
+    color: var(--danger-text);
     background: var(--danger-bg);
-    border: 1px solid #f87171;
+    border: 1px solid var(--danger-border);
 }
 
 .balance-zero {
@@ -1952,16 +1952,16 @@
 
 .sales-projected {
     font-size: 10px;
-    color: #94a3b8;
+    color: var(--text-muted);
     margin-top: 2px;
 }
 
 .sales-projected-positive {
-    color: #10b981;
+    color: var(--success);
 }
 
 .sales-projected-negative {
-    color: #ef4444;
+    color: var(--danger);
 }
 
 /* --- 17.13 Пагинация --- */
@@ -2068,7 +2068,7 @@
 .kanban-card-client {
     font-weight: bold;
     margin-bottom: 8px;
-    color: #1e293b;
+    color: var(--text-main);
     font-size: 14px;
 }
 
@@ -2095,7 +2095,7 @@
 .kanban-card-total {
     font-size: 15px;
     font-weight: 800;
-    color: #0f172a;
+    color: var(--text-main);
 }
 
 .kanban-card-btn {
@@ -2103,7 +2103,7 @@
     border: none;
     padding: 4px 8px;
     border-radius: 4px;
-    color: #3b82f6;
+    color: var(--primary);
     cursor: pointer;
     font-size: 12px;
     font-weight: bold;
