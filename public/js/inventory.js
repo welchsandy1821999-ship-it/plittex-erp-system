@@ -545,9 +545,14 @@ window.openDemoldingModal = function (batchId, batchNum, tileId, productName, pl
 
 // === РЕДАКТИРОВАНИЕ ДВИЖЕНИЯ ===
 window.openMovementEditModal = function(id, dateStr, timeStr, qty, desc) {
-    document.getElementById('edit-mov-id').value = id;
-    document.getElementById('edit-mov-qty').value = qty;
-    document.getElementById('edit-mov-desc').value = desc;
+    const elId = document.getElementById('edit-mov-id') || document.getElementById('edit-movement-id');
+    const elQty = document.getElementById('edit-mov-qty') || document.getElementById('edit-movement-qty');
+    const elDesc = document.getElementById('edit-mov-desc') || document.getElementById('edit-movement-desc');
+    const elDate = document.getElementById('edit-mov-date') || document.getElementById('edit-movement-date');
+
+    if (elId) elId.value = id;
+    if (elQty) elQty.value = qty;
+    if (elDesc) elDesc.value = desc;
     
     // Показываем статичную модалку
     const modal = document.getElementById('modal-edit-movement');
@@ -559,25 +564,34 @@ window.openMovementEditModal = function(id, dateStr, timeStr, qty, desc) {
     // YYYY-MM-DD HH:mm format
     const fullDate = dateStr + ' ' + (timeStr || '00:00');
     
-    if (window.editMovementDatePicker) {
+    if (window.editMovementDatePicker && elDate) {
         window.editMovementDatePicker.setDate(fullDate);
-    } else if (window.flatpickr) {
-        window.editMovementDatePicker = flatpickr("#edit-mov-date", {
+    } else if (window.flatpickr && elDate) {
+        window.editMovementDatePicker = flatpickr(elDate, {
             enableTime: true,
             dateFormat: "Y-m-d H:i",
             defaultDate: fullDate,
             time_24hr: true
         });
-    } else {
-        document.getElementById('edit-mov-date').value = fullDate;
+    } else if (elDate) {
+        elDate.value = fullDate;
     }
 };
 
 window.saveMovementEdit = async function() {
-    const id = document.getElementById('edit-mov-id').value;
-    const qty = document.getElementById('edit-mov-qty').value;
-    const date = document.getElementById('edit-mov-date').value;
-    const desc = document.getElementById('edit-mov-desc').value;
+    const elId = document.getElementById('edit-mov-id') || document.getElementById('edit-movement-id');
+    const elQty = document.getElementById('edit-mov-qty') || document.getElementById('edit-movement-qty');
+    const elDate = document.getElementById('edit-mov-date') || document.getElementById('edit-movement-date');
+    const elDesc = document.getElementById('edit-mov-desc') || document.getElementById('edit-movement-desc');
+    
+    if (!elId || !elQty || !elDate) {
+        return UI.toast('Внутренняя ошибка DOM: поля ввода не найдены', 'error');
+    }
+
+    const id = elId.value;
+    const qty = elQty.value;
+    const date = elDate.value;
+    const desc = elDesc.value;
     
     if (!id || !qty || !date) return UI.toast('Заполните все обязательные поля', 'warning');
     
