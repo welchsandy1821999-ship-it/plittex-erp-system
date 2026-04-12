@@ -232,24 +232,20 @@
     color: var(--text-main);
 }
 
-.text-muted {
-    color: var(--text-muted);
-}
-
 .text-success {
-    color: var(--success);
+    color: var(--success) !important;
 }
 
 .text-warning {
-    color: var(--warning);
+    color: var(--warning-text) !important;
 }
 
 .text-danger {
-    color: var(--danger);
+    color: var(--danger) !important;
 }
 
 .text-info {
-    color: var(--info);
+    color: var(--info) !important;
 }
 
 .font-bold {
@@ -332,11 +328,7 @@
 }
 
 .text-primary {
-    color: var(--primary);
-}
-
-.text-warning {
-    color: var(--warning);
+    color: var(--primary) !important;
 }
 
 .border-left-primary {
@@ -386,6 +378,97 @@
 .flex-grow-1 {
     flex-grow: 1;
 }
+
+/* Display */
+.d-flex { display: flex; }
+.d-none { display: none !important; }
+.d-block { display: block; }
+.d-inline-block { display: inline-block; }
+
+/* Flex extensions */
+.justify-between { justify-content: space-between; }
+.align-baseline { align-items: baseline; }
+.flex-wrap { flex-wrap: wrap; }
+.flex-shrink-0 { flex-shrink: 0; }
+.flex-1 { flex: 1; }
+.flex-08 { flex: 0.8; }
+.flex-12 { flex: 1.2; }
+.flex-15 { flex: 1.5; }
+
+/* Text extensions */
+.text-white { color: white !important; }
+.text-muted { color: var(--text-muted) !important; }
+.text-uppercase { text-transform: uppercase; }
+.tracking-wide { letter-spacing: 0.5px; }
+.font-italic { font-style: italic; }
+.text-decoration-none { text-decoration: none; }
+.ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Pixel dimensions */
+.w-13 { width: 13%; }
+.w-18 { width: 18%; }
+.w-35 { width: 35%; }
+.w-80p { width: 80px; }
+.w-130p { width: 130px; }
+.h-18p { height: 18px; }
+.w-18p { width: 18px; }
+.h-32p { height: 32px; }
+.p-4-6 { padding: 4px 6px; }
+
+/* Min/Max dimensions */
+.min-w-90 { min-width: 90px; }
+.min-w-110 { min-width: 110px; }
+.min-w-120 { min-width: 120px; }
+.min-w-140p { min-width: 140px; }
+.min-w-180 { min-width: 180px; }
+.min-w-180p { min-width: 180px; }
+.min-w-190p { min-width: 190px; }
+.max-h-50vh { max-height: 50vh; }
+.max-h-70vh { max-height: 70vh; }
+.max-h-350p { max-height: 350px; }
+
+/* Spacing extras */
+.mt-3 { margin-top: 3px; }
+.mb-3 { margin-bottom: 3px; }
+.mb-4 { margin-bottom: 4px; }
+.mb-12 { margin-bottom: 12px; }
+.mr-10 { margin-right: 10px; }
+.pb-10 { padding-bottom: 10px; }
+.p-12-15 { padding: 12px 15px; }
+.p-12-16 { padding: 12px 16px; }
+.px-15 { padding-left: 15px; padding-right: 15px; }
+.pl-30 { padding-left: 30px; }
+
+/* Border utilities */
+.border-top { border-top: 1px solid var(--border); }
+.border-bottom { border-bottom: 1px solid var(--border); }
+.border-top-dotted { border-top: 1px dotted rgba(2, 132, 199, 0.3); }
+.border-radius-4 { border-radius: 4px; }
+.border-radius-6 { border-radius: 6px; }
+.border-radius-md { border-radius: 8px; }
+.border-none { border: none !important; }
+.radius-md { border-radius: 6px; }
+
+/* Shadow and background utilities */
+.box-shadow-sm { box-shadow: var(--shadow-sm); }
+.bg-surface { background: var(--surface); }
+
+/* State utilities */
+.overflow-hidden { overflow: hidden; }
+.overflow-y-auto { overflow-y: auto; }
+.user-select-none { user-select: none; }
+
+/* Table utilities */
+.table-fixed { table-layout: fixed; }
+
+/* Semantic backgrounds */
+.bg-danger-light { background-color: #ffe6e6; }
+.bg-warning-light { background-color: #fff8e1; }
+.bg-success-light { background-color: rgba(16, 185, 129, 0.05); }
+
+/* Grid templates */
+.grid-cols-5-auto { grid-template-columns: 2fr 2fr 2fr 2fr auto; }
+.grid-cols-4-auto { grid-template-columns: 2fr 2fr 4fr auto; }
 
 /* ==========================================================================
    1. БАЗОВЫЕ СТИЛИ (Сброс и типографика)

@@ -1131,20 +1131,20 @@ window.renderInvHistoryPeriodUI = function () {
 
     let activeInputHtml = '';
     if (invHistoryPeriodType === 'day') {
-        activeInputHtml = `<input type="date" class="input-modern p-5 font-13 radius-md h-32 flex-12 min-w-120" value="${invHistorySpecificDate}" onchange="applyInvHistoryPeriod('date', this.value)">`;
+        activeInputHtml = `<input type="date" class="input-modern input-sm radius-md flex-12 min-w-120" value="${invHistorySpecificDate}" onchange="applyInvHistoryPeriod('date', this.value)">`;
     } else if (invHistoryPeriodType === 'custom') {
-        activeInputHtml = `<input type="text" id="inv-hist-custom-date" class="input-modern p-5 font-13 radius-md h-32 flex-15 min-w-180" placeholder="Выберите даты...">`;
+        activeInputHtml = `<input type="text" id="inv-hist-custom-date" class="input-modern input-sm radius-md flex-15 min-w-180" placeholder="Выберите даты...">`;
     } else if (invHistoryPeriodType !== 'all' && invHistoryPeriodType !== 'year' && invHistoryPeriodType !== 'week') {
-        activeInputHtml = `<select class="input-modern p-5 font-13 radius-md h-32 flex-1 min-w-110" onchange="applyInvHistoryPeriod('value', this.value)">${valOptions}</select>`;
+        activeInputHtml = `<select class="input-modern input-sm radius-md flex-1 min-w-110" onchange="applyInvHistoryPeriod('value', this.value)">${valOptions}</select>`;
     }
 
     let yearHtml = '';
     if (invHistoryPeriodType !== 'all' && invHistoryPeriodType !== 'day' && invHistoryPeriodType !== 'week' && invHistoryPeriodType !== 'custom') {
-        yearHtml = `<select class="input-modern p-5 font-13 radius-md h-32 flex-08 min-w-90" onchange="applyInvHistoryPeriod('year', this.value)">${yearOptions}</select>`;
+        yearHtml = `<select class="input-modern input-sm radius-md flex-08 min-w-90" onchange="applyInvHistoryPeriod('year', this.value)">${yearOptions}</select>`;
     }
 
     const html = `
-        <select class="input-modern p-5 font-13 radius-md h-32 flex-08 min-w-110" onchange="applyInvHistoryPeriod('type', this.value)">${typeOptions}</select>
+        <select class="input-modern input-sm radius-md flex-08 min-w-110" onchange="applyInvHistoryPeriod('type', this.value)">${typeOptions}</select>
         ${activeInputHtml}
         ${yearHtml}
     `;

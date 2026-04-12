@@ -4996,33 +4996,7 @@
 
 .hidden-print-frame { position:absolute; width:0; height:0; border:none; }
 
-/* Utilities added for Inventory Module cleanups */
-.text-decoration-none { text-decoration: none !important; }
-.text-decoration-none:hover { text-decoration: none !important; }
-.bg-danger-light { background-color: #ffe6e6 !important; }
-.bg-warning-light { background-color: #fff8e1 !important; }
-.bg-success-light { background-color: rgba(16, 185, 129, 0.05) !important; }
-.overflow-y-auto { overflow-y: auto !important; }
-.max-h-50vh { max-height: 50vh !important; }
-.table-fixed { table-layout: fixed !important; }
-.w-15 { width: 15% !important; }
-.w-35 { width: 35% !important; }
-.w-10 { width: 10% !important; }
-.p-5 { padding: 4px 6px !important; }
-.h-32 { height: 32px !important; }
-.radius-md { border-radius: 6px !important; }
-.flex-1 { flex: 1 !important; }
-.flex-15 { flex: 1.5 !important; }
-.flex-12 { flex: 1.2 !important; }
-.flex-08 { flex: 0.8 !important; }
-.min-w-120 { min-width: 120px !important; }
-.min-w-180 { min-width: 180px !important; }
-.min-w-110 { min-width: 110px !important; }
-.min-w-90 { min-width: 90px !important; }
-.border-top-dotted { border-top: 1px dotted rgba(2, 132, 199, 0.3) !important; }
-.border-bottom { border-bottom: 1px solid var(--border) !important; }
-.font-italic { font-style: italic !important; }
-.ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 
 /* ==========================================================================
    ADMIN HUB — Центр Управления
