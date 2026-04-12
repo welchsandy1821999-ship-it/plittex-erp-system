@@ -2827,8 +2827,8 @@
 
 /* Дополнительные классы CRM-профиля (заменяют inline-стили) */
 .badge-role { background: var(--surface-alt); color: var(--primary); }
-.btn-outline-danger { border-color: var(--danger) !important; color: var(--danger); }
-.btn-outline-danger:hover { background: var(--danger); color: white; }
+.crm-profile-header .btn-crm-delete { border-color: var(--danger); color: var(--danger); }
+.crm-profile-header .btn-crm-delete:hover { background: var(--danger); color: white; }
 
 /* Широкая модальная карточка контрагента */
 #app-modal .modal-content { max-width: 1000px; width: 95%; }

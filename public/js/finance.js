@@ -2789,7 +2789,7 @@
                             <span class="badge badge-role">${cp.role || cp.type || '—'}</span>
                             <div class="flex-row gap-5">
                                  <button class="btn btn-outline p-5 font-12" onclick="openAdvancedCPCard(${cp.id})">✏️ Изменить</button>
-                                 <button class="btn btn-outline btn-outline-danger p-5 font-12" onclick="deleteCounterparty(${cp.id})">🗑️ Удалить</button>
+                                 <button class="btn btn-outline btn-crm-delete p-5 font-12" onclick="deleteCounterparty(${cp.id})">🗑️ Удалить</button>
                             </div>
                         </div>
                         <h3 class="crm-profile-title">${cp.name || '—'} ${window.getCategoryBadge(cp.client_category)}</h3>
