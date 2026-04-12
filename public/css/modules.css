@@ -5212,3 +5212,177 @@
 .admin-setting-input {
     max-width: 300px;
 }
+
+/* ==========================================================================
+   КАРТОЧКА ПРОСЛЕЖИВАЕМОСТИ ПАРТИИ (Batch Traceability Card)
+   ========================================================================== */
+.batch-modal {
+    max-width: 820px;
+}
+
+.batch-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.batch-header-title {
+    font-size: 18px;
+    font-weight: 900;
+    color: var(--text-main);
+    margin: 0;
+}
+
+.batch-header-badges {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.batch-status-badge {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.batch-status-drying {
+    background: var(--success-bg);
+    color: var(--success);
+}
+
+.batch-status-partial {
+    background: var(--warning-bg);
+    color: var(--warning);
+}
+
+.batch-status-closed {
+    background: var(--surface-alt);
+    color: var(--text-muted);
+}
+
+.batch-age-badge {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: bold;
+    background: var(--surface-alt);
+    color: var(--text-secondary);
+}
+
+.batch-info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.batch-order-card,
+.batch-progress-card,
+.batch-section-card {
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 15px;
+}
+
+.batch-order-card {
+    border-left: 4px solid var(--primary);
+}
+
+.batch-progress-bar {
+    width: 100%;
+    height: 10px;
+    background: var(--border);
+    border-radius: 5px;
+    overflow: hidden;
+    margin: 10px 0;
+}
+
+.batch-progress-fill {
+    height: 100%;
+    border-radius: 5px;
+    background: linear-gradient(90deg, var(--success), var(--primary));
+    transition: width 0.5s ease;
+}
+
+.batch-section-card {
+    margin-top: 15px;
+}
+
+.batch-section-title {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-main);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.batch-movement-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+}
+
+.batch-movement-row:last-child {
+    border-bottom: none;
+}
+
+.batch-movement-in {
+    color: var(--success);
+    font-weight: bold;
+}
+
+.batch-movement-out {
+    color: var(--warning);
+    font-weight: bold;
+}
+
+.batch-cost-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+}
+
+.batch-cost-row:last-child {
+    border-bottom: none;
+    font-weight: 900;
+    font-size: 14px;
+    padding-top: 10px;
+}
+
+.batch-analytics-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 15px;
+}
+
+.batch-analytics-item {
+    text-align: center;
+    padding: 12px 10px;
+    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+}
+
+.batch-analytics-value {
+    font-size: 22px;
+    font-weight: 900;
+    color: var(--primary);
+    line-height: 1;
+}
+
+.batch-analytics-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 5px;
+    text-transform: uppercase;
+}

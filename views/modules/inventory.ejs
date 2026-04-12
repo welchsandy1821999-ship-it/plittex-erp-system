@@ -313,3 +313,22 @@
             </div>
         </div>
     </div>
+
+    <!-- Модальное окно: Карточка прослеживаемости партии -->
+    <div id="modal-batch-card" class="modal-overlay d-none z-1005">
+        <div class="modal-content batch-modal">
+            <div class="modal-header">
+                <div class="batch-header">
+                    <h3 id="batch-card-title" class="batch-header-title">Карточка партии</h3>
+                    <div class="batch-header-badges" id="batch-card-badges"></div>
+                </div>
+                <button class="btn-close" onclick="UI.closeModal('modal-batch-card')">×</button>
+            </div>
+            <div class="modal-body" id="batch-card-body">
+                <div class="p-20 text-center text-muted">Загрузка данных...</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="UI.closeModal('modal-batch-card')">Закрыть</button>
+            </div>
+        </div>
+    </div>

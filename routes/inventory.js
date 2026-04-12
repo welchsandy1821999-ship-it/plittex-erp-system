@@ -377,7 +377,8 @@ module.exports = function (pool, getWhId, withTransaction) {
                     to_char(im.movement_date, 'HH24:MI') as time,
                     i.name as product_name,
                     i.unit,
-                    pb.batch_number
+                    pb.batch_number,
+                    im.batch_id
                 FROM inventory_movements im
                 JOIN items i ON im.item_id = i.id
                 LEFT JOIN production_batches pb ON im.batch_id = pb.id
@@ -386,6 +387,122 @@ module.exports = function (pool, getWhId, withTransaction) {
             `, [dryingWh, date]);
 
             res.json(result.rows);
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера.' });
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // КАРТОЧКА ПРОСЛЕЖИВАЕМОСТИ ПАРТИИ (BATCH TRACEABILITY CARD)
+    // ------------------------------------------------------------------
+    router.get('/api/inventory/batch/:id/card', async (req, res) => {
+        try {
+            const batchId = parseInt(req.params.id);
+            if (isNaN(batchId)) return res.status(400).json({ error: 'Некорректный ID' });
+
+            // 1. Основные данные партии
+            const batchRes = await pool.query(`
+                SELECT pb.*, i.name as product_name, i.unit as product_unit
+                FROM production_batches pb
+                JOIN items i ON pb.product_id = i.id
+                WHERE pb.id = $1
+            `, [batchId]);
+            if (batchRes.rows.length === 0) return res.status(404).json({ error: 'Партия не найдена' });
+            const batch = batchRes.rows[0];
+
+            // 2. Все движения по партии
+            const movRes = await pool.query(`
+                SELECT im.id, im.movement_type, im.quantity, im.description,
+                    to_char(im.movement_date, 'DD.MM.YYYY HH24:MI') as date_fmt,
+                    im.warehouse_id, w.name as warehouse_name, w.type as warehouse_type,
+                    i.name as item_name, i.unit
+                FROM inventory_movements im
+                JOIN items i ON im.item_id = i.id
+                LEFT JOIN warehouses w ON im.warehouse_id = w.id
+                WHERE im.batch_id = $1
+                ORDER BY im.movement_date ASC
+            `, [batchId]);
+            const movements = movRes.rows;
+
+            // 3. Материалы (expenses)
+            const matRes = await pool.query(`
+                SELECT i.name, i.unit, SUM(ABS(im.quantity)) as qty,
+                    SUM(ABS(im.quantity) * CASE WHEN im.unit_price > 0 THEN im.unit_price ELSE i.current_price END) as cost
+                FROM inventory_movements im
+                JOIN items i ON im.item_id = i.id
+                WHERE im.batch_id = $1 AND im.movement_type IN ('production_expense', 'production_draft')
+                GROUP BY i.name, i.unit ORDER BY cost DESC
+            `, [batchId]);
+
+            // 4. Вход/Выход из сушилки
+            const dryingWh = await getWhId(pool, 'drying');
+            const finishedWh = await getWhId(pool, 'finished');
+            const markdownWh = await getWhId(pool, 'markdown');
+            const defectWh = await getWhId(pool, 'defect');
+
+            let totalIn = 0, totalOut = 0, grade1 = 0, grade2 = 0, scrap = 0;
+            for (const m of movements) {
+                const qty = parseFloat(m.quantity) || 0;
+                if (m.warehouse_id === dryingWh && qty > 0) totalIn += qty;
+                if (m.warehouse_id === dryingWh && qty < 0) totalOut += Math.abs(qty);
+                if (m.warehouse_id === finishedWh && qty > 0) grade1 += qty;
+                if (m.warehouse_id === markdownWh && qty > 0) grade2 += qty;
+                if (m.warehouse_id === defectWh && qty > 0) scrap += qty;
+            }
+
+            const remaining = Math.max(totalIn - totalOut, 0);
+            const progressPct = totalIn > 0 ? Math.min(Math.round((totalOut / totalIn) * 100), 100) : 0;
+            const isClosed = totalOut >= totalIn - 0.01 && totalIn > 0;
+            const grade1Pct = totalIn > 0 && grade1 > 0 ? Math.round((grade1 / totalIn) * 100) : null;
+
+            // 5. Возраст в сушилке
+            const prodDate = batch.production_date || batch.created_at;
+            const ageDays = Math.floor((Date.now() - new Date(prodDate).getTime()) / 86400000);
+
+            // 6. Связь с заказом (через planned_production)
+            let orderInfo = null;
+            try {
+                const orderRes = await pool.query(`
+                    SELECT co.doc_number, co.status, co.total_amount, cp.name as client_name
+                    FROM planned_production pp
+                    JOIN client_order_items coi ON pp.order_item_id = coi.id
+                    JOIN client_orders co ON coi.order_id = co.id
+                    LEFT JOIN counterparties cp ON co.counterparty_id = cp.id
+                    WHERE pp.item_id = $1
+                    ORDER BY pp.id DESC LIMIT 1
+                `, [batch.product_id]);
+                if (orderRes.rows.length > 0) orderInfo = orderRes.rows[0];
+            } catch (e) { /* planned_production может не существовать */ }
+
+            // 7. Себестоимость
+            const matCost = parseFloat(batch.mat_cost_total) || 0;
+            const machineCost = parseFloat(batch.machine_amort_cost) || 0;
+            const moldCost = parseFloat(batch.mold_amort_cost) || 0;
+            const totalCost = matCost + machineCost + moldCost;
+            const plannedQty = parseFloat(batch.planned_quantity) || 1;
+            const unitCost = totalCost / plannedQty;
+
+            res.json({
+                batch: {
+                    id: batch.id, batch_number: batch.batch_number,
+                    product_name: batch.product_name, product_unit: batch.product_unit,
+                    planned_quantity: plannedQty, status: batch.status,
+                    production_date: batch.production_date, created_at: batch.created_at,
+                    shift_name: batch.shift_name,
+                    costs: { materials: matCost, machine_amort: machineCost, mold_amort: moldCost, total: totalCost, per_unit: Math.round(unitCost * 100) / 100 }
+                },
+                order: orderInfo,
+                drying: { age_days: ageDays, total_in: totalIn, total_out: totalOut, remaining, progress_pct: progressPct },
+                outputs: { grade1, grade2, scrap },
+                movements: movements.map(m => ({
+                    id: m.id, date: m.date_fmt, type: m.movement_type,
+                    warehouse_name: m.warehouse_name, quantity: parseFloat(m.quantity),
+                    item_name: m.item_name, unit: m.unit
+                })),
+                materials: matRes.rows.map(m => ({ name: m.name, unit: m.unit, qty: parseFloat(m.qty), cost: parseFloat(m.cost) || 0 })),
+                analytics: { grade1_yield_pct: grade1Pct, is_closed: isClosed }
+            });
         } catch (err) {
             logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера.' });

@@ -126,7 +126,7 @@ window.loadDryingHistory = async function () {
             <tr>
                 <td class="p-8 text-muted font-13">${Utils.escapeHtml(row.time || '')}</td>
                 <td class="p-8">${typeBadge}</td>
-                <td class="p-8">${row.batch_number ? '<strong>' + Utils.escapeHtml(row.batch_number) + '</strong>' : '-'}</td>
+                <td class="p-8">${row.batch_number && row.batch_id ? '<a href="javascript:void(0)" onclick="openBatchCard(' + row.batch_id + ')" class="text-primary text-decoration-none font-bold">' + Utils.escapeHtml(row.batch_number) + '</a>' : '-'}</td>
                 <td class="p-8">${Utils.escapeHtml(row.product_name)}</td>
                 <td class="p-8 text-right ${qtyClass}">${qtySign}${parseFloat(row.quantity).toLocaleString('ru-RU', { maximumFractionDigits: 2 })}</td>
                 <td class="p-8 text-muted">${Utils.escapeHtml(row.unit || '')}</td>
@@ -1465,4 +1465,144 @@ window.openBatchStatsModal = async function(batchId, batchNum) {
     } catch(e) {
         body.innerHTML = `<div class="p-20 text-center text-danger border-top">Ошибка: Партия не найдена или удалена</div>`;
     }
+}
+
+// === КАРТОЧКА ПРОСЛЕЖИВАЕМОСТИ ПАРТИИ ===
+window.openBatchCard = async function(batchId) {
+    const modal = document.getElementById('modal-batch-card');
+    const body = document.getElementById('batch-card-body');
+    const title = document.getElementById('batch-card-title');
+    const badges = document.getElementById('batch-card-badges');
+
+    if (!modal || !body) return;
+
+    // Loading state
+    title.textContent = 'Загрузка...';
+    badges.innerHTML = '';
+    body.innerHTML = '<div class="p-20 text-center text-muted">⏳ Загрузка данных партии...</div>';
+    modal.classList.remove('d-none');
+
+    try {
+        const data = await API.get(`/api/inventory/batch/${batchId}/card`);
+        renderBatchCard(data, title, badges, body);
+    } catch (e) {
+        console.error('Ошибка загрузки карточки партии:', e);
+        body.innerHTML = '<div class="p-20 text-center text-danger">Ошибка загрузки. Партия не найдена или удалена.</div>';
+    }
+};
+
+function renderBatchCard(data, titleEl, badgesEl, bodyEl) {
+    const b = data.batch;
+    const d = data.drying;
+    const o = data.order;
+    const a = data.analytics;
+    const out = data.outputs;
+
+    // Header
+    titleEl.textContent = `📋 ${b.batch_number}`;
+
+    // Status badge
+    let statusClass = 'batch-status-drying';
+    let statusText = '🟢 В сушилке';
+    if (a.is_closed) {
+        statusClass = 'batch-status-closed';
+        statusText = '⚪ Закрыта';
+    } else if (d.progress_pct > 0) {
+        statusClass = 'batch-status-partial';
+        statusText = '🟡 Частично';
+    }
+    badgesEl.innerHTML = `
+        <span class="batch-status-badge ${statusClass}">${statusText}</span>
+        <span class="batch-age-badge">⏱ ${d.age_days} дн.</span>
+    `;
+
+    let html = '';
+
+    // === Info Grid: Заказ + Состояние ===
+    html += '<div class="batch-info-grid">';
+
+    // Заказ
+    html += '<div class="batch-order-card">';
+    html += '<div class="batch-section-title">📋 Заказ</div>';
+    if (o) {
+        html += `<div class="mb-5"><strong>${Utils.escapeHtml(o.client_name || 'Без имени')}</strong></div>`;
+        html += `<div class="text-muted font-13">Заказ: ${Utils.escapeHtml(o.doc_number)}</div>`;
+        html += `<div class="text-muted font-13">Сумма: ${parseFloat(o.total_amount || 0).toLocaleString('ru-RU')} ₽</div>`;
+    } else {
+        html += '<div class="text-muted">🏭 На склад (без заказа)</div>';
+    }
+    html += '</div>';
+
+    // Состояние
+    html += '<div class="batch-progress-card">';
+    html += '<div class="batch-section-title">📊 Состояние</div>';
+    html += `<div class="batch-progress-bar"><div class="batch-progress-fill" style="width:${d.progress_pct}%"></div></div>`;
+    html += `<div class="flex-between font-13">`;
+    html += `<span>Вход: <strong>${d.total_in.toLocaleString('ru-RU')} ${b.product_unit}</strong></span>`;
+    html += `<span>Выход: <strong>${d.total_out.toLocaleString('ru-RU')} ${b.product_unit}</strong></span>`;
+    html += `</div>`;
+    html += `<div class="text-muted font-12 mt-5">Остаток в сушилке: <strong>${d.remaining.toLocaleString('ru-RU')} ${b.product_unit}</strong></div>`;
+    html += '</div>';
+
+    html += '</div>'; // grid end
+
+    // === Продукция ===
+    html += '<div class="batch-section-card">';
+    html += '<div class="batch-section-title">📦 Продукция</div>';
+    html += `<div class="font-13">${Utils.escapeHtml(b.product_name)}</div>`;
+    html += `<div class="text-muted font-12 mt-5">Объём: ${b.planned_quantity.toLocaleString('ru-RU')} ${b.product_unit} | Смена: ${b.shift_name || '—'} | Дата: ${b.production_date || '—'}</div>`;
+    html += '</div>';
+
+    // === Сырьё и Экономика ===
+    html += '<div class="batch-section-card">';
+    html += '<div class="batch-section-title">💰 Сырьё и Экономика</div>';
+    if (data.materials.length > 0) {
+        data.materials.forEach(m => {
+            html += `<div class="batch-cost-row"><span>${Utils.escapeHtml(m.name)} — ${m.qty.toLocaleString('ru-RU')} ${m.unit}</span><span>${m.cost.toLocaleString('ru-RU')} ₽</span></div>`;
+        });
+        html += `<div class="batch-cost-row"><span>ИТОГО себестоимость</span><span>${b.costs.total.toLocaleString('ru-RU')} ₽  (${b.costs.per_unit.toLocaleString('ru-RU')} ₽/ед.)</span></div>`;
+    } else {
+        html += '<div class="text-muted font-13">Материалы не зафиксированы</div>';
+    }
+    html += '</div>';
+
+    // === История этапов ===
+    html += '<div class="batch-section-card">';
+    html += '<div class="batch-section-title">📜 История этапов</div>';
+    if (data.movements.length > 0) {
+        data.movements.forEach(m => {
+            const isPositive = m.quantity > 0;
+            const qtyClass = isPositive ? 'batch-movement-in' : 'batch-movement-out';
+            const sign = isPositive ? '+' : '';
+            html += `<div class="batch-movement-row">`;
+            html += `<span class="text-muted">${Utils.escapeHtml(m.date)}</span>`;
+            html += `<span>${Utils.escapeHtml(m.warehouse_name || '')}</span>`;
+            html += `<span class="${qtyClass}">${sign}${m.quantity.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ${m.unit || ''}</span>`;
+            html += `</div>`;
+        });
+    } else {
+        html += '<div class="text-muted font-13">Движений пока нет</div>';
+    }
+    html += '</div>';
+
+    // === Аналитика ===
+    html += '<div class="batch-section-card">';
+    html += '<div class="batch-section-title">📈 Аналитика</div>';
+    html += '<div class="batch-analytics-grid">';
+    html += `<div class="batch-analytics-item"><div class="batch-analytics-value">${a.grade1_yield_pct !== null ? a.grade1_yield_pct + '%' : '—'}</div><div class="batch-analytics-label">Выход 1 сорта</div></div>`;
+    html += `<div class="batch-analytics-item"><div class="batch-analytics-value">${d.remaining.toLocaleString('ru-RU')}</div><div class="batch-analytics-label">Остаток (${b.product_unit})</div></div>`;
+    html += `<div class="batch-analytics-item"><div class="batch-analytics-value">${a.is_closed ? 'Закрыта' : 'Открыта'}</div><div class="batch-analytics-label">Статус партии</div></div>`;
+    html += '</div>';
+
+    // Распределение выхода
+    if (out.grade1 > 0 || out.grade2 > 0 || out.scrap > 0) {
+        html += '<div class="mt-10 font-12 text-muted">';
+        html += `1 сорт: <strong class="text-success">${out.grade1.toLocaleString('ru-RU')}</strong> | `;
+        html += `2 сорт: <strong class="text-warning">${out.grade2.toLocaleString('ru-RU')}</strong> | `;
+        html += `Утиль: <strong class="text-danger">${out.scrap.toLocaleString('ru-RU')}</strong>`;
+        html += '</div>';
+    }
+    html += '</div>';
+
+    bodyEl.innerHTML = html;
 }
