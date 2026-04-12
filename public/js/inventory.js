@@ -1235,96 +1235,126 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
     let sumIn = 0;
     let sumOut = 0;
     
-    // Вводная строка Сальдо (если считали)
-    html += `
-        <tr class="bg-surface-alt">
-            <td colspan="4" class="text-right font-bold text-muted">Сальдо на начало периода:</td>
-            <td class="text-right font-bold">${currentBalance.toLocaleString('ru-RU')}</td>
-            <td></td>
-        </tr>
-    `;
-    
     if (history.length === 0) {
-        html += `<tr><td colspan="6" class="text-center p-20 text-muted font-italic">Движений не найдено</td></tr>`;
+        html += `<div class="p-20 text-center text-muted font-italic">Движений не найдено</div>`;
     } else {
         let matchCount = 0;
         history.forEach(m => {
-            const qty = parseFloat(m.quantity);
-            const inQty = qty > 0 ? qty : 0;
-            const outQty = qty < 0 ? Math.abs(qty) : 0;
+            const qty_in = parseFloat(m.qty_in || 0);
+            const qty_out = parseFloat(m.qty_out || 0);
+            const qty_diff = parseFloat(m.balance_diff !== undefined ? m.balance_diff : m.quantity);
             
-            // Математика идет всегда для всех строк периода
+            // For backward compatibility if API returns flat list during tests:
+            const inQty = qty_in > 0 ? qty_in : (qty_diff > 0 ? qty_diff : 0);
+            const outQty = qty_out > 0 ? qty_out : (qty_diff < 0 ? Math.abs(qty_diff) : 0);
+            
             sumIn += inQty;
             sumOut += outQty;
-            currentBalance += qty;
+            currentBalance += qty_diff;
             
-            let dateStr = new Date(m.movement_date).toLocaleString('ru-RU', {day: '2-digit', month: '2-digit', year: 'numeric'});
-            let typeName = getMovementTypeName(m.movement_type);
-            let operationHtml = `<div><b>${typeName}</b></div>`;
-            if (m.warehouse_name) operationHtml += `<div class="font-11 text-muted">Склад: ${Utils.escapeHtml(m.warehouse_name)}</div>`;
+            let dateStr = new Date(m.op_date || m.movement_date).toLocaleString('ru-RU', {day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'});
             
+            let whFrom = m.warehouse_from;
+            let whTo = m.warehouse_to;
+            
+            // Backwards compatibility with flat query
+            if (!whFrom && !whTo && m.warehouse_name) {
+                if (qty_diff > 0) whTo = m.warehouse_name;
+                else whFrom = m.warehouse_name;
+            }
+
+            let typeName = typeof m.movement_types === 'string' ? m.movement_types.split(',')[0].trim() : (m.movement_type || 'неизвестно');
+            typeName = getMovementTypeName(typeName);
+
+            let mainBadge = '';
+            // Determine logical operation
+            if (inQty > 0 && outQty > 0) {
+                mainBadge = `<span class="mc-badge mc-badge-transfer">🔄 ПЕРЕМЕЩЕНИЕ</span>`;
+            } else if (inQty > 0) {
+                mainBadge = `<span class="mc-badge mc-badge-in">📥 ПРИХОД</span>`;
+            } else {
+                mainBadge = `<span class="mc-badge mc-badge-out">📤 РАСХОД</span>`;
+            }
+
+            let routeHtml = '';
+            if (whFrom && whTo && whFrom !== whTo) {
+                routeHtml = `<div class="movement-route"><span class="text-muted">Откуда:</span> <b>${Utils.escapeHtml(whFrom)}</b> <span class="movement-route-arrow">➔</span> <span class="text-muted">Куда:</span> <b>${Utils.escapeHtml(whTo)}</b></div>`;
+            } else if (whFrom) {
+                routeHtml = `<div class="movement-route"><span class="text-muted">Списание со склада:</span> <b>${Utils.escapeHtml(whFrom)}</b></div>`;
+            } else if (whTo) {
+                routeHtml = `<div class="movement-route"><span class="text-muted">Поступление на склад:</span> <b>${Utils.escapeHtml(whTo)}</b></div>`;
+            }
+
             let decryption = '';
             if (m.supplier_name) {
                  decryption = `<span class="badge cursor-pointer hover-shadow" onclick="openClientStatsModal(${m.supplier_id}, '${Utils.escapeHtml(m.supplier_name)}')">📝 Поставщик: ${Utils.escapeHtml(m.supplier_name)}</span>`;
             } else if (m.order_doc) {
                  decryption = `<span class="badge cursor-pointer hover-shadow" onclick="openClientStatsModal(${m.order_id}, 'Заказ ${Utils.escapeHtml(m.order_doc)}')">🛒 Заказ: ${Utils.escapeHtml(m.order_doc)}</span>`;
             } else if (m.batch_number) {
-                 decryption = `<span class="badge cursor-pointer hover-shadow" onclick="openBatchStatsModal(${m.batch_id}, '${Utils.escapeHtml(m.batch_number)}')">Партия #${Utils.escapeHtml(m.batch_number)}</span>`;
-            } else if (m.description) {
-                 decryption = `<span class="font-12 text-muted">${Utils.escapeHtml(m.description)}</span>`;
+                 decryption = `<a class="text-primary text-decoration-none fw-bold" href="javascript:void(0)" onclick="openBatchCard(${m.batch_id})">Партия: #${Utils.escapeHtml(m.batch_number)} 🔗</a>`;
             }
-            
+
+            let descHtml = m.description ? `<div class="font-12 text-muted mt-5">${Utils.escapeHtml(m.description)}</div>` : '';
+
+            let priceHtml = '';
+            if (m.unit_price && parseFloat(m.unit_price) > 0) {
+                 priceHtml += `<div>Цена: ${parseFloat(m.unit_price).toLocaleString('ru-RU', {minimumFractionDigits: 2})} ₽</div>`;
+            }
+            if (m.amount && parseFloat(m.amount) > 0) {
+                 priceHtml += `<div>Сумма опер.: ${parseFloat(m.amount).toLocaleString('ru-RU', {minimumFractionDigits: 2})} ₽</div>`;
+            }
+
             if (searchQuery) {
-                const searchStr = `${typeName} ${m.warehouse_name || ''} ${m.supplier_name || ''} ${m.order_doc || ''} ${m.batch_number || ''} ${m.description || ''} ${dateStr}`.toLowerCase();
+                const searchStr = `${typeName} ${whFrom||''} ${whTo||''} ${m.supplier_name || ''} ${m.order_doc || ''} ${m.batch_number || ''} ${m.description || ''} ${dateStr}`.toLowerCase();
                 if (!searchStr.includes(searchQuery)) {
-                    return; // Пропускаем добавление в HTML
+                    return; 
                 }
             }
             
             matchCount++;
             
-            if (decryption) operationHtml += `<div class="mt-5">${decryption}</div>`;
-            
-            let priceHtml = '';
-            
-            if (m.unit_price && parseFloat(m.unit_price) > 0) {
-                priceHtml += `<div class="font-11 text-muted">Цена: ${parseFloat(m.unit_price).toLocaleString('ru-RU')} ₽</div>`;
-            }
-            if (m.amount && parseFloat(m.amount) > 0) {
-                priceHtml += `<div class="font-12 mb-5">Операция: ${parseFloat(m.amount).toLocaleString('ru-RU')} ₽</div>`;
-            }
-            if (currentItemHistoryPrice > 0) {
-                const currentWorth = currentBalance * currentItemHistoryPrice;
-                priceHtml += `<div class="font-13 font-bold text-primary mt-5 border-top-dotted pt-5">САЛЬДО: ${currentWorth.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ₽</div>`;
-            }
-            
             html += `
-                <tr class="border-bottom">
-                    <td class="font-12 align-top">${dateStr}</td>
-                    <td class="align-top">${operationHtml}</td>
-                    <td class="text-right text-success font-bold align-top bg-success-light">${inQty > 0 ? '+' + inQty.toLocaleString('ru-RU') : ''}</td>
-                    <td class="text-right text-danger font-bold align-top bg-danger-light">${outQty > 0 ? '-' + outQty.toLocaleString('ru-RU') : ''}</td>
-                    <td class="text-right font-bold align-top">${currentBalance.toLocaleString('ru-RU')}</td>
-                    <td class="text-right align-top">${priceHtml}</td>
-                </tr>
+                <div class="movement-card">
+                    <div class="movement-card-header">
+                        <div>📅 ${dateStr}</div>
+                        <div>👤 Оператор: <b>${Utils.escapeHtml(m.user_name || 'Система')}</b></div>
+                    </div>
+                    <div class="movement-card-title">
+                        ${mainBadge} <div class="font-13 font-bold">${typeName}</div>
+                        <div style="margin-left:auto">${decryption}</div>
+                    </div>
+                    ${routeHtml}
+                    ${descHtml}
+                    <div class="movement-card-header" style="border:none; padding-top:8px; margin-top:8px; border-top: 1px dotted var(--border);">
+                        <div class="font-13">
+                            <span class="${inQty>0?'text-success font-bold':''} mr-10">${inQty>0 ? '+' + inQty.toLocaleString('ru-RU', {minimumFractionDigits:2}) : ''}</span>
+                            <span class="${outQty>0?'text-danger font-bold':''}">${outQty>0 ? '-' + outQty.toLocaleString('ru-RU', {minimumFractionDigits:2}) : ''}</span>
+                        </div>
+                        <div class="text-right text-muted font-12">
+                            ${priceHtml}
+                            <div class="font-bold text-primary mt-5">ОСТАТОК: ${currentBalance.toLocaleString('ru-RU', {minimumFractionDigits:2})}</div>
+                        </div>
+                    </div>
+                </div>
             `;
         });
         
         if (searchQuery && matchCount === 0) {
-             html += `<tr><td colspan="6" class="text-center p-20 text-muted font-italic">По вашему запросу ничего не найдено</td></tr>`;
+             html += `<div class="text-center p-20 text-muted font-italic">По вашему запросу ничего не найдено</div>`;
         }
     }
     
     tbody.innerHTML = html;
     
     tfoot.innerHTML = `
-        <tr>
-            <td colspan="2" class="text-right text-muted">Обороты за период:</td>
-            <td class="text-right text-success">+${sumIn.toLocaleString('ru-RU')}</td>
-            <td class="text-right text-danger">-${sumOut.toLocaleString('ru-RU')}</td>
-            <td class="text-right font-bold font-14 text-primary">Остаток: ${currentBalance.toLocaleString('ru-RU')}</td>
-            <td></td>
-        </tr>
+        <div style="display:flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div class="text-muted">Нач. сальдо: <b>${parseFloat(startBalance).toLocaleString('ru-RU', {minimumFractionDigits:2})}</b></div>
+            <div style="display:flex; gap: 15px; align-items: center;">
+                <span class="text-success font-bold">+${sumIn.toLocaleString('ru-RU', {minimumFractionDigits:2})}</span>
+                <span class="text-danger font-bold">-${sumOut.toLocaleString('ru-RU', {minimumFractionDigits:2})}</span>
+                <div class="badge bg-primary-light text-primary font-bold font-14">ИТОГ: ${currentBalance.toLocaleString('ru-RU', {minimumFractionDigits:2})}</div>
+            </div>
+        </div>
     `;
 }
 function getMovementTypeName(type) {

@@ -886,30 +886,33 @@ module.exports = function (pool, getWhId, withTransaction) {
 
             const query = `
                 SELECT 
-                    m.id, 
-                    m.movement_date, 
-                    m.quantity, 
-                    m.movement_type, 
-                    m.description, 
-                    m.warehouse_id, 
-                    w.name as warehouse_name,
-                    m.batch_id, 
-                    b.batch_number,
-                    m.order_id, 
-                    o.doc_number as order_doc,
-                    m.supplier_id, 
-                    c.name as supplier_name,
-                    u.username as user_name,
-                    m.unit_price, 
-                    m.amount
+                    date_trunc('minute', m.movement_date) as op_date,
+                    m.item_id, MAX(i.name) as item_name, MAX(i.unit) as unit,
+                    STRING_AGG(DISTINCT m.movement_type, ', ') as movement_types,
+                    m.batch_id, MAX(b.batch_number) as batch_number,
+                    m.user_id, MAX(u.username) as user_name,
+                    m.order_id, MAX(o.doc_number) as order_doc,
+                    m.supplier_id, MAX(c.name) as supplier_name,
+                    SUM(CASE WHEN m.quantity > 0 THEN m.quantity ELSE 0 END) as qty_in,
+                    SUM(CASE WHEN m.quantity < 0 THEN ABS(m.quantity) ELSE 0 END) as qty_out,
+                    SUM(m.quantity) as balance_diff,
+                    MAX(CASE WHEN m.quantity < 0 THEN w.name ELSE NULL END) as warehouse_from,
+                    MAX(CASE WHEN m.quantity > 0 THEN w.name ELSE NULL END) as warehouse_to,
+                    STRING_AGG(DISTINCT m.description, ' | ') as description,
+                    MAX(m.unit_price) as unit_price,
+                    SUM(m.amount) as amount
                 FROM inventory_movements m
+                LEFT JOIN items i ON m.item_id = i.id
                 LEFT JOIN warehouses w ON m.warehouse_id = w.id
                 LEFT JOIN production_batches b ON m.batch_id = b.id
                 LEFT JOIN client_orders o ON m.order_id = o.id
                 LEFT JOIN counterparties c ON m.supplier_id = c.id
                 LEFT JOIN users u ON m.user_id = u.id
                 WHERE ${filterConditions.join(' AND ')}
-                ORDER BY m.movement_date ASC, m.id ASC
+                GROUP BY 
+                    date_trunc('minute', m.movement_date), 
+                    m.item_id, m.batch_id, m.user_id, m.order_id, m.supplier_id
+                ORDER BY op_date ASC
             `;
 
             const historyRes = await pool.query(query, filterParams);

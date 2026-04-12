@@ -253,26 +253,14 @@
                     </div>
                 </div>
 
-                <!-- Таблица карточки -->
-                <div class="table-container flat">
-                    <table class="table-modern w-100">
-                        <thead class="bg-surface">
-                            <tr>
-                                <th class="w-10">Дата</th>
-                                <th class="w-35">Смысл операции (Документ)</th>
-                                <th class="w-15 text-right">Приход (+)</th>
-                                <th class="w-15 text-right">Расход (-)</th>
-                                <th class="w-15 text-right">Остаток (Сальдо)</th>
-                                <th class="w-10 text-right">Цена / Сумма</th>
-                            </tr>
-                        </thead>
-                        <tbody id="history-table-body">
-                            <!-- JS Inject -->
-                        </tbody>
-                        <tfoot class="bg-surface font-bold" id="history-table-foot">
-                            <!-- JS Inject -->
-                        </tfoot>
-                    </table>
+                <!-- Лента Карточек (Event Feed) -->
+                <div class="history-feed-container flat bg-surface-alt p-10" style="max-height: 60vh; overflow-y: auto;">
+                    <div id="history-table-body" style="display:flex; flex-direction:column;">
+                        <!-- JS Inject -->
+                    </div>
+                    <div id="history-table-foot" class="mt-10 p-15 bg-surface border-radius-md font-bold box-shadow-sm">
+                        <!-- JS Inject -->
+                    </div>
                 </div>
             </div>
 
