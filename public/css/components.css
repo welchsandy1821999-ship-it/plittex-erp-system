@@ -449,7 +449,8 @@ tr:hover {
 .filter-panel .filter-warehouse{ flex: 1.2; }
 .filter-panel .filter-item     { flex: 1.5; }
 .filter-panel .filter-search   { flex: 1; }
-.filter-panel .filter-btn      { flex: 0 0 auto; width: 110px; }
+.filter-panel .filter-btn      { flex: 0 0 auto; width: 130px; }
+.filter-panel .filter-btn button { white-space: nowrap; padding: 0 10px; }
 
 /* [BACKUP ВРЕМЕННО ПРОСТРАНСТВА ОТКЛЮЧЕНО]
    ========================================================================== 
