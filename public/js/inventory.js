@@ -1266,42 +1266,29 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
             let typeName = typeof m.movement_types === 'string' ? m.movement_types.split(',')[0].trim() : (m.movement_type || 'неизвестно');
             typeName = getMovementTypeName(typeName);
 
-            let mainBadge = '';
-            // Determine logical operation
-            if (inQty > 0 && outQty > 0) {
-                mainBadge = `<span class="mc-badge mc-badge-transfer">🔄 ПЕРЕМЕЩЕНИЕ</span>`;
-            } else if (inQty > 0) {
-                mainBadge = `<span class="mc-badge mc-badge-in">📥 ПРИХОД</span>`;
-            } else {
-                mainBadge = `<span class="mc-badge mc-badge-out">📤 РАСХОД</span>`;
-            }
+            let routeClass = '';
+            if (inQty > 0 && outQty > 0) routeClass = 'transfer';
+            else if (inQty > 0) routeClass = 'in';
+            else routeClass = 'out';
 
-            let routeHtml = '';
-            if (whFrom && whTo && whFrom !== whTo) {
-                routeHtml = `<div class="movement-route"><span class="text-muted">Откуда:</span> <b>${Utils.escapeHtml(whFrom)}</b> <span class="movement-route-arrow">➔</span> <span class="text-muted">Куда:</span> <b>${Utils.escapeHtml(whTo)}</b></div>`;
-            } else if (whFrom) {
-                routeHtml = `<div class="movement-route"><span class="text-muted">Списание со склада:</span> <b>${Utils.escapeHtml(whFrom)}</b></div>`;
-            } else if (whTo) {
-                routeHtml = `<div class="movement-route"><span class="text-muted">Поступление на склад:</span> <b>${Utils.escapeHtml(whTo)}</b></div>`;
-            }
+            let sourceStr = whFrom ? Utils.escapeHtml(whFrom) : (m.supplier_name ? 'Поставщик' : 'Извне');
+            let destStr = whTo ? Utils.escapeHtml(whTo) : (m.movement_type === 'sale' ? 'Клиент' : (m.movement_type === 'scrap' ? 'Утиль' : 'Списание'));
 
             let decryption = '';
             if (m.supplier_name) {
-                 decryption = `<span class="badge cursor-pointer hover-shadow" onclick="openClientStatsModal(${m.supplier_id}, '${Utils.escapeHtml(m.supplier_name)}')">📝 Поставщик: ${Utils.escapeHtml(m.supplier_name)}</span>`;
+                 decryption = `<span class="cursor-pointer" onclick="openClientStatsModal(${m.supplier_id}, '${Utils.escapeHtml(m.supplier_name)}')">Поставщик: ${Utils.escapeHtml(m.supplier_name)}</span>`;
             } else if (m.order_doc) {
-                 decryption = `<span class="badge cursor-pointer hover-shadow" onclick="openClientStatsModal(${m.order_id}, 'Заказ ${Utils.escapeHtml(m.order_doc)}')">🛒 Заказ: ${Utils.escapeHtml(m.order_doc)}</span>`;
+                 decryption = `<span class="cursor-pointer" onclick="openClientStatsModal(${m.order_id}, 'Заказ ${Utils.escapeHtml(m.order_doc)}')">Заказ: ${Utils.escapeHtml(m.order_doc)}</span>`;
             } else if (m.batch_number) {
                  decryption = `<a class="text-primary text-decoration-none fw-bold" href="javascript:void(0)" onclick="openBatchCard(${m.batch_id})">Партия: #${Utils.escapeHtml(m.batch_number)} 🔗</a>`;
             }
-
-            let descHtml = m.description ? `<div class="font-12 text-muted mt-5">${Utils.escapeHtml(m.description)}</div>` : '';
 
             let priceHtml = '';
             if (m.unit_price && parseFloat(m.unit_price) > 0) {
                  priceHtml += `<div>Цена: ${parseFloat(m.unit_price).toLocaleString('ru-RU', {minimumFractionDigits: 2})} ₽</div>`;
             }
             if (m.amount && parseFloat(m.amount) > 0) {
-                 priceHtml += `<div>Сумма опер.: ${parseFloat(m.amount).toLocaleString('ru-RU', {minimumFractionDigits: 2})} ₽</div>`;
+                 priceHtml += `<div>Сумма: ${parseFloat(m.amount).toLocaleString('ru-RU', {minimumFractionDigits: 2})} ₽</div>`;
             }
 
             if (searchQuery) {
@@ -1313,27 +1300,38 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
             
             matchCount++;
             
+            let unitStr = m.unit ? ' ' + Utils.escapeHtml(m.unit) : '';
+            let inQtyStr = inQty > 0 ? '+' + inQty.toLocaleString('ru-RU', {minimumFractionDigits:2}) + unitStr : '';
+            let outQtyStr = outQty > 0 ? '-' + outQty.toLocaleString('ru-RU', {minimumFractionDigits:2}) + unitStr : '';
+            let balanceStr = currentBalance.toLocaleString('ru-RU', {minimumFractionDigits:2}) + unitStr;
+            
+            let amountHtml = '';
+            if (inQty > 0 && outQty > 0) {
+                 amountHtml = `<div class="mc-amount out" style="font-size:13px; color:var(--text-muted);">${outQtyStr}</div><div class="mc-amount in">${inQtyStr}</div>`;
+            } else if (inQty > 0) {
+                 amountHtml = `<div class="mc-amount in">${inQtyStr}</div>`;
+            } else {
+                 amountHtml = `<div class="mc-amount out">${outQtyStr}</div>`;
+            }
+
             html += `
                 <div class="movement-card">
-                    <div class="movement-card-header">
-                        <div>📅 ${dateStr}</div>
-                        <div>👤 Оператор: <b>${Utils.escapeHtml(m.user_name || 'Система')}</b></div>
-                    </div>
-                    <div class="movement-card-title">
-                        ${mainBadge} <div class="font-13 font-bold">${typeName}</div>
-                        <div style="margin-left:auto">${decryption}</div>
-                    </div>
-                    ${routeHtml}
-                    ${descHtml}
-                    <div class="movement-card-header" style="border:none; padding-top:8px; margin-top:8px; border-top: 1px dotted var(--border);">
-                        <div class="font-13">
-                            <span class="${inQty>0?'text-success font-bold':''} mr-10">${inQty>0 ? '+' + inQty.toLocaleString('ru-RU', {minimumFractionDigits:2}) : ''}</span>
-                            <span class="${outQty>0?'text-danger font-bold':''}">${outQty>0 ? '-' + outQty.toLocaleString('ru-RU', {minimumFractionDigits:2}) : ''}</span>
+                    <div class="mc-left">
+                        <div class="mc-meta">
+                            <span>🕒 ${dateStr}</span>
+                            <span>👤 ${Utils.escapeHtml(m.user_name || 'Авто')}</span>
+                            <span>🏷️ ${typeName}</span>
                         </div>
-                        <div class="text-right text-muted font-12">
-                            ${priceHtml}
-                            <div class="font-bold text-primary mt-5">ОСТАТОК: ${currentBalance.toLocaleString('ru-RU', {minimumFractionDigits:2})}</div>
+                        <div class="mc-route-badge ${routeClass}">
+                            ${sourceStr} <span class="movement-route-arrow">➔</span> ${destStr}
                         </div>
+                        ${m.description ? `<div class="mc-desc">${Utils.escapeHtml(m.description)}</div>` : ''}
+                        ${decryption ? `<div class="mc-link">${decryption}</div>` : ''}
+                    </div>
+                    <div class="mc-right">
+                        ${amountHtml}
+                        <div class="mc-balance">Остаток: ${balanceStr}</div>
+                        ${priceHtml ? `<div class="mc-meta" style="justify-content:flex-end; margin-top:4px;">${priceHtml}</div>` : ''}
                     </div>
                 </div>
             `;
