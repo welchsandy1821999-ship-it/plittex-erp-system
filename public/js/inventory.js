@@ -1,5 +1,9 @@
 // === public/js/inventory.js ===
 
+if (window.flatpickr && window.flatpickr.l10ns && window.flatpickr.l10ns.ru) {
+    flatpickr.localize(flatpickr.l10ns.ru);
+}
+
 let allInventory = [];
 let currentWarehouseFilter = 'all';
 let isAuditMode = false; // Флаг режима инвентаризации
@@ -135,6 +139,7 @@ window.loadDryingHistory = async function () {
                 <td class="p-8 text-muted font-12">${Utils.escapeHtml(row.description || '')}</td>
                 <td class="p-8 text-right">
                     <button class="btn btn-icon btn-sm text-muted hover-primary" onclick="openMovementEditModal(${row.id}, '${dateStr}', '${row.time}', ${row.quantity}, '${descSafe}')" title="Изменить">✏️</button>
+                    <button class="btn btn-icon btn-sm text-danger hover-danger" onclick="deleteMovement(${row.id})" title="Удалить">🗑️</button>
                 </td>
             </tr>`;
         }).join('');
@@ -580,24 +585,21 @@ window.openMovementEditModal = function(id, dateStr, timeStr, qty, desc) {
 
 window.saveMovementEdit = async function() {
     const elId = document.getElementById('edit-mov-id') || document.getElementById('edit-movement-id');
-    const elQty = document.getElementById('edit-mov-qty') || document.getElementById('edit-movement-qty');
     const elDate = document.getElementById('edit-mov-date') || document.getElementById('edit-movement-date');
     const elDesc = document.getElementById('edit-mov-desc') || document.getElementById('edit-movement-desc');
     
-    if (!elId || !elQty || !elDate) {
+    if (!elId || !elDate) {
         return UI.toast('Внутренняя ошибка DOM: поля ввода не найдены', 'error');
     }
 
     const id = elId.value;
-    const qty = elQty.value;
     const date = elDate.value;
-    const desc = elDesc.value;
+    const desc = elDesc ? elDesc.value : '';
     
-    if (!id || !qty || !date) return UI.toast('Заполните все обязательные поля', 'warning');
+    if (!id || !date) return UI.toast('Заполните поле даты', 'warning');
     
     try {
         await API.put(`/api/inventory/movement/${id}`, {
-            quantity: parseFloat(qty),
             movement_date: date,
             description: desc
         });
@@ -617,6 +619,19 @@ window.saveMovementEdit = async function() {
     } catch (e) {
         console.error(e);
     }
+};
+
+window.deleteMovement = function(id) {
+    UI.confirm('Вы уверены, что хотите удалить запись? Все связанные операции (например, приходы на склады) будут автоматически отменены, баланс вернется в исходное состояние.', async () => {
+        try {
+            await API.delete(`/api/inventory/movement/${id}`);
+            UI.toast('Транзакция успешно отменена', 'success');
+            loadDryingHistory();
+            if (typeof loadTable === 'function') loadTable();
+        } catch (e) {
+            console.error(e);
+        }
+    });
 };
 
 // === ВЫПОЛНЕНИЕ РАСПАЛУБКИ ===

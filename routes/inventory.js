@@ -1981,16 +1981,15 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     router.put('/api/inventory/movement/:id', requireAdmin, async (req, res) => {
         const movementId = req.params.id;
-        const { quantity, movement_date, description } = req.body;
+        const { movement_date, description } = req.body;
         
         try {
             await pool.query(`
                 UPDATE inventory_movements
-                SET quantity = $1,
-                    movement_date = $2,
-                    description = $3
-                WHERE id = $4
-            `, [quantity, movement_date, description, movementId]);
+                SET movement_date = $1,
+                    description = $2
+                WHERE id = $3
+            `, [movement_date, description, movementId]);
             
             const io = req.app.get('io');
             if (io) io.emit('inventory_updated');
@@ -1999,6 +1998,41 @@ module.exports = function (pool, getWhId, withTransaction) {
         } catch (err) {
             logger.error(err);
             res.status(500).json({ error: 'Ошибка обновления движения.' });
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // УДАЛЕНИЕ ДВИЖЕНИЯ И ОТКАТ (DELETE /api/inventory/movement/:id)
+    // ------------------------------------------------------------------
+    router.delete('/api/inventory/movement/:id', requireAdmin, async (req, res) => {
+        const movementId = req.params.id;
+        
+        try {
+            await withTransaction(pool, async (client) => {
+                const movRes = await client.query('SELECT batch_id, movement_date FROM inventory_movements WHERE id = $1', [movementId]);
+                if (movRes.rows.length === 0) throw new Error('Запись не найдена');
+                
+                const { batch_id, movement_date } = movRes.rows[0];
+                
+                // Если есть batch_id, значит транзакция составная (распалубка и т.д.) - удаляем весь блок (восстанавливая баланс)
+                if (batch_id) {
+                    await client.query(`
+                        DELETE FROM inventory_movements 
+                        WHERE batch_id = $1 AND movement_date = $2
+                    `, [batch_id, movement_date]);
+                } else {
+                    // Иначе одиночное списание/приход
+                    await client.query('DELETE FROM inventory_movements WHERE id = $1', [movementId]);
+                }
+            });
+            
+            const io = req.app.get('io');
+            if (io) io.emit('inventory_updated');
+            
+            res.json({ success: true, message: 'Записи успешно удалены' });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: err.message || 'Ошибка удаления.' });
         }
     });
 
