@@ -1392,8 +1392,20 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
             else if (inQty > 0) routeClass = 'in';
             else routeClass = 'out';
 
-            let sourceStr = whFrom ? Utils.escapeHtml(whFrom) : (m.supplier_name ? 'Поставщик' : 'Извне');
-            let destStr = whTo ? Utils.escapeHtml(whTo) : (m.movement_type === 'sale' ? 'Клиент' : (m.movement_type === 'scrap' ? 'Утиль' : 'Списание'));
+            let rawSource = whFrom ? Utils.escapeHtml(whFrom) : (m.supplier_name ? 'Поставщик' : 'Извне');
+            if (m.type === 'production_receipt' || m.type === 'finished_receipt' || m.type === 'scrap_receipt' || m.type === 'markdown_receipt') {
+                rawSource = 'Производство';
+            } else if (m.type && m.type.includes('purchase')) {
+                rawSource = 'Поставщик';
+            }
+            
+            let rawDest = whTo ? Utils.escapeHtml(whTo) : (m.movement_type === 'sale' ? 'Клиент' : (m.movement_type === 'scrap' ? 'Утиль' : 'Списание'));
+            
+            let routeHtml = `
+                <span class="badge bg-light text-dark border">${rawSource}</span> 
+                <span class="movement-route-arrow text-muted">➔</span> 
+                <span class="badge bg-light text-dark border">${rawDest}</span>
+            `;
 
             let decryption = '';
             if (m.supplier_name) {
@@ -1401,7 +1413,7 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
             } else if (m.order_doc) {
                  decryption = `<span class="cursor-pointer" onclick="openClientStatsModal(${m.order_id}, 'Заказ ${Utils.escapeHtml(m.order_doc)}')">Заказ: ${Utils.escapeHtml(m.order_doc)}</span>`;
             } else if (m.batch_number) {
-                 decryption = `<a class="text-primary text-decoration-none fw-bold" href="javascript:void(0)" onclick="openBatchCard(${m.batch_id})">Партия: #${Utils.escapeHtml(m.batch_number)} 🔗</a>`;
+                 decryption = `<a class="chip" href="javascript:void(0)" onclick="openBatchCard(${m.batch_id})">Партия: #${Utils.escapeHtml(m.batch_number)} 🔗</a>`;
             }
 
             let priceHtml = '';
@@ -1443,8 +1455,8 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
                             <span>👤 ${Utils.escapeHtml(m.user_name || 'Авто')}</span>
                             <span>🏷️ ${typeName}</span>
                         </div>
-                        <div class="mc-route-badge ${routeClass}">
-                            ${sourceStr} <span class="movement-route-arrow">➔</span> ${destStr}
+                        <div class="mc-route-badge">
+                            ${routeHtml}
                         </div>
                         ${m.description ? `<div class="mc-desc">${Utils.escapeHtml(m.description)}</div>` : ''}
                         ${decryption ? `<div class="mc-link">${decryption}</div>` : ''}
@@ -1452,7 +1464,7 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
                     <div class="mc-right">
                         ${amountHtml}
                         <div class="mc-balance">Остаток: ${balanceStr}</div>
-                        ${priceHtml ? `<div class="mc-meta" style="justify-content:flex-end; margin-top:4px;">${priceHtml}</div>` : ''}
+                        ${priceHtml ? `<div class="mc-finance">${priceHtml}</div>` : ''}
                     </div>
                 </div>
             `;
