@@ -5482,3 +5482,27 @@
 .mc-summary-balance { font-size: 15px; color: var(--text-main); }
 .mc-summary-balance b { font-size: 16px; font-weight: 700; }
 .mc-summary-totals { display: flex; gap: 20px; align-items: center; font-size: 13px; }
+
+/* Жёсткий каркас модалки истории движения */
+#modal-item-history .modal-content {
+    max-height: 90vh;
+}
+
+#modal-item-history .modal-body {
+    flex: 1;
+    overflow-y: auto;
+    max-height: none; /* сброс базовых 75vh из .modal-body */
+}
+
+#modal-item-history .modal-footer {
+    flex-shrink: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    background-color: var(--surface);
+}
+
+#history-table-body {
+    display: flex;
+    flex-direction: column;
+}

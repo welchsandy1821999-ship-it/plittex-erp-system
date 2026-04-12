@@ -1462,7 +1462,19 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
                         <div class="mc-route-badge">
                             ${routeHtml}
                         </div>
-                        ${m.description ? `<div class="mc-desc">${Utils.escapeHtml(m.description)}</div>` : ''}
+                        ${(() => {
+                            // Дедупликация: убираем из description упоминания,
+                            // которые уже показаны как кликабельные чипы
+                            let cleanDesc = (m.description || '');
+                            if (m.batch_number) {
+                                cleanDesc = cleanDesc.replace(/,?\s*Партия[:\s#]*\S+/gi, '');
+                            }
+                            if (m.order_doc) {
+                                cleanDesc = cleanDesc.replace(/,?\s*(?:Заказ[у]?|по заказу)[:\s]*ЗК-\d+/gi, '');
+                            }
+                            cleanDesc = cleanDesc.replace(/^[\s,|:]+|[\s,|:]+$/g, '').replace(/\s{2,}/g, ' ').trim();
+                            return cleanDesc ? `<div class="mc-desc">${Utils.escapeHtml(cleanDesc)}</div>` : '';
+                        })()}
                         ${decryption ? `<div class="mc-link">${decryption}</div>` : ''}
                     </div>
                     <div class="mc-right">

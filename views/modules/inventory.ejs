@@ -263,18 +263,20 @@
                 </div>
 
                 <!-- Лента Карточек (Event Feed) -->
-                <div class="history-feed-container flat bg-surface-alt p-10" style="max-height: 60vh; overflow-y: auto;">
-                    <div id="history-table-body" style="display:flex; flex-direction:column;">
-                        <!-- JS Inject -->
-                    </div>
-                    <div id="history-table-foot" class="mt-10 p-15 bg-surface border-radius-md font-bold box-shadow-sm">
+                <div class="history-feed-container flat bg-surface-alt p-10">
+                    <div id="history-table-body">
                         <!-- JS Inject -->
                     </div>
                 </div>
             </div>
 
             <div class="modal-footer">
-                <button class="btn btn-outline" onclick="closeItemHistory()">Закрыть</button>
+                <div id="history-table-foot" class="w-100">
+                    <!-- JS Inject: Сальдо -->
+                </div>
+                <div class="w-100 d-flex" style="justify-content: flex-end;">
+                    <button class="btn btn-outline" onclick="closeItemHistory()">Закрыть</button>
+                </div>
             </div>
         </div>
     </div>
