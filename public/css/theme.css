@@ -462,9 +462,9 @@
 .table-fixed { table-layout: fixed; }
 
 /* Semantic backgrounds */
-.bg-danger-light { background-color: #ffe6e6; }
-.bg-warning-light { background-color: #fff8e1; }
-.bg-success-light { background-color: rgba(16, 185, 129, 0.05); }
+.bg-danger-light { background-color: #ffe6e6 !important; }
+.bg-warning-light { background-color: #fff8e1 !important; }
+.bg-success-light { background-color: rgba(16, 185, 129, 0.05) !important; }
 
 /* Grid templates */
 .grid-cols-5-auto { grid-template-columns: 2fr 2fr 2fr 2fr auto; }
