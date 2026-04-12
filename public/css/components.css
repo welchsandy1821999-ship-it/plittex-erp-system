@@ -408,8 +408,8 @@ tr:hover {
 
 .filter-panel {
     background-color: var(--surface);
-    padding: 15px;
-    border-radius: 8px;
+    padding: 16px;
+    border-radius: var(--border-radius-lg, 8px);
     border: 1px solid var(--border);
     margin-bottom: 20px;
     display: flex;
@@ -419,15 +419,24 @@ tr:hover {
 }
 
 .filter-panel .form-group {
-    flex: 1;
-    min-width: 150px;
     margin-bottom: 0;
+    display: flex;
+    flex-direction: column;
 }
 
-.filter-panel .input-modern {
-    width: 100%;
-    min-width: 0;
+.filter-panel label {
+    margin-bottom: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
 }
+
+/* Умное распределение ширины */
+.filter-panel .filter-period   { flex: 1.5; min-width: 250px; }
+.filter-panel .filter-warehouse{ flex: 1; min-width: 160px; }
+.filter-panel .filter-item     { flex: 1.5; min-width: 200px; }
+.filter-panel .filter-search   { flex: 1; min-width: 180px; }
+.filter-panel .filter-btn      { flex: 0 0 auto; width: 120px; }
 
 /* [BACKUP ВРЕМЕННО ПРОСТРАНСТВА ОТКЛЮЧЕНО]
    ========================================================================== 
