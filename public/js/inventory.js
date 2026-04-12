@@ -1361,6 +1361,7 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
     } else {
         let matchCount = 0;
         history.forEach(m => {
+            console.log('Movement Data:', m);
             const qty_in = parseFloat(m.qty_in || 0);
             const qty_out = parseFloat(m.qty_out || 0);
             const qty_diff = parseFloat(m.balance_diff !== undefined ? m.balance_diff : m.quantity);
@@ -1532,7 +1533,11 @@ function getMovementTypeName(type) {
 
 window.openClientStatsModal = async function(clientId, clientName) {
     if (!clientId) return;
-    UI.openModalById('modal-client-stats');
+    const modal = document.getElementById('modal-client-stats');
+    if (!modal) return;
+    modal.classList.remove('d-none');
+    modal.classList.add('active');
+    
     document.getElementById('client-stats-title').innerText = "Досье контрагента: " + clientName;
     const body = document.getElementById('client-stats-body');
     body.innerHTML = '<div class="p-20 text-center text-muted">Загрузка статистики...</div>';
@@ -1571,7 +1576,11 @@ window.openBatchStatsModal = async function(batchId, batchNum) {
         UI.toast("Партия без ID", "warning");
         return;
     }
-    UI.openModalById('modal-batch-stats');
+    const modal = document.getElementById('modal-batch-stats');
+    if (!modal) return;
+    modal.classList.remove('d-none');
+    modal.classList.add('active');
+    
     document.getElementById('batch-stats-title').innerText = "Информация о партии №" + batchNum;
     const body = document.getElementById('batch-stats-body');
     body.innerHTML = '<div class="p-20 text-center text-muted">Загрузка информации (Смета, Сырье)...</div>';
