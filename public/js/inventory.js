@@ -545,11 +545,16 @@ window.openDemoldingModal = function (batchId, batchNum, tileId, productName, pl
 
 // === РЕДАКТИРОВАНИЕ ДВИЖЕНИЯ ===
 window.openMovementEditModal = function(id, dateStr, timeStr, qty, desc) {
-    document.getElementById('edit-movement-id').value = id;
-    document.getElementById('edit-movement-qty').value = qty;
-    document.getElementById('edit-movement-desc').value = desc;
+    document.getElementById('edit-mov-id').value = id;
+    document.getElementById('edit-mov-qty').value = qty;
+    document.getElementById('edit-mov-desc').value = desc;
     
-    UI.showModal('modal-edit-movement');
+    // Показываем статичную модалку
+    const modal = document.getElementById('modal-edit-movement');
+    if (modal) {
+        modal.classList.remove('d-none');
+        modal.classList.add('active');
+    }
     
     // YYYY-MM-DD HH:mm format
     const fullDate = dateStr + ' ' + (timeStr || '00:00');
@@ -557,22 +562,22 @@ window.openMovementEditModal = function(id, dateStr, timeStr, qty, desc) {
     if (window.editMovementDatePicker) {
         window.editMovementDatePicker.setDate(fullDate);
     } else if (window.flatpickr) {
-        window.editMovementDatePicker = flatpickr("#edit-movement-date", {
+        window.editMovementDatePicker = flatpickr("#edit-mov-date", {
             enableTime: true,
             dateFormat: "Y-m-d H:i",
             defaultDate: fullDate,
             time_24hr: true
         });
     } else {
-        document.getElementById('edit-movement-date').value = fullDate;
+        document.getElementById('edit-mov-date').value = fullDate;
     }
 };
 
 window.saveMovementEdit = async function() {
-    const id = document.getElementById('edit-movement-id').value;
-    const qty = document.getElementById('edit-movement-qty').value;
-    const date = document.getElementById('edit-movement-date').value;
-    const desc = document.getElementById('edit-movement-desc').value;
+    const id = document.getElementById('edit-mov-id').value;
+    const qty = document.getElementById('edit-mov-qty').value;
+    const date = document.getElementById('edit-mov-date').value;
+    const desc = document.getElementById('edit-mov-desc').value;
     
     if (!id || !qty || !date) return UI.toast('Заполните все обязательные поля', 'warning');
     
@@ -583,10 +588,16 @@ window.saveMovementEdit = async function() {
             description: desc
         });
         
-        UI.closeModal('modal-edit-movement');
+        // Закрываем модалку
+        const modal = document.getElementById('modal-edit-movement');
+        if (modal) {
+            modal.classList.remove('active');
+            modal.classList.add('d-none');
+        }
+        
         UI.toast('Движение успешно изменено', 'success');
         
-        // Reload context
+        // Перезагрузка контекста
         loadDryingHistory();
         if (typeof loadTable === 'function') loadTable();
     } catch (e) {
