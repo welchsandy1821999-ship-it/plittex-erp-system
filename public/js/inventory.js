@@ -126,7 +126,7 @@ window.loadDryingHistory = async function () {
             <tr>
                 <td class="p-8 text-muted font-13">${Utils.escapeHtml(row.time || '')}</td>
                 <td class="p-8">${typeBadge}</td>
-                <td class="p-8">${row.batch_number && row.batch_id ? '<a href="javascript:void(0)" onclick="openBatchCard(' + row.batch_id + ')" class="text-primary text-decoration-none font-bold">' + Utils.escapeHtml(row.batch_number) + '</a>' : '-'}</td>
+                <td class="p-8">${row.batch_number && row.batch_id ? '<a href="javascript:void(0)" onclick="openBatchCard(' + row.batch_id + ')" class="text-primary text-decoration-none fw-bold">#' + Utils.escapeHtml(row.batch_number) + '</a>' : '-'}</td>
                 <td class="p-8">${Utils.escapeHtml(row.product_name)}</td>
                 <td class="p-8 text-right ${qtyClass}">${qtySign}${parseFloat(row.quantity).toLocaleString('ru-RU', { maximumFractionDigits: 2 })}</td>
                 <td class="p-8 text-muted">${Utils.escapeHtml(row.unit || '')}</td>
@@ -348,7 +348,7 @@ function renderInventoryTable() {
         let qtyHtml = '';
 
         const batchCell = item.batch_number && item.batch_id
-            ? `<button class="btn-link-modern border-0 bg-transparent text-primary font-bold p-0" style="cursor:pointer;" onclick="openBatchCard(${item.batch_id})">#${Utils.escapeHtml(item.batch_number)}</button>`
+            ? `<a href="javascript:void(0)" onclick="openBatchCard(${item.batch_id})" class="text-primary text-decoration-none fw-bold">#${Utils.escapeHtml(item.batch_number)}</a>`
             : (item.batch_number ? '#' + Utils.escapeHtml(item.batch_number) : `<span class="text-muted">—</span>`);
 
         if (isAuditMode) {
