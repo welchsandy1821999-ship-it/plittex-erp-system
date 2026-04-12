@@ -5490,8 +5490,20 @@
 
 #modal-item-history .modal-body {
     flex: 1;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden; /* Выключаем скролл самого body, чтобы фильтры не уезжали */
     max-height: none; /* сброс базовых 75vh из .modal-body */
+}
+
+#modal-item-history .filter-panel {
+    flex-shrink: 0; /* Жестко фиксируем высоту панели фильтров */
+}
+
+#modal-item-history .history-feed-container {
+    flex: 1;
+    min-height: 0; /* Обязательно для работы flex скролла */
+    overflow-y: auto; /* Включаем локальный скролл ленты транзакций */
 }
 
 #modal-item-history .modal-footer {
