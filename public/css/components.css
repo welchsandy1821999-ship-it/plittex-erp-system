@@ -276,6 +276,11 @@ tr:hover {
     transition: opacity 0.2s;
 }
 
+/* Глобальный app-modal всегда поверх всех остальных окон */
+#app-modal {
+    z-index: 10000 !important;
+}
+
 .modal-overlay.active {
     display: flex !important;
     opacity: 1;
