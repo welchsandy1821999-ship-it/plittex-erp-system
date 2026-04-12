@@ -2782,15 +2782,14 @@
         `).join('') || '<div class="p-15 text-center text-muted">Договоров нет</div>';
 
             const html = `
-            <style>.modal-content { max-width: 1000px !important; width: 95% !important; }</style>
             <div class="flex-row gap-20 align-start">
                 <div class="flex-1">
                     <div class="crm-profile-card">
                         <div class="crm-profile-header">
-                            <span class="badge" style="background: var(--surface-alt); color: var(--primary);">${cp.role || cp.type || '—'}</span>
+                            <span class="badge badge-role">${cp.role || cp.type || '—'}</span>
                             <div class="flex-row gap-5">
                                  <button class="btn btn-outline p-5 font-12" onclick="openAdvancedCPCard(${cp.id})">✏️ Изменить</button>
-                                 <button class="btn btn-outline p-5 font-12 text-danger" style="border-color: var(--danger);" onclick="deleteCounterparty(${cp.id})">🗑️ Удалить</button>
+                                 <button class="btn btn-outline btn-outline-danger p-5 font-12" onclick="deleteCounterparty(${cp.id})">🗑️ Удалить</button>
                             </div>
                         </div>
                         <h3 class="crm-profile-title">${cp.name || '—'} ${window.getCategoryBadge(cp.client_category)}</h3>
@@ -2803,11 +2802,11 @@
                     </div>
 
                     <div class="mb-15">
-                        <h4 class="crm-toggle-header" onclick="const c = document.getElementById('cp-contracts-list'); const i = document.getElementById('cp-contracts-icon'); if(c.style.display==='none'){c.style.display='block'; i.innerText='▲ Свернуть';}else{c.style.display='none'; i.innerText='▼ Развернуть';}">
+                        <h4 class="crm-toggle-header" onclick="const c = document.getElementById('cp-contracts-list'); const i = document.getElementById('cp-contracts-icon'); c.classList.toggle('hidden'); i.innerText = c.classList.contains('hidden') ? '▼ Развернуть' : '▲ Свернуть';">
                             <span>📑 Договоры клиента</span>
                             <span id="cp-contracts-icon" class="font-normal font-12 text-primary">▼ Развернуть</span>
                         </h4>
-                        <div id="cp-contracts-list" class="crm-toggle-content" style="display: none;">
+                        <div id="cp-contracts-list" class="crm-toggle-content hidden">
                             ${contractsHtml}
                         </div>
                     </div>
@@ -2819,9 +2818,9 @@
 
                     <h4 class="crm-block-header">📄 Документы и корректировки</h4>
                     <div class="crm-actions-grid">
-                        <button class="btn btn-outline p-5 font-13 text-warning" style="border-color: var(--warning);" onclick="openFinanceInvoiceModal(${cp.id}, '${cp.name.replace(/'/g, "\\'").replace(/"/g, '&quot;')}')">🖨️ Выставить Счет</button>
-                        <button class="btn btn-outline p-5 font-13 text-primary" style="border-color: var(--primary);" onclick="window.open('/print/act?cp_id=${cp.id}&token=' + localStorage.getItem('token'), '_blank')">📑 Акт сверки</button>
-                        <button class="btn btn-outline p-5 font-13 font-bold text-primary" style="border-color: var(--primary);" onclick="openCorrectionModal(${cp.id})">⚖️ Коррекция</button>
+                        <button class="btn btn-outline btn-outline-warning p-5 font-13" onclick="openFinanceInvoiceModal(${cp.id}, '${cp.name.replace(/'/g, "\\'").replace(/"/g, '&quot;')}')">🖨️ Выставить Счет</button>
+                        <button class="btn btn-outline p-5 font-13 text-primary" onclick="window.open('/print/act?cp_id=${cp.id}&token=' + localStorage.getItem('token'), '_blank')">📑 Акт сверки</button>
+                        <button class="btn btn-outline p-5 font-13 font-bold text-primary" onclick="openCorrectionModal(${cp.id})">⚖️ Коррекция</button>
                     </div>
                 </div>
 

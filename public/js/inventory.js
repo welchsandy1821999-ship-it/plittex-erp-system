@@ -1418,7 +1418,7 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
                  chips.push(`<a class="chip" href="javascript:void(0)" onclick="openBatchCard(${m.batch_id})">Партия: #${Utils.escapeHtml(m.batch_number)} 🔗</a>`);
             }
             
-            let decryption = chips.length > 0 ? chips.join(' <span style="margin: 0 4px;"></span> ') : '';
+            let decryption = chips.length > 0 ? chips.join('<span class="chip-sep"></span>') : '';
 
             let priceHtml = '';
             if (m.unit_price && parseFloat(m.unit_price) > 0) {
@@ -1444,7 +1444,7 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
             
             let amountHtml = '';
             if (inQty > 0 && outQty > 0) {
-                 amountHtml = `<div class="mc-amount out" style="font-size:13px; color:var(--text-muted);">${outQtyStr}</div><div class="mc-amount in">${inQtyStr}</div>`;
+                 amountHtml = `<div class="mc-amount out mc-amount-sm">${outQtyStr}</div><div class="mc-amount in">${inQtyStr}</div>`;
             } else if (inQty > 0) {
                  amountHtml = `<div class="mc-amount in">${inQtyStr}</div>`;
             } else {
@@ -1482,9 +1482,9 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
     tbody.innerHTML = html;
     
     tfoot.innerHTML = `
-        <div style="display:flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding: 5px 0;">
-            <div style="font-size: 15px; color: var(--text);">Текущий остаток (Сальдо): <b style="font-size: 16px;">${currentBalance.toLocaleString('ru-RU', {minimumFractionDigits:2})}</b></div>
-            <div style="display:flex; gap: 20px; align-items: center; font-size: 13px;">
+        <div class="mc-summary-bar">
+            <div class="mc-summary-balance">Текущий остаток (Сальдо): <b>${currentBalance.toLocaleString('ru-RU', {minimumFractionDigits:2})}</b></div>
+            <div class="mc-summary-totals">
                 <span class="text-success" title="Суммарный приход за выбранный период">Приход: +${sumIn.toLocaleString('ru-RU', {minimumFractionDigits:2})}</span>
                 <span class="text-danger" title="Суммарный расход за выбранный период">Расход: -${sumOut.toLocaleString('ru-RU', {minimumFractionDigits:2})}</span>
             </div>
