@@ -1072,7 +1072,7 @@ module.exports = function (pool, getWhId, withTransaction) {
     // 4. МАРШРУТ: РАСПАЛУБКА И ПРИЕМКА (POST /api/move-wip)
     // ------------------------------------------------------------------
     router.post('/api/move-wip', requireAdmin, async (req, res) => {
-        const { batchId, tileId, currentWipQty, goodQty, grade2Qty, scrapQty, isComplete } = req.body;
+        const { batchId, tileId, currentWipQty, goodQty, grade2Qty, scrapQty, isComplete, movementDate } = req.body;
 
         try {
             await withTransaction(pool, async (client) => {
@@ -1123,9 +1123,9 @@ module.exports = function (pool, getWhId, withTransaction) {
                 }
 
                 await client.query(`
-                    INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id)
-                    VALUES ($1, $2, 'wip_expense', 'Распалубка: Выход из сушилки', $3, $4, $5)
-                `, [tileId, -totalRemoved, dryingWh, batchId, userId]);
+                    INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, movement_date)
+                    VALUES ($1, $2, 'wip_expense', 'Распалубка: Выход из сушилки', $3, $4, $5, COALESCE($6, NOW()))
+                `, [tileId, -totalRemoved, dryingWh, batchId, userId, movementDate || null]);
 
                 if (safeGood > 0) {
                     let remainingGood = safeGood;
@@ -1148,9 +1148,9 @@ module.exports = function (pool, getWhId, withTransaction) {
                         remainingGood -= allocate;
 
                         await client.query(`
-                            INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id)
-                            VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6, $7)
-                        `, [tileId, allocate, `Распалубка: сразу в Резерв по ${order.doc_number}`, reserveWhId, batchId, userId, order.id]);
+                            INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id, movement_date)
+                            VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6, $7, COALESCE($8, NOW()))
+                        `, [tileId, allocate, `Распалубка: сразу в Резерв по ${order.doc_number}`, reserveWhId, batchId, userId, order.id, movementDate || null]);
 
                         await client.query(`
                             UPDATE client_order_items 
@@ -1170,9 +1170,9 @@ module.exports = function (pool, getWhId, withTransaction) {
 
                     if (remainingGood > 0) {
                         await client.query(`
-                            INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id)
-                            VALUES ($1, $2, 'finished_receipt', 'Распалубка: 1-й сорт', $3, $4, $5)
-                        `, [tileId, Number(new Big(remainingGood).round(2)), finishedWh, batchId, userId]);
+                            INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, movement_date)
+                            VALUES ($1, $2, 'finished_receipt', 'Распалубка: 1-й сорт', $3, $4, $5, COALESCE($6, NOW()))
+                        `, [tileId, Number(new Big(remainingGood).round(2)), finishedWh, batchId, userId, movementDate || null]);
                     }
                 }
 
@@ -1205,16 +1205,16 @@ module.exports = function (pool, getWhId, withTransaction) {
                     }
 
                     await client.query(`
-                        INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id)
-                        VALUES ($1, $2, 'markdown_receipt', 'Распалубка: 2-й сорт (Уценка)', $3, $4, $5)
-                    `, [markdownTileId, safeGrade2, markdownWh, batchId, userId]);
+                        INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, movement_date)
+                        VALUES ($1, $2, 'markdown_receipt', 'Распалубка: 2-й сорт (Уценка)', $3, $4, $5, COALESCE($6, NOW()))
+                    `, [markdownTileId, safeGrade2, markdownWh, batchId, userId, movementDate || null]);
                 }
 
                 if (scrapQty > 0) {
                     await client.query(`
-                        INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id)
-                        VALUES ($1, $2, 'scrap_receipt', 'Распалубка: Брак (Бой)', $3, $4, $5)
-                    `, [tileId, safeScrap, defectWh, batchId, userId]);
+                        INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, movement_date)
+                        VALUES ($1, $2, 'scrap_receipt', 'Распалубка: Брак (Бой)', $3, $4, $5, COALESCE($6, NOW()))
+                    `, [tileId, safeScrap, defectWh, batchId, userId, movementDate || null]);
                 }
 
                 // 🚀 НОВОЕ: Накапливаем 1-й сорт для сдельной зарплаты при каждой распалубке партии
@@ -1974,6 +1974,31 @@ module.exports = function (pool, getWhId, withTransaction) {
         } catch (err) {
             logger.error(err);
             res.status(500).json({ error: 'Ошибка получения заказов.' });
+        }
+    });
+    // ------------------------------------------------------------------
+    // РЕДАКТИРОВАНИЕ ДВИЖЕНИЯ (PUT /api/inventory/movement/:id)
+    // ------------------------------------------------------------------
+    router.put('/api/inventory/movement/:id', requireAdmin, async (req, res) => {
+        const movementId = req.params.id;
+        const { quantity, movement_date, description } = req.body;
+        
+        try {
+            await pool.query(`
+                UPDATE inventory_movements
+                SET quantity = $1,
+                    movement_date = $2,
+                    description = $3
+                WHERE id = $4
+            `, [quantity, movement_date, description, movementId]);
+            
+            const io = req.app.get('io');
+            if (io) io.emit('inventory_updated');
+            
+            res.json({ success: true, message: 'Запись успешно обновлена' });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Ошибка обновления движения.' });
         }
     });
 

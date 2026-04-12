@@ -110,7 +110,7 @@ window.loadDryingHistory = async function () {
         const data = await API.get(`/api/inventory/drying-history?date=${dateStr}`);
 
         if (!Array.isArray(data) || data.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted p-20">В этот день движений на сушилке не было.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted p-20">В этот день движений на сушилке не было.</td></tr>';
             return;
         }
 
@@ -121,6 +121,8 @@ window.loadDryingHistory = async function () {
                 : '<span class="badge bg-warning-light text-warning">📤 Распалубка</span>';
             const qtyClass = isReceipt ? 'text-success font-bold' : 'text-warning font-bold';
             const qtySign = isReceipt ? '+' : '';
+            
+            const descSafe = (row.description || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
 
             return `
             <tr>
@@ -131,11 +133,14 @@ window.loadDryingHistory = async function () {
                 <td class="p-8 text-right ${qtyClass}">${qtySign}${parseFloat(row.quantity).toLocaleString('ru-RU', { maximumFractionDigits: 2 })}</td>
                 <td class="p-8 text-muted">${Utils.escapeHtml(row.unit || '')}</td>
                 <td class="p-8 text-muted font-12">${Utils.escapeHtml(row.description || '')}</td>
+                <td class="p-8 text-right">
+                    <button class="btn btn-icon btn-sm text-muted hover-primary" onclick="openMovementEditModal(${row.id}, '${dateStr}', '${row.time}', ${row.quantity}, '${descSafe}')" title="Изменить">✏️</button>
+                </td>
             </tr>`;
         }).join('');
     } catch (e) {
         console.error('Ошибка загрузки истории сушилки:', e);
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-danger">Ошибка загрузки данных</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-danger">Ошибка загрузки данных</td></tr>';
     }
 };
 
@@ -507,6 +512,11 @@ window.openDemoldingModal = function (batchId, batchNum, tileId, productName, pl
             </div>
         </div>
         
+        <div class="form-group mt-15">
+            <label>Дата распалубки (По-умолчанию Сейчас):</label>
+            <input type="text" id="demolding-date" class="input-modern" placeholder="ДД.ММ.ГГГГ ЧЧ:ММ">
+        </div>
+
         <div class="form-group">
             <label class="d-flex align-items-center gap-2">
                 <input type="checkbox" id="demold-complete" checked>
@@ -520,7 +530,68 @@ window.openDemoldingModal = function (batchId, batchNum, tileId, productName, pl
         <button class="btn btn-blue" onclick="executeDemolding(${batchId}, ${tileId}, ${plannedQty})">💾 Сохранить выход</button>
     `;
 
-    UI.showModal('🧱 Распалубка и премка на склад', html, buttons);
+    UI.showModal('🧱 Распалубка и приемка на склад', html, buttons);
+    
+    // Инициализация календаря для бэкдейтинга
+    if (window.flatpickr) {
+        flatpickr("#demolding-date", {
+            enableTime: true,
+            dateFormat: "Y-m-d H:i",
+            defaultDate: "today",
+            time_24hr: true
+        });
+    }
+};
+
+// === РЕДАКТИРОВАНИЕ ДВИЖЕНИЯ ===
+window.openMovementEditModal = function(id, dateStr, timeStr, qty, desc) {
+    document.getElementById('edit-movement-id').value = id;
+    document.getElementById('edit-movement-qty').value = qty;
+    document.getElementById('edit-movement-desc').value = desc;
+    
+    UI.showModal('modal-edit-movement');
+    
+    // YYYY-MM-DD HH:mm format
+    const fullDate = dateStr + ' ' + (timeStr || '00:00');
+    
+    if (window.editMovementDatePicker) {
+        window.editMovementDatePicker.setDate(fullDate);
+    } else if (window.flatpickr) {
+        window.editMovementDatePicker = flatpickr("#edit-movement-date", {
+            enableTime: true,
+            dateFormat: "Y-m-d H:i",
+            defaultDate: fullDate,
+            time_24hr: true
+        });
+    } else {
+        document.getElementById('edit-movement-date').value = fullDate;
+    }
+};
+
+window.saveMovementEdit = async function() {
+    const id = document.getElementById('edit-movement-id').value;
+    const qty = document.getElementById('edit-movement-qty').value;
+    const date = document.getElementById('edit-movement-date').value;
+    const desc = document.getElementById('edit-movement-desc').value;
+    
+    if (!id || !qty || !date) return UI.toast('Заполните все обязательные поля', 'warning');
+    
+    try {
+        await API.put(`/api/inventory/movement/${id}`, {
+            quantity: parseFloat(qty),
+            movement_date: date,
+            description: desc
+        });
+        
+        UI.closeModal('modal-edit-movement');
+        UI.toast('Движение успешно изменено', 'success');
+        
+        // Reload context
+        loadDryingHistory();
+        if (typeof loadTable === 'function') loadTable();
+    } catch (e) {
+        console.error(e);
+    }
 };
 
 // === ВЫПОЛНЕНИЕ РАСПАЛУБКИ ===
@@ -529,6 +600,7 @@ window.executeDemolding = async function (batchId, tileId, currentWipQty) {
     const grade2Qty = parseFloat(document.getElementById('demold-grade2').value) || 0;
     const scrapQty = parseFloat(document.getElementById('demold-scrap').value) || 0;
     const isComplete = document.getElementById('demold-complete').checked;
+    const demoldingDate = document.getElementById('demolding-date').value;
 
     if (goodQty < 0 || grade2Qty < 0 || scrapQty < 0) return UI.toast('Количество не может быть отрицательным!', 'error');
     if (goodQty + grade2Qty + scrapQty === 0) return UI.toast('Укажите хотя бы одну позицию выхода!', 'error');
@@ -538,7 +610,16 @@ window.executeDemolding = async function (batchId, tileId, currentWipQty) {
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Сохранение...'; }
 
     try {
-        await API.post('/api/move-wip', { batchId, tileId, currentWipQty, goodQty, grade2Qty, scrapQty, isComplete });
+        await API.post('/api/move-wip', { 
+            batchId, 
+            tileId, 
+            currentWipQty, 
+            goodQty, 
+            grade2Qty, 
+            scrapQty, 
+            isComplete,
+            movementDate: demoldingDate 
+        });
 
         UI.closeModal();
         UI.toast('Партия успешно распределена по складам!', 'success');
