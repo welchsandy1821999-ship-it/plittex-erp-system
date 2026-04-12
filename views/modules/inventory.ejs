@@ -218,7 +218,7 @@
             
             <div class="modal-body bg-surface-alt">
                 <!-- Элементы управления -->
-                <div class="filter-panel flex-row gap-15 align-center mb-15 p-15 border-radius-8 bg-surface border">
+                <div class="filter-panel flex-row gap-15 align-end mb-15 p-15 border-radius-8 bg-surface border">
                     <div class="form-group mb-0 min-w-450">
                         <label>Период:</label>
                         <div id="history-period-selector" class="flex-row gap-5 h-32 items-center">
@@ -249,7 +249,7 @@
                         <label>Фильтр по операциям:</label>
                         <input type="text" id="history-search-input" class="input-modern w-100 h-32 p-5 font-13" placeholder="Партия, Заказ..." oninput="debounceHistorySearch()">
                     </div>
-                    <div class="form-group mb-0 mt-24">
+                    <div class="form-group mb-0">
                         <button class="btn btn-blue h-32 px-15" onclick="fetchItemHistory()">🔄 Обновить</button>
                     </div>
                 </div>
