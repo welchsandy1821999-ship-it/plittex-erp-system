@@ -5486,3 +5486,10 @@
 .mc-amount.out { color: var(--danger); }
 .mc-balance { font-size: 13px; color: var(--text-muted); font-weight: 500; }
 .mc-finance { font-size: 12px; color: var(--text-muted); opacity: 0.85; }
+
+/* FINAL ENTERPRISE UI POLISH */
+.movement-card .mc-left { gap: 10px; }
+.movement-card .mc-right { gap: 8px; }
+.mc-meta { margin-bottom: 2px; }
+.mc-route-badge { margin: 4px 0; }
+.movement-route-arrow { margin: 0 4px; }

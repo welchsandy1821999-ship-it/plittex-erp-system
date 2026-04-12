@@ -1409,9 +1409,9 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
 
             let decryption = '';
             if (m.supplier_name) {
-                 decryption = `<span class="cursor-pointer" onclick="openClientStatsModal(${m.supplier_id}, '${Utils.escapeHtml(m.supplier_name)}')">Поставщик: ${Utils.escapeHtml(m.supplier_name)}</span>`;
+                 decryption = `<a class="chip" href="javascript:void(0)" onclick="openClientStatsModal(${m.supplier_id}, '${Utils.escapeHtml(m.supplier_name)}')">Поставщик: ${Utils.escapeHtml(m.supplier_name)} 🔗</a>`;
             } else if (m.order_doc) {
-                 decryption = `<span class="cursor-pointer" onclick="openClientStatsModal(${m.order_id}, 'Заказ ${Utils.escapeHtml(m.order_doc)}')">Заказ: ${Utils.escapeHtml(m.order_doc)}</span>`;
+                 decryption = `<a class="chip" href="javascript:void(0)" onclick="app.openEntity('document_order', ${m.order_id})">Заказ: ${Utils.escapeHtml(m.order_doc)} 🔗</a>`;
             } else if (m.batch_number) {
                  decryption = `<a class="chip" href="javascript:void(0)" onclick="openBatchCard(${m.batch_id})">Партия: #${Utils.escapeHtml(m.batch_number)} 🔗</a>`;
             }
@@ -1478,12 +1478,11 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
     tbody.innerHTML = html;
     
     tfoot.innerHTML = `
-        <div style="display:flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-            <div class="text-muted">Нач. сальдо: <b>${parseFloat(startBalance).toLocaleString('ru-RU', {minimumFractionDigits:2})}</b></div>
-            <div style="display:flex; gap: 15px; align-items: center;">
-                <span class="text-success font-bold">+${sumIn.toLocaleString('ru-RU', {minimumFractionDigits:2})}</span>
-                <span class="text-danger font-bold">-${sumOut.toLocaleString('ru-RU', {minimumFractionDigits:2})}</span>
-                <div class="badge bg-primary-light text-primary font-bold font-14">ИТОГ: ${currentBalance.toLocaleString('ru-RU', {minimumFractionDigits:2})}</div>
+        <div style="display:flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding: 5px 0;">
+            <div style="font-size: 15px; color: var(--text);">Текущий остаток (Сальдо): <b style="font-size: 16px;">${currentBalance.toLocaleString('ru-RU', {minimumFractionDigits:2})}</b></div>
+            <div style="display:flex; gap: 20px; align-items: center; font-size: 13px;">
+                <span class="text-success" title="Суммарный приход за выбранный период">Приход: +${sumIn.toLocaleString('ru-RU', {minimumFractionDigits:2})}</span>
+                <span class="text-danger" title="Суммарный расход за выбранный период">Расход: -${sumOut.toLocaleString('ru-RU', {minimumFractionDigits:2})}</span>
             </div>
         </div>
     `;
