@@ -359,6 +359,40 @@ module.exports = function (pool, getWhId, withTransaction) {
     });
 
     // ------------------------------------------------------------------
+    // ИСТОРИЯ ДВИЖЕНИЙ СУШИЛКИ ЗА ДАТУ (ДЛЯ БЛОКА «ИСТОРИЯ РАСПАЛУБКИ»)
+    // ------------------------------------------------------------------
+    router.get('/api/inventory/drying-history', async (req, res) => {
+        try {
+            const { date } = req.query;
+            if (!date) return res.status(400).json({ error: 'Параметр date обязателен' });
+
+            const dryingWh = await getWhId(pool, 'drying');
+
+            const result = await pool.query(`
+                SELECT 
+                    im.id,
+                    im.movement_type,
+                    im.quantity,
+                    im.description,
+                    to_char(im.movement_date, 'HH24:MI') as time,
+                    i.name as product_name,
+                    i.unit,
+                    pb.batch_number
+                FROM inventory_movements im
+                JOIN items i ON im.item_id = i.id
+                LEFT JOIN production_batches pb ON im.batch_id = pb.id
+                WHERE im.warehouse_id = $1 AND im.movement_date::date = $2::date
+                ORDER BY im.movement_date DESC
+            `, [dryingWh, date]);
+
+            res.json(result.rows);
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера.' });
+        }
+    });
+
+    // ------------------------------------------------------------------
     // ПОЛУЧЕНИЕ ДАТ, В КОТОРЫЕ БЫЛИ ЗАКУПКИ (ДЛЯ КАЛЕНДАРЯ)
     // ------------------------------------------------------------------
 

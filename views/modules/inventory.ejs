@@ -111,6 +111,33 @@
             </div>
         </div>
     </div>
+
+    <!-- Блок истории движений сушилки (виден только при выборе Склад №3) -->
+    <div id="drying-history-block" class="card border-left-muted mt-20 d-none">
+        <div class="flex-between mb-15">
+            <h3 class="mt-0 mb-0">📦 История движений сушилки</h3>
+            <span id="drying-history-date-badge" class="badge bg-surface-alt text-primary font-13 p-5-10 border-radius-20"></span>
+        </div>
+        <div class="table-container">
+            <table class="table-modern w-100">
+                <thead class="bg-surface-alt">
+                    <tr>
+                        <th class="p-10 text-left text-muted font-12 text-uppercase w-10">Время</th>
+                        <th class="p-10 text-left text-muted font-12 text-uppercase w-15">Тип</th>
+                        <th class="p-10 text-left text-muted font-12 text-uppercase w-15">№ Партии</th>
+                        <th class="p-10 text-left text-muted font-12 text-uppercase w-35">Продукция</th>
+                        <th class="p-10 text-right text-muted font-12 text-uppercase w-10">Кол-во</th>
+                        <th class="p-10 text-left text-muted font-12 text-uppercase w-5">Ед.</th>
+                        <th class="p-10 text-left text-muted font-12 text-uppercase w-10">Описание</th>
+                    </tr>
+                </thead>
+                <tbody id="drying-history-table">
+                    <tr><td colspan="7" class="text-center text-muted p-20">Выберите дату в календаре...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
 </div>
 <!-- Складской модуль завершен. Дальше глобальные модалки склада -->
 

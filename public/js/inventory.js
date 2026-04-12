@@ -47,6 +47,8 @@ function loadTable() {
             onChange: function(selectedDates, dateStr, instance) {
                 // При смене даты сразу загружаем новые данные
                 loadTable();
+                // Обновляем историю сушилки, если открыта её вкладка
+                if (currentWarehouseFilter === '3') loadDryingHistory();
             },
             onDayCreate: function (dObj, dStr, fp, dayElem) {
                 const year = dayElem.dateObj.getFullYear();
@@ -87,6 +89,56 @@ function loadTable() {
         });
 }
 
+// === ИСТОРИЯ ДВИЖЕНИЙ СУШИЛКИ ===
+window.loadDryingHistory = async function () {
+    const historyBlock = document.getElementById('drying-history-block');
+    const tbody = document.getElementById('drying-history-table');
+    const dateBadge = document.getElementById('drying-history-date-badge');
+    if (!historyBlock || !tbody) return;
+
+    const dateStr = inventoryDatePicker
+        ? inventoryDatePicker.formatDate(inventoryDatePicker.selectedDates[0] || new Date(), 'Y-m-d')
+        : new Date().toISOString().slice(0, 10);
+
+    // Обновляем бейдж даты
+    if (dateBadge) {
+        const d = new Date(dateStr);
+        dateBadge.textContent = d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    }
+
+    try {
+        const data = await API.get(`/api/inventory/drying-history?date=${dateStr}`);
+
+        if (!Array.isArray(data) || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted p-20">В этот день движений на сушилке не было.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = data.map(row => {
+            const isReceipt = parseFloat(row.quantity) > 0;
+            const typeBadge = isReceipt
+                ? '<span class="badge bg-success-light text-success">📥 Приход</span>'
+                : '<span class="badge bg-warning-light text-warning">📤 Распалубка</span>';
+            const qtyClass = isReceipt ? 'text-success font-bold' : 'text-warning font-bold';
+            const qtySign = isReceipt ? '+' : '';
+
+            return `
+            <tr>
+                <td class="p-8 text-muted font-13">${Utils.escapeHtml(row.time || '')}</td>
+                <td class="p-8">${typeBadge}</td>
+                <td class="p-8">${row.batch_number ? '<strong>' + Utils.escapeHtml(row.batch_number) + '</strong>' : '-'}</td>
+                <td class="p-8">${Utils.escapeHtml(row.product_name)}</td>
+                <td class="p-8 text-right ${qtyClass}">${qtySign}${parseFloat(row.quantity).toLocaleString('ru-RU', { maximumFractionDigits: 2 })}</td>
+                <td class="p-8 text-muted">${Utils.escapeHtml(row.unit || '')}</td>
+                <td class="p-8 text-muted font-12">${Utils.escapeHtml(row.description || '')}</td>
+            </tr>`;
+        }).join('');
+    } catch (e) {
+        console.error('Ошибка загрузки истории сушилки:', e);
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-danger">Ошибка загрузки данных</td></tr>';
+    }
+};
+
 function applyWarehouseFilter(id, btn) {
     // Если переключили склад, сбрасываем режим инвентаризации
     if (isAuditMode) toggleAuditMode();
@@ -95,6 +147,17 @@ function applyWarehouseFilter(id, btn) {
     document.querySelectorAll('#stock-mod .filter-btn').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');
     renderInventoryTable();
+
+    // Показ/скрытие блока истории сушилки
+    const historyBlock = document.getElementById('drying-history-block');
+    if (historyBlock) {
+        if (id === '3') {
+            historyBlock.classList.remove('d-none');
+            loadDryingHistory();
+        } else {
+            historyBlock.classList.add('d-none');
+        }
+    }
 }
 
 // === РЕЖИМ ИНВЕНТАРИЗАЦИИ ===
