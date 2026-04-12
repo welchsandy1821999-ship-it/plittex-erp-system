@@ -891,7 +891,16 @@ module.exports = function (pool, getWhId, withTransaction) {
                     STRING_AGG(DISTINCT m.movement_type, ', ') as movement_types,
                     m.batch_id, MAX(b.batch_number) as batch_number,
                     m.user_id, MAX(u.username) as user_name,
-                    COALESCE(m.order_id, coi.order_id) as order_id, MAX(COALESCE(o.doc_number, o2.doc_number)) as order_doc,
+                    COALESCE(
+                        m.order_id, 
+                        coi.order_id,
+                        (SELECT id FROM client_orders cmd WHERE cmd.doc_number = substring(m.description from 'ЗК-[0-9]+') LIMIT 1)
+                    ) as order_id, 
+                    MAX(COALESCE(
+                        o.doc_number, 
+                        o2.doc_number,
+                        substring(m.description from 'ЗК-[0-9]+')
+                    )) as order_doc,
                     m.supplier_id, MAX(c.name) as supplier_name,
                     SUM(CASE WHEN m.quantity > 0 THEN m.quantity ELSE 0 END) as qty_in,
                     SUM(CASE WHEN m.quantity < 0 THEN ABS(m.quantity) ELSE 0 END) as qty_out,
@@ -913,7 +922,13 @@ module.exports = function (pool, getWhId, withTransaction) {
                 WHERE ${filterConditions.join(' AND ')}
                 GROUP BY 
                     date_trunc('minute', m.movement_date), 
-                    m.item_id, m.batch_id, m.user_id, COALESCE(m.order_id, coi.order_id), m.supplier_id
+                    m.item_id, m.batch_id, m.user_id, 
+                    COALESCE(
+                        m.order_id, 
+                        coi.order_id,
+                        (SELECT id FROM client_orders cmd WHERE cmd.doc_number = substring(m.description from 'ЗК-[0-9]+') LIMIT 1)
+                    ), 
+                    m.supplier_id
                 ORDER BY op_date ASC
             `;
 

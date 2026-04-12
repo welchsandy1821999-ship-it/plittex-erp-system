@@ -1361,7 +1361,6 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
     } else {
         let matchCount = 0;
         history.forEach(m => {
-            console.log('Movement Data:', m);
             const qty_in = parseFloat(m.qty_in || 0);
             const qty_out = parseFloat(m.qty_out || 0);
             const qty_diff = parseFloat(m.balance_diff !== undefined ? m.balance_diff : m.quantity);
@@ -1410,7 +1409,7 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
 
             let chips = [];
             if (m.supplier_name) {
-                 chips.push(`<a class="chip" href="javascript:void(0)" onclick="openClientStatsModal(${m.supplier_id}, '${Utils.escapeHtml(m.supplier_name)}')">Поставщик: ${Utils.escapeHtml(m.supplier_name)} 🔗</a>`);
+                 chips.push(`<a class="chip" href="javascript:void(0)" onclick="app.openEntity('client', ${m.supplier_id})">Поставщик: ${Utils.escapeHtml(m.supplier_name)} 🔗</a>`);
             }
             if (m.order_doc) {
                  chips.push(`<a class="chip" href="javascript:void(0)" onclick="app.openEntity('document_order', ${m.order_id})">Заказ: ${Utils.escapeHtml(m.order_doc)} 🔗</a>`);
@@ -1531,45 +1530,7 @@ function getMovementTypeName(type) {
 // ИНТЕКРАКТИВНЫЕ КАРТОЧКИ (ДОСЬЕ И ПАРТИИ)
 // ------------------------------------------------------------------
 
-window.openClientStatsModal = async function(clientId, clientName) {
-    if (!clientId) return;
-    const modal = document.getElementById('modal-client-stats');
-    if (!modal) return;
-    modal.classList.remove('d-none');
-    modal.classList.add('active');
-    
-    document.getElementById('client-stats-title').innerText = "Досье контрагента: " + clientName;
-    const body = document.getElementById('client-stats-body');
-    body.innerHTML = '<div class="p-20 text-center text-muted">Загрузка статистики...</div>';
-    
-    try {
-        const res = await API.get('/api/counterparties/' + clientId + '/profile');
-        if (!res) throw new Error("Данные не найдены");
-        
-        let html = `<div class="p-15 bg-surface-alt border-bottom">
-            <div class="flex-row gap-15">
-                <div class="card bg-surface flex-grow-1 p-15 border">
-                    <p class="font-12 text-muted mb-5 mt-0">Текущий баланс (Долг)</p>
-                    <h2 class="mt-0 mb-0 ${parseFloat(res.balance) < 0 ? 'text-danger' : 'text-success'}">${parseFloat(res.balance || 0).toLocaleString('ru-RU')} ₽</h2>
-                </div>
-                <div class="card bg-surface flex-grow-1 p-15 border">
-                    <p class="font-12 text-muted mb-5 mt-0">Сумма всех отгрузок 🚚</p>
-                    <h2 class="mt-0 mb-0">${parseFloat(res.total_shipments || 0).toLocaleString('ru-RU')} ₽</h2>
-                </div>
-                <div class="card bg-surface flex-grow-1 p-15 border">
-                    <p class="font-12 text-muted mb-5 mt-0">Сумма поступлений 💰</p>
-                    <h2 class="mt-0 mb-0">${parseFloat(res.total_payments || 0).toLocaleString('ru-RU')} ₽</h2>
-                </div>
-            </div>
-            <div class="mt-15 text-muted font-13"><b>ИНН/Регион:</b> ${res.inn || 'Не указан'} | <b>Общий оборот:</b> ${parseFloat((res.total_payments || 0) + (res.total_shipments || 0)).toLocaleString()} ₽</div>
-        </div>
-        <div class="p-20 text-center text-muted"><p>Детальная расшифровка по документам доступна в модуле Финансы или Отгрузки.</p><button class="btn btn-outline mt-10" onclick="window.filterItemHistoryTable()">Показать записи только по этому клиенту</button></div>`;
-        body.innerHTML = html;
-        
-    } catch(e) {
-        body.innerHTML = `<div class="p-20 text-center text-danger border-top">Ошибка загрузки профиля: ${Utils.escapeHtml(e.message)}</div>`;
-    }
-}
+
 
 window.openBatchStatsModal = async function(batchId, batchNum) {
     if (!batchId) {
