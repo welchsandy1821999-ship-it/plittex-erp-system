@@ -1555,7 +1555,8 @@ function renderBatchCard(data, titleEl, badgesEl, bodyEl) {
     html += '<div class="batch-section-card">';
     html += '<div class="batch-section-title">📦 Продукция</div>';
     html += `<div class="font-13">${Utils.escapeHtml(b.product_name)}</div>`;
-    html += `<div class="text-muted font-12 mt-5">Объём: ${b.planned_quantity.toLocaleString('ru-RU')} ${b.product_unit} | Смена: ${b.shift_name || '—'} | Дата: ${b.production_date || '—'}</div>`;
+    const prodDateStr = b.production_date ? new Date(b.production_date).toLocaleDateString('ru-RU') : '—';
+    html += `<div class="text-muted font-12 mt-5">Объём: ${b.planned_quantity.toLocaleString('ru-RU')} ${b.product_unit} | Смена: ${b.shift_name || '—'} | Дата: ${prodDateStr}</div>`;
     html += '</div>';
 
     // === Аналитика ===
@@ -1582,9 +1583,9 @@ function renderBatchCard(data, titleEl, badgesEl, bodyEl) {
     html += '<div class="batch-section-title">💰 Сырьё и Экономика</div>';
     if (data.materials.length > 0) {
         data.materials.forEach(m => {
-            html += `<div class="batch-cost-row"><span>${Utils.escapeHtml(m.name)} — ${m.qty.toLocaleString('ru-RU')} ${m.unit}</span><span>${m.cost.toLocaleString('ru-RU')} ₽</span></div>`;
+            html += `<div class="batch-cost-row"><span>${Utils.escapeHtml(m.name)} — ${m.qty.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${m.unit}</span><span>${m.cost.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽</span></div>`;
         });
-        html += `<div class="batch-cost-row"><span>ИТОГО себестоимость</span><span>${b.costs.total.toLocaleString('ru-RU')} ₽  (${b.costs.per_unit.toLocaleString('ru-RU')} ₽/ед.)</span></div>`;
+        html += `<div class="batch-cost-row"><span>ИТОГО себестоимость</span><span>${b.costs.total.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽  (${b.costs.per_unit.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽/ед.)</span></div>`;
     } else {
         html += '<div class="text-muted font-13">Материалы не зафиксированы</div>';
     }
