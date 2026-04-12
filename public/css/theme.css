@@ -22,6 +22,8 @@
     --surface-alt: #f1f5f9;
     --surface-hover: #e2e8f0;
     --card-bg: var(--surface);
+    --sidebar-bg: #0f172a;
+    --sidebar-text: #f1f5f9;
 
     /* Текст и Границы */
     --text-main: #1e293b;
@@ -76,6 +78,8 @@
     --surface-alt: #334155;
     --surface-hover: #475569;
     --card-bg: var(--surface);
+    --sidebar-bg: #020617;
+    --sidebar-text: #f1f5f9;
 
     /* Светлый текст и темные границы */
     --text-main: #f8fafc;

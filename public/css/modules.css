@@ -3208,14 +3208,14 @@
 /* Batch Details */
 .prod-details-td {
     padding: 0;
-    background: #fdfdfd;
+    background: var(--surface-alt);
     border-bottom: 3px solid var(--primary);
 }
 
 .prod-details-wrap {
     padding: 30px;
     font-family: 'Inter', system-ui, sans-serif;
-    color: #333;
+    color: var(--text-main);
 }
 
 .prod-details-header {
@@ -3223,7 +3223,7 @@
     justify-content: space-between;
     align-items: flex-end;
     margin-bottom: 25px;
-    border-bottom: 2px solid #eee;
+    border-bottom: 2px solid var(--border);
     padding-bottom: 15px;
 }
 
@@ -3292,7 +3292,7 @@
 
 .prod-cost-title {
     font-weight: bold;
-    color: #555;
+    color: var(--text-muted);
 }
 
 .prod-cost-val {
@@ -3300,7 +3300,7 @@
 }
 
 .prod-cost-bar-bg {
-    background: #f0f0f0;
+    background: var(--surface-hover);
     height: 8px;
     border-radius: 4px;
     margin-bottom: 10px;
@@ -3318,7 +3318,7 @@
     font-size: 14px;
     padding: 8px;
     border-radius: 6px;
-    background: #f9f9f9;
+    background: var(--surface-alt);
 }
 
 .prod-cost-unit-mach {
@@ -3327,8 +3327,8 @@
     font-size: 14px;
     padding: 8px;
     border-radius: 6px;
-    background: #fffcf5;
-    border: 1px solid #fff3d6;
+    background: var(--warning-bg);
+    border: 1px solid var(--warning-border);
 }
 
 .prod-cost-unit-mold {
@@ -3337,15 +3337,15 @@
     font-size: 14px;
     padding: 8px;
     border-radius: 6px;
-    background: #f0f7ff;
-    border: 1px solid #d1e7ff;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
 }
 
 .prod-mat-table-wrap {
-    background: white;
+    background: var(--surface);
     padding: 25px;
     border-radius: 12px;
-    border: 1px solid #e0e0e0;
+    border: 1px solid var(--border);
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.03);
 }
 
@@ -3361,11 +3361,11 @@
     font-size: 15px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: #666;
+    color: var(--text-muted);
 }
 
 .prod-mat-badge {
-    background: #eee;
+    background: var(--surface-hover);
     padding: 4px 12px;
     border-radius: 20px;
     font-size: 12px;
@@ -3379,11 +3379,11 @@
 
 .prod-th-styled {
     padding: 12px;
-    border-bottom: 2px solid #eee;
+    border-bottom: 2px solid var(--border);
     font-size: 11px;
-    color: #888;
+    color: var(--text-muted);
     text-align: left;
-    background: #f8f9fa;
+    background: var(--surface-alt);
 }
 
 .prod-th-right {
@@ -3391,7 +3391,7 @@
 }
 
 .prod-tr-styled {
-    border-bottom: 1px solid #f5f5f5;
+    border-bottom: 1px solid var(--border);
 }
 
 .prod-td-styled {
@@ -3404,12 +3404,12 @@
 
 .prod-mat-name {
     font-weight: 600;
-    color: #333;
+    color: var(--text-main);
 }
 
 .prod-tfoot-styled {
-    background: #fcfcfc;
-    border-top: 2px solid #eee;
+    background: var(--surface-hover);
+    border-top: 2px solid var(--border);
     font-weight: 900;
     color: var(--text-main);
 }
@@ -4820,8 +4820,8 @@
 }
 
 .docs-locked-row {
-    background-color: #f7f7f7;
-    color: #555;
+    background-color: var(--surface-alt);
+    color: var(--text-muted);
 }
 
 .docs-cancelled-row {
