@@ -1451,8 +1451,13 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
                  amountHtml = `<div class="mc-amount out">${outQtyStr}</div>`;
             }
 
+            let bgClass = '';
+            if (routeClass === 'in') bgClass = 'bg-success-light';
+            else if (routeClass === 'out') bgClass = 'bg-danger-light';
+            else if (routeClass === 'transfer') bgClass = 'bg-warning-light';
+
             html += `
-                <div class="movement-card">
+                <div class="movement-card ${bgClass}">
                     <div class="mc-left">
                         <div class="mc-meta">
                             <span>🕒 ${dateStr}</span>
