@@ -5560,30 +5560,37 @@
 .mc-col-amount.text-success { color: var(--success); }
 .mc-col-amount.text-danger { color: var(--danger); }
 
-/* Вторая строка: Описание */
-.mc-col-desc {
+/* --- Вторая строка: Описание (Строгая защита от переноса) --- */
+.movement-card.mc-compact .mc-col-desc {
     grid-column: 1 / -1;
     grid-row: 2;
-    color: var(--text-main); /* ИСПРАВЛЕНО: Возвращаем контраст */
-    font-size: 13px; /* ИСПРАВЛЕНО: Крупный текст */
+    color: var(--text-main);
+    font-size: 13px;
     padding-top: 4px;
+    display: block; 
+    width: 100%;
+    min-width: 0; /* Обязательно для работы ellipsis внутри Grid-ячейки */
     white-space: nowrap; 
     overflow: hidden; 
     text-overflow: ellipsis; 
-    min-width: 0; /* ИСПРАВЛЕНО: Критически важно для работы ellipsis внутри Grid */
 }
 
-/* Премиальная ссылка */
-.mc-link-text {
+/* --- Премиальная ссылка (Без подчеркиваний, нативный сдвиг) --- */
+.movement-card.mc-compact .mc-col-desc .mc-link-text {
     color: var(--primary);
     font-weight: 600;
     cursor: pointer;
-    display: inline; /* ИСПРАВЛЕНО: Строго inline для идеальной строки */
-    transition: color 0.2s ease;
+    text-decoration: none;
+    display: inline; /* Строго inline для монолитной строки, запрет на перенос */
+    position: relative; /* Позволяет делать сдвиг (top) без transform и inline-block */
+    top: 0;
+    transition: top 0.2s ease, color 0.2s ease;
 }
-.mc-link-text:hover {
+
+.movement-card.mc-compact .mc-col-desc .mc-link-text:hover {
     color: var(--primary-dark);
-    text-decoration: underline;
+    text-decoration: none;
+    top: -1px; /* Эффект левитации при hover, работающий даже на inline элементах */
 }
 
 /* Адаптивность для мобильных */
