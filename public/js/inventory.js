@@ -77,7 +77,10 @@ function loadTable() {
         params.push(`as_of_date=${inventoryDatePicker.formatDate(inventoryDatePicker.selectedDates[0], "Y-m-d")}`);
     }
     if (isAuditMode && ['all', '1', '4', '5'].includes(currentWarehouseFilter)) {
-        params.push(`audit_all=true`);
+        const toggle = document.getElementById('show-zeros-check');
+        if (toggle && toggle.checked) {
+            params.push(`showZeros=true`);
+        }
         params.push(`wh=${currentWarehouseFilter}`);
     }
     
@@ -180,17 +183,17 @@ window.toggleAuditMode = function () {
 
     isAuditMode = !isAuditMode;
     const btnMode = document.getElementById('btn-audit-mode');
-    const btnSave = document.getElementById('btn-audit-save');
+    const auditControls = document.getElementById('audit-controls');
 
     if (isAuditMode) {
         btnMode.classList.replace('btn-outline', 'btn-red');
         btnMode.innerText = '❌ Отменить инвентаризацию';
-        btnSave.classList.remove('inv-hidden');
+        if (auditControls) auditControls.classList.remove('inv-hidden');
         UI.toast('Режим инвентаризации включен. Введите фактические остатки.', 'info');
     } else {
         btnMode.classList.replace('btn-red', 'btn-outline');
         btnMode.innerText = '📋 Ревизия';
-        btnSave.classList.add('inv-hidden');
+        if (auditControls) auditControls.classList.add('inv-hidden');
     }
     // ЗАГРУЖАЕМ новые данные с сервера, чтобы получить нулевые позиции
     loadTable();
@@ -1788,4 +1791,77 @@ function renderBatchCard(data, titleEl, badgesEl, bodyEl) {
 
 
     bodyEl.innerHTML = html;
+}
+
+// === ВНЕСЕНИЕ ИЗЛИШКОВ ===
+let surplusSelectInstance = null;
+
+window.openSurplusModal = async function() {
+    const modal = document.getElementById('modal-surplus');
+    if (modal) {
+        modal.classList.remove('inv-hidden', 'd-none');
+        modal.classList.add('active');
+    }
+    const select = document.getElementById('surplus-item-select');
+    document.getElementById('surplus-qty').value = '';
+
+    if (surplusSelectInstance) {
+        surplusSelectInstance.clear();
+        surplusSelectInstance.clearOptions();
+    } else {
+        surplusSelectInstance = new TomSelect(select, {
+            valueField: 'id',
+            labelField: 'name',
+            searchField: 'name',
+            placeholder: 'Поиск товара...',
+            render: {
+                option: function(data, escape) {
+                    return '<div><span class="font-medium">' + escape(data.name) + '</span></div>';
+                },
+                item: function(data, escape) {
+                    return '<div>' + escape(data.name) + '</div>';
+                }
+            }
+        });
+    }
+
+    try {
+        const res = await API.get('/api/items');
+        surplusSelectInstance.addOption(res.data);
+    } catch (e) {
+        console.error('Failed to load items', e);
+    }
+}
+
+window.submitSurplus = async function() {
+    const itemId = surplusSelectInstance.getValue();
+    const qty = parseFloat(document.getElementById('surplus-qty').value);
+    
+    if (!itemId) return UI.toast('Выберите товар из каталога!', 'error');
+    if (isNaN(qty) || qty <= 0) return UI.toast('Введите корректное количество излишка!', 'error');
+
+    const auditDateStr = document.getElementById('inventory-date-filter')?.value || '';
+
+    try {
+        await API.post('/api/inventory/audit', {
+            warehouseId: currentWarehouseFilter,
+            adjustments: [{
+                itemId: itemId,
+                batchId: 'new', // 🚀 Триггерит генерацию новой системной партии излишка!
+                actualQty: qty 
+            }],
+            auditDate: auditDateStr
+        });
+
+        const modal = document.getElementById('modal-surplus');
+        if (modal) {
+            modal.classList.add('inv-hidden', 'd-none');
+            modal.classList.remove('active');
+        }
+        if (surplusSelectInstance) surplusSelectInstance.clear();
+        UI.toast('✅ Излишки успешно оприходованы в новую партию!', 'success');
+        loadTable();
+    } catch (e) {
+        console.error(e);
+    }
 }

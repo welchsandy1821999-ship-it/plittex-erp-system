@@ -21,11 +21,20 @@
                 <input type="text" id="inventory-date-filter" class="input-modern prod-date-input" placeholder="Сегодня">
             </div>
             
-            <button class="btn btn-outline" onclick="openSiftingModal()">⚙️ Переработка</button>
+            <button class="btn btn-outline" onclick="openSiftingModal()">Просеивание</button>
             <button class="btn btn-outline" id="btn-audit-mode" onclick="toggleAuditMode()">📋 Ревизия</button>
-            <button class="btn btn-blue inv-hidden" id="btn-audit-save" onclick="saveAudit()">💾 Сохранить</button>
             
-            <button class="btn btn-outline" onclick="openPrintModal()">🖨️ Печать</button>
+                        <div id="audit-controls" class="flex-row gap-10 items-center justify-end flex-wrap inv-hidden">
+                <label class="flex-row items-center cursor-pointer gap-5 mb-0 text-main font-13" title="Показать исторические партии с нулевым остатком">
+                    <input type="checkbox" id="show-zeros-check" onchange="loadTable()" class="cursor-pointer">
+                    Показать нули
+                </label>
+                <button class="btn btn-outline-primary p-5-10 font-12" onclick="openSurplusModal()">➕ Внести излишки</button>
+                <button class="btn btn-blue p-5-10 font-12" id="btn-audit-save" onclick="saveAudit()">💾 Сохранить</button>
+            </div>
+            
+            
+            <button class="btn btn-outline" onclick="openPrintModal()">Печать</button>
             
             <div class="dropdown inline-block relative">
                 <button class="btn btn-outline" onclick="this.nextElementSibling.classList.toggle('inv-hidden')">📥 Экспорт XLS ▼</button>
@@ -146,7 +155,7 @@
     <div id="modal-sifting" class="modal-overlay d-none">
         <div class="modal-content modal-sm">
             <div class="modal-header">
-                <h3 id="app-modal-title" class="mt-0 mb-0">🔄 Просеивание (Переработка) сырья</h3>
+                <h3 id="sifting-modal-title" class="mt-0 mb-0">🔄 Просеивание (Переработка) сырья</h3>
                 <button class="btn-close" onclick="closeSiftingModal()">×</button>
             </div>
             
@@ -362,3 +371,28 @@
             </div>
         </div>
     </div>
+    <!-- ��������� ����: ������ ������� -->
+    <div id="modal-surplus" class="modal inv-hidden">
+        <div class="modal-content" style="max-width: 450px;">
+            <div class="modal-header p-15 border-bottom bg-surface flex-between align-center">
+                <h3 class="m-0 font-16">? ������ ���������� �������</h3>
+                <span class="modal-close font-24 cursor-pointer text-muted hover-red" onclick="UI.closeModal('modal-surplus')">&times;</span>
+            </div>
+            <div class="modal-body p-20">
+                <div class="text-muted font-13 mb-15">�������� ����� �� ��������. ������ '������� ��������������' ����� ������������� �������������.</div>
+                <div class="form-group mb-15">
+                    <label class="font-13 text-muted block mb-5">����� (��� ������):</label>
+                    <select id="surplus-item-select" class="form-control w-100" placeholder="����� �� ��������..."></select>
+                </div>
+                <div class="form-group">
+                    <label class="font-13 text-muted block mb-5">���������� �������:</label>
+                    <input type="number" step="0.01" id="surplus-qty" class="input-modern w-100" placeholder="��������, 10">
+                </div>
+            </div>
+            <div class="modal-footer p-15 border-top bg-surface-alt flex-end gap-10">
+                <button type="button" class="btn btn-outline" onclick="UI.closeModal('modal-surplus')">������</button>
+                <button type="button" class="btn btn-blue" onclick="submitSurplus()">������ �� ������</button>
+            </div>
+        </div>
+    </div>
+
