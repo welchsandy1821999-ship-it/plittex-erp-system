@@ -1457,21 +1457,14 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
                  amountHtml = `<div class="mc-amount out">${outQtyStr}</div>`;
             }
 
-            let bgClass = '';
-            if (routeClass === 'in') bgClass = 'bg-success-light';
-            else if (routeClass === 'out') bgClass = 'bg-danger-light';
-            else if (routeClass === 'transfer') bgClass = 'bg-warning-light';
-
             let groupKey = `${dateDay}_${typeName}_${rawSource}_${rawDest}_${m.supplier_name||''}`;
-            
+
             if (groupKey !== lastGroupKey) {
-                let counterpartyHtml = m.supplier_name ? `<span class="mc-gh-client"> | ${Utils.escapeHtml(m.supplier_name)}</span>` : '';
                 html += `
                 <div class="mc-group-header">
                     <span class="mc-gh-date">[${dateDay}]</span>
                     <span class="mc-gh-type">${typeName}</span>
                     <span class="mc-gh-route">${rawSource} ➔ ${rawDest}</span>
-                    ${counterpartyHtml}
                 </div>`;
                 lastGroupKey = groupKey;
             }
@@ -1480,32 +1473,39 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
             let sourceIcon = m.user_name ? '👤' : '⚙️';
             let sourceName = m.user_name ? Utils.escapeHtml(m.user_name) : 'Система';
 
-            // Подготовка описания (рендерим div только если есть контент)
+            // Раскраска цифр вместо фона карточки
+            let amountColorClass = routeClass === 'in' ? 'text-success' : (routeClass === 'out' ? 'text-danger' : '');
+
+            // Сборка строки описания: описание · сумма · контрагент
             let cleanDesc = (m.description || '');
             if (m.batch_number) cleanDesc = cleanDesc.replace(/,?\s*Партия[:\s#]*\S+/gi, '');
             if (m.order_doc) cleanDesc = cleanDesc.replace(/,?\s*(?:Заказ[у]?|по заказу)[:\s]*ЗК-\d+/gi, '');
             cleanDesc = cleanDesc.replace(/^[\s,|:]+|[\s,|:]+$/g, '').replace(/\s{2,}/g, ' ').trim();
-            let descText = cleanDesc ? `📝 ${Utils.escapeHtml(cleanDesc)}` : '';
-            let decryptionHtml = decryption ? `<div class="mc-link" style="margin-top: 4px;">${decryption}</div>` : '';
 
-            let descHtml = (descText || decryptionHtml) ? `
-                <div class="mc-compact-col mc-col-desc text-muted">
-                    ${descText}
-                    ${decryptionHtml}
+            let descParts = [];
+            if (cleanDesc) descParts.push(`📝 ${Utils.escapeHtml(cleanDesc)}`);
+            if (m.amount && parseFloat(m.amount) > 0) descParts.push(`Сумма: ${parseFloat(m.amount).toLocaleString('ru-RU', {minimumFractionDigits: 2})} ₽`);
+            if (m.unit_price && parseFloat(m.unit_price) > 0) descParts.push(`Цена: ${parseFloat(m.unit_price).toLocaleString('ru-RU', {minimumFractionDigits: 2})} ₽`);
+            if (m.order_doc) descParts.push(`Заказ: <span class="mc-link-text" onclick="app.openEntity('document_order', ${m.order_id})">${Utils.escapeHtml(m.order_doc)}</span>`);
+            if (m.batch_number) descParts.push(`Партия: <span class="mc-link-text" onclick="openBatchCard(${m.batch_id})">#${Utils.escapeHtml(m.batch_number)}</span>`);
+            if (m.supplier_name) descParts.push(`<span class="mc-link-text" onclick="app.openEntity('client', ${m.supplier_id})">${Utils.escapeHtml(m.supplier_name)}</span>`);
+
+            let descHtml = descParts.length > 0 ? `
+                <div class="mc-compact-col mc-col-desc">
+                    ${descParts.join(' · ')}
                 </div>` : '';
 
-            // Сборка HTML (строгий порядок не важен, расстановка управляется через CSS Grid)
+            // Сборка HTML карточки (без bgClass на обёртке)
             html += `
-                <div class="movement-card mc-compact ${bgClass}">
+                <div class="movement-card mc-compact">
                     <div class="mc-compact-col mc-col-time">
                         🕒 <b>${timeStr}</b>
                     </div>
                     <div class="mc-compact-col mc-col-user">
                         ${sourceIcon} ${sourceName}
                     </div>
-                    <div class="mc-compact-col mc-col-amount">
+                    <div class="mc-compact-col mc-col-amount ${amountColorClass}">
                         ${amountHtml}
-                        ${priceHtml ? `<div style="font-weight:normal; font-size:11px; margin-top:2px;">${priceHtml}</div>` : ''}
                     </div>
                     <div class="mc-compact-col mc-col-balance text-muted">
                         Ост: ${balanceStr}

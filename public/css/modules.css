@@ -5494,6 +5494,7 @@
     display: flex;
 }
 
+/* --- Группировка и монолитность --- */
 .mc-group-header {
     background: var(--surface-alt);
     padding: 8px 12px;
@@ -5503,7 +5504,7 @@
     font-weight: bold;
     color: var(--text-main);
     border: 1px solid var(--border);
-    border-bottom: none;
+    border-bottom: 1px solid var(--border);
     display: flex;
     gap: 8px;
     align-items: center;
@@ -5512,20 +5513,21 @@
 .mc-gh-date { color: var(--text-muted); font-weight: normal; }
 .mc-gh-client { color: var(--text-muted); font-weight: normal; }
 
-/* Компактная строка транзакции (Идеальная Grid-сетка) */
+/* Компактная строка (Строгая двухстрочная Grid-сетка) */
 .movement-card.mc-compact {
     padding: 8px 12px;
     margin-bottom: 0;
     border-radius: 0;
-    border-top: 1px solid var(--border);
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background: transparent; /* Убираем сплошную заливку */
     display: grid;
-    /* 5 колонок: Время, Источник, Пустая распорка(1fr), Изменение, Остаток */
     grid-template-columns: 75px 100px 1fr 160px 150px;
-    row-gap: 6px;
+    row-gap: 4px;
     column-gap: 10px;
-    align-items: center;
+    align-items: baseline; /* Выравнивание по верхней базовой линии */
     font-size: 12px;
-    min-height: 44px;
 }
 
 .movement-card.mc-compact:last-child {
@@ -5539,32 +5541,45 @@
     justify-content: center;
 }
 
-/* Принудительное распределение по сетке */
+/* Колонки первой строки */
 .mc-col-time { grid-column: 1; color: var(--text-main); }
-.mc-col-user { grid-column: 2; }
-
-/* Цифры жестко в 4 и 5 колонках, выравнивание вправо */
+.mc-col-user { grid-column: 2; color: var(--text-muted); }
 .mc-col-amount {
     grid-column: 4;
     text-align: right;
-    align-items: flex-end;
-    font-weight: bold;
+    font-weight: 700;
+    font-size: 13px;
 }
-
 .mc-col-balance {
     grid-column: 5;
     text-align: right;
-    align-items: flex-end;
-    font-size: 11px;
+    color: var(--text-muted);
 }
 
-/* Описание уходит на вторую строку и занимает 100% ширины */
+/* Раскраска цифр (Вместо заливки фона) */
+.mc-col-amount.text-success { color: var(--success); }
+.mc-col-amount.text-danger { color: var(--danger); }
+
+/* Вторая строка: Описание */
 .mc-col-desc {
     grid-column: 1 / -1;
     grid-row: 2;
-    font-style: italic;
-    padding-top: 6px;
-    border-top: 1px dashed var(--border); /* Легкий разделитель для читаемости */
+    color: var(--text-muted);
+    font-size: 11px;
+    padding-top: 2px;
+}
+
+/* Премиальная ссылка вместо эмодзи */
+.mc-link-text {
+    color: var(--primary);
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-block;
+    transition: transform 0.2s ease, color 0.2s ease;
+}
+.mc-link-text:hover {
+    color: var(--primary-dark);
+    transform: translateY(-1px);
 }
 
 /* Адаптивность для мобильных */
