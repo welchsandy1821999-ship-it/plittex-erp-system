@@ -886,30 +886,30 @@ module.exports = function (pool, getWhId, withTransaction) {
 
             const query = `
                 SELECT 
-                    date_trunc('minute', m.movement_date) as op_date,
-                    m.item_id, MAX(i.name) as item_name, MAX(i.unit) as unit,
-                    STRING_AGG(DISTINCT m.movement_type, ', ') as movement_types,
-                    m.batch_id, MAX(b.batch_number) as batch_number,
-                    m.user_id, MAX(u.username) as user_name,
+                    m.movement_date as op_date,
+                    m.item_id, i.name as item_name, i.unit as unit,
+                    m.movement_type as movement_types,
+                    m.batch_id, b.batch_number as batch_number,
+                    m.user_id, u.username as user_name,
                     COALESCE(
                         m.order_id, 
                         coi.order_id,
                         (SELECT id FROM client_orders cmd WHERE cmd.doc_number = substring(m.description from 'ЗК-[0-9]+') LIMIT 1)
                     ) as order_id, 
-                    MAX(COALESCE(
+                    COALESCE(
                         o.doc_number, 
                         o2.doc_number,
                         substring(m.description from 'ЗК-[0-9]+')
-                    )) as order_doc,
-                    m.supplier_id, MAX(c.name) as supplier_name,
-                    SUM(CASE WHEN m.quantity > 0 THEN m.quantity ELSE 0 END) as qty_in,
-                    SUM(CASE WHEN m.quantity < 0 THEN ABS(m.quantity) ELSE 0 END) as qty_out,
-                    SUM(m.quantity) as balance_diff,
-                    MAX(CASE WHEN m.quantity < 0 THEN w.name ELSE NULL END) as warehouse_from,
-                    MAX(CASE WHEN m.quantity > 0 THEN w.name ELSE NULL END) as warehouse_to,
-                    STRING_AGG(DISTINCT m.description, ' | ') as description,
-                    MAX(m.unit_price) as unit_price,
-                    SUM(m.amount) as amount
+                    ) as order_doc,
+                    m.supplier_id, c.name as supplier_name,
+                    CASE WHEN m.quantity > 0 THEN m.quantity ELSE 0 END as qty_in,
+                    CASE WHEN m.quantity < 0 THEN ABS(m.quantity) ELSE 0 END as qty_out,
+                    m.quantity as balance_diff,
+                    CASE WHEN m.quantity < 0 THEN w.name ELSE NULL END as warehouse_from,
+                    CASE WHEN m.quantity > 0 THEN w.name ELSE NULL END as warehouse_to,
+                    m.description,
+                    m.unit_price as unit_price,
+                    m.amount as amount
                 FROM inventory_movements m
                 LEFT JOIN items i ON m.item_id = i.id
                 LEFT JOIN warehouses w ON m.warehouse_id = w.id
@@ -920,16 +920,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 LEFT JOIN counterparties c ON m.supplier_id = c.id
                 LEFT JOIN users u ON m.user_id = u.id
                 WHERE ${filterConditions.join(' AND ')}
-                GROUP BY 
-                    date_trunc('minute', m.movement_date), 
-                    m.item_id, m.batch_id, m.user_id, 
-                    COALESCE(
-                        m.order_id, 
-                        coi.order_id,
-                        (SELECT id FROM client_orders cmd WHERE cmd.doc_number = substring(m.description from 'ЗК-[0-9]+') LIMIT 1)
-                    ), 
-                    m.supplier_id
-                ORDER BY op_date ASC
+                ORDER BY m.movement_date ASC, m.id ASC
             `;
 
             const historyRes = await pool.query(query, filterParams);
