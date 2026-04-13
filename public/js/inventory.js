@@ -1484,7 +1484,7 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
 
             let descParts = [];
             if (cleanDesc) descParts.push(`📝 ${Utils.escapeHtml(cleanDesc)}`);
-            if (m.amount && parseFloat(m.amount) > 0) descParts.push(`Сумма: ${parseFloat(m.amount).toLocaleString('ru-RU', {minimumFractionDigits: 2})} ₽`);
+            if (m.amount && Math.abs(m.amount) > 0) descParts.push(`<b>Сумма: ${parseFloat(Math.abs(m.amount)).toLocaleString('ru-RU', {minimumFractionDigits: 2})} ₽</b>`);
             if (m.unit_price && parseFloat(m.unit_price) > 0) descParts.push(`Цена: ${parseFloat(m.unit_price).toLocaleString('ru-RU', {minimumFractionDigits: 2})} ₽`);
             if (m.order_doc) descParts.push(`Заказ: <span class="mc-link-text" onclick="app.openEntity('document_order', ${m.order_id})">${Utils.escapeHtml(m.order_doc)}</span>`);
             if (m.batch_number) descParts.push(`Партия: <span class="mc-link-text" onclick="openBatchCard(${m.batch_id})">#${Utils.escapeHtml(m.batch_number)}</span>`);

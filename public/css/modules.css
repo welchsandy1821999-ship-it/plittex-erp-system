@@ -5564,25 +5564,26 @@
 .mc-col-desc {
     grid-column: 1 / -1;
     grid-row: 2;
-    color: var(--text-muted);
-    font-size: 12px; /* Увеличили шрифт */
-    padding-top: 2px;
-    white-space: nowrap; /* Запрещаем перенос на новую строку */
-    overflow: hidden; /* Скрываем все, что не влезло */
-    text-overflow: ellipsis; /* Добавляем многоточие в конце */
+    color: var(--text-main); /* ИСПРАВЛЕНО: Возвращаем контраст */
+    font-size: 13px; /* ИСПРАВЛЕНО: Крупный текст */
+    padding-top: 4px;
+    white-space: nowrap; 
+    overflow: hidden; 
+    text-overflow: ellipsis; 
+    min-width: 0; /* ИСПРАВЛЕНО: Критически важно для работы ellipsis внутри Grid */
 }
 
-/* Премиальная ссылка вместо эмодзи */
+/* Премиальная ссылка */
 .mc-link-text {
     color: var(--primary);
-    font-weight: 500;
+    font-weight: 600;
     cursor: pointer;
-    display: inline-block;
-    transition: transform 0.2s ease, color 0.2s ease;
+    display: inline; /* ИСПРАВЛЕНО: Строго inline для идеальной строки */
+    transition: color 0.2s ease;
 }
 .mc-link-text:hover {
     color: var(--primary-dark);
-    transform: translateY(-1px);
+    text-decoration: underline;
 }
 
 /* Адаптивность для мобильных */
