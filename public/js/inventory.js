@@ -1476,13 +1476,32 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
                 lastGroupKey = groupKey;
             }
 
+            // Подготовка источника
+            let sourceIcon = m.user_name ? '👤' : '⚙️';
+            let sourceName = m.user_name ? Utils.escapeHtml(m.user_name) : 'Система';
+
+            // Подготовка описания (рендерим div только если есть контент)
+            let cleanDesc = (m.description || '');
+            if (m.batch_number) cleanDesc = cleanDesc.replace(/,?\s*Партия[:\s#]*\S+/gi, '');
+            if (m.order_doc) cleanDesc = cleanDesc.replace(/,?\s*(?:Заказ[у]?|по заказу)[:\s]*ЗК-\d+/gi, '');
+            cleanDesc = cleanDesc.replace(/^[\s,|:]+|[\s,|:]+$/g, '').replace(/\s{2,}/g, ' ').trim();
+            let descText = cleanDesc ? `📝 ${Utils.escapeHtml(cleanDesc)}` : '';
+            let decryptionHtml = decryption ? `<div class="mc-link" style="margin-top: 4px;">${decryption}</div>` : '';
+
+            let descHtml = (descText || decryptionHtml) ? `
+                <div class="mc-compact-col mc-col-desc text-muted">
+                    ${descText}
+                    ${decryptionHtml}
+                </div>` : '';
+
+            // Сборка HTML (строгий порядок не важен, расстановка управляется через CSS Grid)
             html += `
                 <div class="movement-card mc-compact ${bgClass}">
                     <div class="mc-compact-col mc-col-time">
                         🕒 <b>${timeStr}</b>
                     </div>
                     <div class="mc-compact-col mc-col-user">
-                        👤 ${Utils.escapeHtml(m.user_name || 'Авто')}
+                        ${sourceIcon} ${sourceName}
                     </div>
                     <div class="mc-compact-col mc-col-amount">
                         ${amountHtml}
@@ -1491,16 +1510,7 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
                     <div class="mc-compact-col mc-col-balance text-muted">
                         Ост: ${balanceStr}
                     </div>
-                    <div class="mc-compact-col mc-col-desc text-muted">
-                        ${(() => {
-                            let cleanDesc = (m.description || '');
-                            if (m.batch_number) cleanDesc = cleanDesc.replace(/,?\s*Партия[:\s#]*\S+/gi, '');
-                            if (m.order_doc) cleanDesc = cleanDesc.replace(/,?\s*(?:Заказ[у]?|по заказу)[:\s]*ЗК-\d+/gi, '');
-                            cleanDesc = cleanDesc.replace(/^[\s,|:]+|[\s,|:]+$/g, '').replace(/\s{2,}/g, ' ').trim();
-                            return cleanDesc ? `📝 ${Utils.escapeHtml(cleanDesc)}` : '';
-                        })()}
-                        ${decryption ? `<div class="mc-link" style="margin-top: 2px;">${decryption}</div>` : ''}
-                    </div>
+                    ${descHtml}
                 </div>
             `;
         });

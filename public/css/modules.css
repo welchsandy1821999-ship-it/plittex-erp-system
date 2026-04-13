@@ -5512,15 +5512,18 @@
 .mc-gh-date { color: var(--text-muted); font-weight: normal; }
 .mc-gh-client { color: var(--text-muted); font-weight: normal; }
 
+/* Компактная строка транзакции (Идеальная Grid-сетка) */
 .movement-card.mc-compact {
     padding: 8px 12px;
     margin-bottom: 0;
     border-radius: 0;
     border-top: 1px solid var(--border);
     display: grid;
-    grid-template-columns: 80px 100px 180px 180px auto;
+    /* 5 колонок: Время, Источник, Пустая распорка(1fr), Изменение, Остаток */
+    grid-template-columns: 75px 100px 1fr 160px 150px;
+    row-gap: 6px;
+    column-gap: 10px;
     align-items: center;
-    gap: 10px;
     font-size: 12px;
     min-height: 44px;
 }
@@ -5536,18 +5539,43 @@
     justify-content: center;
 }
 
-.mc-col-time { color: var(--text-main); }
-.mc-col-amount { font-weight: bold; }
-.mc-col-balance { font-size: 11px; }
-.mc-col-desc { font-style: italic; overflow: hidden; text-overflow: ellipsis; }
+/* Принудительное распределение по сетке */
+.mc-col-time { grid-column: 1; color: var(--text-main); }
+.mc-col-user { grid-column: 2; }
+
+/* Цифры жестко в 4 и 5 колонках, выравнивание вправо */
+.mc-col-amount {
+    grid-column: 4;
+    text-align: right;
+    align-items: flex-end;
+    font-weight: bold;
+}
+
+.mc-col-balance {
+    grid-column: 5;
+    text-align: right;
+    align-items: flex-end;
+    font-size: 11px;
+}
+
+/* Описание уходит на вторую строку и занимает 100% ширины */
+.mc-col-desc {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    font-style: italic;
+    padding-top: 6px;
+    border-top: 1px dashed var(--border); /* Легкий разделитель для читаемости */
+}
 
 /* Адаптивность для мобильных */
 @media (max-width: 768px) {
     .movement-card.mc-compact {
         grid-template-columns: 1fr 1fr;
-        grid-template-rows: auto auto auto;
     }
-    .mc-col-desc { grid-column: 1 / -1; }
+    .mc-col-time { grid-column: 1; }
+    .mc-col-user { grid-column: 2; text-align: right; align-items: flex-end; }
+    .mc-col-amount { grid-column: 1; text-align: left; align-items: flex-start; }
+    .mc-col-balance { grid-column: 2; }
 }
 
 /* Жёсткий каркас модалки истории движения */
