@@ -29,6 +29,10 @@
                     <input type="checkbox" id="show-zeros-check" onchange="loadTable()" class="cursor-pointer">
                     Показать нули
                 </label>
+                <label class="flex-row items-center cursor-pointer gap-5 mb-0 text-main font-13" title="Скрыть партии и списывать по FIFO">
+                    <input type="checkbox" id="aggregate-audit-check" onchange="loadTable()" class="cursor-pointer">
+                    Свернуть по товарам
+                </label>
                 <button class="btn btn-outline-primary p-5-10 font-12" onclick="openSurplusModal()">➕ Внести излишки</button>
                 <button class="btn btn-blue p-5-10 font-12" id="btn-audit-save" onclick="saveAudit()">💾 Сохранить</button>
             </div>
@@ -371,28 +375,27 @@
             </div>
         </div>
     </div>
-    <!-- ��������� ����: ������ ������� -->
-    <div id="modal-surplus" class="modal inv-hidden">
+    <!-- Модальное окно: Внести излишки -->
+    <div id="modal-surplus" class="modal-overlay d-none">
         <div class="modal-content" style="max-width: 450px;">
             <div class="modal-header p-15 border-bottom bg-surface flex-between align-center">
-                <h3 class="m-0 font-16">? ������ ���������� �������</h3>
+                <h3 class="m-0 font-16">➕ Внести неучтенные излишки</h3>
                 <span class="modal-close font-24 cursor-pointer text-muted hover-red" onclick="UI.closeModal('modal-surplus')">&times;</span>
             </div>
             <div class="modal-body p-20">
-                <div class="text-muted font-13 mb-15">�������� ����� �� ��������. ������ '������� ��������������' ����� ������������� �������������.</div>
+                <div class="text-muted font-13 mb-15">Выберите товар из каталога. Партия 'Излишки инвентаризации' будет сгенерирована автоматически.</div>
                 <div class="form-group mb-15">
-                    <label class="font-13 text-muted block mb-5">����� (��� ������):</label>
-                    <select id="surplus-item-select" class="form-control w-100" placeholder="����� �� ��������..."></select>
+                    <label class="font-13 text-muted block mb-5">Товар (без партии):</label>
+                    <select id="surplus-item-select" class="form-control w-100" placeholder="Поиск товара..."></select>
                 </div>
                 <div class="form-group">
-                    <label class="font-13 text-muted block mb-5">���������� �������:</label>
-                    <input type="number" step="0.01" id="surplus-qty" class="input-modern w-100" placeholder="��������, 10">
+                    <label class="font-13 text-muted block mb-5">Количество излишка:</label>
+                    <input type="number" step="0.01" id="surplus-qty" class="input-modern w-100" placeholder="Например, 10">
                 </div>
             </div>
             <div class="modal-footer p-15 border-top bg-surface-alt flex-end gap-10">
-                <button type="button" class="btn btn-outline" onclick="UI.closeModal('modal-surplus')">������</button>
-                <button type="button" class="btn btn-blue" onclick="submitSurplus()">������ �� ������</button>
+                <button type="button" class="btn btn-outline" onclick="UI.closeModal('modal-surplus')">Отмена</button>
+                <button type="button" class="btn btn-blue" onclick="submitSurplus()">Внести на баланс</button>
             </div>
         </div>
     </div>
-

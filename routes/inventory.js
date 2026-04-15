@@ -678,8 +678,27 @@ module.exports = function (pool, getWhId, withTransaction) {
                 params.push(as_of_date);
             }
 
-            const result = await pool.query(`
-                SELECT 
+            let selectPart = '';
+            let groupPart = '';
+            
+            if (req.query.aggregate === 'true') {
+                selectPart = `
+                    m.item_id, i.name as item_name, i.unit, 
+                    m.warehouse_id, w.name as warehouse_name, w.type as warehouse_type,
+                    NULL as batch_id, 
+                    'Агрегировано' as batch_number, 
+                    NULL as linked_order_item_id,
+                    NULL as order_doc_number,
+                    NULL as order_id,
+                    NULL as batch_status,
+                    SUM(m.quantity) as total 
+                `;
+                groupPart = `
+                    m.item_id, i.name, i.unit, 
+                    m.warehouse_id, w.name, w.type
+                `;
+            } else {
+                selectPart = `
                     m.item_id, i.name as item_name, i.unit, 
                     m.warehouse_id, w.name as warehouse_name, w.type as warehouse_type,
                     CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE m.batch_id END as batch_id, 
@@ -687,7 +706,24 @@ module.exports = function (pool, getWhId, withTransaction) {
                     CASE WHEN w.type = 'reserve' THEN m.linked_order_item_id ELSE NULL END as linked_order_item_id,
                     CASE WHEN w.type = 'reserve' THEN co.doc_number ELSE NULL END as order_doc_number,
                     CASE WHEN w.type = 'reserve' THEN co.id ELSE NULL END as order_id,
-                    SUM(m.quantity) as total 
+                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE b.status END as batch_status,
+                    SUM(m.quantity) as total
+                `;
+                groupPart = `
+                    m.item_id, i.name, i.unit, 
+                    m.warehouse_id, w.name, w.type,
+                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE m.batch_id END, 
+                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE b.batch_number END,
+                    CASE WHEN w.type = 'reserve' THEN m.linked_order_item_id ELSE NULL END,
+                    CASE WHEN w.type = 'reserve' THEN co.doc_number ELSE NULL END,
+                    CASE WHEN w.type = 'reserve' THEN co.id ELSE NULL END,
+                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE b.status END
+                `;
+            }
+
+            const result = await pool.query(`
+                SELECT 
+                    ${selectPart}
                 FROM inventory_movements m
                 JOIN items i ON m.item_id = i.id
                 JOIN warehouses w ON m.warehouse_id = w.id
@@ -696,83 +732,12 @@ module.exports = function (pool, getWhId, withTransaction) {
                 LEFT JOIN client_orders co ON coi.order_id = co.id
                 ${whereClause}
                 GROUP BY 
-                    m.item_id, i.name, i.unit, 
-                    m.warehouse_id, w.name, w.type,
-                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE m.batch_id END, 
-                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE b.batch_number END,
-                    CASE WHEN w.type = 'reserve' THEN m.linked_order_item_id ELSE NULL END,
-                    CASE WHEN w.type = 'reserve' THEN co.doc_number ELSE NULL END,
-                    CASE WHEN w.type = 'reserve' THEN co.id ELSE NULL END
-                HAVING SUM(m.quantity) <> 0 
+                    ${groupPart}
+                ${req.query.showZeros === 'true' ? '' : 'HAVING SUM(m.quantity) <> 0'}
                 ORDER BY w.name, i.name
             `, params);
             
             let rows = result.rows;
-            const { audit_all, wh } = req.query;
-
-            // Если включен режим ревизии, добавляем товары у которых вообще 0 движений в БД (левые соединения)
-            if (audit_all === 'true' && wh && ['all', '1', '4', '5'].includes(wh)) {
-                let warehousesToAudit = wh === 'all' ? ['1', '4', '5'] : [wh];
-                
-                const catalogRes = await pool.query(`
-                    SELECT id as item_id, name as item_name, unit, item_type
-                    FROM items
-                    WHERE is_deleted = false
-                `);
-                
-                for (let currentWh of warehousesToAudit) {
-                    let allowedTypes = [];
-                    let whName = '';
-                    let whType = '';
-                    
-                    if (currentWh === '1') {
-                        allowedTypes = ['material'];
-                        whName = 'Склад №1 (Сырье)';
-                        whType = 'materials';
-                    } else if (currentWh === '4') {
-                        allowedTypes = ['product', 'Продукция'];
-                        whName = 'Склад №4 (Готовая продукция)';
-                        whType = 'finished';
-                    } else if (currentWh === '5') {
-                        allowedTypes = ['product', 'Продукция'];
-                        whName = 'Склад №5 (Уценка и Брак)';
-                        whType = 'defect';
-                    }
-                    
-                    const presentItemIds = new Set(rows.filter(r => String(r.warehouse_id) === currentWh).map(r => r.item_id));
-                    
-                    catalogRes.rows.filter(c => {
-                        if (!allowedTypes.includes(c.item_type)) return false;
-                        const lowerName = c.item_name.toLowerCase();
-                        const isGrade2 = lowerName.includes('2 сорт') || lowerName.includes('2-й сорт');
-                        // Склад №4: Готовая продукция (исключаем 2-й сорт)
-                        if (currentWh === '4' && isGrade2) return false;
-                        // Склад №5: Уценка и Брак (исключаем 1-й сорт)
-                        if (currentWh === '5' && !isGrade2) return false;
-                        return true;
-                    }).forEach(c => {
-                        if (!presentItemIds.has(c.item_id)) {
-                            rows.push({
-                                item_id: c.item_id,
-                                item_name: c.item_name,
-                                unit: c.unit,
-                                warehouse_id: Number(currentWh),
-                                warehouse_name: whName,
-                                warehouse_type: whType,
-                                batch_id: null,
-                                batch_number: null,
-                                linked_order_item_id: null,
-                                order_doc_number: null,
-                                order_id: null,
-                                total: '0'
-                            });
-                        }
-                    });
-                }
-                
-                // Снова сортируем по имени, так как мы добавили записи в конец
-                rows.sort((a,b) => a.warehouse_name.localeCompare(b.warehouse_name) || a.item_name.localeCompare(b.item_name));
-            }
 
             res.json(rows);
         } catch (err) {
@@ -951,6 +916,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             // 👈 Используем безопасную транзакцию
             await withTransaction(pool, async (client) => {
                 const defectWh = await getWhId(client, 'defect');
+                const markdownWh = await getWhId(client, 'markdown');
 
                 // 🛡️ ЗАЩИТА: Проверяем, что на складе достаточно товара
                 let stockQuery = `SELECT COALESCE(SUM(quantity), 0) as balance FROM inventory_movements WHERE item_id = $1 AND warehouse_id = $2`;
@@ -969,11 +935,40 @@ module.exports = function (pool, getWhId, withTransaction) {
                     VALUES ($1, $2, 'scrap_writeoff', $3, $4, $5)
                 `, [itemId, -Math.abs(scrapQty), description, warehouseId, batchId || null]);
 
-                const destType = parseInt(targetWarehouseId) === defectWh ? 'defect_receipt' : 'scrap_receipt';
+                // Трансформация в 2-й сорт, если летит на 5-й склад (Уценка)
+                let targetItemId = itemId;
+                
+                if (parseInt(targetWarehouseId) === markdownWh) {
+                    const origItemRes = await client.query('SELECT name, article, category, unit, current_price, item_type, weight_kg, qty_per_cycle, amortization_per_cycle, mold_id, gost_mark, dealer_price FROM items WHERE id = $1', [itemId]);
+                    if (origItemRes.rows.length > 0) {
+                        const orig = origItemRes.rows[0];
+                        if (!orig.name.toLowerCase().includes('2 сорт') && !orig.name.toLowerCase().includes('2-й сорт') && !orig.name.toLowerCase().includes('2сорт')) {
+                            const newName = `${orig.name.trim()} 2 сорт`;
+                            const newArticle = orig.article ? `${orig.article.trim()}2S` : `${itemId}-2S`;
+                            const newPrice = orig.current_price ? Number(new Big(orig.current_price).div(2).round(2)) : 0;
+                            const newDealerPrice = orig.dealer_price ? Number(new Big(orig.dealer_price).div(2).round(2)) : 0;
+
+                            const checkExistRes = await client.query('SELECT id FROM items WHERE name = $1 AND is_deleted = false LIMIT 1', [newName]);
+
+                            if (checkExistRes.rows.length > 0) {
+                                targetItemId = checkExistRes.rows[0].id;
+                            } else {
+                                const insertRes = await client.query(`
+                                    INSERT INTO items (name, article, category, unit, current_price, dealer_price, item_type, is_deleted, weight_kg, qty_per_cycle, amortization_per_cycle, mold_id, gost_mark)
+                                    VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8, $9, $10, $11, $12)
+                                    RETURNING id
+                                `, [newName, newArticle, orig.category, orig.unit, newPrice, newDealerPrice, orig.item_type, orig.weight_kg, orig.qty_per_cycle, orig.amortization_per_cycle, orig.mold_id, orig.gost_mark]);
+                                targetItemId = insertRes.rows[0].id;
+                            }
+                        }
+                    }
+                }
+
+                const destType = parseInt(targetWarehouseId) === defectWh ? 'defect_receipt' : 'markdown_receipt';
                 await client.query(`
                     INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id)
                     VALUES ($1, $2, $3, $4, $5, $6)
-                `, [itemId, Math.abs(scrapQty), destType, description, targetWarehouseId, batchId || null]);
+                `, [targetItemId, Math.abs(scrapQty), destType, description, targetWarehouseId, batchId || null]);
             });
             const io = req.app.get('io');
             if (io) io.emit('inventory_updated');
@@ -996,13 +991,119 @@ module.exports = function (pool, getWhId, withTransaction) {
         try {
             await withTransaction(pool, async (client) => {
                 for (const adj of adjustments) {
-                    const { itemId, batchId, actualQty } = adj;
+                    const { itemId, actualQty } = adj;
+                    let batchId = adj.batchId;
                     const wh_id = adj.warehouseId || warehouseId;
 
+                    const itemCheckRes = await client.query('SELECT item_type FROM items WHERE id = $1', [itemId]);
+                    if (itemCheckRes.rows.length === 0) throw new Error(`Товар с ID ${itemId} не найден`);
+                    const itemType = itemCheckRes.rows[0].item_type;
+
                     const whRes = await client.query('SELECT type FROM warehouses WHERE id = $1', [wh_id]);
+                    if (whRes.rows.length === 0) throw new Error(`Склад с ID ${wh_id} не найден`);
                     const whType = whRes.rows[0].type;
 
-                    // 1. Сначала блокируем строки (FOR UPDATE), чтобы никто не вставил новое движение
+                    // 0. Защита от пересортицы (Foolproof)
+                    if ((whType === 'finished' || whType === 'defect') && itemType !== 'product' && itemType !== 'Продукция') {
+                        throw new Error(`БЕЗОПАСНОСТЬ: Попытка добавить сырье/материал на склад готовой продукции заблокирована.`);
+                    }
+                    if (whType === 'materials' && (itemType === 'product' || itemType === 'Продукция')) {
+                        throw new Error(`БЕЗОПАСНОСТЬ: Попытка добавить готовую продукцию на склад сырья заблокирована.`);
+                    }
+
+                    // АГРЕГИРОВАННАЯ РЕВИЗИЯ (FIFO)
+                    const isAggregate = adj.aggregate === true || adj.aggregate === 'true' || !batchId;
+                    
+                    if (isAggregate && (whType === 'finished' || whType === 'defect')) {
+                        // 1. Блокируем все строки для этого товара на складе
+                        await client.query(`SELECT id FROM inventory_movements WHERE item_id = $1 AND warehouse_id = $2 FOR UPDATE`, [itemId, wh_id]);
+
+                        // 2. Считаем общий остаток
+                        let sumQuery = `SELECT COALESCE(SUM(quantity), 0) as balance FROM inventory_movements WHERE item_id = $1 AND warehouse_id = $2`;
+                        const sumParams = [itemId, wh_id];
+                        if (auditDate) {
+                            sumParams.push(auditDate);
+                            sumQuery += ` AND movement_date::date <= $3::date`;
+                        }
+                        const stockRes = await client.query(sumQuery, sumParams);
+                        const currentBalanceBig = new Big(stockRes.rows[0].balance || 0);
+                        const currentBalance = Number(currentBalanceBig);
+
+                        const diffQtyBig = new Big(actualQty || 0).minus(currentBalanceBig);
+                        const diffQty = Number(diffQtyBig);
+
+                        if (diffQtyBig.abs().gt(0.0001)) {
+                            const dateStrPart = auditDate ? ` от ${auditDate}` : '';
+                            const desc = `Инвентаризация (Свернуто)${dateStrPart}: факт ${actualQty}, было ${currentBalance}`;
+
+                            if (diffQtyBig.gt(0)) {
+                                // ИЗЛИШЕК (+) -> Кладем всё в системную партию
+                                const batchName = 'Излишки инвентаризации от ' + (auditDate || new Date().toISOString().slice(0,10));
+                                let surplusBatchId;
+                                const existRes = await client.query(`SELECT id FROM production_batches WHERE product_id = $1 AND batch_number = $2`, [itemId, batchName]);
+                                if (existRes.rows.length > 0) surplusBatchId = existRes.rows[0].id;
+                                else {
+                                    const bRes = await client.query(`INSERT INTO production_batches (batch_number, product_id, status, created_at) VALUES ($1, $2, 'completed', CURRENT_TIMESTAMP) RETURNING id`, [batchName, itemId]);
+                                    surplusBatchId = bRes.rows[0].id;
+                                }
+                                await client.query(`
+                                    INSERT INTO inventory_movements (item_id, warehouse_id, batch_id, quantity, movement_type, description, user_id, movement_date, created_at) 
+                                    VALUES ($1, $2, $3, $4, 'audit_adjustment', $5, $6, COALESCE($7::timestamp, CURRENT_TIMESTAMP), COALESCE($7::timestamp, CURRENT_TIMESTAMP))
+                                `, [itemId, wh_id, surplusBatchId, diffQty, desc, userId, auditDate || null]);
+                            } else {
+                                // НЕДОСТАЧА (-) -> FIFO Списание с самых старых партий
+                                let batchesQuery = `
+                                    SELECT m.batch_id, SUM(m.quantity) as qty, MIN(COALESCE(m.movement_date, m.created_at)) as first_date
+                                    FROM inventory_movements m
+                                    WHERE m.item_id = $1 AND m.warehouse_id = $2
+                                `;
+                                if (auditDate) batchesQuery += ` AND m.movement_date::date <= $3::date `;
+                                batchesQuery += ` GROUP BY m.batch_id HAVING SUM(m.quantity) > 0 ORDER BY first_date ASC `;
+
+                                const activeBatchesParams = auditDate ? [itemId, wh_id, auditDate] : [itemId, wh_id];
+                                const activeBatchesRes = await client.query(batchesQuery, activeBatchesParams);
+
+                                let remainingMinus = diffQtyBig.abs(); 
+
+                                for (const ab of activeBatchesRes.rows) {
+                                    if (remainingMinus.lte(0)) break; // Всё распределили
+
+                                    const batchQtyBig = new Big(ab.qty);
+                                    const toWriteOff = remainingMinus.gt(batchQtyBig) ? batchQtyBig : remainingMinus;
+                                    
+                                    await client.query(`
+                                        INSERT INTO inventory_movements (item_id, warehouse_id, batch_id, quantity, movement_type, description, user_id, movement_date, created_at) 
+                                        VALUES ($1, $2, $3, $4, 'audit_adjustment', $5, $6, COALESCE($7::timestamp, CURRENT_TIMESTAMP), COALESCE($7::timestamp, CURRENT_TIMESTAMP))
+                                    `, [itemId, wh_id, ab.batch_id, Number(toWriteOff.times(-1)), desc, userId, auditDate || null]);
+
+                                    remainingMinus = remainingMinus.minus(toWriteOff);
+                                }
+                                
+                                if (remainingMinus.gt(0.0001)) {
+                                    // Если физически не хватило объемов во всех партиях
+                                    await client.query(`
+                                        INSERT INTO inventory_movements (item_id, warehouse_id, batch_id, quantity, movement_type, description, user_id, movement_date, created_at) 
+                                        VALUES ($1, $2, NULL, $3, 'audit_adjustment', $4, $5, COALESCE($6::timestamp, CURRENT_TIMESTAMP), COALESCE($6::timestamp, CURRENT_TIMESTAMP))
+                                    `, [itemId, wh_id, Number(remainingMinus.times(-1)), desc + ' (без партии)', userId, auditDate || null]);
+                                }
+                            }
+                        }
+                        continue; // Переходим к следующей корректировке
+                    }
+
+                    // СТАНДАРТНАЯ РЕВИЗИЯ (ПОСТРОЧНО)
+                    if (batchId === 'new') {
+                        const batchName = 'Излишки инвентаризации от ' + (auditDate || new Date().toISOString().slice(0,10));
+                        const existRes = await client.query(`SELECT id FROM production_batches WHERE product_id = $1 AND batch_number = $2`, [itemId, batchName]);
+                        if (existRes.rows.length > 0) {
+                            batchId = existRes.rows[0].id;
+                        } else {
+                            const bRes = await client.query(`INSERT INTO production_batches (batch_number, product_id, status, created_at) VALUES ($1, $2, 'completed', CURRENT_TIMESTAMP) RETURNING id`, [batchName, itemId]);
+                            batchId = bRes.rows[0].id;
+                        }
+                    }
+
+                    // 1. Сначала блокируем строки (FOR UPDATE)
                     let lockQuery = `
                         SELECT id FROM inventory_movements 
                         WHERE item_id = $1 AND warehouse_id = $2
@@ -1018,10 +1119,9 @@ module.exports = function (pool, getWhId, withTransaction) {
                         }
                     }
 
-                    // Выполняем блокировку существующих строк
                     await client.query(lockQuery + " FOR UPDATE", lockParams);
 
-                    // 2. Теперь спокойно считаем сумму (агрегат отдельно от FOR UPDATE)
+                    // 2. Считаем сумму
                     let sumQuery = `
                         SELECT COALESCE(SUM(quantity), 0) as balance 
                         FROM inventory_movements 
@@ -1043,7 +1143,6 @@ module.exports = function (pool, getWhId, withTransaction) {
                         sumQuery += ` AND movement_date::date <= $${sumParams.length}::date`;
                     }
 
-
                     const stockRes = await client.query(sumQuery, sumParams);
                     const currentBalanceBig = new Big(stockRes.rows[0].balance || 0);
                     const currentBalance = Number(currentBalanceBig);
@@ -1052,7 +1151,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     const diffQtyBig = new Big(actualQty || 0).minus(currentBalanceBig);
                     const diffQty = Number(diffQtyBig);
 
-                    // 4. Записываем корректировку, если есть разница
+                    // 4. Записываем корректировку
                     if (diffQtyBig.abs().gt(0.0001)) {
                         const dateStrPart = auditDate ? ` от ${auditDate}` : '';
                         const desc = `Инвентаризация${dateStrPart}: факт ${actualQty}, было ${currentBalance}`;

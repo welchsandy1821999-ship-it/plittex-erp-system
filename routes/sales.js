@@ -56,36 +56,17 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 // Подготавливаем строку для SQL (ровно 2 знака после запятой)
                 const amountStr = offsetAmount.toFixed(2);
 
-                // 3. Создаем записи в транзакциях
-                await client.query(`
-                    INSERT INTO transactions (account_id, counterparty_id, amount, transaction_type, category, description, payment_method, source_module, linked_order_id) 
-                    VALUES ($1, $2, $3, 'expense', 'Взаимозачет', $4, 'Взаимозачет', 'sales', $5)
-                `, [targetAccountId, cpId, amountStr, `Взаимозачет: списание переплаты за заказ ${docNum}`, orderId]);
+                // 3. УДАЛЕНО: фантомные транзакции Взаимозачета создавали дубли в актах сверки.
+                // Глобальный баланс вычисляется по формуле Отгрузки-Наличные. Уменьшая долг заказа, 
+                // мы связываем отгрузки и аванс без создания фальшивых транзакций.
 
-                await client.query(`
-                    INSERT INTO transactions (account_id, counterparty_id, amount, transaction_type, category, description, payment_method, source_module, linked_order_id) 
-                    VALUES ($1, $2, $3, 'income', 'Взаимозачет', $4, 'Взаимозачет', 'sales', $5)
-                `, [targetAccountId, cpId, amountStr, `Оплата по заказу ${docNum} (взаимозачет аванса)`, orderId]);
-
-                // 5. Отражение взаимозачета в заказе
+                // 4. Отражение взаимозачета в заказе
                 await client.query(`
                     UPDATE client_orders 
                     SET paid_amount = GREATEST(paid_amount + $1, 0), 
                         pending_debt = GREATEST(pending_debt - $1, 0)
                     WHERE doc_number = $2
                 `, [amountStr, docNum]);
-
-                // Пересчет баланса кассы после взаимозачета
-                await client.query(`
-                    UPDATE accounts a 
-                    SET balance = ROUND(COALESCE((
-                        SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) - 
-                               SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END) 
-                        FROM transactions t 
-                        WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
-                    ), 0), 2)
-                    WHERE a.id = $1
-                `, [targetAccountId]);
             });
 
             res.json({ success: true, message: 'Взаимозачет проведен с использованием Big.js' });
@@ -219,7 +200,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
     // 3. Оформление заказа (Без изменений, структура отличная)
     // ------------------------------------------------------------------
     router.post('/api/sales/checkout', requireAdmin, validateCheckout, async (req, res) => {
-        const { counterparty_id, items, payment_method, account_id, advance_amount, offset_amount, discount, driver, auto, contract_info, contract_id, delivery_address, logistics_cost, planned_shipment_date, pallets_qty, poa_info } = req.body;
+        const { counterparty_id, items, payment_method, account_id, advance_amount, offset_amount, discount, driver, auto, contract_info, contract_id, delivery_address, logistics_cost, planned_shipment_date, pallets_qty, poa_info, order_date } = req.body;
         const user_id = req.user.id; // 🛡️ SECURITY: user_id из JWT, не из req.body
         // 🛡️ AUDIT-018: проверка items перенесена в validateCheckout middleware
 
@@ -249,34 +230,33 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 }
                 finalAmount = Number(finalAmountBig.round(2));
 
+                // 💰 АВТО-ЗАЧЁТ АВАНСА: Валидация против реального баланса клиента
+                let validatedOffset = 0;
+                
+                const balRes = await client.query(`
+                    SELECT
+                        COALESCE(SUM(CASE WHEN co.status = 'completed' THEN co.total_amount ELSE 0 END), 0) as our_shipments,
+                        COALESCE(SUM(CASE WHEN t.transaction_type = 'expense' THEN t.amount ELSE 0 END), 0) as our_payments,
+                        COALESCE((SELECT COALESCE(SUM(amount), 0) FROM inventory_movements WHERE supplier_id = $1 AND movement_type = 'purchase'), 0) as their_shipments,
+                        COALESCE(SUM(CASE WHEN t.transaction_type = 'income' THEN t.amount ELSE 0 END), 0) as their_payments
+                    FROM counterparties cp
+                    LEFT JOIN transactions t ON cp.id = t.counterparty_id AND COALESCE(t.is_deleted, false) = false
+                    LEFT JOIN client_orders co ON cp.id = co.counterparty_id
+                    WHERE cp.id = $1
+                `, [counterparty_id]);
+
+                const b = balRes.rows[0];
+                const realBalance = parseFloat(b.our_shipments) + parseFloat(b.our_payments) - parseFloat(b.their_shipments) - parseFloat(b.their_payments);
+                // Отрицательный баланс = аванс клиента
+                const availableAdvance = realBalance < 0 ? Math.abs(realBalance) : 0;
+
+                validatedOffset = Math.min(availableAdvance, finalAmount);
+                if (offset_amount && Number(offset_amount) > 0) {
+                    console.warn(`Запрос offset_amount = ${offset_amount} проигнорирован. Применен авто-взаимозачет на сумму: ${validatedOffset}`);
+                }
+
                 let advanceAmt = 0;
                 let pendingDebt = finalAmount;
-
-                // 💰 ЗАЧЁТ АВАНСА: Валидация против реального баланса клиента
-                let validatedOffset = 0;
-                if (offset_amount && Number(offset_amount) > 0) {
-                    const balRes = await client.query(`
-                        SELECT
-                            COALESCE(SUM(CASE WHEN co.status = 'completed' THEN co.total_amount ELSE 0 END), 0) as our_shipments,
-                            COALESCE(SUM(CASE WHEN t.transaction_type = 'expense' THEN t.amount ELSE 0 END), 0) as our_payments,
-                            COALESCE((SELECT COALESCE(SUM(amount), 0) FROM inventory_movements WHERE supplier_id = $1 AND movement_type = 'purchase'), 0) as their_shipments,
-                            COALESCE(SUM(CASE WHEN t.transaction_type = 'income' THEN t.amount ELSE 0 END), 0) as their_payments
-                        FROM counterparties cp
-                        LEFT JOIN transactions t ON cp.id = t.counterparty_id AND COALESCE(t.is_deleted, false) = false
-                        LEFT JOIN client_orders co ON cp.id = co.counterparty_id
-                        WHERE cp.id = $1
-                    `, [counterparty_id]);
-
-                    const b = balRes.rows[0];
-                    const realBalance = parseFloat(b.our_shipments) + parseFloat(b.our_payments) - parseFloat(b.their_shipments) - parseFloat(b.their_payments);
-                    // Отрицательный баланс = аванс клиента
-                    const availableAdvance = realBalance < 0 ? Math.abs(realBalance) : 0;
-
-                    validatedOffset = Math.min(Number(offset_amount), availableAdvance, finalAmount);
-                    if (validatedOffset < Number(offset_amount)) {
-                        console.warn(`Зачёт аванса ограничен: запрос ${offset_amount}, доступно ${availableAdvance}, применено ${validatedOffset}`);
-                    }
-                }
 
                 if (payment_method === 'paid') {
                     advanceAmt = finalAmount;  // Общая оплаченная сумма (зачёт + живые)
@@ -294,13 +274,15 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     if (pendingDebt < 0) pendingDebt = 0;
                 }
 
+                const finalOrderDate = order_date ? new Date(order_date).toISOString() : new Date().toISOString();
+
                 const orderRes = await client.query(`
                     INSERT INTO client_orders (
                         counterparty_id, doc_number, status, total_amount, paid_amount, pending_debt,
                         payment_method, account_id, discount, planned_shipment_date, delivery_address, 
-                        logistics_cost, pallets_qty, driver_name, auto_number, contract_info, contract_id, specification_id
-                    ) VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id
-                `, [counterparty_id, docNum, finalAmount, advanceAmt, pendingDebt, payment_method, account_id || null, discount, planned_shipment_date || null, delivery_address, logistics_cost, pallets_qty, driver, auto, contract_info, contract_id || null, specId]);
+                        logistics_cost, pallets_qty, driver_name, auto_number, contract_info, contract_id, specification_id, created_at
+                    ) VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id
+                `, [counterparty_id, docNum, finalAmount, advanceAmt, pendingDebt, payment_method, account_id || null, discount, planned_shipment_date || null, delivery_address, logistics_cost, pallets_qty, driver, auto, contract_info, contract_id || null, specId, finalOrderDate]);
 
                 const orderId = orderRes.rows[0].id;
                 const reserveWhId = await getWhId(client, 'reserve');
@@ -309,6 +291,14 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 for (let item of items) {
                     await client.query(`SELECT id FROM items WHERE id = $1 FOR UPDATE`, [item.id]);
                     const whId = item.warehouse_id || defaultFinishedWhId;
+                    
+                    // Сначала создаём позицию заказа, чтобы получить её ID
+                    const itemRes = await client.query(`
+                        INSERT INTO client_order_items (order_id, item_id, qty_ordered, qty_reserved, qty_production, price) 
+                        VALUES ($1, $2, $3, 0, 0, $4) RETURNING id
+                    `, [orderId, item.id, item.qty, item.price]);
+                    const coi_id = itemRes.rows[0].id;
+
                     const stockRes = await client.query(`
                         SELECT batch_id, SUM(quantity) as available 
                         FROM inventory_movements 
@@ -326,15 +316,13 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         const deduct = Math.min(remainingNeeded, Number(new Big(row.available || 0)));
                         remainingNeeded -= deduct;
                         qtyReserved += deduct;
-                        await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id) VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6)`, [item.id, -deduct, desc, whId, row.batch_id, user_id || null]);
-                        await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id) VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6)`, [item.id, deduct, desc, reserveWhId, row.batch_id, user_id || null]);
+                        await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id) VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6, $7)`, [item.id, -deduct, desc, whId, row.batch_id, user_id || null, coi_id]);
+                        await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id) VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6, $7)`, [item.id, deduct, desc, reserveWhId, row.batch_id, user_id || null, coi_id]);
                     }
 
                     const qtyProduction = remainingNeeded;
-                    const itemRes = await client.query(`
-                        INSERT INTO client_order_items (order_id, item_id, qty_ordered, qty_reserved, qty_production, price) 
-                        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
-                    `, [orderId, item.id, item.qty, qtyReserved, qtyProduction, item.price]);
+                    // Обновляем позицию заказа уже с правильными счетчиками
+                    await client.query(`UPDATE client_order_items SET qty_reserved = $1, qty_production = $2 WHERE id = $3`, [qtyReserved, qtyProduction, coi_id]);
 
                     if (qtyProduction > 0) {
                         await client.query(`INSERT INTO planned_production (order_item_id, item_id, quantity) VALUES ($1, $2, $3)`, [itemRes.rows[0].id, item.id, qtyProduction]);
@@ -368,16 +356,9 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 // Финансы (Исправлено: раздельные проводки для живых денег и зачёта)
                 let finDesc = `Заказ ${docNum}`;
 
-                // 💰 1. ВИРТУАЛЬНАЯ ТРАНЗАКЦИЯ ЗАЧЁТА АВАНСА (не трогаем кассу!)
+                // 💰 1. ВИРТУАЛЬНАЯ ТРАНЗАКЦИЯ ЗАЧЁТА АВАНСА (УДАЛЕНО КОНЦЕПТУАЛЬНО)
                 if (validatedOffset > 0) {
-                    await client.query(`
-                        INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, user_id, linked_order_id)
-                        VALUES ($1, 'income', 'Зачёт аванса', $2, 'Зачёт аванса', NULL, $3, $4, $5)
-                    `, [
-                        validatedOffset,
-                        `${finDesc} (зачёт аванса ${validatedOffset.toFixed(2)} ₽)`,
-                        counterparty_id, user_id || null, orderId
-                    ]);
+                    finDesc += ` (сработал авто-зачет аванса на ${validatedOffset.toFixed(2)} ₽)`;
                 }
 
                 // 💵 2. РЕАЛЬНАЯ ТРАНЗАКЦИЯ (живые деньги в кассу)
@@ -390,7 +371,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 }
 
                 if (txAmount > 0 && account_id) {
-                    await client.query(`INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, user_id, linked_order_id) VALUES ($1, 'income', 'Продажа продукции', $2, 'Сразу', $3, $4, $5, $6)`, [txAmount, finDesc, account_id, counterparty_id, user_id || null, orderId]);
+                    await client.query(`INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, user_id, linked_order_id, transaction_date) VALUES ($1, 'income', 'Продажа продукции', $2, 'Сразу', $3, $4, $5, $6, $7)`, [txAmount, finDesc, account_id, counterparty_id, user_id || null, orderId, finalOrderDate]);
 
                     // Обновляем баланс ТОЛЬКО той кассы, куда упали деньги
                     await client.query(`
@@ -424,8 +405,9 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
     // ------------------------------------------------------------------
     router.post('/api/sales/orders/:id/ship', requireAdmin, validateShipment, async (req, res) => {
         const orderId = req.params.id;
-        const { items_to_ship, driver, auto, poa_info, pallets } = req.body;
+        const { items_to_ship, driver, auto, poa_info, pallets, ship_date } = req.body;
         const user_id = req.user.id; // 🛡️ SECURITY: user_id из JWT, не из req.body
+        const finalShipDate = ship_date ? new Date(ship_date).toISOString() : new Date().toISOString();
 
         try {
             let docNum;
@@ -474,19 +456,41 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                          WHERE item_id = $1 AND warehouse_id = $2`,
                         [item.item_id, reserveWhId]
                     );
-                    const reserveBalance = parseFloat(stockRes.rows[0].balance);
+                    let reserveBalance = parseFloat(stockRes.rows[0].balance);
+                    
                     if (reserveBalance < item.qty) {
-                        throw new Error(
-                            `Недостаточно товара в резерве для отгрузки (позиция #${coi.id}). ` +
-                            `Запрошено: ${item.qty}, доступно в резерве: ${reserveBalance}.`
+                        // АВТО-ДОБОР: Если в резерве не хватает, смотрим на Склад №4 (Свободные остатки)
+                        const finishedWhId = await getWhId(client, 'finished');
+                        const shortfall = parseFloat(new Big(item.qty).minus(reserveBalance).toFixed(4));
+                        
+                        const finishedRes = await client.query(
+                            `SELECT COALESCE(SUM(quantity), 0) as balance FROM inventory_movements WHERE item_id = $1 AND warehouse_id = $2`,
+                            [item.item_id, finishedWhId]
                         );
+                        let finishedBalance = parseFloat(finishedRes.rows[0].balance);
+
+                        if (finishedBalance >= shortfall) {
+                            // Автоматически переносим недостаницу со Склада №4 в резерв
+                            await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id, movement_date) VALUES ($1, $2, 'reserve_release_receipt', $3, $4, $5, $6, $7)`, [item.item_id, -shortfall, `Авто-перевод в резерв при отгрузке`, finishedWhId, user_id || null, item.coi_id, finalShipDate]);
+                            await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id, movement_date) VALUES ($1, $2, 'reserve_release_expense', $3, $4, $5, $6, $7)`, [item.item_id, shortfall, `Авто-добор из свободных остатков`, reserveWhId, user_id || null, item.coi_id, finalShipDate]);
+                            
+                            // Также корректируем qty_reserved в client_order_items, и убираем из дефицита (qty_production)
+                            await client.query(`UPDATE client_order_items SET qty_reserved = COALESCE(qty_reserved, 0) + $1, qty_production = GREATEST(COALESCE(qty_production, 0) - $1, 0) WHERE id = $2`, [shortfall, item.coi_id]);
+                            
+                            reserveBalance = reserveBalance + shortfall; // Теперь хватает
+                        } else {
+                            throw new Error(
+                                `Недостаточно товара для отгрузки (позиция #${coi.id}). ` +
+                                `Требуется: ${item.qty}, в резерве: ${reserveBalance}, на складе свободно: ${finishedBalance}.`
+                            );
+                        }
                     }
 
                     // ✅ Всё проверено — выполняем списание и обновление
                     await client.query(
-                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id)
-                         VALUES ($1, $2, 'sales_shipment', $3, $4, $5, $6)`,
-                        [item.item_id, -item.qty, desc, reserveWhId, user_id || null, item.coi_id]
+                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id, movement_date)
+                         VALUES ($1, $2, 'sales_shipment', $3, $4, $5, $6, $7)`,
+                        [item.item_id, -item.qty, desc, reserveWhId, user_id || null, item.coi_id, finalShipDate]
                     );
                     await client.query(
                         `UPDATE client_order_items SET qty_shipped = COALESCE(qty_shipped, 0) + $1 WHERE id = $2`,
@@ -558,26 +562,13 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     if (orderIdRes.rows.length > 0) {
                         const targetOrderId = orderIdRes.rows[0].order_id;
 
-                        // FIX БЛОК 5: Проверяем наличие неотгруженных позиций (считаем SUM(qty_shipped))
-                        const shippedRes = await client.query(
-                            'SELECT COALESCE(SUM(qty_shipped), 0) as total FROM client_order_items WHERE order_id = $1',
+                        // Все отгрузки или часть отменены — в любом случае заказ должен 
+                        // вернуться в статус 'processing' (В работе), чтобы его можно было
+                        // отгрузить заново. Статус 'returned' здесь был ошибкой логики.
+                        await client.query(
+                            `UPDATE client_orders SET status = 'processing' WHERE id = $1`,
                             [targetOrderId]
                         );
-                        const totalStillShipped = parseFloat(shippedRes.rows[0].total) || 0;
-
-                        if (totalStillShipped === 0) {
-                            // Все отгрузки аннулированы — переводим заказ в 'возвращён'
-                            await client.query(
-                                `UPDATE client_orders SET status = 'returned' WHERE id = $1`,
-                                [targetOrderId]
-                            );
-                        } else {
-                            // Частичная отмена — откатываем в processing только если был completed
-                            await client.query(
-                                `UPDATE client_orders SET status = 'processing' WHERE id = $1 AND status = 'completed'`,
-                                [targetOrderId]
-                            );
-                        }
                     }
                 }
             });
@@ -746,6 +737,250 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
+
+    // ------------------------------------------------------------------
+    
+
+    // ------------------------------------------------------------------
+    // ЗАДАЧА: РУЧНОЕ ЗАКРЫТИЕ ЗАКАЗА С ОТМЕНОЙ ОСТАТКОВ
+    // ------------------------------------------------------------------
+    router.put('/api/sales/orders/:id/force-close', requireAdmin, async (req, res) => {
+        const orderId = req.params.id;
+        
+        try {
+            await withTransaction(pool, async (client) => {
+                const orderRes = await client.query('SELECT * FROM client_orders WHERE id = $1 FOR UPDATE', [orderId]);
+                if (orderRes.rows.length === 0) throw new Error('Заказ не найден');
+                const order = orderRes.rows[0];
+                
+                if (order.status === 'completed' || order.status === 'cancelled') {
+                    throw new Error('Заказ уже закрыт или отменен');
+                }
+                if (order.is_locked) {
+                    throw new Error('Заказ защищен режимом Нотариус.');
+                }
+
+                // 1. Снимаем все незаконченные резервы
+                await client.query(`
+                    UPDATE client_order_items 
+                    SET qty_reserved = 0, qty_production = 0 
+                    WHERE order_id = $1
+                `, [orderId]);
+
+                // 2. Снижаем qty_ordered до qty_shipped, чтобы итоговая сумма стала равна реально отгруженному
+                await client.query(`
+                    UPDATE client_order_items 
+                    SET qty_ordered = COALESCE(qty_shipped, 0) 
+                    WHERE order_id = $1 AND qty_ordered > COALESCE(qty_shipped, 0)
+                `, [orderId]);
+
+                // 3. Удаляем позиции, по которым вообще не было отгрузок (qty_shipped = 0)
+                await client.query(`
+                    DELETE FROM client_order_items 
+                    WHERE order_id = $1 AND COALESCE(qty_shipped, 0) = 0
+                `, [orderId]);
+
+                // 4. Пересчитываем ИТОГОВУЮ СУММУ ЗАКАЗА (total_amount)
+                const itemsRes = await client.query('SELECT qty_ordered, price FROM client_order_items WHERE order_id = $1', [orderId]);
+                let newTotal = 0;
+                itemsRes.rows.forEach(i => {
+                    newTotal += parseFloat(i.qty_ordered) * parseFloat(i.price);
+                });
+                
+                // Учитываем скидку
+                const discount = parseFloat(order.discount) || 0;
+                newTotal = Math.max(0, newTotal - discount);
+                
+                // Прибавляем логистику, если есть
+                newTotal += parseFloat(order.logistics_cost || 0);
+
+                // 5. Пересчитываем долг
+                const paid = parseFloat(order.paid_amount || 0);
+                const newDebt = Math.max(0, newTotal - paid);
+
+                // 6. Обновляем статус заказа
+                await client.query(`
+                    UPDATE client_orders 
+                    SET status = 'completed', 
+                        total_amount = $1, 
+                        pending_debt = $2 
+                    WHERE id = $3
+                `, [newTotal, newDebt, orderId]);
+            });
+
+            const io = req.app.get('io');
+            if (io) { io.emit('inventory_updated'); io.emit('sales_updated'); }
+            res.json({ success: true, message: 'Заказ успешно закрыт' });
+        } catch (err) {
+            logger.error(err);
+            res.status(400).json({ error: err.message });
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // ЗАДАЧА: ПРЯМОЕ РЕДАКТИРОВАНИЕ ЗАКАЗА
+    // ------------------------------------------------------------------
+    router.put('/api/sales/orders/:id', requireAdmin, async (req, res) => {
+        const orderId = req.params.id;
+        const { items, counterparty_id, discount, created_at, logistics_cost, delivery_address, comment, specification_id } = req.body;
+        
+        try {
+            await withTransaction(pool, async (client) => {
+                const checkRes = await client.query('SELECT * FROM client_orders WHERE id = $1 FOR UPDATE', [orderId]);
+                if (checkRes.rows.length === 0) throw new Error('Заказ не найден');
+                const order = checkRes.rows[0];
+                
+                if (order.status === 'completed' || order.status === 'cancelled') {
+                    throw new Error('Нельзя редактировать закрытый или отмененный заказ');
+                }
+                if (order.is_locked) throw new Error('Заказ опечатан нотариусом');
+                if (!items || !Array.isArray(items)) throw new Error('Некорректный формат позиций заказа');
+
+                // Если пытаются сохранить вообще без позиций, но есть отгрузки — выдадим ошибку
+                const currentItemsRes = await client.query('SELECT * FROM client_order_items WHERE order_id = $1', [orderId]);
+                const currentItems = currentItemsRes.rows;
+
+                // 2. Обрабатываем присланные товары (обновление / добавление)
+                let calculatedTotal = 0;
+                
+                for (let newItem of items) {
+                    const itemId = parseInt(newItem.id);
+                    const newQty = parseFloat(newItem.qty);
+                    const price = parseFloat(newItem.price);
+                    
+                    if (newQty <= 0) continue; // Игнорируем или удалим позже
+                    calculatedTotal += (newQty * price);
+                    
+                    const existingRow = currentItems.find(i => parseInt(i.item_id) === itemId);
+                    
+                    if (existingRow) {
+                        // Товар уже был в заказе. Проверяем shipped_qty!
+                        const shipped = parseFloat(existingRow.qty_shipped || 0);
+                        if (newQty < shipped) {
+                            throw new Error(`Нельзя уменьшить кол-во ниже уже отгруженного (${shipped})`);
+                        }
+                        
+                        const oldQty = parseFloat(existingRow.qty_ordered);
+                        
+                        // Если кол-во изменилось, пересчитываем резервы
+                        if (newQty !== oldQty) {
+                            let newReserved = parseFloat(existingRow.qty_reserved || 0);
+                            
+                            if (newQty < oldQty) {
+                                // Уменьшаем заказ -> Срезаем резерв, если он превышает остаток, нужный для отгрузки
+                                // Доступный для резервирования остаток = qty_ordered - qty_shipped
+                                const remainingToShip = newQty - shipped;
+                                if (newReserved > remainingToShip) {
+                                    newReserved = remainingToShip;
+                                }
+                            } else {
+                                // Увеличиваем заказ -> Пытаемся захватить со склада
+                                const delta = newQty - oldQty;
+                                const stockRes = await client.query(`
+                                    SELECT COALESCE(SUM(quantity),0) as q FROM inventory_movements WHERE item_id = $1
+                                    `, [itemId]);
+                                const physicalQty = parseFloat(stockRes.rows[0].q);
+                                
+                                const totalReservedRes = await client.query(`
+                                    SELECT COALESCE(SUM(qty_reserved),0) as r FROM client_order_items WHERE item_id = $1
+                                    `, [itemId]);
+                                const otherReserved = parseFloat(totalReservedRes.rows[0].r) - parseFloat(existingRow.qty_reserved);
+                                
+                                const freeStock = Math.max(0, physicalQty - otherReserved);
+                                const extraReserve = Math.min(delta, freeStock);
+                                newReserved += extraReserve;
+                            }
+                            
+                            await client.query(`
+                                UPDATE client_order_items 
+                                SET qty_ordered = $1, price = $2, qty_reserved = $3
+                                WHERE id = $4
+                            `, [newQty, price, newReserved, existingRow.id]);
+                        } else {
+                            // Только цену поменяли
+                            await client.query('UPDATE client_order_items SET price = $1 WHERE id = $2', [price, existingRow.id]);
+                        }
+                    } else {
+                        // Это НОВЫЙ товар в заказе
+                        const stockRes = await client.query(`
+                            SELECT COALESCE(SUM(quantity),0) as q FROM inventory_movements WHERE item_id = $1
+                            `, [itemId]);
+                        const physicalQty = parseFloat(stockRes.rows[0].q);
+                        
+                        const totalReservedRes = await client.query(`
+                            SELECT COALESCE(SUM(qty_reserved),0) as r FROM client_order_items WHERE item_id = $1
+                            `, [itemId]);
+                        const totalReserved = parseFloat(totalReservedRes.rows[0].r);
+                        
+                        const freeStock = Math.max(0, physicalQty - totalReserved);
+                        const reserve = Math.min(newQty, freeStock);
+                        
+                        await client.query(`
+                            INSERT INTO client_order_items (order_id, item_id, qty_ordered, qty_reserved, qty_production, price, qty_shipped)
+                            VALUES ($1, $2, $3, $4, 0, $5, 0)
+                        `, [orderId, itemId, newQty, reserve, price]);
+                    }
+                }
+                
+                // 3. Удаляем товары, которых больше нет в новом массиве (если они не отгружены)
+                const newIds = items.map(i => parseInt(i.id));
+                for (let oldRow of currentItems) {
+                    if (!newIds.includes(parseInt(oldRow.item_id))) {
+                        const shipped = parseFloat(oldRow.qty_shipped || 0);
+                        if (shipped > 0) throw new Error('Нельзя удалить из заказа товар, по которому уже была отгрузка.');
+                        
+                        await client.query('DELETE FROM client_order_items WHERE id = $1', [oldRow.id]);
+                    }
+                }
+                
+                // 4. Пересчет итоговой суммы и долга
+                const parsedDiscount = parseFloat(discount || 0);
+                const parsedLogistics = parseFloat(logistics_cost || 0);
+                
+                calculatedTotal = Math.max(0, calculatedTotal - parsedDiscount) + parsedLogistics;
+                const paidAmt = parseFloat(order.paid_amount || 0);
+                const newDebt = Math.max(0, calculatedTotal - paidAmt);
+                
+                // Прописываем новую дату. Важно - дата может быть просто YYYY-MM-DD
+                let dateQueryAdd = '';
+                let dbParams = [
+                    counterparty_id, calculatedTotal, newDebt, parsedDiscount, 
+                    parsedLogistics, delivery_address || '', comment || '', 
+                    specification_id || null, orderId
+                ];
+                
+                if (created_at && created_at.trim() !== '') {
+                    // Если дата передана - обновляем
+                    dateQueryAdd = ', created_at = $10';
+                    dbParams.push(created_at);
+                }
+                
+                // 5. Запись обновлений в сам заказ
+                await client.query(`
+                    UPDATE client_orders
+                    SET counterparty_id = $1, 
+                        total_amount = $2, 
+                        pending_debt = $3, 
+                        discount = $4,
+                        logistics_cost = $5,
+                        delivery_address = $6,
+                        contract_info = $7,
+                        specification_id = $8
+                        ${dateQueryAdd}
+                    WHERE id = $9
+                `, dbParams);
+            });
+
+            const io = req.app.get('io');
+            if (io) { io.emit('inventory_updated'); io.emit('sales_updated'); }
+            res.json({ success: true, message: 'Заказ успешно отредактирован!' });
+            
+        } catch (err) {
+            logger.error(err);
+            res.status(400).json({ error: err.message });
+        }
+    });
+
 
     // ------------------------------------------------------------------
     // ЗАДАЧА №9: УМНЫЙ ПОИСК ЗАКАЗОВ (Авто, Водитель, Телефон, Имя)
@@ -995,7 +1230,9 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     SUM(ABS(m.quantity)) as total_qty, 
                     (SELECT c.name FROM client_order_items coi JOIN client_orders co ON coi.order_id = co.id JOIN counterparties c ON co.counterparty_id = c.id WHERE coi.id = MAX(m.linked_order_item_id)) as client_name,
                     (SELECT co.id FROM client_order_items coi JOIN client_orders co ON coi.order_id = co.id WHERE coi.id = MAX(m.linked_order_item_id)) as order_id,
-                    (SELECT co.counterparty_id FROM client_order_items coi JOIN client_orders co ON coi.order_id = co.id WHERE coi.id = MAX(m.linked_order_item_id)) as client_id
+                    (SELECT co.counterparty_id FROM client_order_items coi JOIN client_orders co ON coi.order_id = co.id WHERE coi.id = MAX(m.linked_order_item_id)) as client_id,
+                    (SELECT co.total_amount FROM client_order_items coi JOIN client_orders co ON coi.order_id = co.id WHERE coi.id = MAX(m.linked_order_item_id)) as total_order_amount,
+                    SUM(ABS(m.quantity) * COALESCE((SELECT coi.price FROM client_order_items coi WHERE coi.id = m.linked_order_item_id), 0)) as calculated_shipment_amount
                 FROM inventory_movements m 
                 WHERE m.movement_type = 'sales_shipment' 
                 GROUP BY COALESCE(SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) 
@@ -1027,15 +1264,19 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             for (let row of validRows) {
                 const tx = txRes.rows.find(t => t.description && t.description.includes(row.doc_num));
                 if (tx) {
-                    row.amount = tx.amount;
+                    row.amount = parseFloat(tx.amount) || parseFloat(row.total_order_amount) || 0;
                     row.client_name = row.client_name || tx.client_name;
                     row.payment = '💰 Оплачено';
                 } else {
                     const inv = invRes.rows.find(i => i.invoice_number === row.doc_num);
                     if (inv) {
-                        row.amount = inv.amount;
+                        row.amount = parseFloat(inv.amount) || parseFloat(row.total_order_amount) || 0;
                         row.client_name = row.client_name || inv.client_name;
                         row.payment = '⏳ В долг';
+                    } else {
+                        // Фаллбэк на сумму оригинального заказа, если счет не найден
+                        row.amount = parseFloat(row.calculated_shipment_amount) || parseFloat(row.total_order_amount) || 0;
+                        row.payment = '📦 Накладная';
                     }
                 }
             }

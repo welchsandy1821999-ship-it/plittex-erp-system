@@ -39,7 +39,7 @@
         <!-- ════ БЛОК 1: КЛИЕНТ + ПОИСК ТОВАРА ════ -->
         <div class="card p-20 m-0 mb-15">
             <div class="flex-between m-0 mb-15">
-                <h3 class="font-18 mt-0 mb-0 text-main">1. Клиент и подбор товара</h3>
+                <h3 id="checkout-title" class="font-18 mt-0 mb-0 text-main">1. Клиент и подбор товара</h3>
                 <div class="flex-row gap-5 align-center">
                     <label class="font-12 text-muted m-0">Дата заказа:</label>
                     <input type="date" id="sale-order-date" class="input-modern w-130p h-32p p-4-6">
@@ -267,7 +267,7 @@
                 <button class="btn btn-outline flex-grow-1" onclick="generateKP()">📄 Печать КП</button>
                 <button class="btn btn-outline flex-grow-1" onclick="generateBlankOrder()">🖨️ Печать Бланк-заказа</button>
             </div>
-            <button class="btn btn-blue font-bold font-15 w-100 mt-10" onclick="processCheckout()">
+            <button id="btn-checkout-save" class="btn btn-blue font-bold font-15 w-100 mt-10" onclick="processCheckout()">
                 💾 Оформить заказ
             </button>
         </div>

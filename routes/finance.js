@@ -518,10 +518,13 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             // Положительное сальдо: должны НАМ. Отрицательное: должны МЫ.
             const balance = ourShipments.plus(ourPayments).minus(theirShipments).minus(theirPayments).toFixed(2);
 
+            const overpayment = parseFloat(balance) < 0 ? Math.abs(parseFloat(balance)).toFixed(2) : '0.00';
             res.json({
                 info: cp,
                 transactions: timeline,
                 finances: { balance, totalPaid: theirPayments.toFixed(2), totalInvoiced: ourShipments.toFixed(2) },
+                overpayment: parseFloat(overpayment),
+                saldo: parseFloat(balance),
                 invoices: [], contracts: []
             });
         } catch (err) {
@@ -636,7 +639,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         try {
             const cpRes = await pool.query('SELECT * FROM counterparties WHERE id = $1', [cp_id]);
             if (cpRes.rows.length === 0) return res.status(404).send('Контрагент не найден');
-            const transRes = await pool.query(`SELECT amount, transaction_type, category, description, TO_CHAR(created_at, 'DD.MM.YYYY') as date FROM transactions WHERE counterparty_id = $1 AND COALESCE(is_deleted, false) = false ORDER BY created_at ASC`, [cp_id]);
+            const transRes = await pool.query(`SELECT amount, transaction_type, category, description, TO_CHAR(created_at, 'DD.MM.YYYY') as date FROM transactions WHERE counterparty_id = $1 AND category != 'Взаимозачет' AND COALESCE(is_deleted, false) = false ORDER BY created_at ASC`, [cp_id]);
             res.render('docs/act', { cp: cpRes.rows[0], transactions: transRes.rows });
         } catch (err) {
             logger.error(err);
@@ -680,7 +683,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     true as is_order
                 FROM client_orders o
                 LEFT JOIN counterparties c ON o.counterparty_id = c.id
-                WHERE o.status IN ('pending', 'processing') AND o.pending_debt > 0
+                WHERE o.status IN ('pending', 'processing', 'completed') AND o.pending_debt > 0
 
                 ORDER BY created_at DESC
             `);
@@ -729,7 +732,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
             await client.query(
                 `INSERT INTO invoices (
-                    counterparty_id, invoice_number, total_amount, purpose, 
+                    counterparty_id, doc_number, total_amount, purpose, 
                     client_snapshot, author_id, created_at, notary_hash
                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
                 [cp_id, generatedInvoiceNumber, amount, desc, snapshot, authorId, createdAt, notaryHash]
@@ -760,22 +763,25 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     const amountToPay = parseFloat(order.pending_debt);
                     if (amountToPay <= 0) throw new Error('По этому заказу нет долга');
 
-                    await client.query(`
-                        INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, linked_order_id, transaction_date)
-                        VALUES ($1, 'income', 'Продажа продукции', $2, 'Безналичный расчет', $3, $4, $5, NOW())
-                    `, [amountToPay, `Оплата долга по заказу №${order.doc_number}`, account_id, order.counterparty_id, order.id]);
-
-                    // 📦 1. ЧАСТИЧНАЯ ИЛИ ПОЛНАЯ ОПЛААТА ДОЛГА
-                    const payAmt = parseFloat(req.body.amount); // Сумма, которую ввел юзер или прислал банк
+                    const payAmt = parseFloat(req.body.amount) || amountToPay;
                     const newPendingDebt = Math.max(0, parseFloat(order.pending_debt) - payAmt);
                     const newPaidAmount = parseFloat(order.paid_amount) + payAmt;
 
-                    await client.query(`
-    UPDATE client_orders 
-    SET pending_debt = $1, 
-        paid_amount = $2 
-    WHERE id = $3
-`, [newPendingDebt, newPaidAmount, order.id]);
+                    await client.query('UPDATE client_orders SET pending_debt = $1, paid_amount = $2 WHERE id = $3', [newPendingDebt, newPaidAmount, order.id]);
+
+                    if (req.body.use_offset) {
+                        // ✨ ЗАЧЕТ ИЗ ПЕРЕПЛАТЫ: Только корректирующая запись (без кассового поступления)
+                        await client.query(`
+                            INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, linked_order_id, transaction_date)
+                            VALUES ($1, 'income', 'Взаимозачет', $2, 'Взаимозачет', NULL, $3, $4, NOW())
+                        `, [payAmt, `Зачет переплаты по заказу №${order.doc_number}`, order.counterparty_id, order.id]);
+                    } else {
+                        // 💰 СТАНДАРТНЫЙ ПРИХОД В КАССУ
+                        await client.query(`
+                            INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, linked_order_id, transaction_date)
+                            VALUES ($1, 'income', 'Продажа продукции', $2, 'Безналичный расчет', $3, $4, $5, NOW())
+                        `, [payAmt, `Оплата долга по заказу №${order.doc_number}`, account_id, order.counterparty_id, order.id]);
+                    }
 
                 } else {
                     // 📄 2. ОПЛАТА РУЧНОГО СЧЕТА
@@ -791,14 +797,19 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     await client.query("UPDATE invoices SET status = 'paid' WHERE id = $1", [inv.id]);
                 }
 
-                // 🔄 3. ПЕРЕСЧЕТ БАЛАНСА КАССЫ
-                await client.query(`
-                    UPDATE accounts a 
-                    SET balance = ROUND(COALESCE((
-                        SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE -amount END) 
-                        FROM transactions t WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
-                    ), 0), 2) WHERE a.id = $1
-                `, [account_id]);
+                // 🔄 3. ПЕРЕСЧЕТ БАЛАНСА КАССЫ (только если был реальный приход, не взаимозачет)
+                if (!req.body.use_offset && account_id) {
+                    await client.query(`
+                        UPDATE accounts a 
+                        SET balance = ROUND(COALESCE((
+                            SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE -amount END) 
+                            FROM transactions t WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
+                        ), 0), 2) WHERE a.id = $1
+                    `, [account_id]);
+                }
+
+                const io = req.app.get('io');
+                if (io) io.emit('finance_updated');
             });
 
             res.json({ success: true });
@@ -2025,19 +2036,30 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         try {
             // 1. ����������� �������������
             const arRes = await pool.query(`
-                SELECT COALESCE(sum(pending_debt), 0) as total_debt 
-                FROM client_orders 
-                WHERE status IN ('pending', 'processing') AND pending_debt > 0
+                SELECT COALESCE(SUM(total), 0) as total_debt FROM (
+                    SELECT total_amount as total FROM invoices WHERE status = 'pending'
+                    UNION ALL
+                    SELECT pending_debt as total FROM client_orders WHERE status IN ('pending', 'processing', 'completed') AND pending_debt > 0
+                ) sub
             `);
             const totalAr = arRes.rows[0].total_debt || 0;
 
             const arListRes = await pool.query(`
-                SELECT o.id, o.doc_number, c.name as counterparty_name, o.pending_debt, 
-                       TO_CHAR(o.created_at, 'DD.MM.YYYY') as date 
-                FROM client_orders o 
-                JOIN counterparties c ON o.counterparty_id = c.id 
-                WHERE o.status IN ('pending', 'processing') AND o.pending_debt > 0 
-                ORDER BY o.created_at DESC LIMIT 5
+                SELECT id, doc_number, counterparty_name, pending_debt, TO_CHAR(created_at, 'DD.MM.YYYY') as date 
+                FROM (
+                    SELECT i.id, i.invoice_number as doc_number, c.name as counterparty_name, i.total_amount as pending_debt, i.created_at
+                    FROM invoices i
+                    JOIN counterparties c ON i.counterparty_id = c.id
+                    WHERE i.status = 'pending'
+                    
+                    UNION ALL
+                    
+                    SELECT o.id, o.doc_number, c.name as counterparty_name, o.pending_debt, o.created_at
+                    FROM client_orders o 
+                    JOIN counterparties c ON o.counterparty_id = c.id 
+                    WHERE o.status IN ('pending', 'processing', 'completed') AND o.pending_debt > 0
+                ) combined
+                ORDER BY created_at DESC LIMIT 5
             `);
             // 2. Умный расчет дефицита (Свободный остаток < Порог)
             // Учитываем общие остатки и вычитаем зарезервированные под заказы позиции

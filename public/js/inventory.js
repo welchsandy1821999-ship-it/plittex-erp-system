@@ -384,10 +384,11 @@ function renderInventoryTable() {
                     🔄 Управление
                 </button>`;
             } else if (item.warehouse_id === 3) {
-                actionHtml = `<button class="btn btn-blue inv-btn-demold" 
-                            onclick="openDemoldingModal(${item.batch_id}, '${item.batch_number || 'Б/Н'}', ${item.item_id}, '${item.item_name}', ${item.total})">
-                            🧱 Распалубить
-                          </button>`;
+                if (item.batch_status === 'completed') {
+                    actionHtml = `<span class="badge bg-success-light text-success font-bold" style="padding: 8px 12px; font-size: 13px;">✅ Упаковано</span>`;
+                } else {
+                    actionHtml = `<button class="btn btn-blue inv-btn-demold" onclick="openDemoldingModal(${item.batch_id}, '${item.batch_number || 'Б/Н'}', ${item.item_id}, '${item.item_name}', ${item.total})">🧱 Распалубить</button>`;
+                }
             } else if (item.warehouse_id === 5 || item.warehouse_id === 6) {
                 actionHtml = `<button class="btn btn-outline inv-btn-dispose" 
                             onclick="openDisposeModal(${item.item_id}, '${item.item_name}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
@@ -508,15 +509,15 @@ window.openDemoldingModal = function (batchId, batchNum, tileId, productName, pl
         <div class="form-grid inv-grid-3">
             <div class="form-group">
                 <label class="inv-label-success">🟢 1-й сорт:</label>
-                <input type="number" id="demold-good" class="input-modern" value="${plannedQty}">
+                <input type="number" id="demold-good" class="input-modern" value="${plannedQty}" onclick="this.select()" onfocus="this.select()">
             </div>
             <div class="form-group">
                 <label class="inv-label-warning">🟡 2-й сорт:</label>
-                <input type="number" id="demold-grade2" class="input-modern" value="0">
+                <input type="number" id="demold-grade2" class="input-modern" value="0" onclick="this.select()" onfocus="this.select()">
             </div>
             <div class="form-group">
                 <label class="inv-label-danger">🔴 Брак:</label>
-                <input type="number" id="demold-scrap" class="input-modern" value="0">
+                <input type="number" id="demold-scrap" class="input-modern" value="0" onclick="this.select()" onfocus="this.select()">
             </div>
         </div>
         
@@ -527,7 +528,7 @@ window.openDemoldingModal = function (batchId, batchNum, tileId, productName, pl
 
         <div class="form-group">
             <label class="d-flex align-items-center gap-2">
-                <input type="checkbox" id="demold-complete" checked>
+                <input type="checkbox" id="demold-complete">
                 Полностью закрыть партию
             </label>
         </div>
@@ -545,7 +546,7 @@ window.openDemoldingModal = function (batchId, batchNum, tileId, productName, pl
         flatpickr("#demolding-date", {
             enableTime: true,
             dateFormat: "Y-m-d H:i",
-            defaultDate: "today",
+            defaultDate: new Date(),
             time_24hr: true
         });
     }

@@ -334,16 +334,15 @@
 
         let name = '';
         let unit = 'кг';
-        if (selEl.tomselect) {
-            const optionEl = selEl.tomselect.getOption(val);
-            if (optionEl) {
-                name = optionEl.getAttribute('data-name');
-                unit = optionEl.getAttribute('data-unit') || 'кг';
-            }
-        } else {
+        const material = allMaterialsForMix.find(m => String(m.id) === String(val));
+        if (material) {
+            name = material.name;
+            unit = material.unit || 'кг';
+        } else if (selEl.options && selEl.selectedIndex > -1) {
+            // Фолбэк на случай если сырья нет в массиве, но есть в select
             const optionEl = selEl.options[selEl.selectedIndex];
             if (optionEl) {
-                name = optionEl.getAttribute('data-name');
+                name = optionEl.getAttribute('data-name') || optionEl.text;
                 unit = optionEl.getAttribute('data-unit') || 'кг';
             }
         }
@@ -580,16 +579,23 @@
             return;
         }
 
-        container.innerHTML = sessionProducts.map((p, i) => `
-        <div class="prod-session-item">
-            <div>
-                <b class="text-primary">${Utils.escapeHtml(p.name)}</b><br>
-                <small class="text-muted">${p.fromServer ? '<em>📝 Сохранён на сервере</em>' : `Циклов: <b class="text-main">${p.cycles}</b> | Итого: <b class="text-main">${p.quantity.toFixed(2)} ${p.unit || ''}</b>`}</small><br>
-                <small class="text-muted">${p.fromServer ? '' : `Замесы: Осн (${p.mainCount || 0}), Лиц (${p.faceCount || 0})`}</small>
+        container.innerHTML = sessionProducts.map((p, i) => {
+            const matList = (p.exactMaterials || []).map(m => `${Utils.escapeHtml(m.name)}: <b class="text-primary">${parseFloat(m.qty).toFixed(1)}${m.unit}</b>`).join(' | ');
+            return `
+        <div class="prod-session-item flex-col gap-5">
+            <div class="flex-between align-start w-100">
+                <div>
+                    <b class="text-primary">${Utils.escapeHtml(p.name)}</b><br>
+                    <small class="text-muted">${p.fromServer ? '<em>📝 Сохранён на сервере</em>' : `Циклов: <b class="text-main">${p.cycles}</b> | Итого: <b class="text-main">${p.quantity.toFixed(2)} ${p.unit || ''}</b>`}</small>
+                    ${p.fromServer ? '' : `<br><small class="text-muted">Замесы: Осн (${p.mainCount || 0}), Лиц (${p.faceCount || 0})</small>`}
+                </div>
+                <button class="btn text-danger p-5 h-auto m-0" onclick="removeSessionProduct(${i})">🗑️</button>
             </div>
-            <button class="btn text-danger p-5" onclick="removeSessionProduct(${i})">🗑️</button>
+            <div style="background: #f8fafc; padding: 6px 10px; border-radius: 4px; font-size: 11px; color: #64748b; border: 1px dashed #cbd5e1;">
+                ${matList}
+            </div>
         </div>
-    `).join('');
+    `}).join('');
     }
 
     // 🆕 Удаление элемента из списка смены (с удалением из БД для серверных черновиков)
@@ -602,6 +608,10 @@
             // Локальный (ещё не сохранён) — просто убираем из памяти
             sessionProducts.splice(index, 1);
             renderSessionProducts();
+            
+            // Очищаем панель ошибок при удалении проблемной партии
+            const errBox = document.getElementById('shift-errors');
+            if (errBox) { errBox.classList.add('hidden'); errBox.innerHTML = ''; }
         }
     };
 
@@ -1135,6 +1145,10 @@
             await API.delete(`/api/production/batch/${id}`);
             if (true) {
                 UI.toast('🗑️ Формовка отменена, сырье возвращено', 'success');
+
+                // Очищаем панель ошибок при удалении проблемной партии
+                const errBox = document.getElementById('shift-errors');
+                if (errBox) { errBox.classList.add('hidden'); errBox.innerHTML = ''; }
 
                 // Проверяем, активен ли поиск
                 const searchInput = document.getElementById('prod-search-input');

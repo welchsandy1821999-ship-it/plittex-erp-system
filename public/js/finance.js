@@ -1139,7 +1139,7 @@
                 <small id="category-matrix-preview" class="form-text mt-1" style="display:block; min-height: 20px; font-weight: bold;"></small>
             </div>
             
-            <div class="form-group" style="grid-column: span 2; margin-top: 5px; background: var(--surface-alt); padding: 12px; border-radius: 8px; border: 1px dashed var(--border);">
+            <div id="cost-group-wrapper" class="form-group" style="grid-column: span 2; margin-top: 5px; background: var(--surface-alt); padding: 12px; border-radius: 8px; border: 1px dashed var(--border);">
                 <label style="color: var(--primary);">🎯 Принудительная группа затрат (Исключение):</label>
                 <select id="trans-cost-group" class="input-modern" style="font-size: 13px; font-weight: 600;">
                     <option value="" selected>Автоматически (По матрице)</option>
@@ -1211,6 +1211,19 @@
         // При переключении схода на расход очищаем поле
         const catInput = document.getElementById('trans-category');
         if (catInput) catInput.value = '';
+
+        // Прячем выбор группы затрат (Прямые/Косвенные/Капитал) для доходов
+        const costGroupWrapper = document.getElementById('cost-group-wrapper');
+        const categoryMatrixPreview = document.getElementById('category-matrix-preview');
+        if (costGroupWrapper) {
+            if (type === 'income') {
+                costGroupWrapper.style.display = 'none';
+                if (categoryMatrixPreview) categoryMatrixPreview.style.display = 'none';
+            } else {
+                costGroupWrapper.style.display = 'block';
+                if (categoryMatrixPreview) categoryMatrixPreview.style.display = 'block';
+            }
+        }
     };
 
     window.previewCategoryMatrix = async function (categoryName) {
@@ -1438,6 +1451,7 @@
             : `<span style="font-size: 10px; background: rgba(0,0,0,0.05); padding: 3px 6px; border-radius: 4px; margin-left: 10px; color: var(--text-muted);">⚙️ По матрице</span>`;
 
         const html = `
+        ${tr.transaction_type === 'income' ? '' : `
         <div style="background: ${groupBg}; padding: 12px 15px; border-radius: 8px; border: 1px solid ${groupColor}; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
             <div>
                 <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: bold; margin-bottom: 4px;">Текущая группа в Unit-экономике:</div>
@@ -1446,6 +1460,7 @@
                 </div>
             </div>
         </div>
+        `}
 
         <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
             <input type="password" style="display:none;" autocomplete="new-password">
@@ -1493,6 +1508,7 @@
                 <datalist id="edit-cp-options">${cpOptionsList}</datalist>
             </div>
 
+            ${tr.transaction_type === 'income' ? '' : `
             <div class="form-group" style="grid-column: span 2; margin-top: 5px; background: var(--surface-alt); padding: 12px; border-radius: 8px; border: 1px dashed var(--border);">
                 <label style="color: var(--primary);">🎯 Принудительная группа затрат (Исключение):</label>
                 <select id="edit-tx-cost-group" class="input-modern" style="font-size: 13px; font-weight: 600;">
@@ -1507,6 +1523,7 @@
                     <span style="font-size: 12px; font-weight: bold; color: var(--text-main);">🤖 Запомнить правило для этого контрагента</span>
                 </label>
             </div>
+            `}
         </div>
     `;
 
@@ -1534,8 +1551,8 @@
             transaction_date: document.getElementById('edit-trans-date').value,
 
             // Передаем новые параметры на бэкенд
-            cost_group_override: document.getElementById('edit-tx-cost-group').value || null,
-            remember_rule: document.getElementById('edit-tx-remember').checked
+            cost_group_override: document.getElementById('edit-tx-cost-group') ? (document.getElementById('edit-tx-cost-group').value || null) : null,
+            remember_rule: document.getElementById('edit-tx-remember') ? document.getElementById('edit-tx-remember').checked : false
         };
 
         try {
@@ -1931,22 +1948,65 @@
     `).join('');
     }
 
-    window.markInvoicePaidModal = function (id, isOrder = false) {
-        // Находим нужный счет/заказ в массиве, чтобы узнать остаток долга
+        window.toggleAccountSelector = function(checked) {
+        const dd = document.getElementById('pay-account-dropdown');
+        if (dd) dd.style.display = checked ? 'none' : 'block';
+    }
+    
+    window.checkSaldoWarning = function(saldo, amount) {
+        const warn = document.getElementById('saldo-warning');
+        if(warn) {
+            warn.style.display = (parseFloat(amount) > parseFloat(saldo)) ? 'block' : 'none';
+        }
+    }
+
+    window.markInvoicePaidModal = async function (id, isOrder = false) {
         const doc = financeInvoices.find(inv => inv.id === id && inv.is_order === isOrder);
         const currentDebt = doc ? doc.amount : 0;
 
-        const options = currentAccounts.map(acc => `<option value="${acc.id}">${acc.name} (${Utils.formatMoney(acc.balance)})</option>`).join('');
+        let clientSaldo = 0;
+        if (doc && doc.counterparty_id) {
+            try {
+                const res = await fetch(`/api/counterparties/${doc.counterparty_id}/profile`, { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }});
+                if(res.ok) {
+                    const data = await res.json();
+                    // Переплата = клиент заплатил больше, чем мы отгрузили (saldo < 0)
+                    let rawOverpayment = 0;
+                    if(data.overpayment && data.overpayment > 0) {
+                        rawOverpayment = data.overpayment;
+                    } else if(data.finances && parseFloat(data.finances.balance) < 0) {
+                        rawOverpayment = Math.abs(parseFloat(data.finances.balance));
+                    }
+                    // Вычитаем долг текущего заказа: аванс уже занят этим заказом, не считаем его "свободным"
+                    clientSaldo = Math.max(0, rawOverpayment - currentDebt);
+                }
+            } catch(e) { console.error('Failed to get saldo'); }
+        }
+
+        const options = currentAccounts.filter(acc => acc.type === 'bank' || acc.type === 'cash').map(acc => `<option value="${acc.id}">${acc.name} (${Utils.formatMoney(acc.balance)})</option>`).join('');
 
         const html = `
         <div class="form-grid" style="grid-template-columns: 1fr; gap: 15px;">
             <div class="form-group" style="background: var(--surface-alt); padding: 15px; border-radius: 8px; border: 1px dashed var(--border);">
-                <label style="font-weight: bold; color: var(--primary);">Сумма к зачислению (₽):</label>
-                <input type="number" id="pay-inv-amount" class="input-modern" value="${currentDebt}" style="font-size: 18px; font-weight: bold; margin-top: 5px;">
+                <label style="font-weight: bold; color: var(--primary);">Сумма (₽):</label>
+                <input type="number" id="pay-inv-amount" class="input-modern" value="${currentDebt}" style="font-size: 18px; font-weight: bold; margin-top: 5px;" ${clientSaldo > 0 ? `oninput="checkSaldoWarning(${clientSaldo}, this.value)"` : ''}>
                 <small class="text-muted">Остаток по документу: ${Utils.formatMoney(currentDebt)}</small>
             </div>
+            
+            ${clientSaldo > 0 ? `
+            <div style="background: var(--primary-light, #e3f2fd); padding: 15px; border-radius: 8px; border: 1px solid var(--primary);">
+                <label style="display: flex; align-items: start; gap: 10px; cursor: pointer; margin: 0;">
+                    <input type="checkbox" id="pay-inv-offset" onchange="toggleAccountSelector(this.checked)" style="margin-top: 4px; width: 18px; height: 18px;">
+                    <div>
+                        <div style="font-weight: bold; color: var(--primary-dark, #0d47a1); font-size: 15px;">Зачесть из переплаты клиента</div>
+                        <div style="color: var(--primary); font-size: 13px; margin-top: 2px;">Доступно: ${Utils.formatMoney(clientSaldo)} ₽. Деньги не будут зачислены в кассу.</div>
+                        <div id="saldo-warning" style="display: none; color: var(--danger); font-size: 12px; margin-top: 5px; font-weight: bold;">⚠ Внимание: сумма зачета превышает переплату!</div>
+                    </div>
+                </label>
+            </div>
+            ` : ''}
 
-            <div class="form-group">
+            <div class="form-group" id="pay-account-dropdown">
                 <label style="font-weight: bold;">На какой счет упали деньги?</label>
                 <select id="pay-inv-account" class="input-modern" style="margin-top: 5px;">${options}</select>
             </div>
@@ -1954,7 +2014,7 @@
     `;
         UI.showModal('✅ Подтверждение оплаты', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-       <button class="btn btn-blue" onclick="executeInvoicePay(${id}, ${isOrder}, this)">💰 Подтвердить приход</button>
+       <button class="btn btn-blue" id="pay-confirm-btn" onclick="executeInvoicePay(${id}, ${isOrder}, this)">💰 Подтвердить</button>
     `);
 
         setTimeout(() => {
@@ -1963,18 +2023,24 @@
         }, 50);
     };
 
-    window.executeInvoicePay = async function (id, isOrder, btnElement) {
-        const account_id = document.getElementById('pay-inv-account').value;
-        const amount = parseFloat(document.getElementById('pay-inv-amount').value); // 👈 Берем сумму
+        window.executeInvoicePay = async function (id, isOrder, btnElement) {
+        const offsetCheck = document.getElementById('pay-inv-offset');
+        const useOffset = offsetCheck ? offsetCheck.checked : false;
+        
+        const accountEl = document.getElementById('pay-inv-account');
+        const account_id = accountEl ? accountEl.value : null;
+        const amount = parseFloat(document.getElementById('pay-inv-amount').value);
 
         if (!amount || amount <= 0) return UI.toast('Введите корректную сумму', 'warning');
+        if (!useOffset && !account_id) return UI.toast('Выберите кассу', 'warning');
+        
         if (btnElement) btnElement.disabled = true;
 
         try {
-            await API.post(`/api/invoices/${id}/pay`, { account_id, is_order: isOrder, amount }); // 👈 Передаем сумму
+            await API.post(`/api/invoices/${id}/pay`, { account_id: useOffset ? null : account_id, is_order: isOrder, amount, use_offset: useOffset });
             UI.closeModal();
-            UI.toast('✅ Оплата зачислена', 'success');
-            loadFinanceData();
+            UI.toast(useOffset ? '✅ Зачет успешен' : '✅ Оплата зачислена', 'success');
+            if (typeof loadFinanceData === 'function') loadFinanceData();
         } catch (e) { console.error(e); } finally {
             if (btnElement) btnElement.disabled = false;
         }
@@ -3415,8 +3481,8 @@
         <div class="form-group" style="margin-bottom: 15px;">
             <label>Тип корректировки (Отношение к нам):</label>
             <select id="corr-type" class="input-modern" style="font-weight: bold;">
-                <option value="income">📈 Клиент должен нам (+ Увеличить его долг)</option>
-                <option value="expense">📉 Мы должны клиенту (+ Увеличить наш долг)</option>
+                <option value="expense">📈 Клиент должен нам (+ Увеличить его долг)</option>
+                <option value="income">📉 Мы должны клиенту (+ Увеличить наш долг)</option>
             </select>
         </div>
         <div class="form-group" style="margin-bottom: 15px;">

@@ -87,7 +87,8 @@ function initStaticSalesSelects() {
         if (el && !el.tomselect) {
             new TomSelect(el, {
                 plugins: ['clear_button'],
-                allowEmptyOption: true
+                allowEmptyOption: true,
+                dropdownParent: 'body'
             });
         }
     });
@@ -177,7 +178,7 @@ window.onClientChange = async function () {
     // Если менеджер сменил клиента, а в корзине уже лежат товары, 
     // мы жестко очищаем корзину. Это предотвратит продажу по чужому прайсу 
     // (например, если первый клиент был дилером, а второй - розничным).
-    if (typeof cart !== 'undefined' && cart.length > 0) {
+    if (typeof cart !== 'undefined' && cart.length > 0 && !window.isSalesOrderEditInitialLoad) {
         clearOrderForm(); // 🚀 ПОЛНАЯ ОЧИСТКА ВСЕХ ПОЛЕЙ И КОРЗИНЫ
         UI.toast('Внимание! Корзина и данные доставки очищены из-за смены контрагента', 'warning');
     }
@@ -764,8 +765,14 @@ async function loadSalesData(fullLoad = true) {
             const accounts = await accRes.json();
             const accSel = document.getElementById('sale-account');
             if (accSel) {
-                accSel.innerHTML = '';
-                accounts.forEach(a => accSel.add(new Option(`${a.name} (${a.balance} ₽)`, a.id)));
+                if (accSel.tomselect) {
+                    accSel.tomselect.clearOptions();
+                    accounts.filter(a => a.type !== 'imprest').forEach(a => accSel.tomselect.addOption({value: a.id, text: `${a.name} (${a.balance} ₽)`}));
+                    accSel.tomselect.refreshOptions(false);
+                } else {
+                    accSel.innerHTML = '';
+                    accounts.filter(a => a.type !== 'imprest').forEach(a => accSel.add(new Option(`${a.name} (${a.balance} ₽)`, a.id)));
+                }
             }
 
             const prodRes = await fetch('/api/products');
@@ -820,12 +827,20 @@ async function loadSalesData(fullLoad = true) {
             const whFinished = window.WAREHOUSE_IDS['finished'] || 4;
             const whMarkdown = window.WAREHOUSE_IDS['markdown'] || 5;
 
+            const isSecondGrade = p.name.toLowerCase().includes('2 сорт') || p.name.toLowerCase().includes('2-й сорт');
+
             if (currentSalesWarehouse === 'all') {
-                stockMap[p.name] = { id: p.id, warehouseId: whFinished, name: p.name, unit: p.unit, qty: stockFinished, reserved, price, dealer_price: dealerPrice, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Авто', allowProduction: true };
-            } else if (currentSalesWarehouse === '4' && stockFinished > 0) {
+                if (isSecondGrade) {
+                    stockMap[p.name] = { id: p.id, warehouseId: whMarkdown, name: p.name, unit: p.unit, qty: stockMarkdown, reserved: 0, price: price, dealer_price: dealerPrice, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: '2 сорт', allowProduction: false };
+                } else {
+                    stockMap[p.name] = { id: p.id, warehouseId: whFinished, name: p.name, unit: p.unit, qty: stockFinished, reserved, price, dealer_price: dealerPrice, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Авто', allowProduction: true };
+                }
+            } else if (currentSalesWarehouse === '4' && stockFinished > 0 && !isSecondGrade) {
                 stockMap[p.name] = { id: p.id, warehouseId: whFinished, name: p.name, unit: p.unit, qty: stockFinished, reserved, price, dealer_price: dealerPrice, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: '1 сорт', allowProduction: false };
             } else if (currentSalesWarehouse === '5' && stockMarkdown > 0) {
-                stockMap[p.name] = { id: p.id, warehouseId: whMarkdown, name: p.name, unit: p.unit, qty: stockMarkdown, reserved: 0, price: Math.floor(price * 0.7), dealer_price: Math.floor(dealerPrice * 0.7), piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Уценка', allowProduction: false };
+                const finalPrice = isSecondGrade ? price : Math.floor(price * 0.7);
+                const finalDealer = isSecondGrade ? dealerPrice : Math.floor(dealerPrice * 0.7);
+                stockMap[p.name] = { id: p.id, warehouseId: whMarkdown, name: p.name, unit: p.unit, qty: stockMarkdown, reserved: 0, price: finalPrice, dealer_price: finalDealer, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Уценка', allowProduction: false };
             }
         });
 
@@ -1339,6 +1354,14 @@ window.updateCartItem = function (index, field, value) {
 };
 
 window.clearOrderForm = function () {
+    // 0. Сбрасываем режим редактирования (если был активен)
+    window.editingOrderId = null;
+    const checkoutBtn = document.querySelector('button[onclick="processCheckout()"]');
+    if (checkoutBtn) checkoutBtn.innerHTML = '💾 Оформить заказ';
+    const editingBanner = document.getElementById('editing-order-banner');
+    if (editingBanner) editingBanner.remove();
+    const titleEl = document.getElementById('checkout-title');
+    if (titleEl) titleEl.innerHTML = '1. Клиент и подбор товара';
     // 1. Очищаем корзину
     cart = [];
     if (typeof renderCart === 'function') renderCart();
@@ -1355,6 +1378,11 @@ window.clearOrderForm = function () {
     });
 
     // 3. Сбрасываем чекбоксы и селекты в состояние по умолчанию
+    const clientSel = document.getElementById('sale-client');
+    if (clientSel && clientSel.tomselect) {
+        clientSel.tomselect.clear(true); // true = без вызова onChange
+    }
+
     const noPoa = document.getElementById('sale-no-poa');
     if (noPoa) { noPoa.checked = false; togglePoaMode(); }
 
@@ -1366,7 +1394,9 @@ window.clearOrderForm = function () {
 };
 
 // === ОФОРМЛЕНИЕ ЗАКАЗА (ОТПРАВКА НА СЕРВЕР) ===
+window.isCheckingOut = false;
 window.processCheckout = async function () {
+    if (window.isCheckingOut) return;
     if (cart.length === 0) return UI.toast('Корзина пуста', 'error');
 
     const client_id = document.getElementById('sale-client').value;
@@ -1407,7 +1437,8 @@ window.processCheckout = async function () {
         return UI.toast('Дата отгрузки не может быть в прошлом!', 'error');
     }
 
-    // Блокируем кнопку от двойного клика
+    // Блокируем вызов функции и кнопку (защита от двойного клика)
+    window.isCheckingOut = true;
     const btn = document.querySelector('button[onclick="processCheckout()"]');
     if (btn) btn.disabled = true;
 
@@ -1445,7 +1476,15 @@ window.processCheckout = async function () {
     };
 
     try {
-        const result = await API.post('/api/sales/checkout', payload);
+        
+        let result;
+        if (window.editingOrderId) {
+            result = await API.put('/api/sales/orders/' + window.editingOrderId, payload);
+            result.docNum = result.doc_number || "Обновленный документ"; 
+        } else {
+            result = await API.post('/api/sales/checkout', payload);
+        }
+
 
         // Очищаем форму
         clearOrderForm();
@@ -1491,6 +1530,7 @@ window.processCheckout = async function () {
         console.error('[Checkout Error]', e);
     } finally {
         // Разблокируем кнопку в любом случае
+        window.isCheckingOut = false;
         if (btn) btn.disabled = false;
     }
 };
@@ -2667,8 +2707,8 @@ window.openOrderManager = async function (orderId) {
                     <td style="padding: 8px; text-align: center;">
                         <input type="number" class="input-modern ship-qty-input" 
                                data-coi-id="${i.id}" data-item-id="${i.item_id}" 
-                               max="${reserved}" value="${reserved}" 
-                               ${reserved <= 0 ? 'disabled' : ''} 
+                               max="${remainText}" value="${Math.min(remainText, reserved)}" 
+                               ${remainText <= 0 ? 'disabled' : ''} 
                                style="width: 70px; text-align: center; border-color: var(--primary); font-weight: bold;">
                     </td>
                 </tr>
@@ -2690,7 +2730,7 @@ window.openOrderManager = async function (orderId) {
                             <th class="p-10 text-center">Отгружено</th>
                             <th class="p-10 text-center text-primary">В Резерве</th>
                             <th class="p-10 text-center text-danger">Ожидает</th>
-                            <th class="p-10 text-center text-primary">Грузим (из Резерва)</th>
+                            <th class="p-10 text-center text-primary">Грузим (факт)</th>
                         </tr>
                     </thead>
                     <tbody>${itemsHtml}</tbody>
@@ -2734,6 +2774,10 @@ window.openOrderManager = async function (orderId) {
         `;
 
         UI.showModal(`Управление заказом: ${order.doc_number}`, html, `
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom: 15px; width: 100%; border-bottom: 1px dashed var(--border); padding-bottom: 15px;">
+                <button class="btn btn-outline sales-btn-sm text-primary" onclick="UI.closeModal(); loadOrderForEdit(${order.id})">✏️ Изменить (Товары / Цены)</button>
+                <button class="btn btn-outline sales-btn-sm text-danger" onclick="UI.closeModal(); forceCloseOrder(${order.id}, '${order.doc_number}')">❌ Принудительно закрыть (Отменить остатки)</button>
+            </div>
             <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
             <button class="btn btn-blue" id="btn-do-ship" onclick="executePartialShipment(${order.id}, this)">🚚 Отгрузить выбранное</button>
         `);
@@ -4051,9 +4095,18 @@ window.executeReserveTransfer = async function(donorCoiId, recipientCoiId, input
     const qty = document.getElementById(inputId).value;
     if (!qty || parseFloat(qty) <= 0) return UI.toast('Укажите количество!', 'warning');
 
-    const confirmed = confirm(`Вы уверены, что хотите забрать ${qty} ед. резерва у другого клиента? Его заказ будет отложен и вернется в производственную очередь.`);
-    if (!confirmed) return;
+    UI.showModal('⚠️ Подтверждение перехвата', 
+        `<div class="p-15 text-center">
+            <h3 class="text-danger mb-10">Внимательно!</h3>
+            <p class="font-14 mb-0">Вы уверены, что хотите забрать <b>${qty}</b> ед. резерва у другого клиента?</p>
+            <p class="font-12 text-muted mt-5 mb-0">Его заказ будет отложен и вернется в производственную очередь.</p>
+        </div>`,
+        `<button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+         <button class="btn btn-danger" onclick="doExecuteReserveTransfer(${donorCoiId}, ${recipientCoiId}, ${qty}, ${recOrderId})">Да, забрать резерв</button>`
+    );
+};
 
+window.doExecuteReserveTransfer = async function(donorCoiId, recipientCoiId, qty, recOrderId) {
     try {
         const data = await API.post('/api/sales/transfer-reserve', { donor_coi_id: donorCoiId, recipient_coi_id: recipientCoiId, transfer_qty: qty });
         UI.closeModal();
@@ -4067,3 +4120,110 @@ window.executeReserveTransfer = async function(donorCoiId, recipientCoiId, input
         console.error('[Transfer Error]', e);
     }
 };
+
+
+// ==========================================
+// === РЕДАКТИРОВАНИЕ ЗАКАЗА ===
+// ==========================================
+window.editingOrderId = null;
+
+window.loadOrderForEdit = async function(orderId) {
+    try {
+        UI.toast('Загрузка заказа...', 'info');
+        const res = await fetch('/api/sales/orders/' + orderId);
+        if (!res.ok) throw new Error('Ошибка сети');
+        const resData = await res.json(); const order = resData.order; order.items = resData.items;
+        
+        window.editingOrderId = order.id;
+        
+        // Переключаемся на вкладку создания заказа
+        switchSalesTab('tab-new-order', document.querySelectorAll('.sales-tab-btn')[0]);
+        
+        // Меняем заголовки
+        const titleEl = document.getElementById('checkout-title');
+        if (titleEl) titleEl.innerHTML = '✏️ Редактирование заказа ' + order.doc_number + ' <button class="btn btn-outline" style="padding: 2px 5px; font-size: 11px;" onclick="clearOrderForm()">✖ Отмена</button>';
+        
+        document.getElementById('btn-checkout-save').innerHTML = '💾 Сохранить изменения';
+        
+        // Очищаем корзину
+        cart = [];
+        window.isSalesOrderEditInitialLoad = true;
+        
+        // СНАЧАЛА устанавливаем клиента, пока корзина пуста, чтобы не сработал clearOrderForm при смене клиента
+        const clientSel = document.getElementById('sale-client');
+        if (clientSel && clientSel.tomselect) {
+            clientSel.tomselect.setValue(order.counterparty_id);
+        }
+        window.isSalesOrderEditInitialLoad = false;
+        
+        // Заполняем корзину товарами
+        if (order.items && Array.isArray(order.items)) {
+            order.items.forEach(i => {
+                cart.push({
+                    id: i.item_id,
+                    warehouseId: 1, // заглушка, так как склад может быть любым
+                    sortLabel: 'По заказу',
+                    name: i.name,
+                    unit: i.unit,
+                    qty: parseFloat(i.qty_ordered),
+                    price: parseFloat(i.price),
+                    discount: 0, 
+                    weight: 0,
+                    allowProduction: true,
+                    stockAvailable: 9999,
+                    unitCost: 0
+                });
+            });
+        }
+        
+        // Заполняем остальные поля формы (клиент уже установлен выше)
+        document.getElementById('sale-discount').value = parseFloat(order.discount) || 0;
+        document.getElementById('sale-logistics-cost').value = parseFloat(order.logistics_cost) || 0;
+        document.getElementById('sale-delivery-address').value = order.delivery_address || '';
+        const btnVal = document.getElementById('sale-poa-comment');
+        if (btnVal) btnVal.value = order.contract_info || ''; // Используется для комментариев
+        
+        if (order.planned_shipment_date) {
+            document.getElementById('sale-planned-date').value = order.planned_shipment_date.split('T')[0];
+        }
+        
+        // ДАТА ДОКУМЕНТА! 
+        const dateInput = document.getElementById('sale-order-date');
+        if (dateInput && order.created_at) {
+            // Конвертируем из ISO в YYYY-MM-DD
+            const dStr = order.created_at.split('T')[0];
+            dateInput.value = dStr;
+        }
+
+        renderCart();
+        UI.toast('Режим редактирования активирован', 'success');
+        
+    } catch (e) {
+        console.error(e);
+        UI.toast('Не удалось загрузить заказ для редактирования', 'error');
+    }
+};
+
+window.forceCloseOrder = function(orderId, docNum) {
+    const html = `
+        <p>Вы уверены, что хотите принудительно закрыть заказ <b>${docNum}</b>?</p>
+        <p class="font-12 text-warning">⚠️ Товар, который еще не отгружен, будет снят с резерва и вернется в свободный остаток на складах.</p>
+        <p class="font-12 text-warning">⚠️ Итоговая сумма заказа будет пересчитана исходя только из тех позиций, которые уже были отгружены.</p>
+    `;
+    UI.showModal('Принудительное закрытие', html, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-red" onclick="executeForceClose(${orderId})">Да, завершить заказ</button>
+    `);
+};
+
+window.executeForceClose = async function(orderId) {
+    try {
+        await API.put('/api/sales/orders/' + orderId + '/force-close', {});
+        UI.closeModal();
+        UI.toast('Заказ завершен!', 'success');
+        loadActiveOrders();
+    } catch(e) {
+        console.error(e);
+    }
+};
+
