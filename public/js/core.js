@@ -24,6 +24,39 @@ window.Utils = {
     }
 };
 
+// Глобальный авто-форматер для номеров телефонов
+document.addEventListener('input', function(e) {
+    if (e.target.tagName === 'INPUT' && (e.target.type === 'tel' || e.target.id.toLowerCase().includes('phone') || e.target.name.toLowerCase().includes('phone'))) {
+        let val = e.target.value;
+        const onlyNumbers = val.replace(/\D/g, '');
+        
+        // Если поле очистили
+        if (!onlyNumbers) {
+            e.target.value = '';
+            return;
+        }
+
+        // Автоматическая коррекция старта номера по Российскому стандарту
+        if (['7', '8', '9'].includes(onlyNumbers[0])) {
+            let num = onlyNumbers;
+            if (num[0] === '8') num = '7' + num.substring(1);
+            if (num[0] === '9') num = '7' + num;
+            
+            let formatted = '+7';
+            if (num.length > 1) formatted += ' (' + num.substring(1, 4);
+            if (num.length >= 5) formatted += ') ' + num.substring(4, 7);
+            if (num.length >= 8) formatted += '-' + num.substring(7, 9);
+            if (num.length >= 10) formatted += '-' + num.substring(9, 11);
+            
+            // Запоминаем позицию курсора до изменения чтобы не перепрыгивало в конец при редактировании
+            e.target.value = formatted;
+        } else {
+            // Для остальных (иностранных) номеров
+            e.target.value = '+' + onlyNumbers.substring(0, 15);
+        }
+    }
+});
+
 // Геттер токена — поддерживает два ключа (token и jwtToken) для совместимости
 function _getAuthToken() {
     return localStorage.getItem('token') || localStorage.getItem('jwtToken') || '';

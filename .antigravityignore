@@ -1,0 +1,36 @@
+# === 1. СЕКРЕТЫ И КОНФИГУРАЦИИ (КРИТИЧЕСКИ ВАЖНО) ===
+.env
+.env.local
+.env.*.local
+
+# === 2. ЗАВИСИМОСТИ ===
+node_modules/
+
+# === 3. ПОЛЬЗОВАТЕЛЬСКИЕ ДАННЫЕ И ЗАГРУЗКИ ===
+public/uploads/
+!public/uploads/.gitkeep
+
+# === 4. ЛОГИ СИСТЕМЫ ===
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# === 5. БАЗЫ ДАННЫХ И БЭКАПЫ ===
+db_backups/
+backups/
+postgres_data/
+*.sql
+
+# === 6. СИСТЕМНЫЕ ФАЙЛЫ И РЕДАКТОРЫ ===
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# === 7. DOCKER ===
+docker-compose.override.yml
+docker-compose.yml
+Dockerfile
+docker

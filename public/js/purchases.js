@@ -8,7 +8,7 @@ window.currentEditingPurchaseId = null;
 
 async function loadPurchaseMaterials() {
     try {
-        const dataMat = await API.get('/api/items?limit=1000&item_type=material');
+        const dataMat = await API.get('/api/items?limit=2000');
         allPurchaseMaterials = dataMat.data || [];
 
         allCounterparties = await API.get('/api/counterparties');
@@ -88,8 +88,17 @@ function initStaticPurchaseSelects() {
     if (matSelect && !matSelect.tomselect) {
         new TomSelect(matSelect, {
             plugins: ['clear_button'],
-            options: allPurchaseMaterials.map(m => ({ value: m.id, text: `${m.name} (${m.unit})` })),
-            placeholder: "-- Выберите сырье --",
+            optgroups: [
+                {value: 'material', label: '🛢️ Сырье'},
+                {value: 'product', label: '📦 Готовая продукция'},
+                {value: 'semi_finished', label: '⏳ Полуфабрикаты'}
+            ],
+            options: allPurchaseMaterials.map(m => ({ value: m.id, text: `${m.name} (${m.unit})`, optgroup: m.item_type || 'material' })),
+            optgroupField: 'optgroup',
+            labelField: 'text',
+            valueField: 'value',
+            searchField: ['text'],
+            placeholder: "-- Выберите ТМЦ (Сырье или Продукцию) --",
             onChange: async function(value) {
                 const mat = allPurchaseMaterials.find(m => m.id == value);
                 const price = mat ? parseFloat(mat.current_price || 0) : 0;
@@ -237,16 +246,16 @@ window.submitPurchase = function () {
         <div class="p-10 font-15">
             <div class="text-center font-40 mb-10">${isEditing ? '✏️' : '🛒'}</div>
             <div class="text-center mb-15">
-                ${isEditing ? 'Подтверждаете <b>изменение</b> данных закупки?' : 'Подтверждаете закупку сырья?'}
+                ${isEditing ? 'Подтверждаете <b>изменение</b> данных закупки?' : `Подтверждаете закупку ${mat.item_type === 'product' ? 'продукции' : 'сырья'}?`}
             </div>
             <div class="pur-modal-details-box">
-                <div class="mb-5">📦 Материал: <b class="text-primary">${mat.name}</b></div>
+                <div class="mb-5">📦 Номенклатура: <b class="text-primary">${mat.name}</b></div>
                 <div class="mb-5">🏭 Поставщик: <b>${sup.name}</b></div>
                 <div class="mb-5">⚖️ Объем: <b>${quantity}</b> (по ${pricePerUnit} ₽)</div>
                 <div class="mb-5 pb-10 border-bottom">📅 Дата: <b>${purchaseDate}</b></div>
                 
                 <div class="flex-between mt-10">
-                    <span>За сырье:</span> <b>${Utils.formatMoney(totalCost)}</b>
+                    <span>За ТМЦ:</span> <b>${Utils.formatMoney(totalCost)}</b>
                 </div>
                 ${deliveryCost > 0 ? `
                 <div class="flex-between mt-5">
@@ -431,8 +440,8 @@ async function loadDailyPurchases(dateStr) {
 window.deletePurchase = function (id, itemName) {
     const html = `
         <div class="p-15 text-center font-15">
-            Точно отменить приход сырья <b>${itemName}</b>?<br><br>
-            <span class="text-danger font-13">Сырье будет списано со склада, а деньги (включая доставку) вернутся на счет.</span>
+            Точно отменить приход ТМЦ <b>${itemName}</b>?<br><br>
+            <span class="text-danger font-13">Товар будет списан со склада, а деньги (включая доставку) вернутся на счет.</span>
         </div>
     `;
 
@@ -517,6 +526,12 @@ window.submitNewSupplier = async function () {
 window.printReceipt = function (id, itemName, supplierName, qty, unit, price, amount) {
     const dateStr = document.getElementById('purchase-date').value;
 
+    const mat = allPurchaseMaterials.find(m => m.name === itemName);
+    const itemType = mat ? mat.item_type : 'material';
+    let whName = 'Склад сырья (№1)';
+    if (itemType === 'product') whName = 'Склад ГП (№3)';
+    else if (itemType === 'semi_finished') whName = 'Склад цеха (№2)';
+
     let printFrame = document.getElementById('receipt-print-frame');
     if (!printFrame) {
         printFrame = document.createElement('iframe');
@@ -560,7 +575,7 @@ window.printReceipt = function (id, itemName, supplierName, qty, unit, price, am
             
             <div class="info-block">
                 <div><strong>Организация:</strong> ООО "Плиттекс"</div>
-                <div><strong>Склад назначения:</strong> Склад сырья (№1)</div>
+                <div><strong>Склад назначения:</strong> ${whName}</div>
                 <div><strong>Поставщик:</strong> ${supplierName}</div>
             </div>
             

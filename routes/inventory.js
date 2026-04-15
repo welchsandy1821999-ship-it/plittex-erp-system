@@ -1508,19 +1508,24 @@ module.exports = function (pool, getWhId, withTransaction) {
 
         try {
             await withTransaction(pool, async (client) => {
+                // --- ОПРЕДЕЛЯЕМ РЕАЛЬНЫЙ ТИП ТОВАРА ---
+                const itemTypeRes = await client.query('SELECT item_type FROM items WHERE id = $1', [itemId]);
+                const itemType = itemTypeRes.rows[0]?.item_type || 'material';
+                const targetWh = await getWhId(client, itemType === 'product' ? 'finished' : 'materials');
+
                 const materialCost = frontendTotal ? new Big(frontendTotal).toFixed(2) : new Big(qtyNum).times(priceNum).toFixed(2);
                 const totalAmount = new Big(materialCost).plus(delCostNum).toFixed(2);
                 const descMatch = `%движение склада #${purchaseId})%`;
+                const typeName = itemType === 'product' ? 'продукции' : 'сырья';
 
                 // --- МАГИЯ СРЕДНЕВЗВЕШЕННОЙ СТОИМОСТИ (ПЕРЕСЧЕТ) ---
-                const materialsWh = await getWhId(client, 'materials');
                 const oldMoveRes = await client.query(`SELECT quantity, amount FROM inventory_movements WHERE id = $1 AND movement_type = 'purchase'`, [purchaseId]);
 
                 if (oldMoveRes.rows.length > 0) {
                     const oldQty = new Big(oldMoveRes.rows[0].quantity);
                     const oldAmount = new Big(oldMoveRes.rows[0].amount);
 
-                    const stockRes = await client.query(`SELECT COALESCE(SUM(quantity), 0) as balance FROM inventory_movements WHERE item_id = $1 AND warehouse_id = $2`, [itemId, materialsWh]);
+                    const stockRes = await client.query(`SELECT COALESCE(SUM(quantity), 0) as balance FROM inventory_movements WHERE item_id = $1 AND warehouse_id = $2`, [itemId, targetWh]);
                     const currentBalance = new Big(stockRes.rows[0].balance || 0);
 
                     const itemRes = await client.query(`SELECT current_price FROM items WHERE id = $1 FOR UPDATE`, [itemId]);
@@ -1549,16 +1554,16 @@ module.exports = function (pool, getWhId, withTransaction) {
                     UPDATE inventory_movements 
                     SET item_id = $1, supplier_id = $2, quantity = $3, amount = $4, delivery_cost = $5,
                         movement_date = COALESCE($6::timestamp, CURRENT_TIMESTAMP), 
-                        description = $7
+                        description = $7, warehouse_id = $9
                     WHERE id = $8 AND movement_type = 'purchase'
-                `, [itemId, counterparty_id, qtyNum, totalAmount, delCostNum, purchaseDate || null, `Закупка сырья (Мат: ${materialCost}, Дост: ${delCostNum})`, purchaseId]);
+                `, [itemId, counterparty_id, qtyNum, totalAmount, delCostNum, purchaseDate || null, `Закупка ${typeName} (ТМЦ: ${materialCost}, Дост: ${delCostNum})`, purchaseId, targetWh]);
 
-                const oldMatTx = await client.query(`SELECT id FROM transactions WHERE source_module = 'purchase' AND description LIKE $1 AND category = 'Закупка сырья'`, [descMatch]);
+                const oldMatTx = await client.query(`SELECT id FROM transactions WHERE source_module = 'purchase' AND description LIKE $1 AND category LIKE 'Закупка%'`, [descMatch]);
                 if (account_id) {
                     if (oldMatTx.rows.length > 0) {
-                        await client.query(`UPDATE transactions SET account_id = $1, amount = $2, transaction_date = COALESCE($3::timestamp, CURRENT_TIMESTAMP) WHERE id = $4`, [account_id, materialCost, purchaseDate || null, oldMatTx.rows[0].id]);
+                        await client.query(`UPDATE transactions SET account_id = $1, amount = $2, transaction_date = COALESCE($3::timestamp, CURRENT_TIMESTAMP), category = $5, description = $6 WHERE id = $4`, [account_id, materialCost, purchaseDate || null, oldMatTx.rows[0].id, `Закупка ${typeName}`, `Оплата закупки (движение склада #${purchaseId})`]);
                     } else {
-                        await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, transaction_date, linked_purchase_id) VALUES ($1, $2, 'expense', 'Закупка сырья', $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [account_id, materialCost, `Оплата закупки (движение склада #${purchaseId})`, counterparty_id, purchaseDate || null, purchaseId]);
+                        await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, transaction_date, linked_purchase_id) VALUES ($1, $2, 'expense', $7, $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [account_id, materialCost, `Оплата закупки (движение склада #${purchaseId})`, counterparty_id, purchaseDate || null, purchaseId, `Закупка ${typeName}`]);
                     }
                 } else if (oldMatTx.rows.length > 0) {
                     await client.query(`DELETE FROM transactions WHERE id = $1`, [oldMatTx.rows[0].id]);
@@ -1610,12 +1615,17 @@ module.exports = function (pool, getWhId, withTransaction) {
 
         try {
             await withTransaction(pool, async (client) => {
-                const materialsWh = await getWhId(client, 'materials');
+                // --- ОПРЕДЕЛЯЕМ РЕАЛЬНЫЙ ТИП ТОВАРА ---
+                const itemTypeRes = await client.query('SELECT item_type FROM items WHERE id = $1', [itemId]);
+                const itemType = itemTypeRes.rows[0]?.item_type || 'material';
+                const targetWh = await getWhId(client, itemType === 'product' ? 'finished' : 'materials');
+                const typeName = itemType === 'product' ? 'продукции' : 'сырья';
+
                 const materialCost = frontendTotal ? new Big(frontendTotal).toFixed(2) : new Big(qtyNum).times(priceNum).toFixed(2);
                 const totalAmount = new Big(materialCost).plus(delCostNum).toFixed(2);
 
                 // --- МАГИЯ СРЕДНЕВЗВЕШЕННОЙ СТОИМОСТИ (POST) ---
-                const stockRes = await client.query(`SELECT COALESCE(SUM(quantity), 0) as balance FROM inventory_movements WHERE item_id = $1 AND warehouse_id = $2`, [itemId, materialsWh]);
+                const stockRes = await client.query(`SELECT COALESCE(SUM(quantity), 0) as balance FROM inventory_movements WHERE item_id = $1 AND warehouse_id = $2`, [itemId, targetWh]);
                 const currentBalance = new Big(stockRes.rows[0].balance || 0);
 
                 const itemRes = await client.query(`SELECT current_price FROM items WHERE id = $1 FOR UPDATE`, [itemId]);
@@ -1641,10 +1651,10 @@ module.exports = function (pool, getWhId, withTransaction) {
                     INSERT INTO inventory_movements 
                     (item_id, quantity, movement_type, warehouse_id, supplier_id, amount, delivery_cost, description, movement_date)
                     VALUES ($1, $2, 'purchase', $3, $4, $5, $6, $7, COALESCE($8::timestamp, CURRENT_TIMESTAMP)) RETURNING id
-                `, [itemId, qtyNum, materialsWh, counterparty_id, totalAmount, delCostNum, `Закупка сырья (Мат: ${materialCost}, Дост: ${delCostNum})`, purchaseDate || null]);
+                `, [itemId, qtyNum, targetWh, counterparty_id, totalAmount, delCostNum, `Закупка ${typeName} (ТМЦ: ${materialCost}, Дост: ${delCostNum})`, purchaseDate || null]);
 
                 if (account_id) {
-                    await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, transaction_date, linked_purchase_id) VALUES ($1, $2, 'expense', 'Закупка сырья', $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [account_id, materialCost, `Оплата закупки (движение склада #${moveRes.rows[0].id})`, counterparty_id, purchaseDate || null, moveRes.rows[0].id]);
+                    await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, transaction_date, linked_purchase_id) VALUES ($1, $2, 'expense', $7, $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [account_id, materialCost, `Оплата закупки (движение склада #${moveRes.rows[0].id})`, counterparty_id, purchaseDate || null, moveRes.rows[0].id, `Закупка ${typeName}`]);
                 }
                 if (delCostNum > 0 && deliveryAccountId) {
                     await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, transaction_date, linked_purchase_id) VALUES ($1, $2, 'expense', 'Транспортные расходы', $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [deliveryAccountId, delCostNum, `Оплата доставки (движение склада #${moveRes.rows[0].id})`, counterparty_id, purchaseDate || null, moveRes.rows[0].id]);

@@ -2865,6 +2865,12 @@
                             <b>Юр. адрес:</b> ${cp.legal_address || '—'}<br>
                             <b>Банк:</b> ${cp.bank_name || '—'} (Р/С: ${cp.checking_account || cp.bank_account || '—'})
                         </div>
+                        <div class="mt-15 p-10 font-14" style="background: var(--surface); border: 1px solid var(--border); border-radius: 8px;">
+                            <div class="font-bold text-muted mb-5">Сальдо взаиморасчетов:</div>
+                            <div class="font-18 font-bold" style="color: ${data.saldo > 0 ? 'var(--success)' : (data.saldo < 0 ? 'var(--danger)' : 'var(--text)')}">
+                                ${data.saldo > 0 ? 'Нам должны: ' : (data.saldo < 0 ? 'Мы должны: ' : '')}${Utils.formatMoney(Math.abs(data.saldo))} ₽
+                            </div>
+                        </div>
                     </div>
 
                     <div class="mb-15">

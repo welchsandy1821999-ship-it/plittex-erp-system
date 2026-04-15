@@ -456,7 +456,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     COALESCE(SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END), 0) as total_paid_to_us,
                     COALESCE(SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END), 0) as total_paid_to_them
                 FROM transactions 
-                WHERE counterparty_id = $1 AND COALESCE(is_deleted, false) = false
+                WHERE counterparty_id = $1 AND COALESCE(is_deleted, false) = false AND category != 'Зачёт аванса'
             `, [cpId]);
 
             const finances = finRes.rows[0];
@@ -482,7 +482,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             const transRes = await pool.query(`
                 SELECT amount, transaction_type, category, description, 
                        TO_CHAR(transaction_date, 'DD.MM.YYYY HH24:MI') as date, 'money' as origin
-                FROM transactions WHERE counterparty_id = $1 AND COALESCE(is_deleted, false) = false
+                FROM transactions WHERE counterparty_id = $1 AND COALESCE(is_deleted, false) = false AND category != 'Зачёт аванса'
             `, [cpId]);
 
             // 2. НАШИ ОТГРУЗКИ (Продажи клиентам)
