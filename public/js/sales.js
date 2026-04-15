@@ -416,6 +416,7 @@ window.saveClientProfile = async function (id) {
     };
 
     if (!data.name) return UI.toast('Наименование обязательно!', 'error');
+    if (data.phone && !Utils.isValidPhone(data.phone)) return UI.toast('Некорректный номер телефона (минимум 10 цифр).', 'warning');
 
     try {
         const res = await fetch(`/api/counterparties/${id}`, {
@@ -3885,6 +3886,7 @@ window.saveMiniClient = async function () {
     const phone = document.getElementById('m-cl-phone').value.trim();
     if (!name) return UI.toast('Введите наименование!', 'error');
 
+    if (phone && !Utils.isValidPhone(phone)) return UI.toast('Некорректный номер телефона (минимум 10 цифр).', 'warning');
     try {
         const res = await fetch('/api/counterparties', {
             method: 'POST',

@@ -24,6 +24,14 @@ function _isValidKpp(kpp) {
     return /^\d{9}$/.test(String(kpp).trim());
 }
 
+/** Телефон: пусто = ок (необязательное поле). Если указан — 10-15 цифр после зачистки.
+ *  Принимает любой формат, который фронтенд авто-форматирует: +7 (XXX) XXX-XX-XX, 8-XXX и т.д. */
+function _isValidPhone(phone) {
+    if (!phone || String(phone).trim() === '') return true; // Пустое = ок
+    const digits = String(phone).replace(/\D/g, '');
+    return digits.length >= 10 && digits.length <= 15;
+}
+
 /** Стандартный ответ ошибки валидации */
 function _validationError(res, details) {
     return res.status(400).json({ error: 'Ошибка валидации', details });
@@ -162,7 +170,7 @@ module.exports = {
 
     /** POST/PUT /api/counterparties — контрагент */
     validateCounterparty: (req, res, next) => {
-        const { name, inn, kpp, email } = req.body;
+        const { name, inn, kpp, email, phone } = req.body;
         const errors = [];
 
         if (!name || typeof name !== 'string' || name.trim().length < 2) {
@@ -179,6 +187,10 @@ module.exports = {
 
         if (email && !_isValidEmail(email)) {
             errors.push('Некорректный формат email.');
+        }
+
+        if (phone && !_isValidPhone(phone)) {
+            errors.push('Некорректный формат телефона (минимум 10 цифр).');
         }
 
         if (errors.length > 0) return _validationError(res, errors);

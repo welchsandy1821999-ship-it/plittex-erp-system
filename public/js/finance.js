@@ -3400,6 +3400,9 @@
         if (!payload.name) return UI.toast('Введите название!', 'warning');
         if (!isBuyer && !isSupplier) return UI.toast('Выберите хотя бы одну роль (Покупатель или Поставщик)!', 'warning');
         if (!noPhone && !payload.phone) return UI.toast('Введите телефон или отметьте «Нет»!', 'warning');
+        if (!noPhone && payload.phone && !Utils.isValidPhone(payload.phone)) {
+            return UI.toast('Некорректный номер телефона (минимум 10 цифр).', 'warning');
+        }
 
         if (payload.inn && payload.inn.length !== 10 && payload.inn.length !== 12) {
             return UI.toast('Введите корректный ИНН (10 или 12 цифр)', 'warning');

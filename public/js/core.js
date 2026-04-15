@@ -21,6 +21,19 @@ window.Utils = {
             month: '2-digit',
             year: 'numeric'
         });
+    },
+    /**
+     * Валидация номера телефона.
+     * Пустая строка = ок (телефон необязателен).
+     * Если заполнен — после удаления всех нецифровых символов должно быть 10–15 цифр.
+     * Принимает форматы: +7 (999) 123-45-67, 89991234567, +49 30 12345678 и т.д.
+     * @param {string} phone
+     * @returns {boolean}
+     */
+    isValidPhone: function(phone) {
+        if (!phone || String(phone).trim() === '') return true;
+        const digits = String(phone).replace(/\D/g, '');
+        return digits.length >= 10 && digits.length <= 15;
     }
 };
 
