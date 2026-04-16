@@ -235,20 +235,17 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 
                 const balRes = await client.query(`
                     SELECT
-                        COALESCE(SUM(CASE WHEN co.status = 'completed' THEN co.total_amount ELSE 0 END), 0) as our_shipments,
-                        COALESCE(SUM(CASE WHEN t.transaction_type = 'expense' THEN t.amount ELSE 0 END), 0) as our_payments,
-                        COALESCE((SELECT COALESCE(SUM(amount), 0) FROM inventory_movements WHERE supplier_id = $1 AND movement_type = 'purchase'), 0) as their_shipments,
-                        COALESCE(SUM(CASE WHEN t.transaction_type = 'income' THEN t.amount ELSE 0 END), 0) as their_payments
-                    FROM counterparties cp
-                    LEFT JOIN transactions t ON cp.id = t.counterparty_id AND COALESCE(t.is_deleted, false) = false
-                    LEFT JOIN client_orders co ON cp.id = co.counterparty_id
-                    WHERE cp.id = $1
+                        (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders WHERE counterparty_id = $1 AND status = 'completed') as our_shipments,
+                        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = $1 AND transaction_type = 'expense' AND COALESCE(is_deleted, false) = false) as our_payments,
+                        (SELECT COALESCE(SUM(amount), 0) FROM inventory_movements WHERE supplier_id = $1 AND movement_type = 'purchase') as their_shipments,
+                        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = $1 AND transaction_type = 'income' AND COALESCE(is_deleted, false) = false) as their_payments,
+                        (SELECT COALESCE(SUM(paid_amount), 0) FROM client_orders WHERE counterparty_id = $1 AND status IN ('pending', 'processing')) as pending_allocated
                 `, [counterparty_id]);
 
                 const b = balRes.rows[0];
                 const realBalance = parseFloat(b.our_shipments) + parseFloat(b.our_payments) - parseFloat(b.their_shipments) - parseFloat(b.their_payments);
-                // Отрицательный баланс = аванс клиента
-                const availableAdvance = realBalance < 0 ? Math.abs(realBalance) : 0;
+                const totalAdvance = realBalance < 0 ? Math.abs(realBalance) : 0;
+                const availableAdvance = Math.max(0, totalAdvance - parseFloat(b.pending_allocated));
 
                 validatedOffset = Math.min(availableAdvance, finalAmount);
                 if (offset_amount && Number(offset_amount) > 0) {
@@ -397,8 +394,74 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
     });
 
     // ------------------------------------------------------------------
-    // 4. Удаление заказа (ДУБЛИКАТ УДАЛЁН — единственный обработчик ниже в блоке 6)
+    // 4. Зачет Свободного Аванса в конкретный заказ
     // ------------------------------------------------------------------
+    router.post('/api/sales/orders/:id/apply-advance', requireAdmin, async (req, res) => {
+        const orderId = req.params.id;
+        
+        try {
+            await withTransaction(pool, async (client) => {
+                // 1. Получаем заказ с блокировкой
+                const orderRes = await client.query('SELECT counterparty_id, pending_debt, status, paid_amount FROM client_orders WHERE id = $1 FOR UPDATE', [orderId]);
+                if (orderRes.rows.length === 0) throw new Error('Заказ не найден');
+                const order = orderRes.rows[0];
+
+                if (order.status === 'completed' || order.status === 'cancelled') {
+                    throw new Error('Нельзя изменять оплату у закрытого или отмененного заказа');
+                }
+
+                const pendingDebt = parseFloat(order.pending_debt) || 0;
+                if (pendingDebt <= 0) {
+                    throw new Error('У этого заказа нет долга');
+                }
+
+                const counterpartyId = order.counterparty_id;
+
+                // 2. Вычисляем Свободный Аванс
+                const balRes = await client.query(`
+                    SELECT
+                        (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders WHERE counterparty_id = $1 AND status = 'completed') as our_shipments,
+                        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = $1 AND transaction_type = 'expense' AND COALESCE(is_deleted, false) = false) as our_payments,
+                        (SELECT COALESCE(SUM(amount), 0) FROM inventory_movements WHERE supplier_id = $1 AND movement_type = 'purchase') as their_shipments,
+                        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = $1 AND transaction_type = 'income' AND COALESCE(is_deleted, false) = false) as their_payments,
+                        (SELECT COALESCE(SUM(paid_amount), 0) FROM client_orders WHERE counterparty_id = $1 AND status IN ('pending', 'processing')) as pending_allocated
+                `, [counterpartyId]);
+
+                const b = balRes.rows[0];
+                const realBalance = parseFloat(b.our_shipments) + parseFloat(b.our_payments) - parseFloat(b.their_shipments) - parseFloat(b.their_payments);
+                
+                const totalAdvance = realBalance < 0 ? Math.abs(realBalance) : 0;
+                const allocated = parseFloat(b.pending_allocated);
+                
+                const freeAdvance = Math.max(0, totalAdvance - allocated);
+
+                if (freeAdvance <= 0) {
+                    throw new Error('У клиента нет свободного аванса для зачета (возможно, он уже зарезервирован под другие заказы)');
+                }
+
+                // 3. Зачитываем сумму
+                const offsetAmount = Math.min(freeAdvance, pendingDebt);
+
+                // 4. Обновляем заказ
+                await client.query(`
+                    UPDATE client_orders 
+                    SET paid_amount = paid_amount + $1, 
+                        pending_debt = GREATEST(pending_debt - $1, 0)
+                    WHERE id = $2
+                `, [offsetAmount, orderId]);
+                
+            });
+
+            const io = req.app.get('io');
+            if (io) { io.emit('sales_updated'); }
+            
+            res.json({ success: true, message: 'Свободный аванс успешно зачтен в заказ' });
+
+        } catch (err) {
+            logger.error(err);
+            res.status(400).json({ error: err.message });
+        }
+    });
 
     // ------------------------------------------------------------------
     // 5. Отгрузка по заказу (ОСНОВА ДЛЯ ЧАСТИЧНЫХ ОТГРУЗОК)
@@ -1007,17 +1070,21 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     (SELECT COALESCE(SUM(qty_shipped), 0) FROM client_order_items WHERE order_id = o.id) as total_shipped,
                     
                     -- 💰 Реальный баланс контрагента через транзакции
-                    (SELECT 
-                        COALESCE(SUM(CASE WHEN co2.status = 'completed' THEN co2.total_amount ELSE 0 END), 0) +
-                        COALESCE(SUM(CASE WHEN t2.transaction_type = 'expense' THEN t2.amount ELSE 0 END), 0) -
-                        COALESCE((SELECT COALESCE(SUM(amount), 0) FROM inventory_movements WHERE supplier_id = o.counterparty_id AND movement_type = 'purchase'), 0) -
-                        COALESCE(SUM(CASE WHEN t2.transaction_type = 'income' THEN t2.amount ELSE 0 END), 0)
-                    FROM counterparties cp2
-                    LEFT JOIN transactions t2 ON cp2.id = t2.counterparty_id AND COALESCE(t2.is_deleted, false) = false
-                    LEFT JOIN client_orders co2 ON cp2.id = co2.counterparty_id
-                    WHERE cp2.id = o.counterparty_id
+                    (
+                        (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders WHERE counterparty_id = o.counterparty_id AND status = 'completed') +
+                        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = o.counterparty_id AND transaction_type = 'expense' AND COALESCE(is_deleted, false) = false) -
+                        (SELECT COALESCE(SUM(amount), 0) FROM inventory_movements WHERE supplier_id = o.counterparty_id AND movement_type = 'purchase') -
+                        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = o.counterparty_id AND transaction_type = 'income' AND COALESCE(is_deleted, false) = false)
                     ) as client_balance,
                     
+                    -- Свободный аванс
+                    GREATEST(0, ABS(LEAST(0, (
+                        (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders WHERE counterparty_id = o.counterparty_id AND status = 'completed') +
+                        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = o.counterparty_id AND transaction_type = 'expense' AND COALESCE(is_deleted, false) = false) -
+                        (SELECT COALESCE(SUM(amount), 0) FROM inventory_movements WHERE supplier_id = o.counterparty_id AND movement_type = 'purchase') -
+                        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = o.counterparty_id AND transaction_type = 'income' AND COALESCE(is_deleted, false) = false)
+                    ))) - (SELECT COALESCE(SUM(paid_amount), 0) FROM client_orders WHERE counterparty_id = o.counterparty_id AND status IN ('pending', 'processing'))) as free_advance,
+
                     -- Прогноз: сумма всех незакрытых долгов
                     (SELECT COALESCE(SUM(pending_debt), 0) * -1 FROM client_orders WHERE counterparty_id = c.id AND status != 'cancelled') as projected_balance
 
@@ -1345,14 +1412,10 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             const cpId = req.params.id;
             const balRes = await pool.query(`
                 SELECT
-                    COALESCE(SUM(CASE WHEN co.status = 'completed' THEN co.total_amount ELSE 0 END), 0) as our_shipments,
-                    COALESCE(SUM(CASE WHEN t.transaction_type = 'expense' THEN t.amount ELSE 0 END), 0) as our_payments,
-                    COALESCE((SELECT COALESCE(SUM(amount), 0) FROM inventory_movements WHERE supplier_id = $1 AND movement_type = 'purchase'), 0) as their_shipments,
-                    COALESCE(SUM(CASE WHEN t.transaction_type = 'income' THEN t.amount ELSE 0 END), 0) as their_payments
-                FROM counterparties cp
-                LEFT JOIN transactions t ON cp.id = t.counterparty_id AND COALESCE(t.is_deleted, false) = false
-                LEFT JOIN client_orders co ON cp.id = co.counterparty_id
-                WHERE cp.id = $1
+                    (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders WHERE counterparty_id = $1 AND status = 'completed') as our_shipments,
+                    (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = $1 AND transaction_type = 'expense' AND COALESCE(is_deleted, false) = false) as our_payments,
+                    (SELECT COALESCE(SUM(amount), 0) FROM inventory_movements WHERE supplier_id = $1 AND movement_type = 'purchase') as their_shipments,
+                    (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = $1 AND transaction_type = 'income' AND COALESCE(is_deleted, false) = false) as their_payments
             `, [cpId]);
 
             const b = balRes.rows[0];

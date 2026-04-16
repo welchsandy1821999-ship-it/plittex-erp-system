@@ -113,13 +113,24 @@ module.exports = function (pool, getWhId, withTransaction) {
         try {
             const result = await pool.query(`
                 SELECT i.id, i.name, SUM(ABS(m.quantity)) as qty, i.unit, 
-                       SUM(ABS(m.quantity) * CASE WHEN m.unit_price > 0 THEN m.unit_price ELSE i.current_price END) as cost
+                       SUM(ABS(m.quantity) * CASE WHEN m.unit_price > 0 THEN m.unit_price ELSE i.current_price END) as cost,
+                       (SELECT SUM(quantity) FROM inventory_movements sub WHERE sub.item_id = i.id AND sub.warehouse_id = m.warehouse_id AND sub.movement_type != 'production_draft') as current_stock,
+                       CASE 
+                           WHEN m.description LIKE '[ОСНОВНОЙ]%' THEN 'main' 
+                           WHEN m.description LIKE '[ЛИЦЕВОЙ]%' THEN 'face' 
+                           ELSE 'unknown' 
+                       END as mix_type
                 FROM inventory_movements m 
                 JOIN items i ON m.item_id = i.id 
                 WHERE m.batch_id = $1 
                   AND m.movement_type IN ('production_expense', 'production_draft')
-                GROUP BY i.id, i.name, i.unit
-                ORDER BY cost DESC
+                GROUP BY i.id, i.name, i.unit, m.warehouse_id,
+                         CASE 
+                           WHEN m.description LIKE '[ОСНОВНОЙ]%' THEN 'main' 
+                           WHEN m.description LIKE '[ЛИЦЕВОЙ]%' THEN 'face' 
+                           ELSE 'unknown' 
+                         END
+                ORDER BY mix_type DESC, cost DESC
             `, [req.params.id]);
             res.json(result.rows);
         } catch (err) {
@@ -263,12 +274,13 @@ module.exports = function (pool, getWhId, withTransaction) {
 
                             for (let mat of materialsUsed) {
                                 const price = draftPricesRes.rows.find(p => p.id == mat.id)?.current_price || 0;
+                                const mixPrefix = mat.mixType === 'main' ? '[ОСНОВНОЙ] ' : mat.mixType === 'face' ? '[ЛИЦЕВОЙ] ' : '';
 
                                 await client.query(`
                                     INSERT INTO inventory_movements 
                                     (item_id, quantity, movement_type, description, warehouse_id, batch_id, unit_price, movement_date) 
                                     VALUES ($1, $2, 'production_draft', $3, $4, $5, $6, $7)
-                                `, [mat.id, new Big(mat.qty).times(-1).toFixed(4), `Черновик состава: ${mat.name || 'Сырье'}`, materialsWh, newBatchId, price, date]);
+                                `, [mat.id, new Big(mat.qty).times(-1).toFixed(4), `${mixPrefix}Черновик состава: ${mat.name || 'Сырье'}`, materialsWh, newBatchId, price, date]);
                             }
                         }
                     }
@@ -407,13 +419,15 @@ module.exports = function (pool, getWhId, withTransaction) {
                     for (let mat of cleanMaterials) {
                         const price = itemPrices.find(p => p.id == mat.id)?.current_price || 0;
                         const qty = new Big(mat.qty).times(fraction);
+                        const mixPrefix = mat.mixType === 'main' ? '[ОСНОВНОЙ] ' : mat.mixType === 'face' ? '[ЛИЦЕВОЙ] ' : '';
+                        
                         if (qty.gt(0)) {
                             matCost = matCost.plus(qty.times(price));
                             await client.query(`
                                 INSERT INTO inventory_movements 
                                 (item_id, quantity, movement_type, description, warehouse_id, batch_id, unit_price, movement_date) 
                                 VALUES ($1, $2, 'production_expense', $3, $4, $5, $6, $7)
-                            `, [mat.id, qty.times(-1).toFixed(4), `Замес: Партия ${batch.batch_number}`, materialsWh, batch.id, price, date]);
+                            `, [mat.id, qty.times(-1).toFixed(4), `${mixPrefix}Замес: Партия ${batch.batch_number}`, materialsWh, batch.id, price, date]);
                         }
                     }
 

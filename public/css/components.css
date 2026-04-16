@@ -767,4 +767,36 @@ span.flatpickr-weekday {
     z-index: 10;
 }
 
+/* ==========================================================================
+   14. NATIVE PROGRESS BARS
+   ========================================================================== */
+progress.progress-slim {
+    width: 100%;
+    height: 6px;
+    border-radius: 4px;
+    border: none;
+    background-color: var(--surface-alt);
+}
+progress.progress-slim::-webkit-progress-bar {
+    background-color: var(--surface-alt);
+    border-radius: 4px;
+}
+progress.progress-slim::-webkit-progress-value {
+    border-radius: 4px;
+    transition: width 0.4s ease-out;
+}
+progress.progress-slim::-moz-progress-bar {
+    border-radius: 4px;
+}
+progress.progress-blue::-webkit-progress-value { background-color: var(--primary); }
+progress.progress-blue::-moz-progress-bar { background-color: var(--primary); }
+progress.progress-green::-webkit-progress-value { background-color: var(--success); }
+progress.progress-green::-moz-progress-bar { background-color: var(--success); }
+progress.progress-orange::-webkit-progress-value { background-color: var(--warning); }
+progress.progress-orange::-moz-progress-bar { background-color: var(--warning); }
+progress.progress-red::-webkit-progress-value { background-color: var(--danger); }
+progress.progress-red::-moz-progress-bar { background-color: var(--danger); }
+progress.progress-gray::-webkit-progress-value { background-color: #cbd5e1; }
+progress.progress-gray::-moz-progress-bar { background-color: #cbd5e1; }
+
 

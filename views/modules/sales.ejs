@@ -113,7 +113,7 @@
                     <div class="sales-qty-separator"></div>
 
                     <div class="sales-qty-actions">
-                        <button type="button" class="btn btn-outline sales-btn-calc sales-hidden"
+                        <button type="button" class="btn btn-outline text-primary border-primary font-bold sales-btn-calc sales-hidden"
                             onclick="openCostAnalysisModal()" id="btn-calc-sales-cost">
                             📊 Калькулятор себестоимости
                         </button>
@@ -174,8 +174,14 @@
                 </div>
                 <!-- 🚀 Блок себестоимости -->
                 <div class="mt-15 pt-15 border-top" id="top-cart-cost-block">
-                    <div class="flex-between font-14 text-muted mb-0">
-                        <span>Общая себестоимость продукции:</span>
+                    <div class="flex-between font-14 text-muted mb-0 align-center">
+                        <span class="d-flex align-center gap-10">
+                            Общая себестоимость:
+                            <label class="cursor-pointer font-12 flex-row align-center m-0" style="color: #666; background: #eee; padding: 2px 8px; border-radius: 4px;">
+                                <input type="checkbox" id="cart-include-finance" checked class="mr-5" onchange="if(window.renderCart) window.renderCart()">
+                                ⚙️ Налоги + Оверхед
+                            </label>
+                        </span>
                         <strong><span id="cart-total-cost">0</span> ₽</strong>
                     </div>
                 </div>
@@ -341,7 +347,7 @@
                 </div>
             </div>
 
-            <div id="sales-kanban-board" class="sales-kanban-board" style="display: none;">
+            <div id="sales-kanban-board" class="sales-kanban-board d-none">
                 <div class="kanban-column" data-status="pending">
                     <h3 class="kanban-column-title">
                         <span>🆕 Новые заказы</span>

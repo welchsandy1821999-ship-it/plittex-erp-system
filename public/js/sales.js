@@ -94,34 +94,6 @@ function initStaticSalesSelects() {
     });
 }
 
-window.setHistoryDateRange = function (type) {
-    if (!historyDatePicker) return;
-    const today = new Date();
-    let start = new Date(), end = new Date();
-
-    switch (type) {
-        case 'today': break;
-        case 'week':
-            const day = today.getDay();
-            const diff = today.getDate() - day + (day === 0 ? -6 : 1);
-            start.setDate(diff); end = new Date(start); end.setDate(start.getDate() + 6);
-            break;
-        case 'month':
-            start = new Date(today.getFullYear(), today.getMonth(), 1);
-            end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-            break;
-        case 'quarter':
-            const q = Math.floor(today.getMonth() / 3);
-            start = new Date(today.getFullYear(), q * 3, 1);
-            end = new Date(today.getFullYear(), q * 3 + 3, 0);
-            break;
-        case 'year':
-            start = new Date(today.getFullYear(), 0, 1);
-            end = new Date(today.getFullYear(), 11, 31);
-            break;
-    }
-    historyDatePicker.setDate([start, end], true);
-};
 
 window.changeSaleWarehouse = function () {
     currentSalesWarehouse = document.getElementById('sale-warehouse').value;
@@ -473,17 +445,23 @@ window.executePrintAct = function (cpId) {
     UI.closeModal();
 };
 
-window.loadClientPoas = async function () {
-    const cpId = document.getElementById('sale-client').value;
-    const poaSelect = document.getElementById('sale-poa');
+window.loadClientPoas = async function (explicitCpId = null, targetSelectId = 'sale-poa') {
+    const cpId = explicitCpId || document.getElementById('sale-client').value;
+    const poaSelect = document.getElementById(targetSelectId);
     if (!cpId) { if (poaSelect) poaSelect.innerHTML = '<option value="">-- Выберите клиента --</option>'; return; }
     if (!poaSelect) return;
 
     try {
         const res = await fetch(`/api/counterparties/${cpId}/poas`);
         const data = await res.json();
-        poaSelect.innerHTML = '<option value="">-- Выберите доверенность --</option>';
-        data.forEach(poa => poaSelect.add(new Option(`${poa.driver_name} — №${poa.number} (действ. до ${poa.expiry_date})`, `№${poa.number} от ${poa.issue_date} (выдана: ${poa.driver_name})`)));
+        let defaultText = targetSelectId === 'oms-poa' ? 'Лично / Без доверенности' : '-- Выберите доверенность --';
+        poaSelect.innerHTML = `<option value="">${defaultText}</option>`;
+        data.forEach(poa => {
+            const isExpired = new Date(poa.expiry_date) < new Date();
+            const poaString = `№${poa.number} от ${poa.issue_date} (выдана: ${poa.driver_name})`;
+            const poaDisplay = `${poa.driver_name} — №${poa.number} (до ${poa.expiry_date})${isExpired ? ' [ПРОСРОЧЕНО]' : ''}`;
+            poaSelect.add(new Option(poaDisplay, poaString));
+        });
     } catch (e) { console.error(e); }
 };
 
@@ -541,22 +519,6 @@ window.updateLivePreview = function () {
 };
 
 // 🚚 Переключатель Доставка / Самовывоз
-window.toggleDeliveryType = function () {
-    const selected = document.querySelector('input[name="sale-delivery-type"]:checked')?.value;
-    const addressGroup = document.getElementById('sale-address-group');
-    const costGroup = document.getElementById('sale-logistics-cost-group');
-    const costInput = document.getElementById('sale-logistics-cost');
-
-    if (selected === 'pickup') {
-        if (addressGroup) addressGroup.classList.add('d-none');
-        if (costGroup) costGroup.classList.add('d-none');
-        if (costInput) { costInput.value = '0'; }
-        renderCart();
-    } else {
-        if (addressGroup) addressGroup.classList.remove('d-none');
-        if (costGroup) costGroup.classList.remove('d-none');
-    }
-};
 
 // 💰 Обработчик чекбокса "Зачесть аванс"
 window.toggleOffsetInput = function () {
@@ -675,8 +637,8 @@ window.togglePoaMode = function () {
     }
 };
 
-window.openPoaManager = function () {
-    const cpId = document.getElementById('sale-client').value;
+window.openPoaManager = function (explicitCpId = null, targetSelectId = 'sale-poa') {
+    const cpId = explicitCpId || (document.getElementById('sale-client') ? document.getElementById('sale-client').value : null);
     if (!cpId) return UI.toast('Сначала выберите клиента!', 'warning');
 
     const html = `
@@ -689,13 +651,14 @@ window.openPoaManager = function () {
             </div>
         </div>
     `;
+    // We pass explicitCpId inside quotes to ensure it survives HTML rendering, and same for targetSelectId
     UI.showModal('Новая доверенность', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-        <button class="btn btn-blue" onclick="saveNewPoa(${cpId})">💾 Сохранить</button>
+        <button class="btn btn-blue" onclick="saveNewPoa(${cpId}, '${targetSelectId}')">💾 Сохранить</button>
     `);
 };
 
-window.saveNewPoa = async function (cpId) {
+window.saveNewPoa = async function (cpId, targetSelectId = 'sale-poa') {
     const driver = document.getElementById('new-poa-driver').value.trim();
     const num = document.getElementById('new-poa-num').value.trim();
     const issue = document.getElementById('new-poa-issue').value;
@@ -710,7 +673,7 @@ window.saveNewPoa = async function (cpId) {
     });
     if (res.ok) {
         UI.toast('Доверенность добавлена', 'success');
-        loadClientPoas();
+        loadClientPoas(cpId, targetSelectId);
         UI.closeModal();
     }
 };
@@ -1027,7 +990,7 @@ window.openProfitCalculator = async function() {
         
         const html = `
             <div class="p-10">
-                <h4 class="mt-0 mb-15">Товар: ${escapeHTML(currentSelectedItem.name)}</h4>
+                <h4 class="mt-0 mb-15">Товар: ${Utils.escapeHtml(currentSelectedItem.name)}</h4>
                 
                 <table class="table-modern w-100 mb-20 text-left">
                     <thead class="bg-surface-alt">
@@ -1093,14 +1056,16 @@ window.addToCart = async function () {
     const btn = document.querySelector('button[onclick="addToCart()"]');
     if (btn) btn.disabled = true;
 
-    let unitCost = 0;
+    let baseMatCost = 0, pieceRate = 0, amortization = 0, overhead = 0;
     try {
         const data = await API.get(`/api/sales/cost-analysis/${currentSelectedItem.id}`);
 
-        const baseMatCost = parseFloat(data.empirical) > 0 ? parseFloat(data.empirical) : parseFloat(data.theoretical);
-        const pieceRate = parseFloat(currentSelectedItem.piece_rate) || 0;
+        baseMatCost = parseFloat(data.empirical) > 0 ? parseFloat(data.empirical) : parseFloat(data.theoretical);
+        pieceRate = parseFloat(currentSelectedItem.piece_rate) || 0;
+        amortization = parseFloat(data.amortization) || 0;
+        overhead = parseFloat(data.overhead) || 0;
 
-        unitCost = baseMatCost + parseFloat(data.amortization) + parseFloat(data.overhead || 0) + pieceRate;
+        unitCost = baseMatCost + amortization + overhead + pieceRate;
     } catch (e) {
         console.error("Ошибка получения себестоимости", e);
         UI.toast('⚠️ Себестоимость не загружена, расчет маржи будет неточным', 'warning');
@@ -1119,7 +1084,11 @@ window.addToCart = async function () {
         weight: currentSelectedItem.weight || 0,
         allowProduction: currentSelectedItem.allowProduction,
         stockAvailable: currentSelectedItem.qty,
-        unitCost: unitCost
+        unitCost: unitCost,
+        baseMatCost: baseMatCost,
+        amortization: amortization,
+        overhead: overhead,
+        wage: pieceRate
     });
 
     const productSel = document.getElementById('sale-product-select');
@@ -1161,17 +1130,20 @@ window.renderCart = function () {
     let subtotal = 0;
     let totalWeight = 0;
     let totalProductionCost = 0;
-    const safeTaxPct = parseFloat(window.FINANCE_TAX_PERCENT) || 0;
+    const useFinance = document.getElementById('cart-include-finance')?.checked !== false;
+    const safeTaxPct = useFinance ? (parseFloat(window.FINANCE_TAX_PERCENT) || 0) : 0;
 
     // Структура для попродуктовой разбивки
     const productProfitMap = {};
+    const productCostBreakdownMap = {};
 
     // БЛОК 2: ОТРИСОВКА СТРОК ТАБЛИЦЫ
     tbody.innerHTML = cart.map((item, index) => {
         const qty = parseFloat(item.qty) || 0;
         const basePrice = parseFloat(item.price) || 0;
         const discount = parseFloat(item.discount) || 0;
-        const unitCost = parseFloat(item.unitCost) || 0;
+        const currentOverhead = useFinance ? (parseFloat(item.overhead) || 0) : 0;
+        const unitCost = (parseFloat(item.baseMatCost) || 0) + (parseFloat(item.amortization) || 0) + (parseFloat(item.wage) || 0) + currentOverhead;
 
         const finalPrice = basePrice * (1 - discount / 100);
         const sum = qty * finalPrice;
@@ -1193,21 +1165,36 @@ window.renderCart = function () {
         productProfitMap[pKey].tax += lineTax;
         productProfitMap[pKey].profit += lineNetProfit;
 
+        // Развернутая агрегация себестоимости
+        if (!productCostBreakdownMap[pKey]) productCostBreakdownMap[pKey] = {
+            qty: 0, costSum: 0, matSum: 0, amortSum: 0, overSum: 0, wageSum: 0
+        };
+        productCostBreakdownMap[pKey].qty += qty;
+        productCostBreakdownMap[pKey].costSum += costSum;
+        productCostBreakdownMap[pKey].matSum += qty * (parseFloat(item.baseMatCost) || 0);
+        productCostBreakdownMap[pKey].amortSum += qty * (parseFloat(item.amortization) || 0);
+        productCostBreakdownMap[pKey].overSum += qty * currentOverhead;
+        productCostBreakdownMap[pKey].wageSum += qty * (parseFloat(item.wage) || 0);
+
         return `
             <tr class="sales-cart-row">
                 <td>${item.sortLabel || '1 Сорт'}</td>
                 <td><b>${item.name}</b></td>
                 <td class="text-center">
-                    <input type="number" class="input-modern sales-cart-qty-input" value="${qty}" min="0.01" step="0.01"
-                           class="w-80p text-center"
-                           oninput="updateCartItem(${index}, 'qty', this.value)">
+                    <input type="number" class="input-modern sales-cart-qty-input w-80p text-center" value="${qty}" min="0.01" step="0.01"
+                           onfocus="this.select()" onchange="updateCartItem(${index}, 'qty', this.value)">
                     <span class="font-12 text-muted">${item.unit}</span>
                 </td>
                 <td class="text-center">
-                    <input type="number" class="input-modern sales-cart-price-input" value="${basePrice}" oninput="updateCartItem(${index}, 'price', this.value)">
+                    <input type="number" class="input-modern sales-cart-price-input" 
+                           value="${finalPrice % 1 === 0 ? finalPrice : finalPrice.toFixed(2)}" 
+                           onfocus="this.select()" onchange="updateCartItem(${index}, 'finalPrice', this.value)">
+                    ${discount > 0 ? `<div class="font-10 text-muted mt-5"><s title="Каталожная базовая цена">${basePrice} ₽</s></div>` : ''}
                 </td>
                 <td class="text-center">
-                    <input type="number" class="input-modern sales-cart-discount-input" value="${discount}" min="0" max="100" oninput="updateCartItem(${index}, 'discount', this.value)">
+                    <input type="number" class="input-modern sales-cart-discount-input" 
+                           value="${discount}" min="0" max="100" 
+                           onfocus="this.select()" onchange="updateCartItem(${index}, 'discount', this.value)">
                 </td>
                 <td class="sales-cart-sum whitespace-nowrap">
                     ${sum.toFixed(2)} ₽
@@ -1250,6 +1237,76 @@ window.renderCart = function () {
     
     const costEl = document.getElementById('cart-total-cost');
     if (costEl) costEl.innerText = totalProductionCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 });
+
+    // 🚀 Детализация себестоимости под итоговой суммой
+    const costBlock = document.getElementById('top-cart-cost-block');
+    if (costBlock) {
+        let bdHtml = '';
+        const pKeys = Object.keys(productCostBreakdownMap);
+        if (pKeys.length > 0 && totalProductionCost > 0) {
+            bdHtml += `<div class="mt-10 mb-10 font-14 font-bold text-main">📊 Детализация рентабельности по позициям:</div>`;
+            bdHtml += `<div class="flex-col gap-10">`;
+            pKeys.forEach(key => {
+                const b = productCostBreakdownMap[key];
+                const p = productProfitMap[key] || {revenue:0, cost:0, tax:0, profit:0};
+                
+                bdHtml += `
+                    <div class="p-10 bg-surface-alt radius-6 border-base flex-col gap-10">
+                        <div class="flex-between pb-5 border-bottom">
+                            <span class="font-bold font-13 text-primary">${key} <span class="text-muted font-normal ml-5">(${b.qty} шт)</span></span>
+                            <div class="text-right">
+                                <span class="font-12 text-muted">Выручка (со скидками): <strong class="text-main">${p.revenue.toLocaleString('ru-RU', {minimumFractionDigits:2, maximumFractionDigits:2})} ₽</strong></span>
+                            </div>
+                        </div>
+                        
+                        <div class="form-grid gap-10 grid-cols-4">
+                            <div class="bg-surface p-8 border-radius-4 text-center">
+                                <div class="font-11 text-muted mb-2">Сырье и Материалы</div>
+                                <div class="font-bold font-12">${b.matSum.toLocaleString('ru-RU', {minimumFractionDigits:2, maximumFractionDigits:2})} ₽</div>
+                            </div>
+                            <div class="bg-surface p-8 border-radius-4 text-center">
+                                <div class="font-11 text-muted mb-2">Сдельная ЗП</div>
+                                <div class="font-bold font-12">${b.wageSum.toLocaleString('ru-RU', {minimumFractionDigits:2, maximumFractionDigits:2})} ₽</div>
+                            </div>
+                            <div class="bg-surface p-8 border-radius-4 text-center">
+                                <div class="font-11 text-muted mb-2">Амортизация</div>
+                                <div class="font-bold font-12">${b.amortSum.toLocaleString('ru-RU', {minimumFractionDigits:2, maximumFractionDigits:2})} ₽</div>
+                            </div>
+                            <div class="bg-surface p-8 border-radius-4 text-center border-warning-box">
+                                <div class="font-11 text-warning mb-2">Оверхед + Налог</div>
+                                <div class="font-bold font-12 text-warning">${(b.overSum + p.tax).toLocaleString('ru-RU', {minimumFractionDigits:2, maximumFractionDigits:2})} ₽</div>
+                            </div>
+                        </div>
+
+                        <div class="flex-between align-center pt-5">
+                            <span class="font-12 text-muted">Общая себестоимость: <strong class="text-main">${b.costSum.toLocaleString('ru-RU', {minimumFractionDigits:2, maximumFractionDigits:2})} ₽</strong></span>
+                            <span class="font-13 font-bold px-10 py-4 border-radius-4 ${p.profit > 0 ? 'bg-success-lt text-success' : 'bg-danger-lt text-danger'}">
+                                Прибыль: ${p.profit > 0 ? '+' : ''}${p.profit.toLocaleString('ru-RU', {minimumFractionDigits:2, maximumFractionDigits:2})} ₽
+                            </span>
+                        </div>
+                    </div>`;
+            });
+            bdHtml += `</div>`;
+            
+            // Также добавляем общий итог если товаров больше 1
+            if (pKeys.length > 1) {
+                 bdHtml += `<div class="p-15 mt-10 bg-surface border-radius-8 border-top" style="border-width: 2px;">
+                    <div class="flex-between font-16 font-bold text-main">
+                        <span>ВСЕГО ПРИБЫЛЬ ПО ЧЕКУ:</span>
+                        <span style="color: ${netProfit > 0 ? '#2e7d32' : '#c62828'};">${netProfit > 0 ? '+' : ''}${netProfit.toLocaleString('ru-RU', {minimumFractionDigits:2, maximumFractionDigits:2})} ₽</span>
+                    </div>
+                 </div>`;
+            }
+        }
+
+        let detailsEl = document.getElementById('cart-cost-details-breakdown');
+        if (!detailsEl) {
+            detailsEl = document.createElement('div');
+            detailsEl.id = 'cart-cost-details-breakdown';
+            costBlock.appendChild(detailsEl);
+        }
+        detailsEl.innerHTML = bdHtml;
+    }
     
     const profitEl = document.getElementById('cart-total-profit');
     const profitPctEl = document.getElementById('cart-profit-percent');
@@ -1335,12 +1392,30 @@ window.removeFromCart = function (index) {
 // Функция пересчета при изменении значения прямо в таблице
 window.updateCartItem = function (index, field, value) {
     let val = parseFloat(value) || 0;
+    let item = cart[index];
+    
+    // Сохраняем оригинальную базовую цену, чтобы от нее считать скидку
+    if (!('originalPrice' in item)) item.originalPrice = item.price;
 
-    if (field === 'price' && val < 0) {
-        UI.toast('Цена не может быть отрицательной!', 'warning');
-        val = 0;
-    }
-    if (field === 'discount') {
+    if (field === 'qty') {
+        if (val < 0) val = 0;
+        item.qty = val;
+    } else if (field === 'finalPrice') {
+        if (val < 0) {
+            UI.toast('Цена не может быть отрицательной!', 'warning');
+            val = 0;
+        }
+        
+        let base = parseFloat(item.originalPrice) || 0;
+        if (base > 0) {
+            item.discount = ((base - val) / base) * 100;
+        } else {
+            // Если базовой цены почему-то нет или она 0, перезаписываем цену
+            item.price = val;
+            item.originalPrice = val;
+            item.discount = 0;
+        }
+    } else if (field === 'discount') {
         if (val < 0) {
             UI.toast('Скидка не может быть меньше 0%', 'warning');
             val = 0;
@@ -1348,9 +1423,11 @@ window.updateCartItem = function (index, field, value) {
             UI.toast('Скидка не может быть больше 100%', 'warning');
             val = 100;
         }
+        item.discount = val;
+    } else {
+        item[field] = val;
     }
 
-    cart[index][field] = val;
     renderCart();
 };
 
@@ -1556,7 +1633,7 @@ async function loadActiveOrders() {
             const currentVal = clientFilter.value;
             const uniqueClients = [...new Set(allActiveOrders.map(o => o.client_name).filter(Boolean))].sort();
             clientFilter.innerHTML = '<option value="">🌐 Все клиенты</option>' +
-                uniqueClients.map(name => `<option value="${escapeHTML(name)}">${escapeHTML(name)}</option>`).join('');
+                uniqueClients.map(name => `<option value="${Utils.escapeHtml(name)}">${Utils.escapeHtml(name)}</option>`).join('');
             clientFilter.value = currentVal; // Восстанавливаем выбранное значение
         }
 
@@ -1628,8 +1705,8 @@ function renderBlankOrdersTable() {
         const shipped = parseFloat(o.total_shipped) || 0;
         const shipPercent = ordered > 0 ? Math.round((shipped / ordered) * 100) : 0;
         let shipText = shipPercent === 0 ? 'В очереди' : shipPercent >= 100 ? 'Завершено' : 'В процессе';
-        let shipColor = shipPercent === 0 ? '#94a3b8, #cbd5e1' : shipPercent >= 100 ? '#10b981, #34d399' : '#3b82f6, #60a5fa';
-
+        let shipProgressClass = shipPercent >= 100 ? 'progress-green' : (shipPercent === 0 ? 'progress-gray' : 'progress-blue');
+        
         // --- 2. ПРЕМИАЛЬНЫЙ ПРОГРЕСС-БАР ОПЛАТЫ ---
         const totalAmt = parseFloat(o.total_amount) || 0;
         const paidAmt = parseFloat(o.paid_amount) || 0;
@@ -1637,34 +1714,32 @@ function renderBlankOrdersTable() {
         const payPercent = totalAmt > 0 ? Math.min(Math.round((paidAmt / totalAmt) * 100), 100) : 0;
         
         let payText = payPercent === 0 ? 'Не оплачен' : payPercent >= 100 ? 'Оплачен' : 'Внесен аванс';
-        let payColor = payPercent === 0 ? '#94a3b8, #cbd5e1' : payPercent >= 100 ? '#10b981, #34d399' : '#f59e0b, #fbbf24';
-        
         let debtLabel = '';
         if (debtAmt > 0) {
             debtLabel = `<div class="font-11 text-danger mt-3 font-600">Долг: ${debtAmt.toLocaleString('ru-RU')} ₽</div>`;
-            payColor = '#ef4444, #f87171'; // Красный
         }
+
+        let payProgressClass = payPercent >= 100 ? 'progress-green' : (debtAmt > 0 ? 'progress-red' : (payPercent === 0 ? 'progress-gray' : 'progress-orange'));
+
+        let shipColorText = shipPercent >= 100 ? 'text-success' : shipPercent === 0 ? 'text-muted' : 'text-primary';
+        let payColorText = payPercent >= 100 ? 'text-success' : debtAmt > 0 ? 'text-danger' : payPercent === 0 ? 'text-muted' : 'text-warning';
 
         let statusHtml = `
             <div class="text-left mb-12">
                 <div class="flex-between align-baseline mb-4">
                     <span class="font-11 font-600 text-muted text-uppercase tracking-wide">📦 Отгрузка</span>
-                    <span style="font-size: 12px; font-weight: 700; color: ${shipPercent >= 100 ? '#10b981' : shipPercent === 0 ? '#94a3b8' : '#3b82f6'};">${shipPercent}%</span>
+                    <span class="font-12 font-700 ${shipColorText}">${shipPercent}%</span>
                 </div>
-                <div class="h-18p bg-surface-alt border-radius-4 overflow-hidden mb-3">
-                    <div style="width: ${shipPercent}%; background: linear-gradient(90deg, ${shipColor});"></div>
-                </div>
+                <progress class="progress-slim ${shipProgressClass} mb-5" value="${shipPercent}" max="100"></progress>
                 <div class="font-11 text-muted">${shipText}</div>
             </div>
 
             <div class="text-left">
                 <div class="flex-between align-baseline mb-4">
                     <span class="font-11 font-600 text-muted text-uppercase tracking-wide">💳 Оплата</span>
-                    <span style="font-size: 12px; font-weight: 700; color: ${payPercent >= 100 ? '#10b981' : debtAmt > 0 ? '#ef4444' : payPercent === 0 ? '#94a3b8' : '#f59e0b'};">${payPercent}%</span>
+                    <span class="font-12 font-700 ${payColorText}">${payPercent}%</span>
                 </div>
-                <div class="h-18p bg-surface-alt border-radius-4 overflow-hidden mb-3">
-                    <div style="height: 100%; width: ${payPercent}%; background: linear-gradient(90deg, ${payColor}); border-radius: 4px; transition: width 0.6s ease-out;"></div>
-                </div>
+                <progress class="progress-slim ${payProgressClass} mb-5" value="${payPercent}" max="100"></progress>
                 <div class="font-11 text-muted">${payText}</div>
                 ${debtLabel}
             </div>
@@ -1673,10 +1748,10 @@ function renderBlankOrdersTable() {
         // --- 3. БАЛАНС КЛИЕНТА ---
         const clientBalance = parseFloat(o.client_balance) || 0;
         let clientBalanceBadge = '';
-        if (clientBalance > 0) {
-            clientBalanceBadge = `<div class="sales-balance-badge balance-overpaid">💰 Переплата (Аванс): +${clientBalance.toLocaleString('ru-RU')} ₽</div>`;
-        } else if (clientBalance < 0) {
-            clientBalanceBadge = `<div class="sales-balance-badge balance-debt">📉 Общий долг: ${Math.abs(clientBalance).toLocaleString('ru-RU')} ₽</div>`;
+        if (clientBalance < 0) {
+            clientBalanceBadge = `<div class="sales-balance-badge balance-overpaid">💰 Переплата (Аванс): +${Math.abs(clientBalance).toLocaleString('ru-RU')} ₽</div>`;
+        } else if (clientBalance > 0) {
+            clientBalanceBadge = `<div class="sales-balance-badge balance-debt">📉 Общий долг: ${clientBalance.toLocaleString('ru-RU')} ₽</div>`;
         } else {
             clientBalanceBadge = `<div class="sales-balance-badge balance-zero">⚖️ Взаиморасчеты: 0 ₽</div>`;
         }
@@ -1704,12 +1779,12 @@ function renderBlankOrdersTable() {
                 <span class="sales-order-amount">${totalAmt.toLocaleString('ru-RU')} ₽</span>
             </td>
             <td class="valign-top">
-                <span class="sales-order-client entity-link" onclick="window.app.openEntity('client', ${o.counterparty_id})">${escapeHTML(o.client_name || 'Неизвестный клиент')}</span><br>
-                <span class="sales-order-address">📍 ${escapeHTML(o.delivery_address || 'Самовывоз')}</span><br>
+                <span class="sales-order-client entity-link" onclick="window.app.openEntity('client', ${o.counterparty_id})">${Utils.escapeHtml(o.client_name || 'Неизвестный клиент')}</span><br>
+                <span class="sales-order-address">📍 ${Utils.escapeHtml(o.delivery_address || 'Самовывоз')}</span><br>
                 ${clientBalanceBadge}
                 ${projHtml}
             </td>
-            <td class="sales-order-items">${escapeHTML(o.items_list || 'Пусто')}</td>
+            <td class="sales-order-items">${Utils.escapeHtml(o.items_list || 'Пусто')}</td>
             <td class="text-center valign-middle min-w-180p p-12-16">
                 ${statusHtml}
             </td>
@@ -1902,7 +1977,7 @@ function populateHistoryClientFilter(historyData) {
         select.tomselect.clearOptions();
         select.tomselect.addOption({value: '', text: '🌐 Все клиенты'});
         sortedClients.forEach(c => {
-            select.tomselect.addOption({value: escapeHTML(c), text: escapeHTML(c)});
+            select.tomselect.addOption({value: Utils.escapeHtml(c), text: Utils.escapeHtml(c)});
         });
         
         if (currentVal && clients.has(currentVal)) {
@@ -1913,7 +1988,7 @@ function populateHistoryClientFilter(historyData) {
     } else {
         let html = '<option value="">🌐 Все клиенты</option>';
         sortedClients.forEach(c => {
-            html += `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`;
+            html += `<option value="${Utils.escapeHtml(c)}">${Utils.escapeHtml(c)}</option>`;
         });
         
         select.innerHTML = html;
@@ -2007,7 +2082,7 @@ function renderHistoryTable() {
             <td class="sales-hist-date">${h.date_formatted}</td>
             <td><strong class="sales-hist-doc entity-link" onclick="window.app.openEntity('document_order', '${h.order_id}')">${h.doc_num}</strong></td>
             <td>
-                <b class="entity-link" onclick="window.app.openEntity('client', ${h.client_id || 0})">${escapeHTML(h.client_name || 'Неизвестный клиент')}</b><br>
+                <b class="entity-link" onclick="window.app.openEntity('client', ${h.client_id || 0})">${Utils.escapeHtml(h.client_name || 'Неизвестный клиент')}</b><br>
                 <span class="profit-sub">${h.payment || ''}</span>
             </td>
             <td class="text-center font-bold">${parseFloat(h.total_qty).toLocaleString('ru-RU')}</td>
@@ -2062,7 +2137,7 @@ window.openPriceListModal = async function () {
         const products = await res.json();
 
         let tbody = products.map(p => `
-            <tr class="border-bottom price-list-row" data-name="${escapeHTML(p.name)}">
+            <tr class="border-bottom price-list-row" data-name="${Utils.escapeHtml(p.name)}">
                 <td class="p-8">
                     <span class="badge bg-surface-alt text-muted font-11 mr-8 font-mono">${p.article || 'НЕТ АРТИКУЛА'}</span>
                     <b>${p.name}</b> <span class="font-10 text-muted">(${p.unit})</span>
@@ -2488,48 +2563,48 @@ window.openCostAnalysisModal = async function () {
                     <!-- ======== ЛЕВАЯ КОЛОНКА: Таблица сырья ======== -->
                     <div>
                         <div class="calc-card" style="padding: 0; overflow: hidden;">
-                            <div style="padding: 10px 16px; background: var(--bg-surface-alt); border-bottom: 1px solid var(--border-color);">
+                            <div class="crm-header-row">
                                 <span class="font-13 font-bold text-main">📦 Сравнительный расход сырья</span>
                             </div>
                             <div style="overflow-x: auto;">
                                 <table class="table-modern w-100" style="min-width: 520px; font-size: 12px;">
-                                    <thead style="background: var(--bg-surface-alt);">
-                                        <tr style="border-bottom: 1px solid var(--border-color);">
-                                            <th rowspan="2" style="padding: 8px 10px; border-right: 1px solid var(--border-color); font-size:11px; color:var(--text-muted);">МАТЕРИАЛ</th>
-                                            <th colspan="2" style="padding: 6px; border-right: 1px solid var(--border-color); font-size:11px; color:var(--text-muted); text-align:center;">РАСХОД (1 ЕД)</th>
-                                            <th colspan="2" style="padding: 6px; border-right: 1px solid var(--border-color); font-size:11px; color:var(--text-muted); text-align:center;">СУММА (1 ЕД)</th>
-                                            <th rowspan="2" style="padding: 6px; font-size:11px; color:var(--text-muted); text-align:right;">ФАКТ<br>(ПАРТИЯ)</th>
+                                    <thead class="bg-surface-alt">
+                                        <tr class="border-b">
+                                            <th rowspan="2" class="th-sub header-border">МАТЕРИАЛ</th>
+                                            <th colspan="2" class="td-center border-r font-11 text-muted">РАСХОД (1 ЕД)</th>
+                                            <th colspan="2" class="td-center border-r font-11 text-muted">СУММА (1 ЕД)</th>
+                                            <th rowspan="2" class="td-right font-11 text-muted">ФАКТ<br>(ПАРТИЯ)</th>
                                         </tr>
-                                        <tr style="border-bottom: 2px solid var(--border-color);">
-                                            <th style="padding:4px 8px; font-size:10px; color:var(--primary); text-align:center; border-right:1px dashed var(--border-color);">📐 Идеал</th>
-                                            <th style="padding:4px 8px; font-size:10px; color:#e65100; text-align:center; border-right:1px solid var(--border-color);">🧪 Опыт</th>
-                                            <th style="padding:4px 8px; font-size:10px; color:var(--primary); text-align:center; border-right:1px dashed var(--border-color);">📐 Идеал</th>
-                                            <th style="padding:4px 8px; font-size:10px; color:#e65100; text-align:center; border-right:1px solid var(--border-color);">🧪 Опыт</th>
+                                        <tr class="border-b-2">
+                                            <th class="td-center font-10 text-primary border-r-dashed">📐 Идеал</th>
+                                            <th class="td-center font-10 text-orange border-r">🧪 Опыт</th>
+                                            <th class="td-center font-10 text-primary border-r-dashed">📐 Идеал</th>
+                                            <th class="td-center font-10 text-orange border-r">🧪 Опыт</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         ${data.materials.map(m => `
                                             <tr style="border-bottom: 1px solid var(--bg-surface-hover);">
-                                                <td style="padding:7px 10px; font-weight:600; border-right:1px solid var(--border-color);">${m.name}</td>
-                                                <td style="padding:7px 6px; text-align:center; color:var(--primary); border-right:1px dashed var(--border-color);">${m.theory_qty > 0 ? m.theory_qty.toFixed(3) : '-'} <small>${m.unit}</small></td>
-                                                <td style="padding:7px 6px; text-align:center; color:#e65100; font-weight:700; border-right:1px solid var(--border-color);">
+                                                <td class="font-600 border-r padding-7-10">${m.name}</td>
+                                                <td class="td-center text-primary border-r-dashed padding-7-6">${m.theory_qty > 0 ? m.theory_qty.toFixed(3) : '-'} <small>${m.unit}</small></td>
+                                                <td class="td-center text-orange font-700 border-r padding-7-6">
                                                     ${m.fact_qty > 0 ? m.fact_qty.toFixed(3) : '-'} <small>${m.unit}</small>
                                                     ${m.is_hybrid ? '<span title="Нет факта — подставлено из рецепта" style="cursor:help;">🪄</span>' : ''}
                                                 </td>
-                                                <td style="padding:7px 6px; text-align:right; color:var(--primary); border-right:1px dashed var(--border-color);">${m.theory_cost > 0 ? m.theory_cost.toFixed(2) + ' ₽' : '-'}</td>
-                                                <td style="padding:7px 6px; text-align:right; color:#e65100; font-weight:700; border-right:1px solid var(--border-color);">${m.fact_cost > 0 ? m.fact_cost.toFixed(2) + ' ₽' : '-'}</td>
-                                                <td style="padding:7px 6px; text-align:right; font-weight:700; color:var(--danger);">${m.fact_cost > 0 ? (m.fact_cost * qty).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽' : '-'}</td>
+                                                <td class="td-right text-primary border-r-dashed padding-7-6">${m.theory_cost > 0 ? m.theory_cost.toFixed(2) + ' ₽' : '-'}</td>
+                                                <td class="td-right text-orange font-700 border-r padding-7-6">${m.fact_cost > 0 ? m.fact_cost.toFixed(2) + ' ₽' : '-'}</td>
+                                                <td class="td-right font-700 text-danger padding-7-6">${m.fact_cost > 0 ? (m.fact_cost * qty).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽' : '-'}</td>
                                             </tr>
                                         `).join('')}
                                     </tbody>
-                                    <tfoot style="background: var(--bg-surface-alt); border-top: 2px solid var(--border-color);">
+                                    <tfoot class="bg-surface-alt border-t-2">
                                         <tr style="font-weight: 900;">
-                                            <td style="padding:10px; border-right:1px solid var(--border-color);">ИТОГО (СЫРЬЕ):</td>
-                                            <td style="padding:10px; border-right:1px dashed var(--border-color);"></td>
-                                            <td style="padding:10px; border-right:1px solid var(--border-color);"></td>
-                                            <td style="padding:10px; text-align:right; color:var(--primary); border-right:1px dashed var(--border-color);">${parseFloat(data.theoretical).toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</td>
-                                            <td style="padding:10px; text-align:right; color:#e65100; border-right:1px solid var(--border-color);">${totalFactCost > 0 ? totalFactCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽' : '-'}</td>
-                                            <td style="padding:10px; text-align:right; color:var(--danger); font-size:13px;">${totalFactCost > 0 ? (totalFactCost * qty).toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽' : '-'}</td>
+                                            <td class="border-r padding-10">ИТОГО (СЫРЬЕ):</td>
+                                            <td class="border-r-dashed padding-10"></td>
+                                            <td class="border-r padding-10"></td>
+                                            <td class="td-right text-primary border-r-dashed padding-10">${parseFloat(data.theoretical).toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ₽</td>
+                                            <td class="td-right text-orange border-r padding-10">${totalFactCost > 0 ? totalFactCost.toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽' : '-'}</td>
+                                            <td class="td-right text-danger font-13 padding-10">${totalFactCost > 0 ? (totalFactCost * qty).toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽' : '-'}</td>
                                         </tr>
                                     </tfoot>
                                 </table>
@@ -2552,9 +2627,9 @@ window.openCostAnalysisModal = async function () {
                                 <span class="text-muted">Идеал (Рецепт):</span>
                                 <b>${data.theoretical} ₽</b>
                             </div>
-                            <div class="calc-row" style="background: var(--bg-surface-alt); padding: 4px 8px; border-radius: 6px;">
+                            <div class="calc-row" class="badge-surface">
                                 <span class="text-muted">🧪 Опыт (Факт):</span>
-                                <b style="color: #e65100;">${parseFloat(data.empirical) > 0 ? data.empirical : data.theoretical} ₽</b>
+                                <b class="text-orange">${parseFloat(data.empirical) > 0 ? data.empirical : data.theoretical} ₽</b>
                             </div>
                         </div>
 
@@ -2567,12 +2642,12 @@ window.openCostAnalysisModal = async function () {
                             </div>
                             <div class="calc-row">
                                 <span class="text-muted">Оверхед (Завод):</span>
-                                <b style="color: #e65100;" title="Распределенные косвенные затраты">${data.overhead} ₽</b>
+                                <b class="text-orange" title="Распределенные косвенные затраты">${data.overhead} ₽</b>
                             </div>
                             <div class="calc-sep"></div>
                             <div class="calc-row">
                                 <span class="text-muted">Сдельная З/П:</span>
-                                <input type="number" id="calc-wage" class="calc-input" style="color:var(--success); border-color:var(--success);" value="${currentSelectedItem.piece_rate || 0}" disabled title="Из Справочника">
+                                <input type="number" id="calc-wage" class="calc-input" class="text-success border-success" value="${currentSelectedItem.piece_rate || 0}" disabled title="Из Справочника">
                             </div>
                             <div class="calc-row">
                                 <span class="text-muted">Упаковка:</span>
@@ -2592,26 +2667,26 @@ window.openCostAnalysisModal = async function () {
                                 <input type="number" id="calc-tax-pct" class="calc-input border-danger" value="${window.FINANCE_TAX_PERCENT || 6}" step="1" max="100" onfocus="this.select()" oninput="recalcSalesMargin()">
                             </div>
                             <div class="calc-row">
-                                <span style="color: var(--info);">Бонус менедж. (%):</span>
+                                <span class="text-info">Бонус менедж. (%):</span>
                                 <input type="number" id="calc-bonus-pct" class="calc-input border-info" value="0" step="0.5" max="100" onfocus="this.select()" oninput="recalcSalesMargin()">
                             </div>
                         </div>
 
                         <!-- Результат -->
-                        <div class="calc-card" style="background: var(--bg-surface-alt);">
-                            <div class="calc-row" style="border-bottom: 1px dashed var(--border-color); padding-bottom: 6px; margin-bottom: 8px;">
+                        <div class="calc-card" class="bg-surface-alt">
+                            <div class="calc-row" class="border-b-dashed pb-6 mb-8">
                                 <span>Произв. себестоимость:</span>
                                 <strong id="res-prod-cost">0.00 ₽</strong>
                             </div>
-                            <div class="calc-row" style="border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 10px;">
+                            <div class="calc-row" class="border-b pb-8 mb-10">
                                 <span>Налоги и комиссии:</span>
                                 <strong id="res-taxes" class="text-danger">-0.00 ₽</strong>
                             </div>
                             <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <div style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">Чистая прибыль (1 ед)</div>
+                                <div class="font-11 text-uppercase font-700 text-muted">Чистая прибыль (1 ед)</div>
                                 <div class="text-right">
-                                    <div id="res-net-profit" style="font-size: 22px; font-weight: 900; line-height: 1; color: var(--success);">0.00 ₽</div>
-                                    <div id="res-margin-pct" style="font-size: 12px; font-weight: 700; color: var(--success); margin-top: 3px;">Рентабельность: 0%</div>
+                                    <div id="res-net-profit" class="font-22 font-900 line-height-1 text-success">0.00 ₽</div>
+                                    <div id="res-margin-pct" class="font-12 font-700 text-success mt-3">Рентабельность: 0%</div>
                                 </div>
                             </div>
                         </div>
@@ -2692,7 +2767,7 @@ window.openOrderManager = async function (orderId) {
 
             let actionsHtml = '';
             if (production > 0) {
-                actionsHtml = `<button class="btn btn-outline sales-btn-sm" onclick="openReserveTransferModal(${i.id}, ${order.id}, ${i.item_id}, '${escapeHTML(i.name)}', ${production})" style="padding: 2px 5px; font-size: 10px; margin-top: 5px;">🔄 Перехватить</button>`;
+                actionsHtml = `<button class="btn btn-outline sales-btn-sm" onclick="openReserveTransferModal(${i.id}, ${order.id}, ${i.item_id}, '${Utils.escapeHtml(i.name)}', ${production})" style="padding: 2px 5px; font-size: 10px; margin-top: 5px;">🔄 Перехватить</button>`;
             }
 
             return `
@@ -2702,15 +2777,15 @@ window.openOrderManager = async function (orderId) {
                         ${actionsHtml ? '<br>' + actionsHtml : ''}
                     </td>
                     <td style="padding: 8px; text-align: center; font-weight: bold;">${ordered}</td>
-                    <td style="padding: 8px; text-align: center; color: var(--success); font-weight: bold;">${shipped}</td>
-                    <td style="padding: 8px; text-align: center; color: var(--primary); font-weight: bold;">${reserved}</td>
-                    <td style="padding: 8px; text-align: center; color: var(--danger); font-weight: bold;">${production}</td>
+                    <td class="padding-8 td-center text-success font-bold">${shipped}</td>
+                    <td class="padding-8 td-center text-primary font-bold">${reserved}</td>
+                    <td class="padding-8 td-center text-danger font-bold">${production}</td>
                     <td style="padding: 8px; text-align: center;">
                         <input type="number" class="input-modern ship-qty-input" 
                                data-coi-id="${i.id}" data-item-id="${i.item_id}" 
                                max="${remainText}" value="${Math.min(remainText, reserved)}" 
                                ${remainText <= 0 ? 'disabled' : ''} 
-                               style="width: 70px; text-align: center; border-color: var(--primary); font-weight: bold;">
+                               class="w-70 td-center border-primary font-bold">
                     </td>
                 </tr>
             `;
@@ -2722,22 +2797,7 @@ window.openOrderManager = async function (orderId) {
                     <p class="m-0 mb-5"><b>Клиент:</b> ${order.client_name}</p>
                     <p class="m-0"><b>Адрес доставки:</b> ${order.delivery_address || 'Самовывоз'}</p>
                 </div>
-                
-                <table class="table-modern w-100 mb-15">
-                    <thead class="bg-info-lt">
-                        <tr>
-                            <th class="p-10 text-left">Продукция</th>
-                            <th class="p-10 text-center">Заказ</th>
-                            <th class="p-10 text-center">Отгружено</th>
-                            <th class="p-10 text-center text-primary">В Резерве</th>
-                            <th class="p-10 text-center text-danger">Ожидает</th>
-                            <th class="p-10 text-center text-primary">Грузим (факт)</th>
-                        </tr>
-                    </thead>
-                    <tbody>${itemsHtml}</tbody>
-                </table>
-
-                <div class="bg-surface-hover p-15 border-radius-6 border dashed mt-10">
+                <div class="bg-surface-hover p-15 border-radius-6 border dashed mb-15">
                     <h4 class="m-0 mb-15 text-primary">🚚 Фактические данные отгрузки</h4>
                     <div class="form-grid gap-15 sales-two-cols mb-10">
                         <div class="form-group m-0">
@@ -2760,7 +2820,10 @@ window.openOrderManager = async function (orderId) {
                     <div class="form-group m-0" style="grid-column: 1 / -1;">
                         <label class="font-12 text-muted mb-5">Основание (Доверенность) <span class="text-danger">*</span></label>
                         <div class="flex-column gap-10">
-                            <select id="ship-poa-select" class="input-modern"></select>
+                            <div id="ship-poa-container" class="flex-row gap-10">
+                                <select id="ship-poa-select" class="input-modern flex-grow-1"></select>
+                                <button type="button" class="btn btn-outline" style="padding: 0 15px;" onclick="openPoaManager(${order.counterparty_id}, 'ship-poa-select')">➕ Новая</button>
+                            </div>
                             
                             <label class="d-flex align-center cursor-pointer m-0 mt-5">
                                 <input type="checkbox" id="ship-no-poa" class="mr-10" onchange="toggleShipPoa()" style="width:16px; height:16px;"> 
@@ -2771,44 +2834,52 @@ window.openOrderManager = async function (orderId) {
                         </div>
                     </div>
                 </div>
+
+                <table class="table-modern w-100 mb-15">
+                    <thead class="bg-info-lt">
+                        <tr>
+                            <th class="p-10 text-left">Продукция</th>
+                            <th class="p-10 text-center">Заказ</th>
+                            <th class="p-10 text-center">Отгружено</th>
+                            <th class="p-10 text-center text-primary">В Резерве</th>
+                            <th class="p-10 text-center text-danger">Ожидает</th>
+                            <th class="p-10 text-center text-primary">Грузим (факт)</th>
+                        </tr>
+                    </thead>
+                    <tbody>${itemsHtml}</tbody>
+                </table>
             </div>
         `;
+
+        let advanceBtnHtml = '';
+        if (parseFloat(order.pending_debt) > 0 && parseFloat(order.free_advance || 0) > 0) {
+            advanceBtnHtml = `<button class="btn btn-outline sales-btn-sm text-success" onclick="applyAdvanceToOrder(${order.id})">💰 Зачесть из аванса (${parseFloat(order.free_advance).toLocaleString('ru-RU')} ₽)</button>`;
+        }
 
         UI.showModal(`Управление заказом: ${order.doc_number}`, html, `
             <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom: 15px; width: 100%; border-bottom: 1px dashed var(--border); padding-bottom: 15px;">
                 <button class="btn btn-outline sales-btn-sm text-primary" onclick="UI.closeModal(); loadOrderForEdit(${order.id})">✏️ Изменить (Товары / Цены)</button>
                 <button class="btn btn-outline sales-btn-sm text-danger" onclick="UI.closeModal(); forceCloseOrder(${order.id}, '${order.doc_number}')">❌ Принудительно закрыть (Отменить остатки)</button>
+                ${advanceBtnHtml}
             </div>
             <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
             <button class="btn btn-blue" id="btn-do-ship" onclick="executePartialShipment(${order.id}, this)">🚚 Отгрузить выбранное</button>
         `);
-
-        // Загрузка доверенностей
-        setTimeout(async () => {
-            try {
-                const poasData = await API.get(`/api/counterparties/${order.counterparty_id}/poas`);
-                const sel = document.getElementById('ship-poa-select');
-                if (sel) {
-                    sel.innerHTML = '<option value="">-- Выберите доверенность --</option>';
-                    poasData.forEach(poa => sel.add(new Option(`${poa.driver_name} — №${poa.number} (до ${poa.expiry_date})`, `№${poa.number} (выдана: ${poa.driver_name})`)));
-                }
-            } catch(e) {}
-        }, 50);
 
     } catch (e) { console.error(e); UI.toast('Ошибка', 'error'); }
 };
 
 window.toggleShipPoa = function() {
     const noPoa = document.getElementById('ship-no-poa');
-    const poaSelect = document.getElementById('ship-poa-select');
+    const poaContainer = document.getElementById('ship-poa-container');
     const poaComment = document.getElementById('ship-poa-comment');
     if (!noPoa) return;
     
     if (noPoa.checked) {
-        if(poaSelect) { poaSelect.value = ''; poaSelect.classList.add('sales-hidden'); }
+        if(poaContainer) poaContainer.classList.add('d-none');
         if(poaComment) poaComment.classList.remove('sales-hidden');
     } else {
-        if(poaSelect) poaSelect.classList.remove('sales-hidden');
+        if(poaContainer) poaContainer.classList.remove('d-none');
         if(poaComment) { poaComment.value = ''; poaComment.classList.add('sales-hidden'); }
     }
 };
@@ -3007,7 +3078,7 @@ window.renderReturnCart = function () {
         <tr style="border-bottom: 1px solid var(--border);">
             <td style="padding: 4px 0;">${c.name}</td>
             <td style="padding: 4px 0; text-align: center;"><b>${c.qty}</b> ед.</td>
-            <td style="padding: 4px 0; color: var(--text-muted); font-size: 11px;">${c.whText}</td>
+            <td class="padding-y-4 text-muted font-11">${c.whText}</td>
             <td style="padding: 4px 0; text-align: right;"><button class="btn btn-outline" onclick="window.returnCart.splice(${idx}, 1); renderReturnCart();" style="padding: 2px 6px; font-size: 10px; color: var(--danger); border-color: var(--danger);">❌</button></td>
         </tr>
     `).join('');
@@ -3251,16 +3322,16 @@ window.offsetOrderAdvance = async function (docNum, amount) {
             На балансе клиента есть свободные средства.<br>
             Зачесть <b>${amount.toLocaleString('ru-RU')} ₽</b> в счет оплаты заказа <b>${docNum}</b>?
             
-            <div style="margin-top: 20px; text-align: left; background: var(--surface-hover); padding: 10px; border-radius: 6px; border: 1px dashed var(--border);">
-                <label style="font-size: 12px; color: var(--text-muted); font-weight: bold;">Через какую кассу провести операцию:</label>
+            <div class="mt-20 text-left bg-surface-hover padding-10 border-radius-6 border-dashed">
+                <label class="font-12 text-muted font-bold">Через какую кассу провести операцию:</label>
                 <select id="offset-account-select" class="input-modern" style="margin-top: 5px;">
                     ${accOptions}
                 </select>
-                <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 5px;">Будет создана парная операция (расход+приход) для закрытия долга.</span>
+                <span class="font-11 text-muted d-block mt-5">Будет создана парная операция (расход+приход) для закрытия долга.</span>
             </div>
         </div>`, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-        <button class="btn btn-blue" id="btn-do-offset" style="background: #059669; border-color: #059669;" onclick="executeOffset('${docNum}', ${amount}, this)">✅ Провести зачет</button>
+        <button class="btn btn-blue" id="btn-do-offset" class="bg-success border-success text-white" onclick="executeOffset('${docNum}', ${amount}, this)">✅ Провести зачет</button>
     `);
 
     setTimeout(() => {
@@ -3295,8 +3366,8 @@ window.openPalletsReport = async function () {
         let tbody = data.map(c => `
             <tr style="border-bottom: 1px solid var(--border);">
                 <td class="p-10"><b>${c.name}</b></td>
-                <td style="padding: 10px; color: var(--text-muted);">${c.phone || 'Нет телефона'}</td>
-                <td style="padding: 10px; text-align: right; color: var(--warning-text); font-weight: bold; font-size: 16px;">${c.pallets_balance} шт.</td>
+                <td class="padding-10 text-muted">${c.phone || 'Нет телефона'}</td>
+                <td class="padding-10 td-right text-warning font-bold font-16">${c.pallets_balance} шт.</td>
             </tr>
         `).join('');
 
@@ -3306,12 +3377,12 @@ window.openPalletsReport = async function () {
 
         const html = `
             <div class="p-10">
-                <div style="background: #fffbeb; padding: 15px; border-radius: 8px; border: 1px solid #fde68a; margin-bottom: 15px; text-align: center;">
-                    <span style="color: #b45309; font-size: 14px;">Всего деревянных поддонов зависло у клиентов:</span><br>
-                    <strong style="font-size: 26px; color: var(--warning-text);">${totalPallets} шт.</strong>
+                <div class="alert-warning padding-15 border-radius-8 mb-15 td-center">
+                    <span class="text-warning-dark font-14">Всего деревянных поддонов зависло у клиентов:</span><br>
+                    <strong class="font-26 text-warning">${totalPallets} шт.</strong>
                 </div>
                 <table style="width: 100%; border-collapse: collapse;">
-                    <thead style="background: var(--surface-hover); text-align: left;">
+                    <thead class="bg-surface-hover text-left">
                         <tr>
                             <th class="p-10">Клиент</th>
                             <th class="p-10">Телефон для связи</th>
@@ -3693,10 +3764,10 @@ window.renderKanbanBoard = function () {
                 <span title="Дедлайн">⏳ ${order.deadline || order.date_formatted}</span>
             </div>
             <div class="kanban-card-client">
-                ${order.counterparty_id ? `<span class="entity-link" onclick="window.app.openEntity('client', ${order.counterparty_id})">${escapeHTML(order.client_name)}</span>` : escapeHTML(order.client_name)}
+                ${order.counterparty_id ? `<span class="entity-link" onclick="window.app.openEntity('client', ${order.counterparty_id})">${Utils.escapeHtml(order.client_name)}</span>` : Utils.escapeHtml(order.client_name)}
             </div>
             <div class="kanban-card-items">
-                ${escapeHTML(order.items_list)}
+                ${Utils.escapeHtml(order.items_list)}
             </div>
             <div class="kanban-card-footer">
                 <span class="kanban-card-total">${parseFloat(order.total_amount).toLocaleString()} ₽</span>
@@ -3795,7 +3866,7 @@ window.openOrderDetails = async function (orderId) {
             itemsHtml += `
                 <tr>
                     <td class="p-8 border-bottom border-surface-alt">
-                        ${item.item_id ? `<span class="entity-link" onclick="window.app.openEntity('nomenclature', ${item.item_id})">${escapeHTML(item.name)}</span>` : escapeHTML(item.name)}
+                        ${item.item_id ? `<span class="entity-link" onclick="window.app.openEntity('nomenclature', ${item.item_id})">${Utils.escapeHtml(item.name)}</span>` : Utils.escapeHtml(item.name)}
                     </td>
                     <td class="p-8 border-bottom border-surface-alt text-center font-bold">${ordered} ${item.unit}</td>
                     <td class="p-8 border-bottom border-surface-alt text-center font-bold ${colorClass}">${shipped}</td>
@@ -3808,9 +3879,9 @@ window.openOrderDetails = async function (orderId) {
         const htmlBody = `
             <div class="mb-15 bg-surface-hover p-15 border-radius-8 border font-14">
                 <div class="mb-8"><strong>💼 Клиент:</strong> 
-                    ${order.counterparty_id ? `<span class="entity-link" onclick="window.app.openEntity('client', ${order.counterparty_id})">${escapeHTML(order.client_name)}</span>` : escapeHTML(order.client_name)}
+                    ${order.counterparty_id ? `<span class="entity-link" onclick="window.app.openEntity('client', ${order.counterparty_id})">${Utils.escapeHtml(order.client_name)}</span>` : Utils.escapeHtml(order.client_name)}
                 </div>
-                <div class="mb-8"><strong>📍 Адрес доставки:</strong> ${escapeHTML(order.delivery_address || 'Самовывоз')}</div>
+                <div class="mb-8"><strong>📍 Адрес доставки:</strong> ${Utils.escapeHtml(order.delivery_address || 'Самовывоз')}</div>
                 <div class="mb-8"><strong>💰 Сумма заказа:</strong> <span class="text-main font-bold">${parseFloat(order.total_amount).toLocaleString()} ₽</span></div>
                 <div class="m-0"><strong>📅 Плановая отгрузка:</strong> ${order.planned_shipment_date ? new Date(order.planned_shipment_date).toLocaleDateString() : 'Не указана'}</div>
             </div>
@@ -3945,11 +4016,6 @@ window.saveMiniContract = async function () {
 
 
 
-window.triggerSalesSearch = function () {
-    historySearch = document.getElementById('sales-history-search').value;
-    historyPage = 1;
-    loadSalesHistory();
-};
 
 // --- ЗАПУСК МОДУЛЯ ПРОДАЖ ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -4055,7 +4121,7 @@ window.openReserveTransferModal = async function(recCoiId, recOrderId, itemId, i
                     <td class="p-10 text-center">
                         <input type="number" id="transfer-qty-${d.coi_id}" class="input-modern" 
                                value="${maxTransfer}" max="${maxTransfer}" min="1" 
-                               style="width: 80px; text-align: center; border-color: var(--primary);">
+                               class="w-80 td-center border-primary">
                     </td>
                     <td class="p-10 text-right">
                         <button class="btn btn-blue sales-btn-sm" onclick="executeReserveTransfer(${d.coi_id}, ${recCoiId}, 'transfer-qty-${d.coi_id}', ${recOrderId})">Забрать</button>
@@ -4160,7 +4226,19 @@ window.loadOrderForEdit = async function(orderId) {
         
         // Заполняем корзину товарами
         if (order.items && Array.isArray(order.items)) {
-            order.items.forEach(i => {
+            for (const i of order.items) {
+                let unitCost = 0, baseMatCost = 0, amortization = 0, overhead = 0, wage = 0;
+                try {
+                    const data = await API.get(`/api/sales/cost-analysis/${i.item_id}`);
+                    baseMatCost = parseFloat(data.empirical) > 0 ? parseFloat(data.empirical) : parseFloat(data.theoretical);
+                    wage = parseFloat(i.piece_rate || 0); // Note: piece_rate is not in i by default, so it might be 0 unless we fetch it. It's okay.
+                    amortization = parseFloat(data.amortization) || 0;
+                    overhead = parseFloat(data.overhead) || 0;
+                    unitCost = baseMatCost + amortization + overhead;
+                } catch (e) {
+                     console.error("Ошибка получения себестоимости", e);
+                }
+
                 cart.push({
                     id: i.item_id,
                     warehouseId: 1, // заглушка, так как склад может быть любым
@@ -4173,9 +4251,13 @@ window.loadOrderForEdit = async function(orderId) {
                     weight: 0,
                     allowProduction: true,
                     stockAvailable: 9999,
-                    unitCost: 0
+                    unitCost: unitCost,
+                    baseMatCost: baseMatCost,
+                    amortization: amortization,
+                    overhead: overhead,
+                    wage: wage
                 });
-            });
+            }
         }
         
         // Заполняем остальные поля формы (клиент уже установлен выше)
@@ -4229,3 +4311,30 @@ window.executeForceClose = async function(orderId) {
     }
 };
 
+window.applyAdvanceToOrder = function(id) {
+    const html = `
+        <p>Вы уверены, что хотите использовать <b>Свободный аванс</b> клиента для погашения долга по этому заказу?</p>
+        <p class="font-13 text-muted">Сумма долга автоматически уменьшится на размер доступного аванса.</p>
+    `;
+    UI.showModal('Зачет аванса', html, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-green" onclick="executeApplyAdvance(${id})">💰 Да, зачесть</button>
+    `);
+};
+
+window.executeApplyAdvance = async function(id) {
+    try {
+        const res = await fetch(`/api/sales/orders/${id}/apply-advance`, { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Ошибка при зачете аванса');
+        
+        UI.toast('Свободный аванс зачтен', 'success');
+        UI.closeModal();
+        if (typeof loadActiveOrders === 'function') loadActiveOrders();
+    } catch(e) {
+        UI.toast(e.message, 'error');
+    }
+};

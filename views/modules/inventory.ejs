@@ -254,13 +254,7 @@
                     
                     <div class="form-group filter-item">
                         <label>Выбор товара (Другой):</label>
-                        <div class="search-input-wrapper w-100">
-                            <input type="text" list="history-item-datalist" id="history-item-switch" 
-                                   placeholder="🔍 Введите товар..." 
-                                   class="input-modern input-search input-sm pl-30 w-100" 
-                                   onchange="switchHistoryItem()" onfocus="this.select()">
-                            <datalist id="history-item-datalist"></datalist>
-                        </div>
+                        <select id="history-item-switch" class="w-100" style="width: 100%;" placeholder="🔍 Введите товар..." onchange="switchHistoryItem()"></select>
                     </div>
                     
                     <div class="form-group filter-search">

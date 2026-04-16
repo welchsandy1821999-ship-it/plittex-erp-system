@@ -471,21 +471,27 @@
             const qtyPerMix = parseFloat(input.value) || 0;
             const matId = input.getAttribute('data-id');
             if (qtyPerMix > 0 && mainCount > 0 && matId && matId !== 'undefined' && matId !== '') {
-                actualMaterials.push({
-                    id: matId,
-                    name: input.getAttribute('data-name'),
-                    qty: qtyPerMix * mainCount,
-                    unit: input.getAttribute('data-unit')
-                });
+                const existing = actualMaterials.find(ex => ex.id == matId && ex.mixType === 'main');
+                if (existing) {
+                    existing.qty += qtyPerMix * mainCount;
+                } else {
+                    actualMaterials.push({
+                        id: matId,
+                        name: input.getAttribute('data-name'),
+                        qty: qtyPerMix * mainCount,
+                        unit: input.getAttribute('data-unit'),
+                        mixType: 'main'
+                    });
+                }
             }
         });
 
-        // Читаем Лицевой замес и плюсуем к основному
+        // Читаем Лицевой замес и добавляем как отдельные элементы массива с mixType: 'face'
         document.querySelectorAll('.face-mix-mat-qty').forEach(input => {
             const qtyPerMix = parseFloat(input.value) || 0;
             const matId = input.getAttribute('data-id');
             if (qtyPerMix > 0 && faceCount > 0 && matId && matId !== '') {
-                const existing = actualMaterials.find(ex => ex.id == matId);
+                const existing = actualMaterials.find(ex => ex.id == matId && ex.mixType === 'face');
                 if (existing) {
                     existing.qty += qtyPerMix * faceCount;
                 } else {
@@ -493,7 +499,8 @@
                         id: matId,
                         name: input.getAttribute('data-name'),
                         qty: qtyPerMix * faceCount,
-                        unit: input.getAttribute('data-unit')
+                        unit: input.getAttribute('data-unit'),
+                        mixType: 'face'
                     });
                 }
             }
@@ -580,7 +587,15 @@
         }
 
         container.innerHTML = sessionProducts.map((p, i) => {
-            const matList = (p.exactMaterials || []).map(m => `${Utils.escapeHtml(m.name)}: <b class="text-primary">${parseFloat(m.qty).toFixed(1)}${m.unit}</b>`).join(' | ');
+            const mainMats = (p.exactMaterials || []).filter(m => m.mixType === 'main').map(m => `${Utils.escapeHtml(m.name)}: <b class="text-primary">${parseFloat(m.qty).toFixed(1)}${m.unit}</b>`).join(' | ');
+            const faceMats = (p.exactMaterials || []).filter(m => m.mixType === 'face').map(m => `${Utils.escapeHtml(m.name)}: <b class="text-primary">${parseFloat(m.qty).toFixed(1)}${m.unit}</b>`).join(' | ');
+            const oldMats = (p.exactMaterials || []).filter(m => !m.mixType).map(m => `${Utils.escapeHtml(m.name)}: <b class="text-primary">${parseFloat(m.qty).toFixed(1)}${m.unit}</b>`).join(' | ');
+            
+            let matsHtml = '';
+            if (mainMats) matsHtml += `<div class="mb-5"><b>🐘 Осн:</b> ${mainMats}</div>`;
+            if (faceMats) matsHtml += `<div class="mb-5"><b>🐥 Лиц:</b> ${faceMats}</div>`;
+            if (oldMats) matsHtml += `<div>${oldMats}</div>`;
+
             return `
         <div class="prod-session-item flex-col gap-5">
             <div class="flex-between align-start w-100">
@@ -592,7 +607,7 @@
                 <button class="btn text-danger p-5 h-auto m-0" onclick="removeSessionProduct(${i})">🗑️</button>
             </div>
             <div style="background: #f8fafc; padding: 6px 10px; border-radius: 4px; font-size: 11px; color: #64748b; border: 1px dashed #cbd5e1;">
-                ${matList}
+                ${matsHtml || '<i class="text-muted">Нет сырья</i>'}
             </div>
         </div>
     `}).join('');
@@ -654,18 +669,18 @@
 
         // Материалы уже загружены в sessionProducts через loadDailyHistory
 
-        // [РЕШЕНИЕ 3] Агрегация с защитой от пустых/битых ID материалов
+        // [РЕШЕНИЕ 3] Агрегация с защитой от пустых/битых ID материалов и разделением по слоям
         let aggregatedMaterials = [];
         sessionProducts.forEach(prod => {
             // 🛡️ Пропускаем записи без exactMaterials (восстановленные с сервера)
             if (!prod.exactMaterials || !Array.isArray(prod.exactMaterials)) return;
             prod.exactMaterials.forEach(mat => {
                 if (!mat.id || mat.id === 'undefined') return;
-                const existing = aggregatedMaterials.find(m => m.id == mat.id);
+                const existing = aggregatedMaterials.find(m => m.id == mat.id && m.mixType === mat.mixType);
                 if (existing) {
                     existing.qty += mat.qty;
                 } else {
-                    aggregatedMaterials.push({ id: mat.id, qty: mat.qty });
+                    aggregatedMaterials.push({ id: mat.id, qty: mat.qty, mixType: mat.mixType, name: mat.name });
                 }
             });
         });
@@ -1002,10 +1017,83 @@
             const totalWeightBatch = materials.reduce((sum, m) => sum + parseFloat(m.qty), 0);
             const totalWeightUnit = totalWeightBatch / plannedQty;
 
-            let html = `
+            const mainMats = materials.filter(m => m.mix_type === 'main');
+            const faceMats = materials.filter(m => m.mix_type === 'face');
+            const otherMats = materials.filter(m => m.mix_type !== 'main' && m.mix_type !== 'face');
+
+            // ⚠️ Фактическое предупреждение об остатках имеет смысл ТОЛЬКО для черновиков,
+            // так как у зафиксированных партий материалы УЖЕ списаны со склада.
+            const isDraft = batchInfo.status === 'draft';
+
+            const renderMaterialTable = (title, matsArray) => {
+                if (!matsArray || matsArray.length === 0) return '';
+                
+                const tableWeightBatch = matsArray.reduce((sum, m) => sum + parseFloat(m.qty), 0);
+                const tableWeightUnit = tableWeightBatch / plannedQty;
+                const tableMatCost = matsArray.reduce((sum, m) => sum + parseFloat(m.cost), 0);
+                const tableUnitMatCost = tableMatCost / plannedQty;
+
+                return `
+                <div class="prod-mat-table-wrap mb-15">
+                    <div class="prod-mat-header">
+                        <h4 class="prod-mat-title">${title}</h4>
+                        <span class="prod-mat-badge">Компонентов: ${matsArray.length}</span>
+                    </div>
+                    
+                    <table class="prod-table-modern">
+                        <thead class="prod-th-styled">
+                            <tr>
+                                <th class="prod-th-styled border-bottom-dashed" >МАТЕРИАЛ</th>
+                                <th class="prod-th-styled prod-th-right border-bottom-dashed" >ОБЩИЙ РАСХОД</th>
+                                <th class="prod-th-styled prod-th-right border-bottom-dashed" >НА 1 ЕД.</th>
+                                <th class="prod-th-styled prod-th-right border-bottom-dashed" >ЦЕНА/КГ</th>
+                                <th class="prod-th-styled prod-th-right border-bottom-dashed" >СУММА (1 ЕД)</th>
+                                <th class="prod-th-styled prod-th-right border-bottom-dashed" >СУММА (ПАРТИЯ)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${matsArray.map(m => {
+                                const qBatch = parseFloat(m.qty);
+                                const qUnit = qBatch / plannedQty;
+                                const costBatch = parseFloat(m.cost);
+                                const costUnit = costBatch / plannedQty;
+                                const pricePerKg = costBatch / qBatch;
+                                
+                                const currentStock = parseFloat(m.current_stock || 0);
+                                const isShortage = isDraft && (qBatch > currentStock);
+                                const rowWarningClass = isShortage ? 'bg-danger-light' : '';
+                                const shortageAlert = isShortage 
+                                    ? `<br><span class="text-danger font-11">⚠️ На складе: ${currentStock.toFixed(1)}${m.unit} (Нехватка: ${(qBatch - currentStock).toFixed(1)}${m.unit})</span>` 
+                                    : '';
+
+                                return `
+                                <tr class="prod-tr-styled ${rowWarningClass}">
+                                    <td class="prod-td-styled prod-mat-name">${Utils.escapeHtml(m.name)}${shortageAlert}</td>
+                                    <td class="prod-td-styled prod-td-right">${qBatch.toFixed(2)} <small class="text-muted">${m.unit}</small></td>
+                                    <td class="prod-td-styled prod-td-right text-primary">${qUnit.toFixed(3)} <small>${m.unit}</small></td>
+                                    <td class="prod-td-styled prod-td-right text-muted font-12">${pricePerKg.toFixed(2)}</td>
+                                    <td class="prod-td-styled prod-td-right font-bold text-muted">${costUnit.toFixed(2)} ₽</td>
+                                    <td class="prod-td-styled prod-td-right font-bold text-danger">${Utils.formatMoney(costBatch)}</td>
+                                </tr>`;
+                            }).join('')}
+                        </tbody>
+                        <tfoot class="prod-tfoot-styled">
+                            <tr>
+                                <td class="prod-tfoot-td text-right">ИТОГО:</td>
+                                <td class="prod-tfoot-td prod-td-right">${tableWeightBatch.toFixed(2)} <small>кг</small></td>
+                                <td class="prod-tfoot-td prod-td-right text-primary">${tableWeightUnit.toFixed(3)} <small>кг</small></td>
+                                <td class="prod-tfoot-td"></td>
+                                <td class="prod-tfoot-td prod-td-right">${tableUnitMatCost.toFixed(2)} ₽</td>
+                                <td class="prod-tfoot-td prod-td-right text-danger font-16">${Utils.formatMoney(tableMatCost)}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>`;
+            };
+
+            const html = `
 <td colspan="6" class="prod-details-td">
     <div class="prod-details-wrap">
-        
         <div class="prod-details-header">
             <div>
                 <h3 class="prod-details-title">📊 Экономика и себестоимость партии #${batchId}</h3>
@@ -1018,7 +1106,6 @@
         </div>
 
         <div class="prod-details-grid">
-            
             <div class="prod-cost-cards">
                 <div class="prod-cost-card prod-cost-card-mat">
                     <div class="prod-cost-header">
@@ -1068,53 +1155,10 @@
                 </div>
             </div>
 
-            <div class="prod-mat-table-wrap">
-                <div class="prod-mat-header">
-                    <h4 class="prod-mat-title">📋 Фактическое списание сырья</h4>
-                    <span class="prod-mat-badge">Компонентов: ${materials.length}</span>
-                </div>
-                
-                <table class="prod-table-modern">
-                    <thead class="prod-th-styled">
-                        <tr>
-                            <th class="prod-th-styled border-bottom-dashed" >МАТЕРИАЛ</th>
-                            <th class="prod-th-styled prod-th-right border-bottom-dashed" >ОБЩИЙ РАСХОД</th>
-                            <th class="prod-th-styled prod-th-right border-bottom-dashed" >НА 1 ЕД.</th>
-                            <th class="prod-th-styled prod-th-right border-bottom-dashed" >ЦЕНА/КГ</th>
-                            <th class="prod-th-styled prod-th-right border-bottom-dashed" >СУММА (1 ЕД)</th>
-                            <th class="prod-th-styled prod-th-right border-bottom-dashed" >СУММА (ПАРТИЯ)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${materials.map(m => {
-                const qBatch = parseFloat(m.qty);
-                const qUnit = qBatch / plannedQty;
-                const costBatch = parseFloat(m.cost);
-                const costUnit = costBatch / plannedQty;
-                const pricePerKg = costBatch / qBatch;
-
-                return `
-                            <tr class="prod-tr-styled">
-                                <td class="prod-td-styled prod-mat-name">${Utils.escapeHtml(m.name)}</td>
-                                <td class="prod-td-styled prod-td-right">${qBatch.toFixed(2)} <small class="text-muted">${m.unit}</small></td>
-                                <td class="prod-td-styled prod-td-right text-primary">${qUnit.toFixed(3)} <small>${m.unit}</small></td>
-                                <td class="prod-td-styled prod-td-right text-muted font-12">${pricePerKg.toFixed(2)}</td>
-                                <td class="prod-td-styled prod-td-right font-bold text-muted">${costUnit.toFixed(2)} ₽</td>
-                                <td class="prod-td-styled prod-td-right font-bold text-danger">${Utils.formatMoney(costBatch)}</td>
-                            </tr>`;
-            }).join('')}
-                    </tbody>
-                    <tfoot class="prod-tfoot-styled">
-                        <tr>
-                            <td class="prod-tfoot-td">ИТОГО ПО СЫРЬЮ:</td>
-                            <td class="prod-tfoot-td prod-td-right">${totalWeightBatch.toFixed(2)} <small>кг</small></td>
-                            <td class="prod-tfoot-td prod-td-right text-primary">${totalWeightUnit.toFixed(3)} <small>кг</small></td>
-                            <td class="prod-tfoot-td"></td>
-                            <td class="prod-tfoot-td prod-td-right">${unitMatCost.toFixed(2)} ₽</td>
-                            <td class="prod-tfoot-td prod-td-right text-danger font-16">${Utils.formatMoney(matCost)}</td>
-                        </tr>
-                    </tfoot>
-                </table>
+            <div>
+                ${renderMaterialTable('🐘 2. Фактическое списание (Основной замес)', mainMats)}
+                ${renderMaterialTable('🐥 3. Фактическое списание (Лицевой замес)', faceMats)}
+                ${renderMaterialTable('📋 Фактическое списание сырья (Общее)', otherMats)}
             </div>
         </div>
     </div>

@@ -553,3 +553,11 @@ h4 {
     }
 }
 
+/* Custom Utilities */
+.border-base { border: 1px solid var(--border-color, var(--border)); }
+.border-warning-box { border: 1px solid var(--warning); }
+.grid-cols-4 { display: grid; grid-template-columns: repeat(4, 1fr); }
+.flex-col { display: flex; flex-direction: column; }
+.bg-success-lt { background-color: var(--success-bg) !important; color: var(--success-text) !important; }
+.bg-danger-lt { background-color: var(--danger-bg) !important; color: var(--danger-text) !important; }
+.radius-6 { border-radius: 6px; }
