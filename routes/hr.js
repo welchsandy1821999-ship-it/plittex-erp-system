@@ -353,21 +353,40 @@ module.exports = function (pool, withTransaction) {
     // 5. ЗАКРЫТИЕ ПЕРИОДА И ТЕХНИЧЕСКИЕ РОУТЫ
     // ==================================================================
 
-    // ОБНОВЛЕННЫЙ РОУТ: Получение выплат (улучшен сбор балансов)
+    // ОБНОВЛЕННЫЙ РОУТ: Получение выплат (улучшен сбор динамических балансов)
     router.get('/api/salary/balances', async (req, res) => {
         const { year, month } = req.query;
-        const monthStr = `${year}-${month}`;
+        let monthFilter = '';
+        let params = [];
+        if (year && month) {
+            monthFilter = `AND t.transaction_date <= $1::timestamp`;
+            params.push(`${year}-${month}-01`);
+        }
+        
         try {
-            // Запрос, который учитывает и активных, и уволенных, у которых есть долги/остатки
+            // Динамический расчет prev_balance (строго по транзакциям)
             const result = await pool.query(`
-            SELECT e.id, e.full_name, e.prev_balance, e.status, e.department,
-                   COALESCE(a.balance, 0) AS imprest_debt 
+            SELECT e.id, e.full_name, e.status, e.department,
+                   COALESCE(a.balance, 0) AS imprest_debt,
+                   COALESCE(
+                       (SELECT SUM(CASE 
+                            WHEN t.transaction_type = 'income' THEN t.amount 
+                            ELSE -t.amount 
+                          END) 
+                        FROM transactions t
+                        JOIN counterparties cp ON t.counterparty_id = cp.id
+                        WHERE cp.employee_id = e.id 
+                          AND t.category IN ('Начисление ЗП', 'Зарплата', 'Оплата труда', 'Зарплата и Авансы', 'Премии', 'Штрафы', 'Удержание из ЗП', 'Ввод начальных остатков')
+                          ${monthFilter}
+                          AND COALESCE(t.is_deleted, false) = false
+                       ), 0
+                   ) AS prev_balance
             FROM employees e
             LEFT JOIN accounts a ON a.employee_id = e.id AND a.type = 'imprest'
-            WHERE e.status = 'active' 
-               OR e.prev_balance != 0 
-               OR EXISTS (SELECT 1 FROM timesheet_records WHERE employee_id = e.id AND record_date >= $1::date AND record_date < ($1::date + interval '1 month'))
-        `, [monthStr + '-01']);
+            WHERE e.status = 'active'
+               OR EXISTS (SELECT 1 FROM transactions t2 JOIN counterparties cp2 ON t2.counterparty_id = cp2.id WHERE cp2.employee_id = e.id)
+               ${year && month ? `OR EXISTS (SELECT 1 FROM timesheet_records WHERE employee_id = e.id AND record_date >= $1::date AND record_date < ($1::date + interval '1 month'))` : ''}
+        `, params);
             res.json(result.rows);
         } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
@@ -403,11 +422,9 @@ module.exports = function (pool, withTransaction) {
                 const check = await client.query('SELECT 1 FROM closed_periods WHERE period_str = $1 AND module = $2', [monthStr, 'salary']);
                 if (check.rows.length > 0) throw new Error('Этот месяц уже закрыт.');
 
-                // Обновляем долг/переплату для КАЖДОГО сотрудника по точным данным с фронтенда
+                // Убрано обновление e.prev_balance в таблице employees, так как мы берем его теперь из транзакций динамически.
+                // Интеграция с Финансами: Формируем "Начисление ЗП" (Обязательство) для КАЖДОГО сотрудника по точным данным с фронтенда
                 for (let b of balances) {
-                    await client.query(`UPDATE employees SET prev_balance = $1 WHERE id = $2`, [b.balance, b.employee_id]);
-
-                    // Интеграция с Финансами: Формируем "Начисление ЗП" (Обязательство)
                     if (b.accrued && parseFloat(b.accrued) > 0) {
                         const cpRes = await client.query('SELECT id FROM counterparties WHERE employee_id = $1 LIMIT 1', [b.employee_id]);
                         if (cpRes.rows.length > 0) {
@@ -415,8 +432,8 @@ module.exports = function (pool, withTransaction) {
                             await client.query(`
                                 INSERT INTO transactions 
                                 (amount, transaction_type, category, description, counterparty_id, account_id, payment_method, transaction_date)
-                                VALUES ($1, 'income', 'Начисление ЗП', $2, $3, NULL, 'Взаимозачет', NOW())
-                            `, [b.accrued, 'Начислено за период: ' + monthStr, cpId]);
+                                VALUES ($1, 'income', 'Начисление ЗП', $2, $3, NULL, 'Взаимозачет', (date_trunc('month', $4::date) + interval '1 month' - interval '1 second')::timestamp)
+                            `, [b.accrued, 'Начислено за период: ' + monthStr, cpId, `${monthStr}-01`]);
                         }
                     }
                 }
@@ -451,13 +468,9 @@ module.exports = function (pool, withTransaction) {
                 const check = await client.query('SELECT 1 FROM closed_periods WHERE period_str = $1 AND module = $2', [monthStr, 'salary']);
                 if (check.rows.length === 0) throw new Error('Этот месяц не закрыт или уже был открыт.');
 
-                // А) Математический возврат баланса (Откатываем изменения, вычитая net_change этого месяца)
-                // Для каждого сотрудника из массива восстанавливаем старый баланс
-                for (let b of balances) {
-                    if (b.net_change !== undefined) {
-                        await client.query(`UPDATE employees SET prev_balance = prev_balance - $1 WHERE id = $2`, [b.net_change, b.employee_id]);
-                    }
-                }
+                // А) Удаление сгенерированных автоматических транзакций
+                // Описание у нас жестко фиксировано: "Начислено за период: YYYY-MM"
+                // Больше никаких откатов e.prev_balance не нужно, так как сальдо динамическое!
 
                 // Б) Удаление сгенерированных автоматических транзакций
                 // Описание у нас жестко фиксировано: "Начислено за период: YYYY-MM"

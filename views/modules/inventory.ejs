@@ -254,7 +254,7 @@
                     
                     <div class="form-group filter-item">
                         <label>Выбор товара (Другой):</label>
-                        <select id="history-item-switch" class="w-100" style="width: 100%;" placeholder="🔍 Введите товар..." onchange="switchHistoryItem()"></select>
+                        <select id="history-item-switch" class="w-100" placeholder="🔍 Введите товар..." onchange="switchHistoryItem()"></select>
                     </div>
                     
                     <div class="form-group filter-search">
@@ -264,7 +264,7 @@
                     </div>
                     
                     <div class="form-group filter-btn">
-                        <label style="visibility: hidden;">&nbsp;</label>
+                        <label class="opacity-0 no-pointer">&nbsp;</label>
                         <button class="btn btn-blue btn-sm w-100" onclick="fetchItemHistory()">🔄 Обновить</button>
                     </div>
                 </div>
@@ -281,7 +281,7 @@
                 <div id="history-table-foot" class="w-100">
                     <!-- JS Inject: Сальдо -->
                 </div>
-                <div class="w-100 d-flex" style="justify-content: flex-end;">
+                <div class="w-100 flex-row justify-end">
                     <button class="btn btn-outline" onclick="closeItemHistory()">Закрыть</button>
                 </div>
             </div>
@@ -371,7 +371,7 @@
     </div>
     <!-- Модальное окно: Внести излишки -->
     <div id="modal-surplus" class="modal-overlay d-none">
-        <div class="modal-content" style="max-width: 450px;">
+        <div class="modal-content modal-sm">
             <div class="modal-header p-15 border-bottom bg-surface flex-between align-center">
                 <h3 class="m-0 font-16">➕ Внести неучтенные излишки</h3>
                 <span class="modal-close font-24 cursor-pointer text-muted hover-red" onclick="UI.closeModal('modal-surplus')">&times;</span>

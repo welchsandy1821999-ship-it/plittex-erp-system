@@ -24,19 +24,23 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
 
     // ==========================================
+        // ==========================================
     // 0. СПРАВОЧНИК КАТЕГОРИЙ (Single Source of Truth)
     // ==========================================
     router.get('/api/finance/categories', async (req, res) => {
         try {
-            // Объединяем справочник и "дикие" категории из истории транзакций
+            // Выдаем полный плоский список (дерево соберет фронтенд)
+            // Но мы все еще объединяем "дикие" категории, которых нет в справочнике
             const result = await pool.query(`
-                SELECT name, type, cost_group FROM transaction_categories
+                SELECT id, name, type, cost_group, parent_id, is_archived, monthly_limit, false as is_wild
+                FROM transaction_categories
                 UNION
-                SELECT DISTINCT category as name, NULL as type, NULL as cost_group
+                SELECT NULL as id, category as name, MAX(transaction_type) as type, NULL as cost_group, NULL as parent_id, false as is_archived, 0 as monthly_limit, true as is_wild
                   FROM transactions
                  WHERE category IS NOT NULL AND category != ''
                    AND (is_deleted IS NULL OR is_deleted = false)
                    AND category NOT IN (SELECT name FROM transaction_categories)
+                 GROUP BY category
                 ORDER BY name
             `);
             res.json(result.rows);
@@ -46,10 +50,131 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
+    // Добавление новой категории
+    router.post('/api/finance/category-full', requireAdmin, async (req, res) => {
+        try {
+            const { name, type, cost_group, parent_id, monthly_limit } = req.body;
+            await pool.query(
+                'INSERT INTO transaction_categories (name, type, cost_group, parent_id, monthly_limit) VALUES ($1, $2, $3, $4, $5)', 
+                [name, type, cost_group || null, parent_id || null, monthly_limit || 0]
+            );
+            res.json({ success: true });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
+    });
+
+    // Обновление категории (редактирование)
+    router.put('/api/finance/category-full/:id', requireAdmin, async (req, res) => {
+        try {
+            const { name, type, cost_group, parent_id, monthly_limit } = req.body;
+            
+            await pool.query('BEGIN');
+            
+            const oldCatRes = await pool.query('SELECT name FROM transaction_categories WHERE id = $1', [req.params.id]);
+            if (oldCatRes.rows.length === 0) throw new Error('Category not found');
+            const oldName = oldCatRes.rows[0].name;
+            
+            await pool.query(
+                'UPDATE transaction_categories SET name=$1, type=$2, cost_group=$3, parent_id=$4, monthly_limit=$5 WHERE id=$6', 
+                [name, type, cost_group || null, parent_id || null, monthly_limit || 0, req.params.id]
+            );
+            
+            // Если переименовали, обновляем все исторические транзакции (чтобы не отвязались)
+            if (oldName !== name) {
+                await pool.query('UPDATE transactions SET category = $1 WHERE category = $2', [name, oldName]);
+            }
+            
+            await pool.query('COMMIT');
+            res.json({ success: true });
+        } catch (err) {
+            await pool.query('ROLLBACK');
+            logger.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
+    });
+
+    // Архивация или Разархивация
+    router.put('/api/finance/category-full/:id/archive', requireAdmin, async (req, res) => {
+        try {
+            const { is_archived } = req.body;
+            await pool.query('UPDATE transaction_categories SET is_archived = $1 WHERE id = $2', [is_archived, req.params.id]);
+            res.json({ success: true });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
+    });
+
+    // Smart Merge (Умное объединение дубликатов)
+    // Принимает source_names (массив имен, т.к. "дикие" транзакции привязаны по имени) 
+    // и target_name (имя категории в которую объединяем)
+    router.post('/api/finance/category-merge', requireAdmin, async (req, res) => {
+        try {
+            const { source_names, target_name } = req.body;
+            if (!target_name || !source_names || source_names.length === 0) {
+                return res.status(400).json({ error: 'Не переданы данные для объединения' });
+            }
+
+            await pool.query('BEGIN');
+
+            await pool.query(
+                'UPDATE transactions SET category = $2 WHERE category = ANY($1::varchar[])',
+                [source_names, target_name]
+            );
+
+            await pool.query(
+                'DELETE FROM transaction_categories WHERE name = ANY($1::varchar[]) AND name != $2',
+                [source_names, target_name]
+            );
+
+            await pool.query('COMMIT');
+            res.json({ success: true });
+        } catch (err) {
+            await pool.query('ROLLBACK');
+            logger.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка.' });
+        }
+    });
+
     // ==========================================
     // ==========================================
     // 1. ОТЧЕТ P&L (ДИНАМИЧЕСКИЙ МЕТОД СО СРЕДНЕВЗВЕШЕННОЙ COGS И ТАБЕЛЯМИ)
     // ==========================================
+    
+    // ==========================================
+    // СИНХРОНИЗАЦИЯ ОБЕЗЛИЧЕННЫХ ТРАНЗАКЦИЙ (Орфанов)
+    // ==========================================
+    router.get('/api/finance/orphans', requireAdmin, async (req, res) => {
+        try {
+            const result = await pool.query(`
+                SELECT t.id, t.transaction_date, t.amount, t.transaction_type, t.category, t.description 
+                FROM transactions t
+                WHERE t.counterparty_id IS NULL AND (t.is_deleted = false OR t.is_deleted IS NULL)
+                ORDER BY t.transaction_date DESC, t.id DESC
+            `);
+            res.json(result.rows);
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка при загрузке несинхронизированных транзакций.' });
+        }
+    });
+
+    router.post('/api/finance/bind-orphan', requireAdmin, async (req, res) => {
+        try {
+            const { transaction_id, counterparty_id } = req.body;
+            if (!transaction_id || !counterparty_id) {
+                return res.status(400).json({ error: 'ID транзакции и Контрагента обязательны.' });
+            }
+            await pool.query('UPDATE transactions SET counterparty_id = $1 WHERE id = $2', [counterparty_id, transaction_id]);
+            res.json({ success: true });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Возникла ошибка при привязке контрагента.' });
+        }
+    });
+
     router.get('/api/finance/pnl', async (req, res) => {
         let { start, end } = req.query;
 
@@ -603,6 +728,43 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         } catch (err) {
             logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
+    });
+
+    router.get('/api/counterparties/:id/corrections', authenticateToken, async (req, res) => {
+        try {
+            const result = await pool.query(`
+                SELECT id, amount, transaction_type, description, TO_CHAR(transaction_date, 'YYYY-MM-DD') as date
+                FROM transactions 
+                WHERE counterparty_id = $1 AND category = 'Корректировка долга' AND COALESCE(is_deleted, false) = false
+                ORDER BY transaction_date DESC, id DESC
+            `, [req.params.id]);
+            res.json(result.rows);
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Ошибка загрузки корректировок.' });
+        }
+    });
+
+    router.put('/api/finance/transactions/:id/description', requireAdmin, async (req, res) => {
+        try {
+            const txRes = await pool.query('UPDATE transactions SET description = $1 WHERE id = $2 RETURNING id', [req.body.description, req.params.id]);
+            if (txRes.rows.length === 0) return res.status(404).json({error: 'Транзакция не найдена'});
+            res.json({ success: true });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Ошибка обновления транзакции.' });
+        }
+    });
+
+    router.delete('/api/finance/transactions/:id', requireAdmin, async (req, res) => {
+        try {
+            const txRes = await pool.query('UPDATE transactions SET is_deleted = true WHERE id = $1 RETURNING counterparty_id', [req.params.id]);
+            if (txRes.rows.length === 0) return res.status(404).json({error: 'Транзакция не найдена'});
+            res.json({ success: true });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Ошибка удаления транзакции.' });
         }
     });
 

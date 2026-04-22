@@ -274,7 +274,7 @@
             currentAccounts = currentAccounts_;
             window.financeCategories = catData;
             window.erpCategories = window.financeCategories; // 🗂️ SSoT: синхронизируем глобальный справочник
-            financeCounterparties = cpData;
+            financeCounterparties = cpData; window.financeCounterparties = cpData;
             // Сбрасываем галочку "Выбрать всё" при смене страницы
             document.getElementById('selectAllCheckbox').checked = false;
 
@@ -820,12 +820,21 @@
     };
 
     window.openCategoriesModal = function () {
-        let listHtml = window.financeCategories.map(c => `
+        let listHtml = window.financeCategories.map(c => {
+            if (c.is_wild) {
+                return `
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid var(--border); background: var(--warning-bg);">
+            <span style="color: var(--warning-text);">⚠️ ${Utils.escapeHtml(c.name)} (Не из справочника)</span>
+            <button onclick="promptMergeCategory('${Utils.escapeHtml(c.name)}')" class="btn btn-outline p-5 font-12">Привязать</button>
+        </div>`;
+            } else {
+                return `
         <div style="display: flex; justify-content: space-between; padding: 8px; border-bottom: 1px solid var(--border);">
             <span>${c.type === 'income' ? '🟢' : '🔴'} ${Utils.escapeHtml(c.name)}</span>
             <button onclick="deleteCategory(${c.id})" style="color: var(--danger); border: none; background: none; cursor:pointer;">❌</button>
-        </div>
-    `).join('');
+        </div>`;
+            }
+        }).join('');
 
         const html = `
         <div style="margin-bottom: 15px; max-height: 250px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 5px;">${listHtml || '<div style="padding:10px; text-align:center;">Нет категорий</div>'}</div>
@@ -833,7 +842,37 @@
             <select id="new-cat-type" class="input-modern" style="width: 40%;"><option value="expense">Расход</option><option value="income">Доход</option></select>
             <input type="text" id="new-cat-name" class="input-modern" style="width: 60%;" placeholder="Название (напр. ГСМ)">
         </div>`;
-        UI.showModal('⚙️ Настройка статей ДДС', html, `<button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button><button class="btn btn-blue" onclick="addCategory()">➕ Добавить</button>`);
+        UI.showModal('⚙️ Настройка статей ДДС', html, `<button class="btn btn-outline text-warning border-warning" onclick="openOrphansModal()">⚠️ Обезличенные</button><button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button><button class="btn btn-blue" onclick="addCategory()">➕ Добавить</button>`);
+    };
+
+    window.promptMergeCategory = function(wildName) {
+        const validCats = window.financeCategories.filter(c => !c.is_wild);
+        const options = validCats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+        
+        UI.showModal('Привязка операции', `
+            <div class="mb-15">Все операции с категорией "<b>${wildName}</b>" будут перенесены в:</div>
+            <select id="merge-target-cat" class="input-modern w-100 mb-15">
+                ${options}
+            </select>
+        `, `
+            <button class="btn btn-outline" onclick="openCategoriesModal()">Отмена</button>
+            <button class="btn btn-blue" onclick="executeMergeCategory('${wildName}')">Привязать</button>
+        `);
+    };
+
+    window.executeMergeCategory = async function(wildName) {
+        const dictId = document.getElementById('merge-target-cat').value;
+        if(!dictId) return;
+        
+        UI.toast('Слияние...', 'info');
+        try {
+            await API.post('/api/finance/categories-merge', { wildName, dictId });
+            UI.toast('Категория успешно привязана!', 'success');
+            await loadFinanceData();
+            openCategoriesModal();
+        } catch(err) {
+            UI.toast(err.error || 'Ошибка слияния', 'error');
+        }
     };
 
     window.addCategory = async function () {
@@ -1278,6 +1317,12 @@
                 if (btnElement) btnElement.disabled = false;
                 return UI.toast('Контрагент не найден. Выберите из списка!', 'warning');
             }
+        }
+
+        const lowerCat = category ? category.toLowerCase() : '';
+        if (lowerCat && (lowerCat.includes('зарплата') || lowerCat.includes('продажа') || lowerCat.includes('закупка') || lowerCat.includes('заемн') || lowerCat.includes('займ')) && !counterparty_id) {
+            if (btnElement) btnElement.disabled = false;
+            return UI.toast('Для данной категории обязательно укажите Контрагента!', 'error');
         }
 
         if (!amount || amount <= 0) {
@@ -3481,62 +3526,177 @@
         }
     };
 
-    window.openCorrectionModal = function (cpId) {
+            window.openCorrectionModal = async function (cpId) {
         const html = `
-        <div class="form-group" style="margin-bottom: 15px;">
-            <label>Дата корректировки:</label>
-            <input type="date" id="corr-date" class="input-modern" value="${new Date().toISOString().split('T')[0]}">
-        </div>
-        <div class="form-group" style="margin-bottom: 15px;">
-            <label>Тип корректировки (Отношение к нам):</label>
-            <select id="corr-type" class="input-modern" style="font-weight: bold;">
-                <option value="expense">📈 Клиент должен нам (+ Увеличить его долг)</option>
-                <option value="income">📉 Мы должны клиенту (+ Увеличить наш долг)</option>
-            </select>
-        </div>
-        <div class="form-group" style="margin-bottom: 15px;">
-            <label>Сумма корректировки (₽):</label>
-            <input type="number" id="corr-amount" class="input-modern" placeholder="Например: 50000" style="font-size: 18px;">
-        </div>
-        <div class="form-group">
-            <label>Комментарий (Отобразится в Акте сверки):</label>
-            <input type="text" id="corr-desc" class="input-modern" value="Ввод начальных остатков">
+        <div class="correction-layout">
+            <div class="correction-form-pane">
+                <h4 class="crm-block-header mb-15">➕ Добавить корректировку</h4>
+                <div class="form-group mb-15">
+                    <label>Дата корректировки:</label>
+                    <input type="date" id="corr-date" class="input-modern" value="${new Date().toISOString().split('T')[0]}">
+                </div>
+                <div class="form-group mb-15">
+                    <label>Тип корректировки (Отношение к нам):</label>
+                    <select id="corr-type" class="input-modern bold-green">
+                        <option value="expense">📈 Клиент должен нам (+ Увеличить его долг)</option>
+                        <option value="income">📉 Мы должны клиенту (+ Увеличить наш долг)</option>
+                    </select>
+                </div>
+                <div class="form-group mb-15">
+                    <label>Сумма корректировки (₽):</label>
+                    <input type="number" id="corr-amount" class="input-modern" placeholder="Например: 50000">
+                </div>
+                <div class="form-group mb-15">
+                    <label>Комментарий (Отобразится в Акте сверки):</label>
+                    <input type="text" id="corr-desc" class="input-modern" value="Ввод начальных остатков">
+                </div>
+                <button class="btn btn-blue w-full" onclick="executeCorrection(${cpId})">💾 Применить корректировку</button>
+            </div>
+            <div class="correction-history-pane">
+                <h4 class="crm-block-header mb-15">📜 История корректировок</h4>
+                <div id="corrections-history-container" class="correction-history-container">
+                    <div class="empty-history">Загрузка истории...</div>
+                </div>
+            </div>
         </div>
     `;
-        UI.showModal('⚖️ Корректировка сальдо', html, `
-        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-        <button class="btn btn-blue" onclick="executeCorrection(${cpId})">💾 Применить корректировку</button>
-    `);
+        UI.showModal('⚖️ Управление балансом и корректировки', html, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>
+    `, false, '800px');
+        
         setTimeout(() => {
             ['corr-type'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el && !el.tomselect) new TomSelect(el, { plugins: ['clear_button'], dropdownParent: 'body' });
             });
+            loadCorrectionsHistory(cpId);
         }, 50);
     };
 
+    window.loadCorrectionsHistory = async function(cpId) {
+        const container = document.getElementById('corrections-history-container');
+        if (!container) return;
+        try {
+            const data = await API.get(`/api/counterparties/${cpId}/corrections`);
+            if (data.length === 0) {
+                container.innerHTML = '<div class="empty-history">История корректировок пуста</div>';
+                return;
+            }
+            
+            let tableHtml = `<table class="erp-table">
+                <thead>
+                    <tr>
+                        <th>Дата</th>
+                        <th>Сумма</th>
+                        <th>Комментарий</th>
+                        <th class="table-cell-actions">Действия</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+                
+            data.forEach(item => {
+                const sign = item.transaction_type === 'expense' ? '+' : '-';
+                const colorClass = item.transaction_type === 'expense' ? 'bold-green' : 'bold-red';
+                tableHtml += `
+                    <tr>
+                        <td>${Utils.formatDate(item.date)}</td>
+                        <td class="${colorClass}">${sign} ${Utils.formatMoney(item.amount)}</td>
+                        <td>${item.description || '-'}</td>
+                        <td class="table-cell-actions">
+                            <button class="btn btn-icon text-primary" onclick="editCorrectionComment(${item.id}, '${item.description || ''}', ${cpId})" title="Изменить комментарий">✏️</button>
+                            <button class="btn btn-icon text-red" onclick="deleteCorrection(${item.id}, ${cpId})" title="Удалить корректировку">🗑️</button>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            tableHtml += `</tbody></table>`;
+            container.innerHTML = tableHtml;
+        } catch (e) {
+            container.innerHTML = '<div class="empty-history" style="color: var(--red);">Ошибка загрузки истории</div>';
+            console.error(e);
+        }
+    };
+    
+    window.editCorrectionComment = function(txId, oldDesc, cpId) {
+        const html = `
+            <div class="form-group mb-15">
+                <label>Новый комментарий:</label>
+                <input type="text" id="edit-corr-desc" class="input-modern" value="${oldDesc}">
+            </div>
+        `;
+        
+        UI.showModal('✏️ Изменение комментария', html, `
+            <button class="btn btn-outline" onclick="openCorrectionModal(${cpId})">Отмена</button>
+            <button class="btn btn-blue" onclick="executeEditCorrectionComment(${txId}, ${cpId})">💾 Сохранить</button>
+        `);
+    };
+    
+    window.executeEditCorrectionComment = async function(txId, cpId) {
+        const descInput = document.getElementById('edit-corr-desc');
+        if (!descInput) return;
+        
+        const newComment = descInput.value.trim();
+        try {
+            await API.put(`/api/finance/transactions/${txId}/description`, { description: newComment });
+            UI.toast('✅ Комментарий обновлен', 'success');
+            
+            // Если мы находимся в каком-то родительском профиле, перезагружаем его перед возвратом к Коррекциям
+            if (typeof loadFinanceData === 'function') loadFinanceData();
+            if (typeof openCounterpartyProfile === 'function') openCounterpartyProfile(cpId);
+            
+            // Снова открываем окошко корректировок
+            openCorrectionModal(cpId);
+        } catch (e) {
+            UI.toast(e.message || 'Ошибка обновления', 'error');
+        }
+    };
+
+    window.deleteCorrection = function(txId, cpId) {
+        UI.showModal('⚠️ Удаление корректировки', 'Вы уверены, что хотите удалить эту корректировку? Баланс контрагента будет пересчитан.', `
+            <button class="btn btn-outline" onclick="openCorrectionModal(${cpId})">Отмена</button>
+            <button class="btn btn-red" onclick="executeDeleteCorrection(${txId}, ${cpId})">🗑️ Удалить</button>
+        `);
+    };
+    
+    window.executeDeleteCorrection = async function(txId, cpId) {
+        try {
+            await API.delete(`/api/finance/transactions/${txId}`);
+            UI.toast('✅ Корректировка удалена', 'success');
+            
+            // Если мы находимся в каком-то родительском профиле, перезагружаем его перед возвратом к Коррекциям
+            if (typeof loadFinanceData === 'function') loadFinanceData();
+            if (typeof openCounterpartyProfile === 'function') openCounterpartyProfile(cpId);
+            
+            // Снова открываем окошко корректировок
+            openCorrectionModal(cpId);
+        } catch (e) {
+            UI.toast(e.message || 'Ошибка удаления', 'error');
+        }
+    };
+
     window.executeCorrection = async function (cpId) {
-        const amount = parseFloat(document.getElementById('corr-amount').value);
+        const amountElement = document.getElementById('corr-amount');
+        const amount = parseFloat(amountElement.value);
         const type = document.getElementById('corr-type').value;
         const date = document.getElementById('corr-date').value;
         const desc = document.getElementById('corr-desc').value.trim();
 
-        // Валидация (сохранена полностью)
         if (!amount || amount <= 0) return UI.toast('Укажите корректную сумму', 'warning');
 
         try {
-            // 🚀 Выполняем запрос через обертку API
             await API.post(`/api/counterparties/${cpId}/correction`, {
-                amount,
-                type,
-                date,
-                description: desc
+                amount, type, date, description: desc
             });
 
-            // Если выполнение дошло сюда — запрос успешен (HTTP 200)
             UI.toast('✅ Баланс успешно скорректирован!', 'success');
+            
+            // Очищаем форму добавления
+            amountElement.value = '';
+            
+            // Обновляем историю в модалке
+            loadCorrectionsHistory(cpId);
 
-            // 🔄 Обновляем интерфейс (Не упрощаем: сохраняем оба вызова)
             if (typeof openCounterpartyProfile === 'function') {
                 openCounterpartyProfile(cpId);
             }
@@ -3545,7 +3705,6 @@
             }
 
         } catch (e) {
-            // 🚀 ИСПРАВЛЕНИЕ: Теперь любая ошибка бэкенда будет показана пользователю
             console.error("Ошибка при корректировке баланса:", e);
             UI.toast(e.message || 'Ошибка при выполнении корректировки', 'error');
         }
@@ -4287,4 +4446,409 @@
     if (typeof renderInvoicesTable === 'function') window.renderInvoicesTable = renderInvoicesTable;
     if (typeof parse1CStatement === 'function') window.parse1CStatement = parse1CStatement;
     if (typeof renderFinanceCharts === 'function') window.renderFinanceCharts = renderFinanceCharts;
+
+window.openOrphansModal = async function() {
+        try {
+            const res = await API.get('/api/finance/orphans');
+            const orphans = res.data || res;
+            
+            if (!orphans || orphans.length === 0) {
+                return UI.toast('Отлично! Обезличенных транзакций не найдено.', 'success');
+            }
+
+            let selectHtml = '<select class="input-modern orphan-cp-select"><option value="">-- Выберите контрагента --</option>';
+            window.financeCounterparties.forEach(cp => {
+                selectHtml += `<option value="${cp.id}">${Utils.escapeHtml(cp.name)}</option>`;
+            });
+            selectHtml += '</select>';
+
+            let rows = orphans.map(tx => `
+                <tr>
+                    <td>${new Date(tx.transaction_date).toLocaleDateString()}</td>
+                    <td>${tx.category || ''}</td>
+                    <td>${Utils.escapeHtml(tx.description || '')}</td>
+                    <td class="${tx.transaction_type==='income'?'text-success':'text-danger'}">${Utils.formatMoney(tx.amount)} ₽</td>
+                    <td>
+                        <div style="display:flex; gap: 5px;">
+                            ${selectHtml.replace('orphan-cp-select', 'orphan-cp-select input-modern w-100')}
+                            <button class="btn btn-blue" onclick="bindOrphan(${tx.id}, this)">✔</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+
+            const html = `
+            <div style="margin-bottom: 15px; color: var(--text-muted)">
+                Найдены транзакции без владельца. Выберите Контрагента для каждой, чтобы восстановить сальдо.
+            </div>
+            <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                <table class="table" style="font-size: 13px;">
+                    <thead><tr><th>Дата</th><th>Категория</th><th>Описание</th><th>Сумма</th><th>Контрагент</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`;
+
+            UI.showModal('⚠️ Обезличенные транзакции', html, '<button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>');
+        } catch(e) {
+            UI.toast('Ошибка загрузки', 'error');
+            console.error(e);
+        }
+    };
+
+window.bindOrphan = async function(txId, btnElement) {
+        const select = btnElement.previousElementSibling;
+        const cpId = select.value;
+        if (!cpId) return UI.toast('Выберите контрагента!', 'warning');
+        
+        try {
+            await API.post('/api/finance/bind-orphan', { transaction_id: txId, counterparty_id: cpId });
+            UI.toast('Успешно привязано!', 'success');
+            btnElement.closest('tr').remove();
+            await loadFinanceData();
+        } catch(e) {
+            UI.toast('Ошибка', 'error');
+        }
+    };
 })();
+
+
+// ==========================================
+// УМНЫЙ СПРАВОЧНИК ДДС (Cashflow Dictionary)
+// ==========================================
+
+window.switchFinanceTab = function(tab) {
+    if(tab === 'ops') {
+        document.getElementById('fin-view-ops').classList.remove('d-none');
+        document.getElementById('fin-view-dict').classList.add('d-none');
+        document.getElementById('fin-tab-ops').className = 'btn btn-blue';
+        document.getElementById('fin-tab-dict').className = 'btn btn-outline';
+    } else {
+        document.getElementById('fin-view-ops').classList.add('d-none');
+        document.getElementById('fin-view-dict').classList.remove('d-none');
+        document.getElementById('fin-tab-ops').className = 'btn btn-outline';
+        document.getElementById('fin-tab-dict').className = 'btn btn-blue';
+        loadFinanceDictionary();
+    }
+}
+
+window.financeCategoriesFull = [];
+
+window.loadFinanceDictionary = async function() {
+    try {
+        const data = await API.get('/api/finance/categories');
+        window.financeCategoriesFull = data;
+        renderFinanceDictionary(data);
+    } catch(e) {
+        console.error(e);
+        UI.toast('Ошибка загрузки справочника', 'error');
+    }
+}
+
+window.currentDictTypeFilter = 'all';
+
+window.setDictTypeFilter = function(type) {
+    window.currentDictTypeFilter = type;
+    document.querySelectorAll('.dict-type-btn').forEach(b => {
+        b.classList.remove('btn-blue', 'btn-outline-success', 'btn-outline-danger');
+        b.classList.add('btn-outline');
+        if(b.id === 'dict-tab-type-income') b.classList.add('text-success');
+        if(b.id === 'dict-tab-type-expense') b.classList.add('text-danger');
+    });
+
+    const activeBtn = document.getElementById('dict-tab-type-' + type);
+    if(activeBtn) {
+        activeBtn.classList.remove('btn-outline', 'text-success', 'text-danger');
+        if(type === 'all') activeBtn.classList.add('btn-blue');
+        if(type === 'income') activeBtn.classList.add('btn-success');
+        if(type === 'expense') activeBtn.classList.add('btn-danger');
+    }
+    
+    if (window.financeCategoriesFull) {
+        renderFinanceDictionary(window.financeCategoriesFull);
+    }
+}
+
+window.renderFinanceDictionary = function(data) {
+    const tbody = document.getElementById('fin-dict-tbody');
+    if(!tbody) return;
+    
+    let dataToRender = data;
+    if (window.currentDictTypeFilter && window.currentDictTypeFilter !== 'all') {
+        dataToRender = data.filter(c => c.type === window.currentDictTypeFilter);
+    }
+    
+    const parents = [];
+    const childrenMap = {};
+    const parentsIds = new Set();
+    
+    dataToRender.forEach(c => {
+        if (!c.parent_id) {
+            parents.push(c);
+            parentsIds.add(c.id);
+        } else {
+            if (!childrenMap[c.parent_id]) childrenMap[c.parent_id] = [];
+            childrenMap[c.parent_id].push(c);
+        }
+    });
+
+    dataToRender.forEach(c => {
+        if (c.parent_id && !parentsIds.has(c.parent_id)) {
+            parents.push(c);
+            parentsIds.add(c.id);
+        }
+    });
+    
+    let html = '';
+    
+    function renderRow(c, level) {
+        const isArchived = c.is_archived;
+        const opacity = isArchived ? 'opacity: 0.6;' : '';
+        const dirBadge = c.type === 'income' ? '<span class="badge badge-success">🟢 Доход</span>' : 
+                         c.type === 'expense' ? '<span class="badge badge-danger">🔴 Расход</span>' : 
+                         '<span class="badge bg-gray">⚪ Н/Д</span>';
+        const costBadge = c.type === 'income' ? '<span class="text-muted">-</span>' : 
+                          c.cost_group === 'cogs' ? '<span class="badge badge-info">Прямые (COGS)</span>' :
+                          c.cost_group === 'capital' ? '<span class="badge badge-primary">Капитал (CAPEX)</span>' :
+                          (c.cost_group === 'overhead' || c.cost_group === 'opex') ? '<span class="badge badge-warning">Косвенные (OPEX)</span>' :
+                          '-';
+        const wildBadge = c.is_wild ? '<span class="badge badge-warning font-10">⚠️ (Дикая)</span>' : '';
+        
+        let indentHtml = '';
+        if (level > 0) {
+            indentHtml = `<span style="display:inline-block; width: ${level * 20}px;"></span><span class="text-muted mr-10">└─</span> `;
+        }
+        
+        html += `
+            <tr style="${opacity}">
+                <td class="text-center"><input type="checkbox" class="fin-cat-checkbox" value="${Utils.escapeHtml(c.name)}" /></td>
+                <td>
+                    ${indentHtml}<b>${Utils.escapeHtml(c.name)}</b> ${wildBadge}
+                    ${isArchived ? '<span class="badge bg-gray ml-5">Архив</span>' : ''}
+                </td>
+                <td class="text-center">${dirBadge}</td>
+                <td class="text-center">${costBadge}</td>
+                <td class="text-right">${c.monthly_limit > 0 ? Utils.formatCurrency(c.monthly_limit) : '-'}</td>
+                <td class="text-center">
+                    <button class="btn btn-sm btn-outline" title="${isArchived ? 'Разархивировать' : 'В архив'}" onclick="toggleArchiveCategory(${c.id}, ${!isArchived})">${isArchived ? '🟢' : '📦'}</button>
+                </td>
+                <td class="text-center">
+                    <button class="btn btn-sm btn-outline text-primary" onclick='editCategoryModal(${JSON.stringify(c).replace(/\'/g, "&#39;")})'>✏️</button>
+                </td>
+            </tr>
+        `;
+        
+        if (childrenMap[c.id]) {
+            childrenMap[c.id].forEach(child => renderRow(child, level + 1));
+        }
+    }
+    
+    parents.forEach(p => renderRow(p, 0));
+    
+    if(dataToRender.length === 0) {
+        html = '<tr><td colspan="7" class="text-center">Справочник пуст</td></tr>';
+    }
+    
+    tbody.innerHTML = html;
+}
+
+window.toggleSelectAllCategories = function(el) {
+    const checkboxes = document.querySelectorAll('.fin-cat-checkbox');
+    checkboxes.forEach(cb => cb.checked = el.checked);
+}
+
+window.openCategoryEditModal = function() {
+    editCategoryModal({ id: null, name: '', type: 'expense', cost_group: 'overhead', parent_id: null, monthly_limit: 0 });
+}
+
+window.editCategoryModal = function(c) {
+    const isNew = !c.id && !c.is_wild;
+    
+    // Если "дикая" статья (была создана из транзакции, id = null), 
+    // то при сохранении мы сделаем POST (создадим полноценную статью в базе).
+    const method = (c.id) ? 'PUT' : 'POST';
+    const endpoint = (c.id) ? `/api/finance/category-full/${c.id}` : `/api/finance/category-full`;
+
+    const html = `
+        <div class="form-group">
+            <label>Название статьи</label>
+            <input type="text" id="cat-edit-name" class="input-modern" value="${Utils.escapeHtml(c.name)}">
+        </div>
+        <div class="form-group form-grid">
+            <div>
+                <label>Направление</label>
+                <select id="cat-edit-type" class="input-modern" onchange="window.toggleCatEditCostGroup(); window.updateParentCategoryOptions();">
+                    <option value="expense" ${c.type==='expense'?'selected':''}>🔴 Расход</option>
+                    <option value="income" ${c.type==='income'?'selected':''}>🟢 Доход</option>
+                </select>
+            </div>
+            <div id="cat-edit-cost-wrapper">
+                <label>Тип затрат (Группа)</label>
+                <select id="cat-edit-cost" class="input-modern">
+                    <option value="overhead" ${c.cost_group==='overhead'?'selected':''}>Косвенные (OPEX)</option>
+                    <option value="cogs" ${c.cost_group==='cogs'?'selected':''}>Прямые (COGS)</option>
+                    <option value="capital" ${c.cost_group==='capital'?'selected':''}>Капитал (CAPEX)</option>
+                </select>
+            </div>
+        </div>
+        </div>
+        <div class="form-group form-grid">
+            <div class="form-group mb-0">
+                <label>Родительская статья (Подкатегория)</label>
+                <select id="cat-edit-parent" class="input-modern" data-current-parent="${c.parent_id || ''}" data-current-id="${c.id || ''}">
+                    <!-- Options populated by JS -->
+                </select>
+            </div>
+            <div class="form-group mb-0">
+                <label>Месячный лимит (Опционально)</label>
+                <input type="number" id="cat-edit-limit" class="input-modern" value="${c.monthly_limit || 0}">
+            </div>
+        </div>
+    `;
+
+    UI.showModal(isNew ? '➕ Новая статья' : '✏️ Редактировать статью', html, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-blue" onclick="saveCategoryEdit('${endpoint}', '${method}')">💾 Сохранить</button>
+    `);
+    
+    setTimeout(() => {
+        if(typeof window.toggleCatEditCostGroup === 'function') {
+            window.toggleCatEditCostGroup();
+        }
+        if(typeof window.updateParentCategoryOptions === 'function') {
+            window.updateParentCategoryOptions();
+        }
+    }, 50);
+}
+
+window.toggleCatEditCostGroup = function() {
+    const typeSelect = document.getElementById('cat-edit-type');
+    const wrapper = document.getElementById('cat-edit-cost-wrapper');
+    const costSelect = document.getElementById('cat-edit-cost');
+    if (typeSelect && wrapper && costSelect) {
+        if (typeSelect.value === 'income') {
+            wrapper.classList.add('d-none');
+            costSelect.disabled = true;
+        } else {
+            wrapper.classList.remove('d-none');
+            costSelect.disabled = false;
+        }
+    }
+}
+
+window.updateParentCategoryOptions = function() {
+    const parentSelect = document.getElementById('cat-edit-parent');
+    const typeSelect = document.getElementById('cat-edit-type');
+    if (!parentSelect || !typeSelect) return;
+    
+    const currentType = typeSelect.value;
+    const currentParentId = parentSelect.getAttribute('data-current-parent');
+    const currentCategoryId = parentSelect.getAttribute('data-current-id');
+    
+    let optionsHtml = '<option value="">-- Нет (Корневая статья) --</option>';
+    
+    // Получаем список потенциальных родителей
+    let potentialParents = (window.financeCategoriesFull || [])
+        .filter(cat => !cat.is_wild && !cat.is_archived && cat.type === currentType && cat.id != currentCategoryId);
+        
+    potentialParents.forEach(cat => {
+        const isSelected = (String(cat.id) === String(currentParentId)) ? 'selected' : '';
+        optionsHtml += `<option value="${cat.id}" ${isSelected}>${Utils.escapeHtml(cat.name)}</option>`;
+    });
+    
+    parentSelect.innerHTML = optionsHtml;
+}
+
+window.saveCategoryEdit = async function(endpoint, method) {
+    const name = document.getElementById('cat-edit-name').value.trim();
+    if(!name) return UI.toast('Введите название', 'error');
+    
+    try {
+        const payload = {
+            name: name,
+            type: document.getElementById('cat-edit-type').value,
+            cost_group: document.getElementById('cat-edit-cost').value,
+            parent_id: document.getElementById('cat-edit-parent').value || null,
+            monthly_limit: document.getElementById('cat-edit-limit').value
+        };
+        const methodLower = String(method).toLowerCase();
+        await API[methodLower](endpoint, payload);
+        
+        UI.closeModal();
+        UI.toast('Успешно сохранено', 'success');
+        loadFinanceDictionary();
+    } catch(e) {
+        UI.toast(e.message || 'Ошибка', 'error');
+    }
+}
+
+window.toggleArchiveCategory = async function(id, is_archived) {
+    if(!id) return UI.toast('Эту "дикую" статью сначала нужно сохранить', 'info');
+    if(!confirm(is_archived ? 'Отправить категорию в архив?' : 'Разархивировать категорию?')) return;
+    try {
+        await API.put(`/api/finance/category-full/${id}/archive`, { is_archived });
+        UI.toast('Статус изменен', 'success');
+        loadFinanceDictionary();
+    } catch(e) {
+        UI.toast('Ошибка', 'error');
+    }
+}
+
+window.openCategoryMergeModal = function() {
+    const checkboxes = document.querySelectorAll('.fin-cat-checkbox:checked');
+    if(checkboxes.length === 0) return UI.toast('Выберите галочками статьи (дубликаты) для объединения', 'error');
+
+    const sourceNames = Array.from(checkboxes).map(c => c.value);
+    
+    // Определяем тип (доход/расход) по первой выбранной категории
+    const firstSource = window.financeCategoriesFull.find(c => c.name === sourceNames[0]);
+    const targetType = firstSource ? firstSource.type : null;
+    
+    let targetOptionsList = window.financeCategoriesFull.filter(c => !c.is_wild && !c.is_archived);
+    if (targetType) {
+        targetOptionsList = targetOptionsList.filter(c => c.type === targetType);
+    }
+    
+    let targetOptions = targetOptionsList.map(c => 
+        `<option value="${Utils.escapeHtml(c.name)}">${Utils.escapeHtml(c.name)}</option>`
+    ).join('');
+
+    const html = `
+        <p>Будет произведено <b>слияние</b> следующих статей (и всех их транзакций):</p>
+        <div style="background: var(--surface-alt); padding: 10px; margin-bottom: 15px; border-radius: 6px;">
+            ${sourceNames.map(n => '<span class="badge bg-gray mr-5 mb-5">'+Utils.escapeHtml(n)+'</span>').join('')}
+        </div>
+        <div class="form-group">
+            <label>В какую (главную) статью их перенести?</label>
+            <select id="merge-target-name" class="input-modern">
+                <option value="">-- Выберите целевую статью --</option>
+                ${targetOptions}
+            </select>
+            <small class="text-danger mt-10 d-block">Внимание! Исторические транзакции будут перезаписаны. Дубликаты будут удалены из справочника навсегда.</small>
+        </div>
+    `;
+
+    UI.showModal('🖇️ Smart Merge (Умное объединение)', html, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-red" onclick="executeCategoryMerge('${sourceNames.join('|||')}')">🔄 Выполнить слияние</button>
+    `);
+}
+
+window.executeCategoryMerge = async function(sourceNamesStr) {
+    const targetName = document.getElementById('merge-target-name').value;
+    const sourceNames = sourceNamesStr.split('|||');
+    
+    if(!targetName) return UI.toast('Выберите целевую статью', 'error');
+    
+    try {
+        await API.post('/api/finance/category-merge', { source_names: sourceNames, target_name: targetName });
+        UI.toast('Успешное слияние дубликатов!', 'success');
+        UI.closeModal();
+        loadFinanceDictionary();
+    } catch(e) {
+        UI.toast(e.message || 'Ошибка слияния', 'error');
+    }
+}
+
+    
+
+    

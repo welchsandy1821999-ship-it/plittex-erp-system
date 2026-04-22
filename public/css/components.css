@@ -799,4 +799,45 @@ progress.progress-red::-moz-progress-bar { background-color: var(--danger); }
 progress.progress-gray::-webkit-progress-value { background-color: #cbd5e1; }
 progress.progress-gray::-moz-progress-bar { background-color: #cbd5e1; }
 
-
+
+.text-decoration-none { text-decoration: none !important; }
+
+/* Корректировка сальдо: Компоненты */
+.correction-layout {
+    display: flex;
+    gap: 20px;
+}
+.correction-form-pane {
+    flex: 1;
+}
+.correction-history-pane {
+    flex: 1.5;
+    border-left: 1px solid var(--border-color);
+    padding-left: 20px;
+}
+.correction-history-container {
+    max-height: 400px;
+    overflow-y: auto;
+}
+.empty-history {
+    text-align: center;
+    padding: 20px;
+    color: var(--text-muted);
+}
+.table-cell-actions {
+    text-align: center;
+    width: 80px;
+}
+.mb-15 {
+    margin-bottom: 15px;
+}
+.bold-green {
+    font-weight: bold;
+    color: var(--primary);
+}
+.bold-red {
+    font-weight: bold;
+    color: var(--red);
+}
+
+.mt-auto { margin-top: auto !important; }

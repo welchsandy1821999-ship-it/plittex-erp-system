@@ -2,7 +2,10 @@
     <div class="flex-between align-end mb-20">
         <div>
             <h2 class="mt-0 mb-0">💰 Финансы и Касса</h2>
-            <p class="text-muted mt-0 font-13">Учет доходов, расходов и общая аналитика</p>
+            <div class="flex-row gap-10 mt-10">
+                <button id="fin-tab-ops" class="btn btn-blue" onclick="switchFinanceTab('ops')">📊 Операции</button>
+                <button id="fin-tab-dict" class="btn btn-outline" onclick="switchFinanceTab('dict')">⚙️ Справочник ДДС</button>
+            </div>
         </div>
 
         <div class="finance-toolbar flex-row align-center">
@@ -12,6 +15,7 @@
         </div>
     </div>
 
+    <div id="fin-view-ops">
     <div class="account-grid" id="accounts-container"></div>
     <div class="summary-grid mb-20" id="finance-summary-boxes"></div>
 
@@ -54,7 +58,7 @@
         </div>
         <div class="toolbar-group">
             <button class="btn btn-outline" onclick="openCounterpartiesModal()">👥 Контрагенты</button>
-            <button class="btn btn-outline" onclick="openCategoriesModal()">⚙️ Статьи ДДС</button>
+            
         </div>
     </div>
 
@@ -151,4 +155,43 @@
         </div>
         <button id="finance-btn-next" class="btn btn-outline btn-sm" onclick="changeFinancePage(1)">Вперед ➡</button>
     </div>
+
+    </div> <!-- end of fin-view-ops -->
+
+    <!-- СПРАВОЧНИК ДДС ВИД (DICTIONARY VIEW) -->
+    <div id="fin-view-dict" class="d-none">
+        <div class="flex-between mb-20">
+            <h3 class="m-0">Управление статьями доходов и расходов</h3>
+            <div class="toolbar-group">
+                <button class="btn btn-outline text-warning" onclick="openCategoryMergeModal()">🖇️ Объединить дубликаты</button>
+                <button class="btn btn-outline border-warning text-warning" onclick="openOrphansModal()">⚠️ Обезличенные</button>
+                <button class="btn btn-blue" onclick="openCategoryEditModal()">➕ Добавить статью</button>
+            </div>
+        </div>
+
+        <div class="toolbar-group mb-15 card-alt p-10">
+            <button id="dict-tab-type-all" class="btn btn-blue dict-type-btn" onclick="setDictTypeFilter('all')">📋 Все статьи</button>
+            <button id="dict-tab-type-income" class="btn btn-outline btn-outline-success dict-type-btn" onclick="setDictTypeFilter('income')">🟢 Доходы</button>
+            <button id="dict-tab-type-expense" class="btn btn-outline btn-outline-danger dict-type-btn" onclick="setDictTypeFilter('expense')">🔴 Расходы</button>
+        </div>
+
+        <div class="card p-0 overflow-hidden">
+            <table class="finance-table w-100" id="fin-dict-table">
+                <thead class="bg-surface-alt">
+                    <tr>
+                        <th class="w-5 text-center"><input type="checkbox" id="finCatSelectAll" onchange="toggleSelectAllCategories(this)"></th>
+                        <th class="text-left w-30">Название статьи</th>
+                        <th class="text-center w-15">Направление</th>
+                        <th class="text-center w-15">Тип затрат</th>
+                        <th class="text-right w-15">Лимит (мес)</th>
+                        <th class="text-center w-10">Статус</th>
+                        <th class="text-center w-10">⚙️</th>
+                    </tr>
+                </thead>
+                <tbody id="fin-dict-tbody">
+                    <!-- Загружается через JS -->
+                </tbody>
+            </table>
+        </div>
+    </div> <!-- end of fin-view-dict -->
 </div>

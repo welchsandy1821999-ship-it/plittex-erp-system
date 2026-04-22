@@ -376,13 +376,21 @@ window.loadMonthlyTimesheet = async function () {
 
     try {
         // Запускаем все 5 запросов к серверу ОДНОВРЕМЕННО
-        const [closedData, tsData, payData, statsData, adjData] = await Promise.all([
+        const [closedData, tsData, payData, statsData, adjData, balancesData] = await Promise.all([
             API.get(`/api/salary/is-closed?monthStr=${year}-${month}`),
             API.get(`/api/timesheet/month?year=${year}&month=${month}`),
             API.get(`/api/salary/payments?year=${year}&month=${month}`),
             API.get(`/api/salary/stats?year=${year}&month=${month}`),
-            API.get(`/api/salary/adjustments?monthStr=${year}-${month}`)
+            API.get(`/api/salary/adjustments?monthStr=${year}-${month}`),
+            API.get(`/api/salary/balances?year=${year}&month=${month}`)
         ]);
+
+        if (balancesData && currentEmployees) {
+            balancesData.forEach(b => {
+                const emp = currentEmployees.find(e => e.id === b.id);
+                if (emp) emp.prev_balance = b.prev_balance;
+            });
+        }
 
         window.currentMonthStatus = closedData;
         currentMonthRecords = tsData;
@@ -614,6 +622,8 @@ window.renderTimesheetMatrix = function (year, month) {
     const payDepFilter = document.getElementById('pay-dep-filter')?.value || 'all';
     const paySearchTerm = (document.getElementById('pay-search-input')?.value || '').toLowerCase();
 
+    let tfootTotals = { accrued: 0, prevBalance: 0, tax: 0, advance: 0, extra: 0, payout: 0 };
+
     currentEmployees.forEach(emp => {
         let earnedToday = 0;
 
@@ -680,6 +690,13 @@ window.renderTimesheetMatrix = function (year, month) {
         const matchSearch = emp.full_name.toLowerCase().includes(paySearchTerm) || emp.position.toLowerCase().includes(paySearchTerm);
 
         if (matchDep && matchSearch) {
+            tfootTotals.accrued += earnedToday;
+            tfootTotals.prevBalance += prevBalance;
+            tfootTotals.tax += finalTax;
+            tfootTotals.advance += advances;
+            tfootTotals.extra += adjSum;
+            tfootTotals.payout += availableToPay;
+
             let advancesHtml = `<span class="text-muted">0 ₽</span>`;
             if (advances > 0) advancesHtml = `<span class="text-primary text-underline cursor-pointer font-bold" onclick="openAdvancesDetails(${emp.id}, '${Utils.escapeHtml(emp.full_name)}')">-${Utils.formatMoney(advances).replace(" ₽","")} ₽</span>`;
 
@@ -782,6 +799,16 @@ window.renderTimesheetMatrix = function (year, month) {
 
     const tbodyPayouts = document.getElementById('payouts-table-body');
     if (tbodyPayouts) tbodyPayouts.innerHTML = payoutsHtml;
+
+    const tfootAccrued = document.getElementById('payout_total_accrued');
+    if(tfootAccrued) {
+        document.getElementById('payout_total_accrued').innerText = `${Utils.formatMoney(tfootTotals.accrued).replace(" ₽","")} ₽`;
+        document.getElementById('payout_total_prev_balance').innerText = `${tfootTotals.prevBalance > 0 ? '+' : ''}${Utils.formatMoney(tfootTotals.prevBalance).replace(" ₽","")} ₽`;
+        document.getElementById('payout_total_tax').innerText = `-${Utils.formatMoney(tfootTotals.tax).replace(" ₽","")} ₽`;
+        document.getElementById('payout_total_advance').innerText = `-${Utils.formatMoney(tfootTotals.advance).replace(" ₽","")} ₽`;
+        document.getElementById('payout_total_extra').innerText = `${tfootTotals.extra > 0 ? '+' : ''}${Utils.formatMoney(tfootTotals.extra).replace(" ₽","")} ₽`;
+        document.getElementById('payout_total_pay').innerText = `${Utils.formatMoney(tfootTotals.payout).replace(" ₽","")} ₽`;
+    }
 
     renderEmployeesTable();
 };

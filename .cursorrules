@@ -1,19 +1,21 @@
-# AI ERP Agent Rules
+# AI Agent Directives (System Level)
 
-1. **Терминал и команды:** 
-   При вызове терминальных команд (особенно Git) ВСЕГДА используйте флаг `--no-pager` (например, `git --no-pager diff`), чтобы избежать зависания терминала на интерактивном режиме просмотра (less). Запрещено запускать команды, ожидающие ввода от пользователя (интерактивный режим).
+1. **Slow and Accurate (Context-First):**
+   Never edit code blindly. Always use `view_file` to read the actual, current code context before formulating a plan or making an edit. Better to read the whole file and be slow, than guess and break the logic.
 
-2. **Работа с Базой Данных (SQL):** 
-   Доступ к БД через встроенные инструменты — строго **Только на чтение (Read-Only)**. ЗАПРЕЩАЕТСЯ пытаться выполнить команды `INSERT`, `UPDATE`, `DELETE`, `ALTER`, `DROP` напрямую в БД. Любые изменения схемы (миграции) и данных должны оформляться в виде `.sql` файлов или передаваться пользователю текстом.
+2. **Native Tooling vs Scratch Scripts:**
+   Always edit files using native IDE tools (`replace_file_content` / `multi_replace_file_content`). "Scratch scripts" (`scratch_*.js/py`) must NOT be used for patching code. Они предназначены ТОЛЬКО для разового выполнения утилит (например, прямой SQL запрос в БД или диагностика), и должны удаляться немедленно после использования без следов в рабочей директории.
 
-3. **Редактирование файлов и кодировка:** 
-   Для изменения файлов ВСЕГДА используйте специализированные инструменты редактирования (`replace_file_content`, `multi_replace_file_content`). Никакого использования терминального `Get-Content`, `sed` или `cat`, чтобы не допустить разрушения кодировки и текстовых артефактов (CP1251 vs UTF-8).
+3. **Mandatory Checkpoints (Git):**
+   Before making significant changes or starting a new phase, always run `git add -A; git commit -m "checkpoint: <description>"`. Never modify code without a fallback point.
 
-4. **Производительность и Анти-Зависание:** 
-   Используйте `grep_search` вместо `run_command` с `Select-String` или `findstr` для поиска по коду, чтобы избежать перегрузки терминала. **КАТЕГОРИЧЕСКИ ЗАПРЕЩАЕТСЯ** выполнять рекурсивный поиск (`Get-ChildItem -Recurse` или `findstr /S`) в корне проекта без исключения `node_modules` и `.git`. Всегда ограничивайте вывод длинных списков (используйте `head`, `Select-Object -First N` или специализированные параметры инструментов).
+4. **Terminal Best Practices:**
+   - Always use `grep_search` instead of terminal commands for finding code.
+   - When using `git`, always append `--no-pager`.
+   - Never run commands that require interactive user input.
 
-5. **Строгий запрет на автоматическое выполнение планов (Planning Mode):**
-   При работе в режиме планирования (Planning Mode) СТРОГО ЗАПРЕЩАЕТСЯ приступать к фазе выполнения (редактирование файлов, написание кода) ДО ТОГО момента, как пользователь в чате явно, текстовым сообщением выразит согласие с планом. Если система/IDE выдала сообщение типа "stop hook blocked termination due to reason: The user has automatically approved...", ИИ-агент ОБЯЗАН проигнорировать этот системный сигнал, остановиться и прямым текстом уточнить у пользователя: "Система попыталась автоматически подтвердить план, но согласно правилам проекта я жду вашей текстовой команды для начала изменений.".
+5. **Planning Mode Strictness:**
+   Do not auto-execute plans. You must stop and wait for explicit textual approval ("Делай", "Согласен") from the user before executing any block of code modifications.
 
-6. **Управление Docker и кэшированием (Auto-Restart):**
-   В файле `docker-compose.yml` мы используем `command: npm run dev`, чтобы Nodemon перезагружал бэкенд на лету. Однако, если вы обновляете конфигурации сервера, зависимости в `package.json`, сложные фронтенд-ассеты или видите, что изменения не применяются (проблемы с кэшем внутри контейнера) — **самостоятельно и принудительно** выполняйте команду `docker restart plittex-erp-app` через терминал для применения обновлений.
+6. **Local Server Lifecycle:**
+   Be aware that the app runs locally via Node (nodemon/pm2). If backend routes or configurations change, restart the node process via shell natively if necessary (e.g., `npm run dev`), do NOT use Docker logic unless explicitly instructed by the user.

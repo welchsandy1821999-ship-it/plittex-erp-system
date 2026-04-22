@@ -283,7 +283,7 @@
         `).join('');
 
             let addHtml = `
-            <div class="prod-inline-add mt-10 pt-10 border-top">
+            <div class="prod-inline-add mt-auto pt-10 border-top">
                 <div class="form-group mb-5">
                     <label class="label-sm text-muted">➕ Добавить сырье (вне шаблона):</label>
                 </div>
