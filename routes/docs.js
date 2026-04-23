@@ -363,12 +363,12 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
                 FROM inventory_movements m
                 JOIN client_order_items coi ON m.linked_order_item_id = coi.id
                 JOIN client_orders co ON coi.order_id = co.id
-                WHERE co.counterparty_id = $1 AND m.movement_date BETWEEN $2 AND $3 AND m.movement_type = 'sales_shipment'
+                WHERE co.counterparty_id = $1 AND m.movement_date::date >= $2::date AND m.movement_date::date <= $3::date AND m.movement_type = 'sales_shipment'
                 GROUP BY m.description, m.movement_date
                 UNION ALL
                 SELECT amount, 'income' as transaction_type, 'Поставка сырья' as category, 
                        description, TO_CHAR(movement_date, 'DD.MM.YYYY') as date, movement_date as sort_date
-                FROM inventory_movements WHERE supplier_id = $1 AND movement_date BETWEEN $2 AND $3 AND movement_type = 'purchase'
+                FROM inventory_movements WHERE supplier_id = $1 AND movement_date::date >= $2::date AND movement_date::date <= $3::date AND movement_type = 'purchase'
             `;
             const transactions = await pool.query(`
                 SELECT * FROM (${queries}) AS combined
