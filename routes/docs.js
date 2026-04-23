@@ -359,12 +359,12 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
                   AND COALESCE(payment_method, '') != 'Взаимозачет'
                 UNION ALL
                 SELECT SUM(ABS(m.quantity) * coi.price) as amount, 'expense' as transaction_type, 'Отгрузка продукции' as category, 
-                       m.description as description, TO_CHAR(m.movement_date, 'DD.MM.YYYY') as date, m.movement_date as sort_date
+                       m.description as description, TO_CHAR(COALESCE(m.movement_date, m.created_at), 'DD.MM.YYYY') as date, COALESCE(m.movement_date, m.created_at) as sort_date
                 FROM inventory_movements m
                 JOIN client_order_items coi ON m.linked_order_item_id = coi.id
                 JOIN client_orders co ON coi.order_id = co.id
-                WHERE co.counterparty_id = $1 AND m.movement_date::date >= $2::date AND m.movement_date::date <= $3::date AND m.movement_type = 'sales_shipment'
-                GROUP BY m.description, m.movement_date
+                WHERE co.counterparty_id = $1 AND COALESCE(m.movement_date, m.created_at)::date >= $2::date AND COALESCE(m.movement_date, m.created_at)::date <= $3::date AND m.movement_type = 'sales_shipment'
+                GROUP BY m.description, COALESCE(m.movement_date, m.created_at)
                 UNION ALL
                 SELECT amount, 'income' as transaction_type, 'Поставка сырья' as category, 
                        description, TO_CHAR(movement_date, 'DD.MM.YYYY') as date, movement_date as sort_date
