@@ -423,17 +423,41 @@ module.exports = function (pool, withTransaction) {
                 if (check.rows.length > 0) throw new Error('Этот месяц уже закрыт.');
 
                 // Убрано обновление e.prev_balance в таблице employees, так как мы берем его теперь из транзакций динамически.
-                // Интеграция с Финансами: Формируем "Начисление ЗП" (Обязательство) для КАЖДОГО сотрудника по точным данным с фронтенда
+                // Интеграция с Финансами: Формируем "Начисление ЗП" (Обязательство), Налоги и Корректировки для КАЖДОГО сотрудника
                 for (let b of balances) {
-                    if (b.accrued && parseFloat(b.accrued) > 0) {
-                        const cpRes = await client.query('SELECT id FROM counterparties WHERE employee_id = $1 LIMIT 1', [b.employee_id]);
-                        if (cpRes.rows.length > 0) {
-                            const cpId = cpRes.rows[0].id;
+                    const cpRes = await client.query('SELECT id FROM counterparties WHERE employee_id = $1 LIMIT 1', [b.employee_id]);
+                    if (cpRes.rows.length > 0) {
+                        const cpId = cpRes.rows[0].id;
+                        
+                        // 1. Начисление ЗП
+                        if (b.accrued && parseFloat(b.accrued) > 0) {
                             await client.query(`
                                 INSERT INTO transactions 
                                 (amount, transaction_type, category, description, counterparty_id, account_id, payment_method, transaction_date)
                                 VALUES ($1, 'income', 'Начисление ЗП', $2, $3, NULL, 'Взаимозачет', (date_trunc('month', $4::date) + interval '1 month' - interval '1 second')::timestamp)
                             `, [b.accrued, 'Начислено за период: ' + monthStr, cpId, `${monthStr}-01`]);
+                        }
+
+                        // 2. Удержание Налога
+                        if (b.tax && parseFloat(b.tax) > 0) {
+                            await client.query(`
+                                INSERT INTO transactions 
+                                (amount, transaction_type, category, description, counterparty_id, account_id, payment_method, transaction_date)
+                                VALUES ($1, 'expense', 'Удержание из ЗП', $2, $3, NULL, 'Взаимозачет', (date_trunc('month', $4::date) + interval '1 month' - interval '1 second')::timestamp)
+                            `, [parseFloat(b.tax).toFixed(2), 'Удержан налог за период: ' + monthStr, cpId, `${monthStr}-01`]);
+                        }
+
+                        // 3. Корректировки (adjSum)
+                        if (b.adjSum && parseFloat(b.adjSum) !== 0) {
+                            const adj = parseFloat(b.adjSum);
+                            const tType = adj > 0 ? 'income' : 'expense';
+                            const tCat = adj > 0 ? 'Премии' : 'Удержание из ЗП';
+                            
+                            await client.query(`
+                                INSERT INTO transactions 
+                                (amount, transaction_type, category, description, counterparty_id, account_id, payment_method, transaction_date)
+                                VALUES ($1, $2, $3, $4, $5, NULL, 'Взаимозачет', (date_trunc('month', $6::date) + interval '1 month' - interval '1 second')::timestamp)
+                            `, [Math.abs(adj).toFixed(2), tType, tCat, 'Доп. корректировки за период: ' + monthStr, cpId, `${monthStr}-01`]);
                         }
                     }
                 }
