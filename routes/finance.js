@@ -581,7 +581,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     COALESCE(SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END), 0) as total_paid_to_us,
                     COALESCE(SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END), 0) as total_paid_to_them
                 FROM transactions 
-                WHERE counterparty_id = $1 AND COALESCE(is_deleted, false) = false AND category != 'Зачёт аванса'
+                WHERE counterparty_id = $1 AND COALESCE(is_deleted, false) = false AND category != 'Зачёт аванса' AND COALESCE(payment_method, '') != 'Взаимозачет'
             `, [cpId]);
 
             const finances = finRes.rows[0];
@@ -607,14 +607,18 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             const transRes = await pool.query(`
                 SELECT amount, transaction_type, category, description, 
                        TO_CHAR(transaction_date, 'DD.MM.YYYY HH24:MI') as date, 'money' as origin
-                FROM transactions WHERE counterparty_id = $1 AND COALESCE(is_deleted, false) = false AND category != 'Зачёт аванса'
+                FROM transactions WHERE counterparty_id = $1 AND COALESCE(is_deleted, false) = false AND category != 'Зачёт аванса' AND COALESCE(payment_method, '') != 'Взаимозачет'
             `, [cpId]);
 
             // 2. НАШИ ОТГРУЗКИ (Продажи клиентам)
             const ordersRes = await pool.query(`
-                SELECT total_amount as amount, 'expense' as transaction_type, 'Отгрузка продукции' as category, 
-                       'Заказ №' || doc_number as description, TO_CHAR(created_at, 'DD.MM.YYYY') as date, 'goods' as origin
-                FROM client_orders WHERE counterparty_id = $1 AND status = 'completed'
+                SELECT SUM(ABS(m.quantity) * coi.price) as amount, 'expense' as transaction_type, 'Отгрузка продукции' as category, 
+                       m.description as description, TO_CHAR(m.movement_date, 'DD.MM.YYYY') as date, 'goods' as origin 
+                FROM inventory_movements m 
+                JOIN client_order_items coi ON m.linked_order_item_id = coi.id 
+                JOIN client_orders co ON coi.order_id = co.id 
+                WHERE co.counterparty_id = $1 AND m.movement_type = 'sales_shipment' 
+                GROUP BY m.description, m.movement_date
             `, [cpId]);
 
             // 3. ИХ ПОСТАВКИ НАМ (Закупки у поставщиков)
