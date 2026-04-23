@@ -354,7 +354,9 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
             const queries = `
                 SELECT amount, transaction_type, category, description, 
                        TO_CHAR(transaction_date, 'DD.MM.YYYY') as date, transaction_date as sort_date
-                FROM transactions WHERE counterparty_id = $1 AND transaction_date BETWEEN $2 AND $3 AND COALESCE(is_deleted, false) = false
+                FROM transactions WHERE counterparty_id = $1 AND transaction_date BETWEEN $2 AND $3 
+                  AND COALESCE(is_deleted, false) = false
+                  AND COALESCE(payment_method, '') != 'Взаимозачет'
                 UNION ALL
                 SELECT total_amount as amount, 'expense' as transaction_type, 'Отгрузка продукции' as category, 
                        'Заказ №' || doc_number as description, TO_CHAR(created_at, 'DD.MM.YYYY') as date, created_at as sort_date

@@ -56,9 +56,13 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 // Подготавливаем строку для SQL (ровно 2 знака после запятой)
                 const amountStr = offsetAmount.toFixed(2);
 
-                // 3. УДАЛЕНО: фантомные транзакции Взаимозачета создавали дубли в актах сверки.
-                // Глобальный баланс вычисляется по формуле Отгрузки-Наличные. Уменьшая долг заказа, 
-                // мы связываем отгрузки и аванс без создания фальшивых транзакций.
+                // 3. ВОССТАНОВЛЕНО: Финансовая проводка взаимозачета для целостности главной книги.
+                // payment_method = 'Взаимозачет' — маркер технической операции.
+                // Акт сверки фильтрует эти проводки во избежание задвоения.
+                await client.query(`
+                    INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, linked_order_id, transaction_date)
+                    VALUES ($1, 'income', 'Взаимозачет аванса', $2, 'Взаимозачет', NULL, $3, $4, NOW())
+                `, [amountStr, `Взаимозачет по заказу ${docNum}`, cpId, orderId]);
 
                 // 4. Отражение взаимозачета в заказе
                 await client.query(`
@@ -441,6 +445,15 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
                 // 3. Зачитываем сумму
                 const offsetAmount = Math.min(freeAdvance, pendingDebt);
+                const offsetAmountStr = offsetAmount.toFixed(2);
+
+                // 3a. Финансовая проводка взаимозачета для целостности главной книги.
+                // payment_method = 'Взаимозачет' — маркер технической операции.
+                // Акт сверки фильтрует эти проводки во избежание задвоения.
+                await client.query(`
+                    INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, linked_order_id, transaction_date)
+                    VALUES ($1, 'income', 'Взаимозачет аванса', $2, 'Взаимозачет', NULL, $3, $4, NOW())
+                `, [offsetAmountStr, `Зачет свободного аванса в заказ #${orderId}`, counterpartyId, orderId]);
 
                 // 4. Обновляем заказ
                 await client.query(`
@@ -448,7 +461,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     SET paid_amount = paid_amount + $1, 
                         pending_debt = GREATEST(pending_debt - $1, 0)
                     WHERE id = $2
-                `, [offsetAmount, orderId]);
+                `, [offsetAmountStr, orderId]);
                 
             });
 
