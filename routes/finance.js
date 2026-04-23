@@ -603,45 +603,39 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             if (cpRes.rows.length === 0) return res.status(404).json({ error: 'Контрагент не найден' });
             const cp = cpRes.rows[0];
 
-            // 1. ВСЕ ПЛАТЕЖИ (Транзакции)
-            const transRes = await pool.query(`
-                SELECT amount, transaction_type, category, description, 
-                       TO_CHAR(transaction_date, 'DD.MM.YYYY HH24:MI') as date, 'money' as origin
+            const queries = `
+                SELECT amount, transaction_type, category, description,
+                       TO_CHAR(transaction_date, 'DD.MM.YYYY HH24:MI') as date, 'money' as origin, transaction_date as sort_date
                 FROM transactions WHERE counterparty_id = $1 AND COALESCE(is_deleted, false) = false AND category != 'Зачёт аванса' AND COALESCE(payment_method, '') != 'Взаимозачет'
-            `, [cpId]);
-
-            // 2. НАШИ ОТГРУЗКИ (Продажи клиентам)
-            const ordersRes = await pool.query(`
-                SELECT SUM(ABS(m.quantity) * coi.price) as amount, 'expense' as transaction_type, 'Отгрузка продукции' as category, 
-                       m.description as description, TO_CHAR(m.movement_date, 'DD.MM.YYYY') as date, 'goods' as origin 
-                FROM inventory_movements m 
-                JOIN client_order_items coi ON m.linked_order_item_id = coi.id 
-                JOIN client_orders co ON coi.order_id = co.id 
-                WHERE co.counterparty_id = $1 AND m.movement_type = 'sales_shipment' 
-                GROUP BY m.description, m.movement_date
-            `, [cpId]);
-
-            // 3. ИХ ПОСТАВКИ НАМ (Закупки у поставщиков)
-            // Комментарий: Читаем сумму из новой колонки amount в inventory_movements
-            const purchaseRes = await pool.query(`
-                SELECT amount, 'income' as transaction_type, 'Поставка сырья' as category, 
-                       description, TO_CHAR(movement_date, 'DD.MM.YYYY') as date, 'goods' as origin
+                UNION ALL
+                SELECT SUM(ABS(m.quantity) * coi.price) as amount, 'expense' as transaction_type, 'Отгрузка продукции' as category,
+                       m.description as description, TO_CHAR(COALESCE(m.movement_date, m.created_at), 'DD.MM.YYYY') as date, 'goods' as origin, COALESCE(m.movement_date, m.created_at) as sort_date
+                FROM inventory_movements m
+                JOIN client_order_items coi ON m.linked_order_item_id = coi.id
+                JOIN client_orders co ON coi.order_id = co.id
+                WHERE co.counterparty_id = $1 AND m.movement_type = 'sales_shipment'
+                GROUP BY m.description, COALESCE(m.movement_date, m.created_at)
+                UNION ALL
+                SELECT amount, 'income' as transaction_type, 'Поставка сырья' as category,
+                       description, TO_CHAR(COALESCE(movement_date, created_at), 'DD.MM.YYYY') as date, 'goods' as origin, COALESCE(movement_date, created_at) as sort_date
                 FROM inventory_movements WHERE supplier_id = $1 AND movement_type = 'purchase'
-            `, [cpId]);
-
-            const timeline = [...transRes.rows, ...ordersRes.rows, ...purchaseRes.rows].sort((a, b) => {
-                return new Date(b.date.split('.').reverse().join('-')) - new Date(a.date.split('.').reverse().join('-'));
-            });
+            `;
+            const timelineRes = await pool.query(`SELECT * FROM (${queries}) AS combined ORDER BY sort_date DESC`, [cpId]);
+            const timeline = timelineRes.rows;
 
             // УНИВЕРСАЛЬНАЯ ФОРМУЛА САЛЬДО ERP:
             let ourShipments = new Big(0); let ourPayments = new Big(0);
             let theirShipments = new Big(0); let theirPayments = new Big(0);
 
-            ordersRes.rows.forEach(o => ourShipments = ourShipments.plus(o.amount));
-            purchaseRes.rows.forEach(p => theirShipments = theirShipments.plus(p.amount));
-            transRes.rows.forEach(t => {
-                if (t.transaction_type === 'expense') ourPayments = ourPayments.plus(t.amount);
-                else theirPayments = theirPayments.plus(t.amount);
+            timeline.forEach(item => {
+                const amt = new Big(item.amount);
+                if (item.origin === 'goods') {
+                    if (item.transaction_type === 'expense') ourShipments = ourShipments.plus(amt);
+                    else theirShipments = theirShipments.plus(amt);
+                } else if (item.origin === 'money') {
+                    if (item.transaction_type === 'expense') ourPayments = ourPayments.plus(amt);
+                    else theirPayments = theirPayments.plus(amt);
+                }
             });
 
             // Положительное сальдо: должны НАМ. Отрицательное: должны МЫ.
