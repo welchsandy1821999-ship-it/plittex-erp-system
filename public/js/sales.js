@@ -19,7 +19,16 @@ let histYear = new Date().getFullYear();
 let histSpecificDate = new Date().toISOString().split('T')[0];
 let histCustomStart = ''; 
 let histCustomEnd = '';   
-let historyDateRange = { start: '', end: '' }; 
+let historyDateRange = { start: '', end: '' };
+
+/** Для API.get: контрагент удалён в другой вкладке / 404 с бэкенда. */
+function isCounterpartyNotFoundError(e) {
+    if (!e) return false;
+    const m = String(e.message || '');
+    if (/404|не найден|not found/i.test(m)) return true;
+    if (e.body && e.body.error && /не найден|not found|404/i.test(String(e.body.error))) return true;
+    return false;
+}
 
 function initSales() {
 
@@ -56,8 +65,7 @@ window.switchSalesTab = function (tabId, btn) {
 // === ЗАГРУЗКА КАСС/БАНКОВ ===
 async function loadSalesAccounts() {
     try {
-        const res = await fetch('/api/accounts');
-        const accounts = await res.json();
+        const accounts = await API.get('/api/accounts');
         const sel = document.getElementById('sale-account');
         if (!sel) return;
         sel.innerHTML = '<option value="">-- Выберите кассу --</option>';
@@ -71,13 +79,8 @@ async function loadSalesAccounts() {
 async function loadFinanceTaxPercent() {
     if (window.FINANCE_TAX_PERCENT) return; // Уже установлена из dashboard
     try {
-        const res = await fetch('/api/settings/finance');
-        if (res.ok) {
-            const data = await res.json();
-            window.FINANCE_TAX_PERCENT = parseFloat(data.sales_tax) || 6;
-        } else {
-            window.FINANCE_TAX_PERCENT = 6;
-        }
+        const data = await API.get('/api/settings/finance');
+        window.FINANCE_TAX_PERCENT = parseFloat(data.sales_tax) || 6;
     } catch (e) { window.FINANCE_TAX_PERCENT = 6; }
 }
 
@@ -115,8 +118,7 @@ window.loadClientContracts = async function (cpId) {
     }
 
     try {
-        const res = await fetch(`/api/counterparties/${id}/contracts`);
-        const data = await res.json();
+        const data = await API.get(`/api/counterparties/${id}/contracts`);
 
         if (contractSelect) {
             contractSelect.innerHTML = '<option value="">-- Разовая продажа (Без договора) --</option>';
@@ -172,41 +174,34 @@ window.onClientChange = async function () {
 
     try {
         // Комментарий к блоку: Запрос профиля клиента с сервера
-        const res = await fetch(`/api/counterparties/${cpId}/profile`);
-
-        // Комментарий к блоку: Обработка ошибки 404 (клиент был удален в другой вкладке)
-        if (!res.ok) {
-            UI.toast('Контрагент не найден (возможно, был удален). Обновляем список...', 'warning');
-
-            // Запускаем нашу новую умную функцию очистки (без перезагрузки всей страницы)
-            if (typeof syncClientsDropdown === 'function') {
-                await syncClientsDropdown();
+        let data;
+        try {
+            data = await API.get(`/api/counterparties/${cpId}/profile`);
+        } catch (e) {
+            if (isCounterpartyNotFoundError(e)) {
+                UI.toast('Контрагент не найден (возможно, был удален). Обновляем список...', 'warning');
+                if (typeof syncClientsDropdown === 'function') {
+                    await syncClientsDropdown();
+                }
+                if (clientSelect && clientSelect.tomselect) {
+                    clientSelect.tomselect.setValue('', true);
+                } else if (clientSelect) {
+                    clientSelect.value = '';
+                }
+                if (infoBox) infoBox.classList.add('d-none');
+                if (contractGroup) contractGroup.classList.add('d-none');
+                return;
             }
-
-            // Сбрасываем выбор в поле поиска
-            if (clientSelect && clientSelect.tomselect) {
-                clientSelect.tomselect.setValue('', true);
-            } else if (clientSelect) {
-                clientSelect.value = '';
-            }
-
-            // Прячем блоки
-            if (infoBox) infoBox.classList.add('d-none');
-            if (contractGroup) contractGroup.classList.add('d-none');
-            return;
+            throw e;
         }
 
-        const data = await res.json();
         const client = data.info;
 
         // ЗАГРУЗКА АВАНСА КЛИЕНТА ПЕРЕД ОТРИСОВКОЙ (Для расчета Net Debt)
         let availableAdvance = 0;
         try {
-            const balRes = await fetch(`/api/counterparties/${cpId}/balance`);
-            if (balRes.ok) {
-                const balData = await balRes.json();
-                availableAdvance = parseFloat(balData.availableAdvance) || 0;
-            }
+            const balData = await API.get(`/api/counterparties/${cpId}/balance`);
+            availableAdvance = parseFloat(balData.availableAdvance) || 0;
         } catch (e) { console.error('Ошибка загрузки аванса клиента:', e); }
         window.CLIENT_AVAILABLE_ADVANCE = availableAdvance;
 
@@ -302,8 +297,7 @@ window.onClientChange = async function () {
 // === ОТКРЫТИЕ CRM-КАРТОЧКИ КЛИЕНТА ПРЯМО ИЗ ПРОДАЖ ===
 window.openClientEditor = async function (id) {
     try {
-        const res = await fetch(`/api/counterparties/${id}/profile`);
-        const data = await res.json();
+        const data = await API.get(`/api/counterparties/${id}/profile`);
         const c = data.info;
 
         const isDealer = c.price_level === 'dealer';
@@ -391,23 +385,12 @@ window.saveClientProfile = async function (id) {
     if (data.phone && !Utils.isValidPhone(data.phone)) return UI.toast('Некорректный номер телефона (минимум 10 цифр).', 'warning');
 
     try {
-        const res = await fetch(`/api/counterparties/${id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-
-        if (res.ok) {
-            UI.closeModal();
-            UI.toast('✅ Карточка успешно обновлена', 'success');
-
-            // Принудительно выбираем этого же клиента, чтобы перерисовать измененные данные
-            await syncClientsDropdown(id);
-            await loadSalesData(false);
-        } else {
-            UI.toast('Ошибка при сохранении', 'error');
-        }
-    } catch (e) { console.error(e); UI.toast('Ошибка соединения', 'error'); }
+        await API.put(`/api/counterparties/${id}`, data);
+        UI.closeModal();
+        UI.toast('✅ Карточка успешно обновлена', 'success');
+        await syncClientsDropdown(id);
+        await loadSalesData(false);
+    } catch (e) { /* ошибка: UI.toast из API */ }
 };
 
 // === ПЕЧАТЬ АКТА СВЕРКИ (С ВЫБОРОМ ДАТ) ===
@@ -452,8 +435,7 @@ window.loadClientPoas = async function (explicitCpId = null, targetSelectId = 's
     if (!poaSelect) return;
 
     try {
-        const res = await fetch(`/api/counterparties/${cpId}/poas`);
-        const data = await res.json();
+        const data = await API.get(`/api/counterparties/${cpId}/poas`);
         let defaultText = targetSelectId === 'oms-poa' ? 'Лично / Без доверенности' : '-- Выберите доверенность --';
         poaSelect.innerHTML = `<option value="">${defaultText}</option>`;
         data.forEach(poa => {
@@ -667,15 +649,12 @@ window.saveNewPoa = async function (cpId, targetSelectId = 'sale-poa') {
     if (!driver || !num || !issue || !expiry) return UI.toast('Заполните все поля!', 'warning');
     if (new Date(expiry) < new Date(issue)) return UI.toast('Дата окончания не может быть раньше даты выдачи!', 'error');
 
-    const res = await fetch('/api/poas', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ counterparty_id: cpId, driver_name: driver, number: num, issue_date: issue, expiry_date: expiry })
-    });
-    if (res.ok) {
+    try {
+        await API.post('/api/poas', { counterparty_id: cpId, driver_name: driver, number: num, issue_date: issue, expiry_date: expiry });
         UI.toast('Доверенность добавлена', 'success');
         loadClientPoas(cpId, targetSelectId);
         UI.closeModal();
-    }
+    } catch (e) { /* API — тост */ }
 };
 
 window.printSelectedContract = function () {
@@ -690,8 +669,7 @@ window.printSelectedContract = function () {
 // 1. Исправленная синхронизация клиентов (без рекурсии)
 window.syncClientsDropdown = async function (forceSelectId = null) {
     try {
-        const res = await fetch('/api/counterparties');
-        const clients = await res.json();
+        const clients = await API.get('/api/counterparties');
         const clientSel = document.getElementById('sale-client');
 
         if (!clientSel) return;
@@ -725,8 +703,7 @@ async function loadSalesData(fullLoad = true) {
         if (fullLoad) {
             await syncClientsDropdown(); // Сначала клиенты
 
-            const accRes = await fetch('/api/accounts');
-            const accounts = await accRes.json();
+            const accounts = await API.get('/api/accounts');
             const accSel = document.getElementById('sale-account');
             if (accSel) {
                 if (accSel.tomselect) {
@@ -739,14 +716,12 @@ async function loadSalesData(fullLoad = true) {
                 }
             }
 
-            const prodRes = await fetch('/api/products');
-            const products = await prodRes.json();
+            const products = await API.get('/api/products');
             window.salesProductsInfo = {};
             products.forEach(p => salesProductsInfo[String(p.id)] = p);
         }
 
-        const invRes = await fetch('/api/inventory');
-        const inventory = await invRes.json();
+        const inventory = await API.get('/api/inventory');
         stockMap = {};
 
         // DEBUG: показать какие типы складов пришли из API
@@ -2009,8 +1984,7 @@ async function loadSalesHistory() {
     }).toString();
 
     try {
-        const res = await fetch(`/api/sales/history?${query}`);
-        const data = await res.json();
+        const data = await API.get(`/api/sales/history?${query}`);
 
         // Предполагаем, что сервер возвращает { data: [], totalPages: X }
         allSalesHistory = data.data || data;
@@ -2133,8 +2107,7 @@ window.executeCancelShipment = async function (docNum) {
 window.openPriceListModal = async function () {
     UI.toast('Загрузка прайс-листа...', 'info');
     try {
-        const res = await fetch('/api/products');
-        const products = await res.json();
+        const products = await API.get('/api/products');
 
         let tbody = products.map(p => `
             <tr class="border-bottom price-list-row" data-name="${Utils.escapeHtml(p.name)}">
@@ -2243,14 +2216,10 @@ window.savePriceList = async function () {
     });
 
     try {
-        const res = await fetch('/api/products/update-prices', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prices })
-        });
-        if (res.ok) {
-            UI.closeModal();
-            UI.toast('✅ Прайс-лист успешно обновлен', 'success');
-            if (typeof loadSalesData === 'function') loadSalesData(false);
-        }
+        await API.post('/api/products/update-prices', { prices });
+        UI.closeModal();
+        UI.toast('✅ Прайс-лист успешно обновлен', 'success');
+        if (typeof loadSalesData === 'function') loadSalesData(false);
     } catch (e) { console.error(e); }
 };
 
@@ -2260,8 +2229,7 @@ window.openContractManager = async function () {
     if (!cpId) return UI.toast('Сначала выберите клиента!', 'warning');
 
     try {
-        const res = await fetch(`/api/counterparties/${cpId}/contracts`);
-        const data = await res.json();
+        const data = await API.get(`/api/counterparties/${cpId}/contracts`);
 
         const contractsMap = new Map();
         const specCounts = {}; // Для умной нумерации
@@ -2393,31 +2361,17 @@ window.executeDeleteContract = async function (id) {
     UI.toast('⏳ Удаление...', 'info');
 
     try {
-        const res = await fetch(`/api/contracts/${id}`, { method: 'DELETE' });
-
-        if (res.ok) {
-            UI.toast('✅ Договор удален', 'success');
-
-            // Фоновое обновление выпадающего списка в корзине
-            const clientSelect = document.getElementById('sale-client');
-            const cpId = clientSelect ? clientSelect.value : null;
-            if (cpId && typeof loadClientContracts === 'function') {
-                await loadClientContracts(cpId);
-            }
-
-            // Перерисовываем список договоров
-            if (typeof openContractManager === 'function') {
-                openContractManager();
-            }
-        } else {
-            // Ловим красную ошибку с сервера (если внутри есть спецификации)
-            const err = await res.json().catch(() => ({}));
-            UI.toast(err.error || 'Ошибка удаления', 'error');
+        await API.delete(`/api/contracts/${id}`);
+        UI.toast('✅ Договор удален', 'success');
+        const clientSelect = document.getElementById('sale-client');
+        const cpId = clientSelect ? clientSelect.value : null;
+        if (cpId && typeof loadClientContracts === 'function') {
+            await loadClientContracts(cpId);
         }
-    } catch (e) {
-        console.error(e);
-        UI.toast('Критическая ошибка связи с сервером', 'error');
-    }
+        if (typeof openContractManager === 'function') {
+            openContractManager();
+        }
+    } catch (e) { /* тост с текстом от API */ }
 };
 
 // === КРАСИВОЕ УДАЛЕНИЕ СПЕЦИФИКАЦИИ ===
@@ -2443,27 +2397,16 @@ window.cancelDeleteSpecification = function () {
 
 window.executeDeleteSpecification = async function (id) {
     try {
-        const res = await fetch(`/api/specifications/${id}`, { method: 'DELETE' });
-
-        if (res.ok) {
-            UI.toast('✅ Спецификация удалена', 'success');
-            UI.closeModal();
-
-            // Обновляем данные на фоне и перерисовываем менеджер договоров
-            const saleClient = document.getElementById('sale-client');
-            if (saleClient && typeof loadClientContracts === 'function') {
-                await loadClientContracts(saleClient.value);
-            }
-            if (typeof openContractManager === 'function') openContractManager();
-        } else {
-            // Если бэкенд не дал удалить (например, есть привязанные товары/заказы)
-            const err = await res.json();
-            UI.toast(err.error || 'Ошибка при удалении', 'error');
-            cancelDeleteSpecification();
+        await API.delete(`/api/specifications/${id}`);
+        UI.toast('✅ Спецификация удалена', 'success');
+        UI.closeModal();
+        const saleClient = document.getElementById('sale-client');
+        if (saleClient && typeof loadClientContracts === 'function') {
+            await loadClientContracts(saleClient.value);
         }
+        if (typeof openContractManager === 'function') openContractManager();
     } catch (e) {
-        console.error(e);
-        UI.toast('Ошибка сети', 'error');
+        cancelDeleteSpecification();
     }
 };
 
@@ -2472,15 +2415,12 @@ window.saveNewContract = async function (cpId) {
     const date = document.getElementById('new-contract-date').value;
     if (!num || !date) return UI.toast('Заполните номер и дату!', 'warning');
 
-    const res = await fetch('/api/contracts', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ counterparty_id: cpId, number: num, date: date })
-    });
-    if (res.ok) {
+    try {
+        await API.post('/api/contracts', { counterparty_id: cpId, number: num, date: date });
         UI.toast('Договор создан', 'success');
         loadClientContracts();
         UI.closeModal();
-    }
+    } catch (e) { /* тост API */ }
 };
 
 window.saveNewSpecification = async function () {
@@ -2489,15 +2429,12 @@ window.saveNewSpecification = async function () {
     const date = document.getElementById('new-spec-date').value;
     if (!cId || !num || !date) return UI.toast('Заполните все поля спецификации!', 'warning');
 
-    const res = await fetch('/api/specifications', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contract_id: cId, number: num, date: date })
-    });
-    if (res.ok) {
+    try {
+        await API.post('/api/specifications', { contract_id: cId, number: num, date: date });
         UI.toast('Спецификация добавлена', 'success');
         loadClientContracts();
         UI.closeModal();
-    }
+    } catch (e) { /* тост API */ }
 };
 
 // --- ЛОГИКА ДЛЯ sales.js ---
@@ -2962,11 +2899,8 @@ window.executePartialShipment = async function (orderId, btnElement) {
 // ==========================================
 window.openReturnModal = async function () {
     try {
-        const cpRes = await fetch('/api/counterparties');
-        const clients = await cpRes.json();
-
-        const accRes = await fetch('/api/accounts');
-        const accounts = await accRes.json();
+        const clients = await API.get('/api/counterparties');
+        const accounts = await API.get('/api/accounts');
 
         let clientOptions = '<option value="">-- Выберите клиента --</option>' + clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
         let accountOptions = '<option value="">-- Выберите кассу --</option>' + accounts.map(a => `<option value="${a.id}">${a.name} (${a.balance} ₽)</option>`).join('');
@@ -3376,8 +3310,7 @@ window.executeOffset = async function (docNum, amount, btnElement) {
 // === ОТЧЕТ: ДОЛЖНИКИ ПО ТАРЕ (ПОДДОНЫ) ===
 window.openPalletsReport = async function () {
     try {
-        const res = await fetch('/api/sales/pallets-report');
-        const data = await res.json();
+        const data = await API.get('/api/sales/pallets-report');
 
         let tbody = data.map(c => `
             <tr style="border-bottom: 1px solid var(--border);">
@@ -3417,8 +3350,7 @@ window.openPalletsReport = async function () {
 window.openSalesDashboard = async function () {
     try {
         UI.toast('Загрузка аналитики...', 'info');
-        const res = await fetch('/api/sales/analytics');
-        const data = await res.json();
+        const data = await API.get('/api/sales/analytics');
 
         const formatSum = (sum) => parseFloat(sum).toLocaleString('ru-RU') + ' ₽';
         const maxItemSum = data.topItems.length > 0 ? parseFloat(data.topItems[0].total_sum) : 1;
@@ -3829,16 +3761,10 @@ window.renderKanbanBoard = function () {
                 renderKanbanBoard(); // Мгновенно перерисовываем
 
                 try {
-                    const res = await fetch(`/api/sales/orders/${orderId}/status`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ status: newStatus })
-                    });
-                    if (!res.ok) throw new Error();
+                    await API.put(`/api/sales/orders/${orderId}/status`, { status: newStatus });
                     UI.toast('Статус заказа изменен', 'success');
                 } catch (err) {
-                    UI.toast('Ошибка сохранения статуса', 'error');
-                    if (typeof loadSalesData === 'function') loadSalesData(false); // Откат
+                    if (typeof loadSalesData === 'function') loadSalesData(false);
                 }
             }
         };
@@ -3852,11 +3778,7 @@ window.renderKanbanBoard = function () {
 // === ФУНКЦИЯ ОТКРЫТИЯ ДЕТАЛЕЙ ЗАКАЗА ===
 window.openOrderDetails = async function (orderId) {
     try {
-        // Запрашиваем данные заказа с бэкенда
-        const res = await fetch(`/api/sales/orders/${orderId}`);
-        if (!res.ok) throw new Error('Ошибка при загрузке данных заказа');
-
-        const data = await res.json();
+        const data = await API.get(`/api/sales/orders/${orderId}`);
         const order = data.order;
         const items = data.items;
 
@@ -3975,36 +3897,22 @@ window.saveMiniClient = async function () {
 
     if (phone && !Utils.isValidPhone(phone)) return UI.toast('Некорректный номер телефона (минимум 10 цифр).', 'warning');
     try {
-        const res = await fetch('/api/counterparties', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, phone, type: 'Покупатель' })
-        });
+        const client = await API.post('/api/counterparties', { name, phone, type: 'Покупатель' });
+        UI.toast('Клиент добавлен', 'success');
+        UI.closeModal();
 
-        if (res.ok) {
-            const client = await res.json();
-            UI.toast('Клиент добавлен', 'success');
-            UI.closeModal();
-
-            // ЖЕЛЕЗОБЕТОННАЯ СТРАХОВКА: Ищем ID даже если сервер вернул странный ответ
-            let newId = client.id;
-            if (!newId) {
-                const listRes = await fetch('/api/counterparties');
-                const list = await listRes.json();
-                const found = list.find(c => c.name === name);
-                if (found) newId = found.id;
-            }
-
-            // Передаем ID в мозг списка. Он сам выберет его и откроет розовую карточку!
-            if (newId) {
-                await syncClientsDropdown(newId);
-            } else {
-                await syncClientsDropdown(); // Если совсем не нашли, просто обновим список
-            }
-        } else {
-            UI.toast('Ошибка сохранения', 'error');
+        let newId = client.id;
+        if (!newId) {
+            const list = await API.get('/api/counterparties');
+            const found = list.find(c => c.name === name);
+            if (found) newId = found.id;
         }
-    } catch (e) { UI.toast('Ошибка сети', 'error'); }
+        if (newId) {
+            await syncClientsDropdown(newId);
+        } else {
+            await syncClientsDropdown();
+        }
+    } catch (e) { /* тост API */ }
 };
 
 window.saveMiniContract = async function () {
@@ -4015,19 +3923,11 @@ window.saveMiniContract = async function () {
     if (!number) return UI.toast('Введите номер договора!', 'error');
 
     try {
-        const res = await fetch('/api/contracts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ counterparty_id: clientId, number: number, date: date }) // Ключи точно под твой бэкенд
-        });
-        if (res.ok) {
-            UI.toast('Договор создан', 'success');
-            UI.closeModal();
-            onClientChange(); // Обновляет список договоров в селекторе
-        } else {
-            UI.toast('Ошибка сохранения', 'error');
-        }
-    } catch (e) { UI.toast('Ошибка сети', 'error'); }
+        await API.post('/api/contracts', { counterparty_id: clientId, number: number, date: date });
+        UI.toast('Договор создан', 'success');
+        UI.closeModal();
+        onClientChange();
+    } catch (e) { /* тост API */ }
 };
 
 
@@ -4110,9 +4010,7 @@ window.toggleSaleDelivery = function() {
 // ==========================================
 window.openReserveTransferModal = async function(recCoiId, recOrderId, itemId, itemName, neededQty) {
     try {
-        const res = await fetch(`/api/sales/reserve-donors?item_id=${itemId}&exclude_order_id=${recOrderId}`);
-        if (!res.ok) throw new Error('Ошибка сети');
-        const donors = await res.json();
+        const donors = await API.get(`/api/sales/reserve-donors?item_id=${itemId}&exclude_order_id=${recOrderId}`);
 
         if (donors.length === 0) {
             UI.showModal('Перехват резерва', `
@@ -4214,9 +4112,8 @@ window.editingOrderId = null;
 window.loadOrderForEdit = async function(orderId) {
     try {
         UI.toast('Загрузка заказа...', 'info');
-        const res = await fetch('/api/sales/orders/' + orderId);
-        if (!res.ok) throw new Error('Ошибка сети');
-        const resData = await res.json(); const order = resData.order; order.items = resData.items;
+        const resData = await API.get('/api/sales/orders/' + orderId);
+        const order = resData.order; order.items = resData.items;
         
         window.editingOrderId = order.id;
         
@@ -4340,17 +4237,9 @@ window.applyAdvanceToOrder = function(id) {
 
 window.executeApplyAdvance = async function(id) {
     try {
-        const res = await fetch(`/api/sales/orders/${id}/apply-advance`, { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }
-        });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || 'Ошибка при зачете аванса');
-        
+        await API.post(`/api/sales/orders/${id}/apply-advance`, {});
         UI.toast('Свободный аванс зачтен', 'success');
         UI.closeModal();
         if (typeof loadActiveOrders === 'function') loadActiveOrders();
-    } catch(e) {
-        UI.toast(e.message, 'error');
-    }
+    } catch (e) { /* тост API */ }
 };
