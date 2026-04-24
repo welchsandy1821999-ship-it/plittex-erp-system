@@ -167,12 +167,23 @@ function initStaticPurchaseSelects() {
             plugins: ['clear_button'],
             options: allAccounts.map(acc => ({ value: acc.id, text: `${acc.name} (${parseFloat(acc.balance).toFixed(2)} ₽)` })),
             allowEmptyOption: true,
-            placeholder: "-- В ДОЛГ (ТОМУ ЖЕ ПОСТАВЩИКУ) --"
+            placeholder: "-- В ДОЛГ --"
+        });
+    }
+
+    const delSupSelect = document.getElementById('purchase-delivery-supplier-select');
+    if (delSupSelect && !delSupSelect.tomselect) {
+        new TomSelect(delSupSelect, {
+            plugins: ['clear_button'],
+            options: allCounterparties.map(s => ({
+                value: s.id,
+                text: s.inn ? `${s.name} (ИНН: ${s.inn})` : s.name
+            })),
+            placeholder: "-- Выберите перевозчика --"
         });
     }
 }
 
-// Управление полями доставки
 window.toggleDeliveryFields = function () {
     const isChecked = document.getElementById('purchase-has-delivery').checked;
     const fields = document.getElementById('delivery-fields');
@@ -182,6 +193,14 @@ window.toggleDeliveryFields = function () {
         document.getElementById('purchase-delivery-cost').value = '';
         const ts = document.getElementById('purchase-delivery-account').tomselect;
         if (ts) ts.clear();
+        const supTs = document.getElementById('purchase-delivery-supplier-select').tomselect;
+        if (supTs) supTs.clear();
+    } else {
+        const mainSupplierId = document.getElementById('purchase-supplier-select').value;
+        const supTs = document.getElementById('purchase-delivery-supplier-select').tomselect;
+        if (supTs && !supTs.getValue() && mainSupplierId) {
+            supTs.setValue(mainSupplierId);
+        }
     }
 };
 
@@ -232,6 +251,7 @@ window.submitPurchase = function () {
     const hasDelivery = document.getElementById('purchase-has-delivery').checked;
     const deliveryCost = hasDelivery ? (parseFloat(document.getElementById('purchase-delivery-cost').value) || 0) : 0;
     const deliveryAccountId = hasDelivery ? (document.getElementById('purchase-delivery-account').value || null) : null;
+    const deliveryCounterpartyId = hasDelivery ? (document.getElementById('purchase-delivery-supplier-select').value || null) : null;
     const grandTotal = totalCost + deliveryCost;
 
     const mat = allPurchaseMaterials.find(m => m.id == materialId);
@@ -239,6 +259,7 @@ window.submitPurchase = function () {
 
     if (!mat || quantity <= 0) return UI.toast('Укажите материал и количество больше нуля!', 'warning');
     if (!sup) return UI.toast('Выберите поставщика!', 'warning');
+    if (hasDelivery && !deliveryCounterpartyId) return UI.toast('Выберите организацию-перевозчика для доставки!', 'warning');
 
     const isEditing = !!window.currentEditingPurchaseId;
 
@@ -271,8 +292,8 @@ window.submitPurchase = function () {
     `;
 
     const submitFn = isEditing
-        ? `executeUpdatePurchase('${window.currentEditingPurchaseId}', '${materialId}', '${counterparty_id}', ${account_id ? `'${account_id}'` : null}, ${quantity}, ${pricePerUnit}, '${purchaseDate}', ${totalCost}, ${deliveryCost}, ${deliveryAccountId ? `'${deliveryAccountId}'` : null})`
-        : `executePurchase('${materialId}', '${counterparty_id}', ${account_id ? `'${account_id}'` : null}, ${quantity}, ${pricePerUnit}, '${purchaseDate}', ${totalCost}, ${deliveryCost}, ${deliveryAccountId ? `'${deliveryAccountId}'` : null})`;
+        ? `executeUpdatePurchase('${window.currentEditingPurchaseId}', '${materialId}', '${counterparty_id}', ${account_id ? `'${account_id}'` : null}, ${quantity}, ${pricePerUnit}, '${purchaseDate}', ${totalCost}, ${deliveryCost}, ${deliveryAccountId ? `'${deliveryAccountId}'` : null}, ${deliveryCounterpartyId ? `'${deliveryCounterpartyId}'` : null})`
+        : `executePurchase('${materialId}', '${counterparty_id}', ${account_id ? `'${account_id}'` : null}, ${quantity}, ${pricePerUnit}, '${purchaseDate}', ${totalCost}, ${deliveryCost}, ${deliveryAccountId ? `'${deliveryAccountId}'` : null}, ${deliveryCounterpartyId ? `'${deliveryCounterpartyId}'` : null})`;
 
     const buttons = `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
@@ -282,17 +303,13 @@ window.submitPurchase = function () {
     UI.showModal(isEditing ? 'Редактирование' : 'Подтверждение закупки', html, buttons);
 };
 
-window.executePurchase = async function (materialId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost, deliveryCost, deliveryAccountId) {
+window.executePurchase = async function (materialId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost, deliveryCost, deliveryAccountId, deliveryCounterpartyId) {
     UI.closeModal();
     UI.toast('⏳ Оформление закупки...', 'info');
 
     try {
-        await API.post('/api/inventory/purchase', { itemId: materialId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost, deliveryCost, deliveryAccountId });
+        await API.post('/api/inventory/purchase', { itemId: materialId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost, deliveryCost, deliveryAccountId, deliveryCounterpartyId });
         UI.toast('✅ Закупка успешно оформлена!', 'success');
-        setTimeout(() => location.reload(), 1200);
-    } catch (e) { console.error(e); }
-};
-
 window.executeUpdatePurchase = async function (purchaseId, materialId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost, deliveryCost, deliveryAccountId) {
     UI.closeModal();
     UI.toast('⏳ Сохранение изменений...', 'info');

@@ -1504,7 +1504,7 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     router.put('/api/inventory/purchase/:id', requireAdmin, validatePurchase, async (req, res) => {
         const purchaseId = req.params.id;
-        const { itemId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost: frontendTotal, deliveryCost, deliveryAccountId } = req.body;
+        const { itemId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost: frontendTotal, deliveryCost, deliveryAccountId, deliveryCounterpartyId } = req.body;
 
         const qtyNum = Number(new Big(quantity || 0));
         const priceNum = Number(new Big(pricePerUnit || 0));
@@ -1575,11 +1575,12 @@ module.exports = function (pool, getWhId, withTransaction) {
                 }
 
                 const oldDelTx = await client.query(`SELECT id FROM transactions WHERE source_module = 'purchase' AND description LIKE $1 AND category = 'Транспортные расходы'`, [descMatch]);
+                const actDelCp = deliveryCounterpartyId || counterparty_id;
                 if (delCostNum > 0 && deliveryAccountId) {
                     if (oldDelTx.rows.length > 0) {
-                        await client.query(`UPDATE transactions SET account_id = $1, amount = $2, transaction_date = COALESCE($3::timestamp, CURRENT_TIMESTAMP) WHERE id = $4`, [deliveryAccountId, delCostNum, purchaseDate || null, oldDelTx.rows[0].id]);
+                        await client.query(`UPDATE transactions SET account_id = $1, amount = $2, transaction_date = COALESCE($3::timestamp, CURRENT_TIMESTAMP), counterparty_id = $5 WHERE id = $4`, [deliveryAccountId, delCostNum, purchaseDate || null, oldDelTx.rows[0].id, actDelCp]);
                     } else {
-                        await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, transaction_date, linked_purchase_id) VALUES ($1, $2, 'expense', 'Транспортные расходы', $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [deliveryAccountId, delCostNum, `Оплата доставки (движение склада #${purchaseId})`, counterparty_id, purchaseDate || null, purchaseId]);
+                        await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, transaction_date, linked_purchase_id) VALUES ($1, $2, 'expense', 'Транспортные расходы', $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [deliveryAccountId, delCostNum, `Оплата доставки (движение склада #${purchaseId})`, actDelCp, purchaseDate || null, purchaseId]);
                     }
                 } else if (oldDelTx.rows.length > 0) {
                     await client.query(`DELETE FROM transactions WHERE id = $1`, [oldDelTx.rows[0].id]);
@@ -1612,7 +1613,7 @@ module.exports = function (pool, getWhId, withTransaction) {
     // СОЗДАНИЕ НОВОЙ ЗАКУПКИ (POST + РАСЧЕТ СРЕДНЕЙ ЦЕНЫ)
     // ------------------------------------------------------------------
     router.post('/api/inventory/purchase', requireAdmin, validatePurchase, async (req, res) => {
-        const { itemId, quantity, pricePerUnit, counterparty_id, account_id, purchaseDate, totalCost: frontendTotal, deliveryCost, deliveryAccountId } = req.body;
+        const { itemId, quantity, pricePerUnit, counterparty_id, account_id, purchaseDate, totalCost: frontendTotal, deliveryCost, deliveryAccountId, deliveryCounterpartyId } = req.body;
         // 🛡️ AUDIT-018: ad-hoc проверки itemId, counterparty_id, qtyNum удалены — покрыты validatePurchase middleware
         const qtyNum = Number(new Big(quantity || 0));
         const priceNum = Number(new Big(pricePerUnit || 0));
@@ -1662,7 +1663,8 @@ module.exports = function (pool, getWhId, withTransaction) {
                     await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, transaction_date, linked_purchase_id) VALUES ($1, $2, 'expense', $7, $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [account_id, materialCost, `Оплата закупки (движение склада #${moveRes.rows[0].id})`, counterparty_id, purchaseDate || null, moveRes.rows[0].id, `Закупка ${typeName}`]);
                 }
                 if (delCostNum > 0 && deliveryAccountId) {
-                    await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, transaction_date, linked_purchase_id) VALUES ($1, $2, 'expense', 'Транспортные расходы', $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [deliveryAccountId, delCostNum, `Оплата доставки (движение склада #${moveRes.rows[0].id})`, counterparty_id, purchaseDate || null, moveRes.rows[0].id]);
+                    const actDelCp = deliveryCounterpartyId || counterparty_id;
+                    await client.query(`INSERT INTO transactions (account_id, amount, transaction_type, category, description, counterparty_id, payment_method, source_module, transaction_date, linked_purchase_id) VALUES ($1, $2, 'expense', 'Транспортные расходы', $3, $4, 'Безналичный расчет', 'purchase', COALESCE($5::timestamp, CURRENT_TIMESTAMP), $6)`, [deliveryAccountId, delCostNum, `Оплата доставки (движение склада #${moveRes.rows[0].id})`, actDelCp, purchaseDate || null, moveRes.rows[0].id]);
                 }
 
                 // 🔄 Пересчёт балансов всех затронутых касс
@@ -1714,7 +1716,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
             // Ищем транзакцию за доставку
             const txDelRes = await pool.query(`
-                SELECT account_id FROM transactions 
+                SELECT account_id, counterparty_id FROM transactions 
                 WHERE source_module = 'purchase' AND description LIKE $1 AND category = 'Транспортные расходы'
             `, [`%движение склада #${purchaseId})%`]);
 
@@ -1730,7 +1732,8 @@ module.exports = function (pool, getWhId, withTransaction) {
                 price: price,
                 purchase_date: data.purchase_date,
                 delivery_cost: data.delivery_cost,
-                delivery_account_id: txDelRes.rows.length > 0 ? txDelRes.rows[0].account_id : ''
+                delivery_account_id: txDelRes.rows.length > 0 ? txDelRes.rows[0].account_id : '',
+                delivery_counterparty_id: txDelRes.rows.length > 0 ? txDelRes.rows[0].counterparty_id : ''
             });
         } catch (err) {
             logger.error(err);

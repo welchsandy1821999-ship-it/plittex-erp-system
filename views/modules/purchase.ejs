@@ -61,7 +61,13 @@
                 </label>
             </div>
 
-            <div id="delivery-fields" class="pur-delivery-fields-grid inv-hidden">
+            <div id="delivery-fields" class="pur-delivery-fields-grid inv-hidden" style="grid-template-columns: 1fr 1fr 1fr;">
+                <div class="form-group m-0">
+                    <label>Орг. перевозчика:</label>
+                    <select id="purchase-delivery-supplier-select" class="input-modern" placeholder="Выберите перевозчика...">
+                        <option value="">-- Загрузка... --</option>
+                    </select>
+                </div>
                 <div class="form-group m-0">
                     <label>Стоимость доставки (₽):</label>
                     <input type="number" id="purchase-delivery-cost" class="input-modern" placeholder="0.00">

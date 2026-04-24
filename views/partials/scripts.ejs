@@ -108,6 +108,7 @@
                 target.classList.remove('hidden');
                 target.classList.add('active');
                 if (navElement) navElement.classList.add('active');
+                localStorage.setItem('activeModuleId', moduleId);
             }
             try {
                 if (moduleId === 'stock-mod' && typeof loadTable === 'function') loadTable();
@@ -202,7 +203,10 @@
                 } catch (e) { }
             }
             if (typeof UI !== 'undefined' && UI.closeModal) UI.closeModal();
-            switchModule('dashboard-mod', document.querySelector('.nav-item.active'));
+            const savedModule = localStorage.getItem('activeModuleId') || 'dashboard-mod';
+            let navItem = document.querySelector(`.nav-item[onclick*="${savedModule}"]`);
+            if (!navItem) navItem = document.querySelector('.nav-item.active');
+            switchModule(savedModule, navItem);
         };
 
         document.addEventListener('DOMContentLoaded', () => {
