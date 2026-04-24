@@ -9,6 +9,8 @@ node_modules/
 # === 3. ПОЛЬЗОВАТЕЛЬСКИЕ ДАННЫЕ И ЗАГРУЗКИ ===
 public/uploads/
 !public/uploads/.gitkeep
+public/saved_docs/*
+!public/saved_docs/.gitkeep
 
 # === 4. ЛОГИ СИСТЕМЫ ===
 logs/
@@ -33,4 +35,4 @@ Thumbs.db
 docker-compose.override.yml
 docker-compose.yml
 Dockerfile
-docker
+docker
