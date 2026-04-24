@@ -1,526 +1,135 @@
-# 📘 ERP PLITTEX — ТЕХНИЧЕСКАЯ ДОКУМЕНТАЦИЯ (Операция «ПАНОПТИКУМ»)
+# PLITTEX ERP — техническая документация
 
-> **Версия:** 2.0.0 (Autonomous Edition)  
-> **Дата:** Полная актуализация  
-> **Стек:** Node.js + Express + PostgreSQL + EJS + Socket.IO + Big.js + Docker + Jest
+**Версия:** 2026-04-24  
 
----
-
-## 1. ОБЗОР СИСТЕМЫ
-
-### 1.1 Назначение
-ERP-система для управления производственным предприятием по выпуску тротуарной плитки. Охватывает полный цикл: от закупки сырья до отгрузки готовой продукции клиенту с финансовым учётом.
-
-### 1.2 Архитектура
-- **Тип:** Монолитное серверное приложение (SSR + SPA-гибрид)
-- **Рендеринг:** EJS-шаблоны на сервере, затем динамическая загрузка данных через `fetch()` на клиенте
-- **Реальное время:** Socket.IO для оповещений об обновлении склада
-- **Внешние интеграции:** DaData (обогащение контрагентов по ИНН), Telegram Bot API (уведомления)
-- **БД:** PostgreSQL 15+ с pg_trgm для fuzzy-поиска
-
-### 1.3 Точка входа (web.js)
-```
-Конфигурация → Pool (pg) → ERP_CONFIG (vatRate, locale) → COMPANY_CONFIG (реквизиты)
-→ withTransaction(pool, cb) — Обёртка для атомарных операций
-→ getNextDocNumber(client, prefix) — Генератор уникальных номеров документов
-→ getWhId(client, type) — Резолвер ID склада по типу ('materials', 'drying', 'finished', ...)
-→ Регистрация маршрутов → Express.listen() + Socket.IO.attach()
-```
-
-### 1.4 Среда запуска (Docker)
-- **Режим:** `NODE_ENV=development` в `docker-compose.yml` (отключает кэш EJS-шаблонов)
-- **Volumes:** `.:/app` — hot-reload статических файлов (JS/CSS/EJS) без перезапуска контейнера
-- **DB:** PostgreSQL запускается локально (не в Docker), `DB_HOST=host.docker.internal`
-- **Перезапуск контейнера** требуется только при изменении `web.js`, `routes/*.js`, `middleware/*.js`
-
-### 1.5 Архитектура UI-модальных окон
-- **Глобальная модалка:** `#app-modal` (в `partials/modals.ejs`) — используется для всех drill-down карточек через `UI.showModal(title, html, buttons)`
-- **Локальные модалки:** объявлены непосредственно в `modules/*.ejs` (например, `#modal-item-history`)
-- **Z-index иерархия:** `.modal-overlay { z-index: 9998 }`, `#app-modal { z-index: 10000 !important }` — гарантирует что глобальная карточка всегда поверх локальных модалок
-- **Stacking Context:** `.content-area` НЕ имеет `overflow-x: hidden` (убран) — чтобы не создавать изолированный stacking context для `position: fixed` дочерних модалок
-- **Роутер сущностей:** `window.app.openEntity(type, id)` — универсальная точка входа для drill-down навигации
+Стабильные контракты, стек и правила. Историю внедрения по фазам сюда не дублировать.
 
 ---
 
-## 2. МОДУЛИ СИСТЕМЫ
+## 1. Стек
 
-### 2.1 📖 Справочники (dictionaries.js)
-
-#### Товары и Сырье (`items`)
-- **Типы:** `product` (готовая продукция), `material` (сырье)
-- **Ключевые поля:** `current_price`, `dealer_price`, `weight_kg`, `qty_per_cycle`, `piece_rate`, `mold_id`, `mix_main_tpl`, `mix_face_tpl`
-- **Soft Delete:** `is_deleted = true` (фильтруется на всех SELECT)
-- **Белый список обновления:** PUT использует whitelist-подход из `allowedFields`
-- **API:**
-  - `GET /api/items` — Пагинация + фильтры (search, item_type, category)
-  - `POST /api/items` — Создание
-  - `PUT /api/items/:id` — Обновление (whitelist)
-  - `DELETE /api/items/:id` → Soft delete
-  - `GET /api/products` → Только item_type='product', не удалённые
-  - `POST /api/products/update-prices` → Массовое обновление прайса (Big.js)
-
-#### Сотрудники (`employees`)
-- **Зарплата:** Двойная система — `salary_cash` (реальная) + `salary_official` (официальная)
-- **При создании** автоматически создаётся `counterparty` (Физлицо-Сотрудник) + `account` типа imprest
-- **Soft Delete:** `status = 'deleted'` + помечание контрагенти "[УВОЛЕН]"
-- **Синхронизация ФИО:** При изменении ФИО обновляются: counterparty.name, account.name
-
-#### Оборудование (`equipment`)
-- **Типы:** `machine` (вибропресс), `mold` (форма), `pallets` (поддоны)
-- **Амортизация:** `purchase_cost / planned_cycles` → износ за удар
-- **ТОиР:** `POST /api/equipment/:id/maintenance` — списание расходов + сброс циклов
+| Слой | Технология |
+|------|------------|
+| Runtime | Node.js, Express 5.x |
+| БД | PostgreSQL, драйвер `pg` (пул в `web.js`) |
+| UI | EJS (SSR) + крупные клиентские модули в `public/js` |
+| Realtime | Socket.io (тот же HTTP-сервер, что и Express) |
+| Деньги (критично) | **Big.js** в серверном коде продаж/финансов/части инвентаря; на клиенте — по месту |
+| Мониторинг | Sentry (опционально, `SENTRY_DSN`) |
+| Тесты | Jest (`npm test`, каталог `test/`) |
 
 ---
 
-### 2.2 🏭 Производство (production.js)
+## 2. Вход, конфиг, инфра
 
-#### Жизненный цикл партии
-```
-[draft] → POST /api/production (status=draft)
-    ↓ Черновик: сохраняет состав замесов и цены (production_draft)
-    ↓ Дата: принимает `date` из фронтенда (календарь смены) → production_date + movement_date
-[draft] → POST /api/production/fixate-shift
-    ↓ Фиксация:
-    ↓   1. Удаление записей черновика (production_draft)
-    ↓   2. Проверка остатков с FOR UPDATE (row-level lock через production_batches)
-    ↓   3. Списание сырья (production_expense)
-    ↓   4. Приход на сушилку (production_receipt)
-    ↓   5. Начисление износа формы/станка/поддонов
-    ↓   ⚠️ При нехватке сырья: 400 + JSON {error, details} → UI: красный блок #shift-errors
-[in_drying] → POST /api/production/complete (клиентский вызов)
-    ↓ Перемещение с сушилки на склад ГП
-[completed] → Готово (is_salary_calculated = true после расчёта ЗП)
-```
-
-#### Удаление партии (DELETE /api/production/batch/:id)
-- **Черновик (draft):** Hard Delete — физическое удаление inventory_movements + production_batches
-- **Завершённые:** Soft Delete (`status = 'deleted'`) + откат циклов оборудования + каскадный пересчёт ЗП
-- Проверка `is_salary_calculated` + `closed_periods`
-- GET-маршруты (history, search, active-dates) фильтруют `status != 'deleted'`
-
-#### Шаблоны замесов и Кастомные спецификации (Custom BOM)
-- Шаблоны хранятся в `settings` (key = 'mix_templates') как JSON
-- Двухслойная архитектура: `mix_main_tpl` + `mix_face_tpl` для каждого продукта
-- **Новинка (Phase 6+):** Пользователь может редактировать состав компонентов локально («на лету») для каждого замеса через UI (удаление/добавление сырья) без мутации глобального шаблона. Фронтенд собирает точный слепок DOM, а сервер записывает реальный состав замеса.
-
-#### MRP-модуль (`GET /api/production/mrp-summary`)
-- Агрегирует `planned_production` из заказов со статусом `pending`/`processing`
-- Рассчитывает потребность по рецептам
-- Сопоставляет с остатками на складе сырья → генерирует дефицитный отчёт
+- **Точка входа:** `web.js` — пул БД, `app.set('io', io)`, лимит `express.json` до 50mb, `multer` для загрузок в `public/uploads/`.
+- **Порт:** `process.env.PORT || 3000`.
+- **ERP_CONFIG** (в `web.js`): НДС и список категорий «без НДС» — передаётся в `routes/finance.js` и `routes/sales.js`.
+- **Health:** `GET /api/health` — до JWT, для мониторинга.
+- **Печать по URL с токеном:** `POST /api/generate-print-token` (основной JWT) → краткоживущий JWT с `type: 'print'` в query (`middleware/auth.js`).
 
 ---
 
-### 2.3 📦 Склад (inventory.js)
+## 3. API и безопасность
 
-#### Модель данных
-Склад реализован через таблицу `inventory_movements` (журнал движений). Нет таблицы «текущие остатки» — баланс всегда вычисляется через `SUM(quantity)`.
-
-#### Типы движений (`movement_type`)
-| Тип | Описание | quantity |
-|---|---|---|
-| `purchase` | Закупка сырья | + |
-| `production_expense` | Списание на производство | - |
-| `production_draft` | Черновик состава (не влияет на баланс) | 0/+ |
-| `production_receipt` | Приход продукции (из производства) | + |
-| `transfer` | Перемещение между складами | ±  |
-| `scrap` | Списание (порча, утрата) | - |
-| `audit_adjustment` | Корректировка по инвентаризации | ± |
-| `sales_shipment` | Отгрузка клиенту | - |
-| `sales_reserve` | Резервирование (Склад №7) | + (на WH7) / - (с ГП) |
-| `sales_unreserve` | Снятие резерва | обратное |
-| `customer_return` | Возврат от клиента | + |
-| `disposal` | Утилизация | - |
-
-#### Виртуальные склады
-| ID | Тип | Название |
-|---|---|---|
-| 1 | materials | Склад сырья |
-| 2 | drying | Сушилка |
-| 3 | finished | Склад ГП |
-| 7 | reserve | Резервы (виртуальный) |
-
-#### Закупки
-- `POST /api/inventory/purchase` — Приход + автоматическое обновление `current_price` товара + создание транзакции расхода
-- `PUT /api/inventory/purchase/:id` — Редактирование (откат старых транзакций, запись новых)
-- `DELETE /api/inventory/purchase/:id` — Откат (удаление movement + transaction)
-
-#### Аудит (Инвентаризация)
-- Использует двухшаговую блокировку: `SELECT id ... FOR UPDATE` (мьютекс), затем `SUM(quantity)` отдельно
-- Принимает `auditDate` из фронтенда → `movement_date = COALESCE(auditDate, CURRENT_TIMESTAMP)`
-- Фильтрация остатков по дате: `movement_date::date <= auditDate`
-
-#### История движений (Карточка движения)
-- **API:** `GET /api/inventory/history/:itemId` — агрегирующий запрос с группировкой по `date_trunc('minute', movement_date)`, `batch_id`, `supplier_id`, `order_id`
-- **Кросс-линкинг (drill-down):**
-  - Чип **Партия** → `openBatchCard(batch_id)` → `GET /api/inventory/batch/:id/card`
-  - Чип **Поставщик** → `app.openEntity('client', supplier_id)` → `openCounterpartyProfile(id)`
-  - Чип **Заказ** → `app.openEntity('document_order', order_id)` → `openOrderDetails(id)`
-- **Парсинг order_id:** Для старых записей `order_id` извлекается через `substring(description from 'ЗК-[0-9]+')` с подзапросом к `client_orders`
-- **CRUD истории:** `PUT /api/inventory/movements/:id` (дата/описание), `DELETE /api/inventory/movements/:id` (полный откат с восстановлением баланса)
-- **Политика редактирования:** Изменение объёма — запрещено. Только "Откат + Повторный ввод".
-
-#### Прослеживаемость партий (Batch Traceability)
-- **API:** `GET /api/inventory/batch/:id/card` — агрегирует: факт производства, движения, расход по продукции
-- **UI:** Модальное окно `#modal-batch-card`. Номера партий во всех таблицах — кликабельные ссылки → `openBatchCard(id)`
-
-#### Стандарт дат
-- **Все SELECT-запросы** используют `movement_date` (не `created_at`) для отображения и сортировки
-- **Все INSERT-запросы** с backdating принимают дату из фронтенда в поле `movement_date`
-- `created_at` сохраняется как аудитный timestamp, но не используется в UI
+- **Глобально:** `app.use('/api', authenticateToken)` — кроме заранее выведенных наружу путей. В `middleware/auth.js` для `POST /api/login` пропуск задан по `req.path` смонтированного обработчика (`'/login'`), плюс дублирующая проверка `'/api/login'`. `GET /api/health` объявлен **до** `app.use('/api', authenticateToken)` в `web.js`. `POST /api/generate-print-token` идёт **перед** глобальным JWT-этапом, но сам требует обычный JWT в `Authorization` (см. `web.js`).
+- **Роль admin:** `requireAdmin` на выбранных эндпоинтах (часть финансов, админка, ряд удалений). Точка входа **всегда** в коде маршрута, не по одному лишь скрытыю кнопки.
+- **Лимит:** `middleware/rateLimit.js` на префикс `/api`.
+- **Валидация:** `middleware/validator.js` + ad-hoc проверки в роутерах.
+- **CORS:** `CORS_ORIGIN` (через запятую) или fallback localhost; не `*`.
 
 ---
 
-### 2.4 💼 Продажи (sales.js)
+## 4. Клиент: HTTP и UI
 
-#### Жизненный цикл заказа
-```
-[pending] → POST /api/sales/checkout (requireAdmin, Bearer Token)
-    ↓ 1. Валидация остатков
-    ↓ 2. Резервирование (sales_reserve → WH7)
-    ↓ 3. Создание planned_production (если нехватка)
-    ↓ 4. Финансовый расчёт (Big.js): себестоимость, налоги, маржа
-    ↓ 5. Создание транзакции дохода (если оплата = 'prepaid')
-    ↓ 🛡️ user_id: из JWT-токена (req.user.id), НЕ из payload
-[processing] → POST /api/sales/orders/:id/ship (requireAdmin, Bearer Token)
-    ↓ Отгрузка частями (qty_to_ship ≤ qty_ordered)
-    ↓ Перемещение: WH7 (резерв) → списание
-    ↓ Автоматическое обновление qty_shipped, статуса
-    ↓ 🛡️ user_id: из JWT-токена (req.user.id), НЕ из payload
-[completed] → Полностью отгружен
-[cancelled] → Отмена: снятие резервов, удаление planned_production
-```
-
-> **ВАЖНО (Phase 6.10):** Все write-эндпоинты модуля Продаж (`checkout`, `ship`, `returns`, `transfer-reserve`) используют `req.user.id` из JWT-токена для всех операций записи в БД. Клиент не передаёт `user_id` в payload. Фронтенд использует `API.post()`/`API.delete()` для автоматической передачи Bearer Token.
-
-#### Интеграция со складом №7 (Резервы)
-- При `checkout`: товар перемещается с Склада ГП (WH3) на WH7 через парные движения
-- При `ship`: товар списывается с WH7 (type = 'sales_shipment')
-- При `delete order`: все резервы возвращаются с WH7 на WH3
-- `linked_order_item_id` — связь движений с конкретной позицией заказа
-
-#### Финансовый контроллер
-- Себестоимость: средневзвешенная по `inventory_movements.unit_price`
-- НДС: `ERP_CONFIG.vatRate` (по умолчанию 20%)
-- Маржа: `(revenue - cost) / revenue * 100`
-
-#### Бланк-заказы
-- Предварительные заказы без финансовых обязательств
-- `POST /api/blank-orders` → `DELETE /api/blank-orders/:id`
+- **`public/js/core.js`:** `window.API` — `get/post/put/patch/delete` с заголовком `Authorization: Bearer` и разбором JSON; при 401/403 — `handleLogout` где применимо.
+- **`views/partials/scripts.ejs`:** обёртка над `window.fetch` подставляет Bearer для URL с `/api` (кроме login) — **дополняет** `API`, предпочтительно писать новый код через **`API.*`**.
+- **Модули:** `views/index.ejs` подключает все `views/modules/*`; навигация `switchModule` + `activeModuleId` в `localStorage`.
+- **Стили:** `public/css/theme.css`, `layout.css`, `components.css`, `modules.css`. Инлайн в шаблонах встречается легаси; новые блоки — по **`styles_and_ui.md`**.
 
 ---
 
-### 2.5 👤 HR и Зарплата (hr.js)
+## 5. Realtime (Socket.io)
 
-#### Табель учёта рабочего времени
-- **Статусы дня:** `present`, `partial`, `weekend`, `absent`, `sick`, `vacation`
-- **Мультипликатор:** `multiplier` (0.0 - 1.0) для неполного дня
-- UPSERT через `ON CONFLICT (employee_id, record_date) DO UPDATE`
-
-#### Сдельная зарплата (mass-bonus)
-1. Запрос фонда: `SUM(actual_good_qty * piece_rate)` за production_date
-2. Распределение по КТУ: `fund * (worker_ktu / total_ktu)`
-3. Округление: копейки добавляются первому работнику
-4. Пометка партий: `is_salary_calculated = true`
-
-#### Выплаты
-- Списание с кассы (balance check через `FOR UPDATE`)
-- Автоматическое определение `payment_method` по типу счёта
-- Связь с контрагентом для акта сверки
-- Удержание подотчёта: параллельная транзакция на imprest-счёт
-
-#### Закрытие периода
-- `POST /api/salary/close-month` — фиксация балансов, генерация транзакций "Начисление ЗП"
-- `POST /api/salary/reopen-month` — математический откат балансов, удаление автотранзакций, разблокировка
-- Защита: `isMonthClosed()` блокирует все операции в закрытом периоде
+- Клиент: `io({ auth: { token } })` в `core.js` после появления JWT.
+- События (пример): `inventory_updated`, `finance_updated`, `production_updated`, `sales_updated` — дебаунс ~500ms, обновление таблиц/дашборд-виджетов.
+- Каждый `emit` в роуте: `const io = req.app.get('io')`.
 
 ---
 
-### 2.6 💰 Финансы (finance.js)
+## 6. Финансы: две разные «дебиторные» логики
 
-#### Авто-Взаимозачеты и свободные переплаты (Auto-Offset)
-- **Истинная формула распределения:** Свободного аванса = `(Сумма всех платежей клиента)` минус `(Сумма, уже зачисленная в paid_amount всех заказов клиента)`.
-- **Правило отказа от фантомных транзакций:** Категорически запрещено создавать виртуальные Income/Expense проводки при взаимозачетах. Алгоритм просто переносит свободные средства в свойство `paid_amount` заказа до тех пор, пока `pending_debt` не станет равным нулю.
-- **Очистка данных:** Акты сверки (`/print/act`) строго игнорируют старые фантомные транзакции `category = 'Взаимозачет'` для исключения двойного учета кредита/дебета в бумажной отчетности.
+Системно разделять метрики (путаница = ошибки в отчётах):
 
-#### Учетная модель
-- **Метод:** Кассовый (по факту движения денег), с элементами метода начисления (ФОТ из табелей)
-- **Триггер пересчёта:** При любом INSERT/DELETE/UPDATE в `transactions` автоматически пересчитываются балансы ВСЕХ счетов:
-```sql
-UPDATE accounts a SET balance = ROUND(COALESCE((
-    SELECT SUM(CASE WHEN transaction_type='income' THEN amount ELSE 0 END) - 
-           SUM(CASE WHEN transaction_type='expense' THEN amount ELSE 0 END) 
-    FROM transactions t WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
-), 0), 2)
-```
+1. **Дашборд «Ожидаемые поступления»**  
+   - Источник: `GET /api/analytics/dashboard-widgets` в **`routes/finance.js`**.  
+   - Смысл: **контрактный** долг по заказам: \(\sum \max(0, \text{total\_amount} - \text{paid\_amount})\) по `client_orders`, **без** отменённых.  
+   - Не смешивать с пунктом 2.
 
-#### Отчёт P&L
-- **Revenue:** `income` + category = 'Продажа продукции'
-- **COGS:** `expense` + cost_group = 'direct' (из `transaction_categories` или `cost_group_override`)
-- **OPEX:** `expense` + cost_group = 'opex'
-- **CAPEX:** `expense` + cost_group NOT IN ('direct', 'opex')
-- **ФОТ:** Справочно, из `timesheet_records` (метод начисления)
-- **Маржа:** `netProfit / revenue * 100`
+2. **Финансы: блок «Ожидаемые платежи (Счета и Заказы)»**  
+   - Источник: `GET /api/invoices` в **`routes/finance.js`**.  
+   - **Счета (invoices):** невыставленные/ожидающие счета.  
+   - **Заказы:** **фактическая** дебиторка по **отгрузкам** (оценка по позициям `qty_shipped * price` с пропорцией скидки/логистики) минус **эффективная оплата**  
+     \(\max(\texttt{paid\_amount}, \sum \texttt{income} \text{ с } \texttt{linked\_order\_id})\) — чтобы согласовать с проводками и актом сверки.
 
-#### Контрагенты (CRM 360°)
-- Профиль: `/api/counterparties/:id/profile` — агрегация из:
-  - `transactions` (платежи в обе стороны)
-  - `client_orders` (отгрузки)
-  - `inventory_movements` (поставки сырья)
-- Универсальная формула сальдо: `(наши_отгрузки + наши_оплаты) - (их_поставки + их_оплаты)`
-- DaData: автоподстановка реквизитов по ИНН
+3. **Сальдо в карточке контрагента / акт**  
+   - Считается по **таймлайну** (отгрузки из движений + денежные транзакции) в логике `GET /api/counterparties/:id/profile` в **`routes/finance.js`**.  
+   - Это третий «слой» отображения; сходимость с п.1–2 достигается корректными `paid_amount`, привязкой `linked_order_id` и аллокацией авансов.
 
-#### Счета на оплату
-- Нумерация: `document_counters` (prefix = 'СЧ-26-', auto-increment с проверкой уникальности)
-- **Нотариальная защита:** SHA-256 хэш от `номер|дата|сумма|клиент_id`
-- Удаление: последний — hard delete + откат счётчика, остальные — `status = 'cancelled'`
-
-#### Авансовые отчёты
-- Шаблон: `POST /api/finance/imprest-report`
-- Чеки: загрузка через multer (файлы в `/public/receipts/`)
-- Каскадные транзакции: расход из кассы → приход на imprest-счёт → расходы по чекам
-
-#### Правила автоматизации
-- `transaction_rules` — автоматическое назначение категории/группы затрат по контрагенту
-- `dashboard_rules` — маппинг категорий для дашборда себестоимости
+- **Автораспределение авансов:** `utils/allocateClientAdvance.js` + `POST /api/finance/reconcile-advances/:counterpartyId` (admin) — уменьшает **контрактный** `pending_debt` на заказах, связывает `transactions` с `linked_order_id`. После ручного «Распределить авансы» в UI цифры п.1–2 чаще совпадают.
 
 ---
 
-### 2.7 📄 Документы (docs.js)
+## 7. Склад и движения
 
-#### Генерируемые документы  
-| Документ | URL | Метод | Запись в БД |
-|---|---|---|---|
-| Счет на оплату | `/print/invoice` | GET/POST | ✅ `invoices` |
-| Расходная накладная | `/print/waybill` | GET | ❌ |
-| УПД | `/print/upd` | GET | ❌ |
-| Договор | `/print/contract` | GET | ❌ |
-| Спецификация | `/print/specification` | GET | ❌ |
-| Бланк заказа | `/print/blank_order` | GET | ❌ |
-| Бланк-черновик | `/print/blank_order_draft` | POST | ❌ |
-| Паспорт партии | `/print/passport` | GET | ❌ |
-| Акт сверки | `/print/act` | GET | ❌ |
-| КП | `/print/kp` | POST | ❌ |
-| Карточка банка | `/print/requisites` | GET | ❌ |
-
-#### Реестр документов
-- `GET /api/docs/registry` — Фильтр по клиенту, дате
-- `POST /api/docs/export-1c` — Выгрузка в CommerceML 2.0 XML
-
-#### Ротация файлов
-- PDF-файлы сохраняются в `public/saved_docs/`
-- Автоматическая ротация: максимум 500 файлов, старые удаляются
+- «Истина» — таблица движений (напр. `inventory_movements` и согласованные типы: закупка, отгрузка, резерв, сушилка и т.д.).
+- `getWhId` / склады: не хардкодить хрупко в новом коде — использовать существующие хелперы из `web.js`/роутов.
+- Сложные операции — **транзакции** `withTransaction` (`web.js`).
 
 ---
 
-### 2.8 📈 Дашборд (dashboard.ejs + dashboard.js)
+## 8. Согласованность данных
 
-#### Триада себестоимости (Cost Triad)
-- **COGS (Прямые):** Транзакции с cost_group = 'direct'
-- **OPEX (Косвенные):** cost_group = 'opex'
-- **CAPEX:** Всё остальные расходы
-
-#### Капитализация склада (Stock Valuation)
-- Агрегация `SUM(quantity * current_price)` по всем складам
-- Разбивка по товарам, сортировка по стоимости
-
-#### Глобальный поиск
-- По товарам (`items`), контрагентам (`counterparties`), транзакциям (`transactions`)
-- Используется pg_trgm для нечёткого поиска
+- Многошаговые записи в БД — в одной SQL-транзакции.
+- Где в модели предусмотрено — **soft delete** (`is_deleted` в транзакциях и т.п.).
+- Схема БД: **`.antigravity/db_protocol.md`**.
 
 ---
 
-### 2.9 🛠️ Dev Mode (dev.js)
+## 9. Тесты
 
-**Защита:** `process.env.DEV_MODE !== 'true'` → пустой router + middleware-guard.
-
-| Команда | Описание |
-|---|---|
-| `POST /unlock-order/:id` | Принудительный unlock заказа |
-| `DELETE /transactions/:id` | Hard delete транзакции с откатом оплат и счетов |
-| `DELETE /production/:id` | Hard delete партии с откатом циклов и зарплаты |
+- `npm test` — Jest, `--detectOpenHandles --forceExit` в `package.json`.  
+- Покрытие по мере развития; новая критичная бизнес-логика — по возможности сценарий в `test/`.
 
 ---
 
-### 2.10 🛡️ Центр Управления / Admin Hub (admin.js)
-- **Точка доступа:** `/api/admin/*`
-- Защищено `requireAdmin`. Предоставляет панель с 4 блоками:
-  1. **Бэкапы:** Запуск `pg_dump` через `child_process.exec`, скачивание и удаление SQL-дампов.
-  2. **Система:** Мониторинг RAM, CPU, Uptime сервера и пула соединений PostgreSQL + экспорт CSV (Items, Employees, Counterparties, Transactions, Inventory).
-  3. **Аудит-логи:** Просмотр пагинированных audit-записей об удалении транзакций, счетов и т.д.
-  4. **Настройки:** Управление глобальным `system_settings`.
-- **Логгирование:** Отдельная вкладка позволяет читать файлы логов `winston` (напр., `logs/error.log`).
+## 10. Документация и каноны
+
+| Файл | Содержание |
+|------|------------|
+| `erp_architecture_tree.md` | Дерево репозитория и сопоставление UI ↔ роуты |
+| `erp_technical_docs.md` | **Этот файл** — правила и контракты |
+| `.antigravity/db_protocol.md` | Схема/миграции/именование в БД |
+| `.antigravity/styles_and_ui.md` | UI/UX |
+| `.cursorrules` | Правила для агента |
+| `audit_master_list.md` | Чеклист аудита по вкладкам (не схема кода) |
+
+**При расхождении кода и дока:** править код или документ в одной задаче и сразу обновлять **оба** `erp_*.md`, если меняется структура или контракт.
 
 ---
 
-## 3. БЕЗОПАСНОСТЬ И HARDENING (PHASE 5)
+## 11. Краткое сопоставление `routes` ↔ бизнес-область
 
-### 3.1 Аутентификация
-- JWT (jsonwebtoken) через cookie `token`
-- Альтернативно: `Authorization: Bearer <token>` или `?token=<token>`
-- Middleware: `authenticateToken` в `middleware/auth.js`
+| Бизнес-область | Роутер (основной) |
+|----------------|------------------|
+| Склад, закупка сырья, сушилка, часть нумерации | `inventory.js` |
+| Производство, батчи, часть API рецептур | `production.js` |
+| Продажи, заказы, отгрузки, аналитика | `sales.js` |
+| Касса, проводки, контрагенты, налоги, **дашборд-аналитика, invoices** | `finance.js` |
+| Справочники, оборудование (CRUD API) | `dictionaries.js` |
+| Кадры, зарплата | `hr.js` |
+| Печатные формы, реестр, экспорты | `docs.js` |
+| Админ (бэкап, VACUUM, логи) | `admin.js` |
+| Dev-only утилиты | `dev.js` (`/api/dev/...`) |
 
-### 3.2 Авторизация (RBAC)
-- Два уровня: `user` и `admin`
-- `requireAdmin` — middleware проверяющий `req.user.role === 'admin'`
-- **Проблема (AUDIT-001):** ЗАКРЫТО — все мутирующие маршруты защищены `requireAdmin`. Модуль Продаж дополнительно защищён от user_id spoofing (Phase 6.10)
-
-### 3.3 Целостность данных
-- `withTransaction()` — обёртка над `BEGIN/COMMIT/ROLLBACK` с автоматическим release
-- `FOR UPDATE` — row-level locking на критических операциях (баланс счетов, остатки)
-- `Big.js` — точная финансовая арифметика (избежание IEEE 754 ошибок)
-
-### 3.4 Входная валидация (AUDIT-018)
-- **Архитектура:** Zero-dependency middleware (`middleware/validator.js`), без Joi/express-validator
-- **Стандарт ответа ошибки:** `{ error: "Ошибка валидации", details: ["..."] }` — HTTP 400
-- **Покрытие:**
-  - `validateItem` → `POST /api/items` (name обязательно, price ≥ 0)
-  - `validateSalaryAdjustment` → `POST /api/salary/adjustments` (employee_id, amount)
-  - `validateTransaction` → `POST /api/transactions` (amount > 0, type, account_id, category)
-  - `validateTransactionEdit` → `PUT /api/transactions/:id` (amount > 0, category не пустая)
-  - `validateTransfer` → `POST /api/transactions/transfer` (amount > 0, from ≠ to, оба ID)
-  - `validateCounterparty` → `POST/PUT /api/counterparties` (name ≥ 2, ИНН 10/12 цифр, КПП 9 цифр, email формат)
-  - `validateInvoice` → `POST /api/invoices` (cp_id число, amount > 0)
-  - `validateAccount` / `validateAccountEdit` → `POST/PUT /api/accounts` (name непустое, balance ≥ 0)
-  - `validateCategory` → `POST /api/finance/categories` (name непустое)
-  - `validateCostGroup` → `PUT /api/finance/categories/:id/group` (∈ direct/opex/capex/overhead)
-  - `validateCorrection` → `POST /api/counterparties/:id/correction` (amount > 0, type, date)
-  - `validatePayment` → `POST .../pay` (account_id обязателен)
-  - `validatePurchase` → `POST/PUT /api/inventory/purchase` (itemId, counterparty_id, quantity > 0, price ≥ 0)
-  - `validateSifting` → `POST /api/inventory/sifting` (sourceId, sourceQty > 0, outputs массив)
-  - `validateScrap` → `POST /api/inventory/scrap, /dispose` (itemId, warehouseId, qty > 0)
-  - `validateAudit` → `POST /api/inventory/audit` (warehouseId, adjustments массив с itemId и actualQty ≥ 0)
-  - `validateReserveAction` → `POST /api/inventory/reserve-action` (action ∈ release/transfer, itemId, qty > 0)
-  - `validateProductionDraft` → `POST /api/production` (date ≤ сегодня, products массив с id и quantity > 0)
-  - `validateRecipeSave` → `POST /api/recipes/save` (productId, ingredients массив с materialId и qty > 0)
-  - `validateRecipeSync` → `POST /api/recipes/sync-category` (targetProductIds и materials массивы)
-  - `validateCheckout` → `POST /api/sales/checkout` (counterparty_id, items массив с id/qty > 0/price ≥ 0)
-  - `validateReturn` → `POST /api/sales/returns` (order_id, items массив с id/qty > 0)
-  - `validateShipment` → `POST /api/sales/orders/:id/ship` (items_to_ship массив с coi_id/qty > 0)
-  - `validateTransferReserve` → `POST /api/sales/transfer-reserve` (donor_coi_id, recipient_coi_id, transfer_qty > 0)
-  - `validateOrderStatus` → `PUT /api/sales/orders/:id/status` (status ∈ pending/processing/completed/cancelled)
-  - `validateTimesheetCell` → `POST /api/timesheet/cell` (employee_id, date, status whitelist, bonus/penalty ≥ 0, multiplier 0–1)
-  - `validateMassBonus` → `POST /api/timesheet/mass-bonus` (date, workersData массив с employee_id и ktu 0–5)
-  - `validateSalaryPay` → `POST /api/salary/pay` (employee_id, amount ≥ 0, date, account_id)
-  - `validateEmployee` → `POST/PUT /api/employees` (full_name ≥ 3 симв., salary_cash/official ≥ 0, tax_rate 0–100)
-  - `validateEquipment` → `POST/PUT /api/equipment` (name обязателен, equipment_type whitelist, purchase_cost ≥ 0, planned_cycles > 0)
-  - `validateUpdatePrices` → `POST /api/products/update-prices` (prices массив с id и price ≥ 0)
-- **Утилиты:** `_isValidInn(inn)`, `_isValidKpp(kpp)`, `_isValidEmail(email)` — приватные функции
-- **Всего экспортов:** 32 валидатора, 40 маршрутов покрыто
-- **Покрыто модулей:** ✅ ВСЕ — Справочники, Кадры, Финансы, Склад, Производство, Продажи, HR (AUDIT-018 ЗАКРЫТ)
-
-### 3.5 Аудит и Журналирование
-- Имеется таблица `audit_logs` для фиксации критических деструктивных действий (удаление финансовых документов и транзакций).
-- Функция `auditLog(userId, action, entity, entityId, ip)` гарантирует отсутствие сбоев в основном потоке даже при падении логирования.
-
-### 3.6 Инфраструктурный Hardening
-- **Helmet.js** интегрирован для защиты HTTP-заголовков.
-- **express-rate-limit** установлен (глобально 400 запросов/10 мин., строгий лимит 20/15 на `/login`).
-- CORS настроен, `winston` логирует все необработанные исключения и ошибки.
-
----
-
-## 4. КЛЮЧЕВЫЕ ПАТТЕРНЫ КОДА
-
-### 4.1 withTransaction(pool, callback)
-```javascript
-async function withTransaction(pool, callback) {
-    const client = await pool.connect();
-    try {
-        await client.query('BEGIN');
-        await callback(client);
-        await client.query('COMMIT');
-    } catch (e) {
-        await client.query('ROLLBACK');
-        throw e;
-    } finally {
-        client.release();
-    }
-}
-```
-
-### 4.2 getWhId(clientOrPool, type)
-```javascript
-// Динамический резолвер ID склада по типу
-const res = await clientOrPool.query(
-    "SELECT id FROM warehouses WHERE warehouse_type = $1", [type]
-);
-return res.rows[0]?.id;
-```
-
-### 4.3 getNextDocNumber(client, prefix)
-```javascript
-// Атомарный генератор номеров: UPDATE ... RETURNING + uniqueness check
-const res = await client.query(
-    "UPDATE document_sequences SET last_number = last_number + 1 WHERE doc_type = $1 RETURNING last_number",
-    [prefix]
-);
-```
-
-### 4.4 Soft Delete vs Hard Delete
-| Сущность | Стратегия | Механизм |
-|---|---|---|
-| Товары (items) | Soft | `is_deleted = true` |
-| Транзакции (transactions) | Soft | `is_deleted = true` + триггер пересчёта |
-| Сотрудники (employees) | Soft | `status = 'deleted'` |
-| Счета (invoices) | Soft/Hard | Последний = hard delete, остальные = `status = 'cancelled'` |
-| Заказы (client_orders) | Hard | `DELETE FROM` с откатом резервов |
-| Партии (production_batches) | **Draft → Hard** / **Completed → Soft** | Черновик: `DELETE FROM` (физическое). Завершённые: `status = 'deleted'` + откат циклов и зарплаты |
-| Контрагенты | Soft | `is_deleted = true` (AUDIT-003 закрыт, CASCADE заменён на RESTRICT) |
-
----
-
-## 5. ЗАВИСИМОСТИ (package.json)
-
-| Пакет | Назначение |
-|---|---|
-| express | HTTP-сервер |
-| pg | PostgreSQL-клиент |
-| ejs | Шаблонизатор |
-| socket.io | WebSocket (реальное время) |
-| big.js | Точная финансовая математика |
-| jsonwebtoken | JWT аутентификация |
-| bcrypt | Хэширование паролей |
-| multer | Загрузка файлов (чеки) |
-| dotenv | Переменные окружения |
-| node-telegram-bot-api | Telegram нотификации |
-| cors | CORS middleware |
-
----
-
-## 6. ВЫПОЛНЕННЫЕ ВЕХИ РАЗВИТИЯ (Phase 1-6)
-
-### ✅ Выполнено
-1. Внедрен express-validator на все маршруты.
-2. Закрыты RBAC-дыры (requireAdmin везде).
-3. Автоматические бекапы БД внедрены (admin hub).
-4. Docker-контейнеризация для production-запуска (docker-compose).
-5. Unit тесты (Jest) добавлены.
-6. Внедрен Центр Администрирования (Admin Hub).
-7. Добавлена возможность кастомных спецификаций сырья "на лету" (Custom BOM).
-
----
-
-## 7. ИЗМЕНЕНИЯ СЕССИИ (Phase 7 — Batch Traceability & History UI)
-
-### ✅ Реализовано
-1. **Прослеживаемость партий (Batch Traceability):** `GET /api/inventory/batch/:id/card` + модалка `#modal-batch-card`. Партии кликабельны во всех таблицах склада.
-2. **Редизайн Истории Движений:** Карточка движения заменена на Event Feed с кросс-линкингом (Партия / Поставщик / Заказ — кликабельные чипы).
-3. **CRUD истории:** `PUT` (дата/описание) и `DELETE` (полный откат) для движений. Политика: изменение объёма запрещено — только «Откат + Повторный ввод».
-4. **Парсинг order_id из текста:** SQL-паттерн `ЗК-[0-9]+` для старых записей `sales_reserve`.
-5. **Фикс stacking context модалок:** `#app-modal` получил `z-index: 10000 !important` в CSS. Убран `overflow-x: hidden` у `.content-area` (создавал изолированный stacking context).
-6. **NODE_ENV=development** в docker-compose — EJS-шаблоны не кэшируются, изменения применяются без перезапуска.
-7. **Локализация Flatpickr:** `flatpickr.localize(flatpickr.l10ns.ru)` применён глобально.
-
----
-
-## 8. ИЗМЕНЕНИЯ СЕССИИ (Phase 8 — Sales Stabilization & Order Math)
-
-### ✅ Реализовано
-1. **Математика отгрузок в БД (Архив):** Внедрена точная калькуляция сумм для частичных отгрузок непосредственно в SQL-запросе в `routes/sales.js`. Применяется агрегация `SUM(ABS(m.quantity) * coi.price)`, что гарантирует, что таблица "Архив отгрузок" берет **объемы с отгрузок, а цены из Заказов**, минуя нулевые или битые транзакции (`patch_exact_sum.js`).
-2. **Жесткий парсинг сумм:** Введен механизм `parseFloat` в API для блокировки передачи пустых строк и защиты от `NaN` на фронтенде (`patch_amount.js`).
-3. **Стабилизация Режима Редактирования Заказов (+ Флаг инициализации):** Введен глобально-оконный флаг `window.isSalesOrderEditInitialLoad = true` в функцию `loadOrderForEdit()`, блокирующий самопроизвольное опустошение корзины (`clearSalesCart()`) при срабатывании `onClientChange` в момент загрузки старого заказа.
-4. **UX-Откат (Cancel Mode):** В функцию `clearOrderForm()` вшито обнуление текста и классов `checkout-title`, благодаря чему выход из режима редактирования по кнопке "Отмена" возвращает интерфейс в исходное состояние "Новый заказ" без "залипания" плашек.
-
----
-
-*Документ актуализирован — Phase 8 (Sales Stabilization & Order Math).*
+Этого достаточно, чтобы не дублировать детальный список маршрутов; точный список — **исходный код** соответствующего файла.
