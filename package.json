@@ -6,6 +6,9 @@
   "scripts": {
     "start": "node web.js",
     "dev": "nodemon web.js --ignore public/ --ignore views/",
+    "start:prod": "pm2 start ecosystem.config.js --env production",
+    "stop:prod": "pm2 stop plittex-erp",
+    "logs:prod": "pm2 logs plittex-erp",
     "test": "jest --detectOpenHandles --forceExit",
     "test:mcp:pg": "node test/mcp_pg_test.js"
   },
