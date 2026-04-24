@@ -37,7 +37,7 @@ async function adminLoadBackups() {
                 <td><strong>${escapeHTML(b.name)}</strong></td>
                 <td>${b.sizeKB} KB</td>
                 <td>${date}</td>
-                <td><a href="/api/admin/backups/download/${encodeURIComponent(b.name)}?token=${localStorage.getItem('token') || localStorage.getItem('jwtToken')}" class="btn btn-outline btn-sm">📥 Скачать</a></td>
+                <td><a href="#" class="btn btn-outline btn-sm" role="button" onclick="event.preventDefault(); void window.openPrintUrl('/api/admin/backups/download/${encodeURIComponent(b.name)}')">📥 Скачать</a></td>
             </tr>`;
         }).join('');
     } catch (err) {
@@ -197,8 +197,7 @@ function getActionBadge(action) {
 // 6. CSV ЭКСПОРТ
 // ═══════════════════════════════════════════════════
 function adminExport(table) {
-    const token = localStorage.getItem('token') || localStorage.getItem('jwtToken');
-    window.open(`/api/admin/export/${table}?token=${token}`, '_blank');
+    void window.openPrintUrl(`/api/admin/export/${table}`);
     UI.toast(`📊 Экспорт "${table}" начат`, 'success');
 }
 

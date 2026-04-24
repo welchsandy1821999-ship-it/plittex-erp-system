@@ -441,7 +441,7 @@ window.executePrintAct = function (cpId) {
     if (!start || !end) return UI.toast('Укажите даты', 'error');
 
     // Отправляем правильный запрос с датами и правильным параметром (cpId)
-    window.open(`/print/act?cpId=${cpId}&start=${start}&end=${end}` + (String(`/print/act?cpId=${cpId}&start=${start}&end=${end}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
+    void window.openPrintUrl(`/print/act?cpId=${cpId}&start=${start}&end=${end}`);
     UI.closeModal();
 };
 
@@ -683,7 +683,7 @@ window.printSelectedContract = function () {
     if (!select || select.selectedIndex < 0) return UI.toast('Выберите договор!', 'warning');
     const cid = select.options[select.selectedIndex].getAttribute('data-cid');
     if (!cid) return UI.toast('Этот пункт нельзя распечатать', 'warning');
-    window.open(`/print/contract?id=${cid}` + (String(`/print/contract?id=${cid}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
+    void window.openPrintUrl(`/print/contract?id=${cid}`);
 };
 
 // === НОВЫЙ МОДУЛЬ: УМНАЯ СИНХРОНИЗАЦИЯ КЛИЕНТОВ ===
@@ -2089,9 +2089,9 @@ function renderHistoryTable() {
             <td class="sales-hist-sum">${sumText}</td>
             <td class="sales-hist-actions">
             <div class="sales-order-actions-row">
-                <button class="btn btn-outline sales-btn-sm sales-btn-sm-info" onclick="window.open('/print/upd?docNum=${h.doc_num}' + (String('/print/upd?docNum=${h.doc_num}').includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank')" title="УПД и Пропуск на выезд">🖨️ УПД + Пропуск</button>
-                <button class="btn btn-outline sales-btn-sm text-warning border-warning" onclick="window.open('/print/specification?docNum=${h.doc_num}' + (String('/print/specification?docNum=${h.doc_num}').includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank')" title="Спецификация">🖨️ Спец.</button>
-                <button class="btn btn-outline sales-btn-sm text-primary border-primary" onclick="window.open('/print/waybill?docNum=${h.doc_num}' + (String('/print/waybill?docNum=${h.doc_num}').includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank')" title="Накладная">🖨️ Накладная</button>
+                <button class="btn btn-outline sales-btn-sm sales-btn-sm-info" onclick="void window.openPrintUrl('/print/upd?docNum=${h.doc_num}')" title="УПД и Пропуск на выезд">🖨️ УПД + Пропуск</button>
+                <button class="btn btn-outline sales-btn-sm text-warning border-warning" onclick="void window.openPrintUrl('/print/specification?docNum=${h.doc_num}')" title="Спецификация">🖨️ Спец.</button>
+                <button class="btn btn-outline sales-btn-sm text-primary border-primary" onclick="void window.openPrintUrl('/print/waybill?docNum=${h.doc_num}')" title="Накладная">🖨️ Накладная</button>
                 <button class="btn btn-outline sales-btn-sm sales-btn-sm-danger" onclick="cancelShipment('${h.doc_num}')" title="Отменить">❌</button>
             </div>
             </td>
@@ -2291,7 +2291,7 @@ window.openContractManager = async function () {
                         <div class="flex-between align-center border-bottom dashed pb-10 mb-10">
                             <strong class="text-main font-14">📄 Договор №${c.id ? `<span class="entity-link" onclick="window.app.openEntity('document_contract', ${c.id})">${c.number}</span>` : c.number} от ${c.date}</strong>
                             <div class="flex-row gap-5">
-                                <button class="btn btn-outline p-5 border-info text-info font-11" onclick="window.open('/print/contract?id=${c.id}' + (String('/print/contract?id=${c.id}').includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank')" title="Распечатать">🖨️</button>
+                                <button class="btn btn-outline p-5 border-info text-info font-11" onclick="void window.openPrintUrl('/print/contract?id=${c.id}')" title="Распечатать">🖨️</button>
                                 <button class="btn btn-outline p-5 border-danger text-danger font-11" onclick="deleteContract(${c.id})" title="Удалить">❌</button>
                             </div>
                         </div>
@@ -2301,7 +2301,7 @@ window.openContractManager = async function () {
                                 <div class="flex-between align-center font-12 text-muted mb-5">
                                     <span>↳ Спецификация №${s.number} от ${s.date}</span>
                                     <div class="flex-row gap-5">
-                                        <button class="btn btn-outline p-5 border-info text-info font-11 border-none" onclick="window.open('/print/specification_doc?id=${s.id}' + (String('/print/specification_doc?id=${s.id}').includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank')" title="Печать спецификации">🖨️</button>
+                                        <button class="btn btn-outline p-5 border-info text-info font-11 border-none" onclick="void window.openPrintUrl('/print/specification_doc?id=${s.id}')" title="Печать спецификации">🖨️</button>
                                         <button class="btn btn-outline p-5 border-danger text-danger font-11 border-none" onclick="deleteSpecification(${s.id})" title="Удалить спецификацию">❌</button>
                                     </div>
                                 </div>
@@ -3176,18 +3176,18 @@ window.openClientDocsModal = function () {
 // Универсальная функция для открытия файлов из папки /files/
 window.printFile = function (fileName) {
     if (!fileName) return;
-    window.open(`/files/${fileName}` + (String(`/files/${fileName}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
+    void window.openPrintUrl(`/files/${fileName}`);
 };
 
 // Функция для открытия реквизитов выбранного банка
 window.printBankRequisites = function () {
     const bank = document.getElementById('bank-select-docs').value;
     // Теперь обращаемся к серверу, а он сам решит: отдать EJS или PDF
-    window.open(`/print/requisites?bank=${bank}` + (String(`/print/requisites?bank=${bank}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
+    void window.openPrintUrl(`/print/requisites?bank=${bank}`);
 };
 
 // === КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ (КП) ===
-window.generateKP = function () {
+window.generateKP = async function () {
     const clientId = document.getElementById('sale-client').value;
     if (!clientId) return UI.toast('Выберите контрагента для выставления КП!', 'warning');
     if (cart.length === 0) return UI.toast('Корзина пуста!', 'warning');
@@ -3196,9 +3196,17 @@ window.generateKP = function () {
     const logisticsCost = document.getElementById('sale-logistics-cost').value || 0;
     const orderDate = document.getElementById('sale-order-date')?.value || new Date().toISOString().split('T')[0];
 
+    let printTok;
+    try {
+        printTok = await window.getPrintToken();
+    } catch (e) {
+        UI.toast(e.message || 'Ошибка print-токена', 'error');
+        return;
+    }
+
     const form = document.createElement('form');
     form.method = 'POST';
-    form.action = '/print/kp' + ('/print/kp'.includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || '');
+    form.action = '/print/kp?token=' + encodeURIComponent(printTok);
     form.target = '_blank';
 
     const data = { client_id: clientId, items: cart, discount: discount, logistics: logisticsCost, orderDate: orderDate };
@@ -3215,7 +3223,7 @@ window.generateKP = function () {
 };
 
 // === ПЕЧАТЬ БЛАНК-ЗАКАЗА ИЗ КОРЗИНЫ ===
-window.generateBlankOrder = function () {
+window.generateBlankOrder = async function () {
     const clientId = document.getElementById('sale-client').value;
     if (!clientId) return UI.toast('Выберите контрагента!', 'warning');
     if (cart.length === 0) return UI.toast('Корзина пуста!', 'warning');
@@ -3230,9 +3238,17 @@ window.generateBlankOrder = function () {
     const deliveryAddress = document.getElementById('sale-delivery-address')?.value || '';
     const orderDate = document.getElementById('sale-order-date')?.value || new Date().toISOString().split('T')[0];
 
+    let printTok;
+    try {
+        printTok = await window.getPrintToken();
+    } catch (e) {
+        UI.toast(e.message || 'Ошибка print-токена', 'error');
+        return;
+    }
+
     const form = document.createElement('form');
     form.method = 'POST';
-    form.action = '/print/blank_order_draft' + ('/print/blank_order_draft'.includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || '');
+    form.action = '/print/blank_order_draft?token=' + encodeURIComponent(printTok);
     form.target = '_blank';
 
     const data = {
@@ -3302,7 +3318,7 @@ window.executePrintInvoice = function (docNum) {
         return UI.toast('Сумма счета должна быть больше нуля', 'error');
     }
 
-    window.open(`/print/invoice?docNum=${docNum}&bank=${bank}&custom_amount=${customAmt}` + (String(`/print/invoice?docNum=${docNum}&bank=${bank}&custom_amount=${customAmt}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
+    void window.openPrintUrl(`/print/invoice?docNum=${docNum}&bank=${bank}&custom_amount=${customAmt}`);
     UI.closeModal();
     setTimeout(() => { if (typeof loadActiveOrders === 'function') loadActiveOrders(); }, 600);
 };
@@ -3557,7 +3573,7 @@ window.executeExport1C = function () {
     const y = document.getElementById('export-year').value;
 
     // Открываем маршрут скачивания файла
-    window.open(`/api/sales/export-1c?month=${m}&year=${y}` + (String(`/api/sales/export-1c?month=${m}&year=${y}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
+    void window.openPrintUrl(`/api/sales/export-1c?month=${m}&year=${y}`);
     UI.closeModal();
     UI.toast('Файл скачивается...', 'success');
 };
@@ -4033,47 +4049,47 @@ window.AppPrint = {
     // 1. Счет на оплату
     invoice: function (id) {
         if (!id) return UI.toast('ID счета не указан', 'error');
-        window.open(`/print/invoice?id=${id}` + (String(`/print/invoice?id=${id}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
+        void window.openPrintUrl(`/print/invoice?id=${id}`);
     },
     // 2. Расходная накладная
     waybill: function (docNum) {
         if (!docNum) return UI.toast('Номер документа не указан', 'error');
-        window.open(`/print/waybill?docNum=${docNum}` + (String(`/print/waybill?docNum=${docNum}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
+        void window.openPrintUrl(`/print/waybill?docNum=${docNum}`);
     },
     // 3. УПД
     upd: function (docNum) {
         if (!docNum) return UI.toast('Номер документа не указан', 'error');
-        window.open(`/print/upd?docNum=${docNum}` + (String(`/print/upd?docNum=${docNum}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
+        void window.openPrintUrl(`/print/upd?docNum=${docNum}`);
     },
     // 4. Договор
     contract: function (id) {
         if (!id) return UI.toast('ID договора не указан', 'error');
-        window.open(`/print/contract?id=${id}` + (String(`/print/contract?id=${id}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
+        void window.openPrintUrl(`/print/contract?id=${id}`);
     },
     // 5. Спецификация (по номеру заказа)
     specification: function (docNum) {
         if (!docNum) return UI.toast('Номер заказа не указан', 'error');
-        window.open(`/print/specification?docNum=${docNum}` + (String(`/print/specification?docNum=${docNum}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
+        void window.openPrintUrl(`/print/specification?docNum=${docNum}`);
     },
     // 6. Спецификация (отдельный документ)
     specificationDoc: function (id) {
         if (!id) return UI.toast('ID спецификации не указан', 'error');
-        window.open(`/print/specification_doc?id=${id}` + (String(`/print/specification_doc?id=${id}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
+        void window.openPrintUrl(`/print/specification_doc?id=${id}`);
     },
     // 7. Акт сверки
     act: function (cpId, startDate, endDate) {
         if (!cpId || !startDate || !endDate) return UI.toast('Укажите контрагента и период', 'error');
-        window.open(`/print/act?cp_id=${cpId}&start=${startDate}&end=${endDate}` + (String(`/print/act?cp_id=${cpId}&start=${startDate}&end=${endDate}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
+        void window.openPrintUrl(`/print/act?cp_id=${cpId}&start=${startDate}&end=${endDate}`);
     },
     // 8. Бланк заказа
     blankOrder: function (docNum) {
         if (!docNum) return UI.toast('Номер заказа не указан', 'error');
-        window.open(`/print/blank_order?docNum=${docNum}` + (String(`/print/blank_order?docNum=${docNum}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
+        void window.openPrintUrl(`/print/blank_order?docNum=${docNum}`);
     },
     // 9. Паспорт партии (Производство)
     passport: function (batchId) {
         if (!batchId) return UI.toast('ID партии не указан', 'error');
-        window.open(`/print/passport?batchId=${batchId}` + (String(`/print/passport?batchId=${batchId}`).includes('?') ? '&' : '?') + 'token=' + (localStorage.getItem('token') || ''), '_blank');
+        void window.openPrintUrl(`/print/passport?batchId=${batchId}`);
     }
 };
 

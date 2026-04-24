@@ -203,6 +203,42 @@ throw err;
     }
 };
 
+/**
+ * Краткоживущий JWT для ссылок печати (?token=), чтобы не светить основной сессионный токен в URL.
+ * Использует POST /api/generate-print-token (с основным токеном в Authorization).
+ */
+async function getPrintToken() {
+    const t = _getAuthToken();
+    if (!t) {
+        throw new Error('Сессия отсутствует');
+    }
+    const res = await fetch('/api/generate-print-token', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + t, 'Content-Type': 'application/json' }
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        throw new Error(data.error || 'Не удалось получить print-токен');
+    }
+    return data.printToken || data.token;
+}
+
+/** Открыть URL (без &token) в новой вкладке с одноразовым print-токеном */
+window.openPrintUrl = async function (pathWithQuery) {
+    try {
+        const pt = await getPrintToken();
+        const sep = pathWithQuery.indexOf('?') >= 0 ? '&' : '?';
+        window.open(pathWithQuery + sep + 'token=' + encodeURIComponent(pt), '_blank');
+    } catch (e) {
+        console.error(e);
+        if (typeof UI !== 'undefined' && UI.toast) {
+            UI.toast(e.message || 'Ошибка print-токена', 'error');
+        }
+    }
+};
+
+window.getPrintToken = getPrintToken;
+
 // =========================================================
 // [WebSocket Live Updates — Живая ERP]
 // =========================================================

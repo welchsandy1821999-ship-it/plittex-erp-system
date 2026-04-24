@@ -431,7 +431,7 @@
                 </div>
             </div>
             <div style="font-size: 15px; font-weight: bold; margin: 5px 0; color: var(--text-main);">Все сотрудники</div>
-            <div style="font-size: 18px; font-weight: 800; color: var(--text-main);">${Utils.formatMoney(totalImprestBalance)} ₽</div>
+            <div style="font-size: 18px; font-weight: 800; color: var(--text-main);">${Utils.formatMoney(totalImprestBalance)}</div>
         </div>`;
         }
 
@@ -1906,7 +1906,7 @@
                 const num = `СЧ-${new Date().getTime().toString().slice(-6)}`;
 
                 await API.post('/api/invoices', { cp_id: cpId, amount, desc, num });
-                window.open(`/print/invoice?cp_id=${cpId}&amount=${amount}&desc=${encodeURIComponent(desc)}&bank=${bank}&num=${num}&token=${localStorage.getItem('token')}`, '_blank');
+                await window.openPrintUrl(`/print/invoice?cp_id=${cpId}&amount=${amount}&desc=${encodeURIComponent(desc)}&bank=${bank}&num=${num}`);
                 UI.closeModal();
                 UI.toast('✅ Счет выставлен и занесен в базу', 'success');
                 if (typeof loadFinanceData === 'function') loadFinanceData();
@@ -1920,7 +1920,7 @@
                     if (btnElement) btnElement.disabled = false;
                     return;
                 }
-                window.open(`/print/invoice?docNum=${docNum}&bank=${bank}&custom_amount=${customAmt}&token=${localStorage.getItem('token')}`, '_blank');
+                await window.openPrintUrl(`/print/invoice?docNum=${docNum}&bank=${bank}&custom_amount=${customAmt}`);
                 UI.closeModal();
 
             } else if (type === 'contract') {
@@ -1937,7 +1937,7 @@
                 const desc = "Оплата по договору";
 
                 await API.post('/api/invoices', { cp_id: cpId, amount: customAmt, desc: desc, num: num });
-                window.open(`/print/invoice?contractId=${contractId}&cp_id=${cpId}&amount=${customAmt}&bank=${bank}&num=${num}&token=${localStorage.getItem('token')}`, '_blank');
+                await window.openPrintUrl(`/print/invoice?contractId=${contractId}&cp_id=${cpId}&amount=${customAmt}&bank=${bank}&num=${num}`);
                 UI.closeModal();
                 UI.toast('✅ Счет по договору выставлен', 'success');
                 if (typeof loadFinanceData === 'function') loadFinanceData();
@@ -1947,9 +1947,9 @@
         }
     };
 
-    window.executePrintInvoice = function (docNum) {
+    window.executePrintInvoice = async function (docNum) {
         const bank = document.getElementById('invoice-bank').value;
-        window.open(`/print/invoice?docNum=${docNum}&bank=${bank}&token=${localStorage.getItem('token')}`, '_blank');
+        await window.openPrintUrl(`/print/invoice?docNum=${docNum}&bank=${bank}`);
         UI.closeModal();
     };
 
@@ -2044,7 +2044,7 @@
                     <input type="checkbox" id="pay-inv-offset" onchange="toggleAccountSelector(this.checked)" style="margin-top: 4px; width: 18px; height: 18px;">
                     <div>
                         <div style="font-weight: bold; color: var(--primary-dark, #0d47a1); font-size: 15px;">Зачесть из переплаты клиента</div>
-                        <div style="color: var(--primary); font-size: 13px; margin-top: 2px;">Доступно: ${Utils.formatMoney(clientSaldo)} ₽. Деньги не будут зачислены в кассу.</div>
+                        <div style="color: var(--primary); font-size: 13px; margin-top: 2px;">Доступно: ${Utils.formatMoney(clientSaldo)}. Деньги не будут зачислены в кассу.</div>
                         <div id="saldo-warning" style="display: none; color: var(--danger); font-size: 12px; margin-top: 5px; font-weight: bold;">⚠ Внимание: сумма зачета превышает переплату!</div>
                     </div>
                 </label>
@@ -2761,34 +2761,34 @@
                 <h4 class="mt-15 mb-10 text-main font-16 border-bottom pb-5">ДОХОДЫ</h4>
                 <div class="finance-pnl-row">
                     <span class="font-15">Выручка (Оборот от продаж):</span>
-                    <span class="font-16 font-bold text-success">${fmt(data.revenue)} ₽</span>
+                    <span class="font-16 font-bold text-success">${fmt(data.revenue)}</span>
                 </div>
                 <div class="finance-pnl-total-row" style="border-right-color: var(--success);">
                     <span class="font-15 font-bold">ИТОГО ДОХОДЫ (От основной деятельности):</span>
-                    <span class="font-18 font-bold" style="color: ${data.totalIncome < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.totalIncome)} ₽</span>
+                    <span class="font-18 font-bold" style="color: ${data.totalIncome < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.totalIncome)}</span>
                 </div>
 
                 <!-- БЛОК РАСХОДОВ -->
                 <h4 class="mt-15 mb-10 text-main font-16 border-bottom pb-5">РАСХОДЫ</h4>
                 <div class="finance-pnl-row">
                     <span class="font-15">🟢 Прямые затраты (COGS):</span>
-                    <span class="font-16 font-bold" style="color: ${data.cogs < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.cogs)} ₽</span>
+                    <span class="font-16 font-bold" style="color: ${data.cogs < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.cogs)}</span>
                 </div>
                 <div class="finance-pnl-row">
                     <span class="font-15">🟠 Косвенные расходы (OPEX):</span>
-                    <span class="font-16 font-bold" style="color: ${data.opex < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.opex)} ₽</span>
+                    <span class="font-16 font-bold" style="color: ${data.opex < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.opex)}</span>
                 </div>
                 <div class="finance-pnl-row">
                     <span class="font-15">🔵 Капитальные затраты (CAPEX):</span>
-                    <span class="font-16 font-bold" style="color: ${data.capex < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.capex)} ₽</span>
+                    <span class="font-16 font-bold" style="color: ${data.capex < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.capex)}</span>
                 </div>
                 <div class="finance-pnl-row" style="border-style: dashed; opacity: 0.7;">
                     <span class="font-13 text-muted">📋 Справочно: ФОТ по начислению:</span>
-                    <span class="font-13 font-bold text-muted">${fmt(data.laborCosts)} ₽</span>
+                    <span class="font-13 font-bold text-muted">${fmt(data.laborCosts)}</span>
                 </div>
                 <div class="finance-pnl-total-row" style="border-right-color: var(--danger);">
                     <span class="font-15 font-bold">ИТОГО РАСХОДЫ (COGS + OPEX + CAPEX):</span>
-                    <span class="font-18 font-bold" style="color: ${data.totalExpenses < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.totalExpenses)} ₽</span>
+                    <span class="font-18 font-bold" style="color: ${data.totalExpenses < 0 ? 'var(--danger)' : 'var(--success)'};">${fmt(data.totalExpenses)}</span>
                 </div>
 
                 <!-- ФИНАЛЬНЫЙ РЕЗУЛЬТАТ -->
@@ -2797,7 +2797,7 @@
                         <div class="font-18 font-bold" style="color: ${Number(data.netProfit) >= 0 ? 'var(--success-text)' : 'var(--danger-text)'}; letter-spacing: 0.5px;">ЧИСТАЯ ПРИБЫЛЬ (Net Profit)</div>
                         <div class="font-14 text-muted mt-5">Рентабельность: <b class="font-16" style="color: ${Number(data.netProfit) >= 0 ? 'var(--success)' : 'var(--danger)'};">${data.margin}%</b></div>
                     </div>
-                    <span class="font-32 font-bold" style="color: ${Number(data.netProfit) >= 0 ? 'var(--success-text)' : 'var(--danger-text)'}; text-shadow: 0 1px 2px rgba(0,0,0,0.1);">${Number(data.netProfit) > 0 ? '+' : ''}${fmt(data.netProfit)} ₽</span>
+                    <span class="font-32 font-bold" style="color: ${Number(data.netProfit) >= 0 ? 'var(--success-text)' : 'var(--danger-text)'}; text-shadow: 0 1px 2px rgba(0,0,0,0.1);">${Number(data.netProfit) > 0 ? '+' : ''}${fmt(data.netProfit)}</span>
                 </div>
             </div>
         `;
@@ -2886,7 +2886,7 @@
             <div class="crm-inv-row">
                 <div><b>Договор №${c.id ? `<span class="entity-link" onclick="window.app.openEntity('document_contract', ${c.id})">${c.number}</span>` : c.number}</b> от ${c.date}</div>
                 <div class="flex-row gap-5">
-                    <button class="btn btn-outline p-5 font-12" style="color: var(--info); border-color: var(--info);" onclick="window.open('/print/contract?id=${c.id}&token=' + localStorage.getItem('token'), '_blank')" title="Распечатать">🖨️</button>
+                    <button class="btn btn-outline p-5 font-12" style="color: var(--info); border-color: var(--info);" onclick="void window.openPrintUrl('/print/contract?id=${c.id}')" title="Распечатать">🖨️</button>
                     <button class="btn btn-outline p-5 font-12" style="color: var(--danger); border-color: var(--danger);" onclick="deleteContract(${c.id}, ${cp.id})" title="Удалить договор">❌</button>
                 </div>
             </div>
@@ -2913,7 +2913,7 @@
                         <div class="mt-15 p-10 font-14" style="background: var(--surface); border: 1px solid var(--border); border-radius: 8px;">
                             <div class="font-bold text-muted mb-5">Сальдо взаиморасчетов:</div>
                             <div class="font-18 font-bold" style="color: ${data.saldo > 0 ? 'var(--success)' : (data.saldo < 0 ? 'var(--danger)' : 'var(--text)')}">
-                                ${data.saldo > 0 ? 'Нам должны: ' : (data.saldo < 0 ? 'Мы должны: ' : '')}${Utils.formatMoney(Math.abs(data.saldo))} ₽
+                                ${data.saldo > 0 ? 'Нам должны: ' : (data.saldo < 0 ? 'Мы должны: ' : '')}${Utils.formatMoney(Math.abs(data.saldo))}
                             </div>
                         </div>
                     </div>
@@ -2936,7 +2936,7 @@
                     <h4 class="crm-block-header">📄 Документы и корректировки</h4>
                     <div class="crm-actions-grid">
                         <button class="btn btn-outline btn-outline-warning p-5 font-13" onclick="openFinanceInvoiceModal(${cp.id}, '${cp.name.replace(/'/g, "\\'").replace(/"/g, '&quot;')}')">🖨️ Выставить Счет</button>
-                        <button class="btn btn-outline p-5 font-13 text-primary" onclick="window.open('/print/act?cp_id=${cp.id}&token=' + localStorage.getItem('token'), '_blank')">📑 Акт сверки</button>
+                        <button class="btn btn-outline p-5 font-13 text-primary" onclick="void window.openPrintUrl('/print/act?cp_id=${cp.id}')">📑 Акт сверки</button>
                         <button class="btn btn-outline p-5 font-13 font-bold text-primary" onclick="openCorrectionModal(${cp.id})">⚖️ Коррекция</button>
                     </div>
                 </div>
@@ -3193,7 +3193,7 @@
         <div style="background: var(--surface-alt); padding: 12px; border-radius: 8px; margin-bottom: 15px; display: flex; justify-content: space-between;">
             <div>
                 <small class="text-muted">Текущий баланс:</small><br>
-                <b style="color: ${balanceColor}; font-size: 16px;">${Utils.formatMoney(fin.balance)} ₽</b>
+                <b style="color: ${balanceColor}; font-size: 16px;">${Utils.formatMoney(fin.balance)}</b>
             </div>
             <div style="text-align: right;">
                 <small class="text-muted">Оборот (Приход/Расход):</small><br>
@@ -3925,7 +3925,7 @@
             <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
                 <div>
                     <div style="font-size: 11px; font-weight: 800; color: var(--primary); text-transform: uppercase;">🏦 Налоговый резерв</div>
-                    <div style="font-size: 28px; font-weight: 900; color: var(--text-main); margin-top: 4px; white-space: nowrap;">${Utils.formatMoney(live.total)} ₽</div>
+                    <div style="font-size: 28px; font-weight: 900; color: var(--text-main); margin-top: 4px; white-space: nowrap;">${Utils.formatMoney(live.total)}</div>
                 </div>
                 <div id="tax-period-controls" style="display: flex; gap: 3px;" class="no-print">
                     ${periodHtml}
@@ -3935,12 +3935,12 @@
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
                 <div style="cursor: pointer; padding: 10px; border-radius: 8px; transition: 0.2s;" onclick="openTaxDetailsModal('cash')">
                     <div style="font-size: 10px; color: var(--text-muted);">Касса (УСН ${taxUsnRate}%):</div>
-                    <div style="font-size: 16px; font-weight: bold; color: var(--success); white-space: nowrap;">+${Utils.formatMoney(Math.max(0, live.cashTax))} ₽</div>
+                    <div style="font-size: 16px; font-weight: bold; color: var(--success); white-space: nowrap;">+${Utils.formatMoney(Math.max(0, live.cashTax))}</div>
                     <div style="font-size: 9px; color: var(--primary); margin-top: 4px;">Аналитика УСН ➔</div>
                 </div>
                 <div style="cursor: pointer; padding: 10px; border-radius: 8px; transition: 0.2s;" onclick="openTaxDetailsModal('bank')">
                     <div style="font-size: 10px; color: var(--text-muted);">Безнал (Оперативный НДС):</div>
-                    <div style="font-size: 16px; font-weight: bold; color: var(--primary); white-space: nowrap;">${live.bankVat > 0 ? '+' : ''}${Utils.formatMoney(Math.max(0, live.bankVat))} ₽</div>
+                    <div style="font-size: 16px; font-weight: bold; color: var(--primary); white-space: nowrap;">${live.bankVat > 0 ? '+' : ''}${Utils.formatMoney(Math.max(0, live.bankVat))}</div>
                     <div style="font-size: 9px; color: var(--primary); margin-top: 4px;">Аналитика НДС ➔</div>
                 </div>
             </div>
@@ -4467,7 +4467,7 @@ window.openOrphansModal = async function() {
                     <td>${new Date(tx.transaction_date).toLocaleDateString()}</td>
                     <td>${tx.category || ''}</td>
                     <td>${Utils.escapeHtml(tx.description || '')}</td>
-                    <td class="${tx.transaction_type==='income'?'text-success':'text-danger'}">${Utils.formatMoney(tx.amount)} ₽</td>
+                    <td class="${tx.transaction_type==='income'?'text-success':'text-danger'}">${Utils.formatMoney(tx.amount)}</td>
                     <td>
                         <div style="display:flex; gap: 5px;">
                             ${selectHtml.replace('orphan-cp-select', 'orphan-cp-select input-modern w-100')}

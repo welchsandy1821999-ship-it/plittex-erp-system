@@ -330,6 +330,25 @@ app.get('/api/health', async (req, res) => {
         });
     }
 });
+// Одноразовый print-токен (1 мин) для ?token= в ссылках печати; основной JWT — только в Authorization
+app.post('/api/generate-print-token', authenticateToken, (req, res) => {
+    if (!process.env.JWT_SECRET) {
+        return res.status(500).json({ error: 'Ошибка конфигурации сервера' });
+    }
+    if (!req.user || req.user.id == null) {
+        return res.status(401).json({ error: 'Пользователь не определён' });
+    }
+    if (req.user.type === 'print') {
+        return res.status(400).json({ error: 'Нельзя выдавать print-токен по print-токену' });
+    }
+    const printToken = jwt.sign(
+        { id: req.user.id, username: req.user.username, role: req.user.role, type: 'print' },
+        process.env.JWT_SECRET,
+        { expiresIn: '1m' }
+    );
+    return res.json({ printToken });
+});
+
 app.use('/api', authenticateToken);
 
 // Регистрация маршрутов

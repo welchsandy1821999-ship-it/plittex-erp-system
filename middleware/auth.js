@@ -6,20 +6,23 @@ const authenticateToken = (req, res, next) => {
         return next();
     }
 
-    // Ищем токен: сначала в заголовке Authorization (Bearer), затем в query-параметрах
+    // Ищем токен: сначала в заголовке Authorization (Bearer), затем в query token=
+    // Токен в query разрешён только с type: 'print' (см. POST /api/generate-print-token)
     const authHeader = req.headers['authorization'];
     let token = authHeader && authHeader.split(' ')[1];
-    
-    // Если в заголовках токена нет, проверяем GET-параметр ?token= 
-    // (актуально для /print/* и /files, открываемых в новой вкладке)
+    let fromQuery = false;
     if (!token && req.query && req.query.token) {
         token = req.query.token;
+        fromQuery = true;
     }
 
     if (!token) return res.status(401).json({ error: 'Нет доступа. Токен отсутствует.' });
 
     jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
         if (err) return res.status(401).json({ error: 'Токен недействителен или истек срок действия.' });
+        if (fromQuery && user.type !== 'print') {
+            return res.status(401).json({ error: 'Для печати используйте одноразовый print-токен' });
+        }
         req.user = user;
         next();
     });

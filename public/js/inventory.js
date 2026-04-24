@@ -1003,35 +1003,38 @@ window.confirmExcelImport = async function() {
     }
 };
 
+window._openInventoryPrint = async function (mode) {
+    const wh = typeof currentWarehouseFilter !== 'undefined' ? currentWarehouseFilter : 'all';
+    const dateParam = (inventoryDatePicker && inventoryDatePicker.selectedDates.length > 0) ? `&as_of_date=${inventoryDatePicker.formatDate(inventoryDatePicker.selectedDates[0], "Y-m-d")}` : '';
+    await window.openPrintUrl(`/api/inventory/print?mode=${mode}&wh=${wh}${dateParam}`);
+    UI.closeModal();
+};
+
 window.openPrintModal = function() {
     const wh = typeof currentWarehouseFilter !== 'undefined' ? currentWarehouseFilter : 'all';
     
     // Прячем дропдаун экспорта если открыт
     const dropdowns = document.querySelectorAll('.dropdown-menu');
     dropdowns.forEach(d => d.classList.add('inv-hidden'));
-
-    const tokenParam = typeof API !== 'undefined' && API.token ? API.token : localStorage.getItem('token');
-    const dateParam = (inventoryDatePicker && inventoryDatePicker.selectedDates.length > 0) ? `&as_of_date=${inventoryDatePicker.formatDate(inventoryDatePicker.selectedDates[0], "Y-m-d")}` : '';
     
     const html = `
         <div class="text-center p-20">
             <p class="mb-20 text-muted">Будет распечатан бланк для инвентаризации <b>${wh === 'all' ? 'всех складов' : 'выбранного склада (№' + wh + ')' }</b>.</p>
-            <button class="btn btn-outline mb-10 w-100" onclick="window.open('/api/inventory/print?mode=blind&wh=' + currentWarehouseFilter + '&token=' + '${tokenParam}' + '${dateParam}', '_blank'); UI.closeModal();">Слепой бланк (Пустые колонки Факт / Расчет)</button>
-            <button class="btn btn-blue w-100" onclick="window.open('/api/inventory/print?mode=full&wh=' + currentWarehouseFilter + '&token=' + '${tokenParam}' + '${dateParam}', '_blank'); UI.closeModal();">Полный бланк (Содержит Расчетный остаток)</button>
+            <button class="btn btn-outline mb-10 w-100" onclick="void window._openInventoryPrint('blind')">Слепой бланк (Пустые колонки Факт / Расчет)</button>
+            <button class="btn btn-blue w-100" onclick="void window._openInventoryPrint('full')">Полный бланк (Содержит Расчетный остаток)</button>
         </div>
     `;
     UI.showModal('🖨️ Печать Бланка', html, '<button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>');
 };
 
-window.executeExport = function(mode) {
+window.executeExport = async function (mode) {
     const wh = typeof currentWarehouseFilter !== 'undefined' ? currentWarehouseFilter : 'all';
     // Прячем дропдаун
     const dropdowns = document.querySelectorAll('.dropdown-menu');
     dropdowns.forEach(d => d.classList.add('inv-hidden'));
     
-    const tokenParam = typeof API !== 'undefined' && API.token ? API.token : localStorage.getItem('token');
     const dateParam = (inventoryDatePicker && inventoryDatePicker.selectedDates.length > 0) ? `&as_of_date=${inventoryDatePicker.formatDate(inventoryDatePicker.selectedDates[0], "Y-m-d")}` : '';
-    window.open(`/api/inventory/export?mode=${mode}&wh=${wh}&token=${tokenParam}${dateParam}`, '_blank');
+    await window.openPrintUrl(`/api/inventory/export?mode=${mode}&wh=${wh}${dateParam}`);
 };
 
 // === ПРОСЕИВАНИЕ СЫРЬЯ ===

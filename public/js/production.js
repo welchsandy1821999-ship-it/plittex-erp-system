@@ -966,7 +966,7 @@
                 <td class="w-15p text-right" onclick="toggleBatchDetails(${b.id})">${costDisplay}</td>
                 <td class="w-15 text-right whitespace-nowrap">
                     <button class="btn btn-outline text-primary p-5 mr-5" 
-                            onclick="event.stopPropagation(); window.open('/print/passport?batchId=${b.id}&token=' + localStorage.getItem('token'), '_blank')">🖨️</button>
+                            onclick="event.stopPropagation(); void window.openPrintUrl('/print/passport?batchId=${b.id}')">🖨️</button>
                     ${isDraft ? `<button class="btn btn-outline p-5 text-warning mr-5" 
                                          onclick="event.stopPropagation(); editDraftBatch(${b.id})">✏️</button>` : ''}
                     <button class="btn btn-outline text-danger p-5" 
@@ -1527,7 +1527,7 @@
             <td onclick="toggleBatchDetails(${b.id})" class="text-right">${costDisplay}</td>
             <td class="text-right whitespace-nowrap">
                 <button class="btn btn-outline text-primary p-5 mr-5" 
-                        onclick="event.stopPropagation(); window.open('/print/passport?batchId=${b.id}&token=' + localStorage.getItem('token'), '_blank')">🖨️</button>
+                        onclick="event.stopPropagation(); void window.openPrintUrl('/print/passport?batchId=${b.id}')">🖨️</button>
                 <button class="btn btn-outline text-danger p-5" 
                         onclick="event.stopPropagation(); deleteBatch(${b.id}, '${b.batch_number}')">❌</button>
             </td>
