@@ -225,6 +225,9 @@ throw err;
     socket.on('inventory_updated', () => {
         debouncedRefresh('inventory', () => {
             if (typeof loadTable === 'function') loadTable();
+            if (typeof loadDryingHistory === 'function' && document.getElementById('drying-history-block') && !document.getElementById('drying-history-block').classList.contains('d-none')) {
+                loadDryingHistory();
+            }
             if (typeof window.loadDashboardWidgets === 'function') window.loadDashboardWidgets();
         });
     });

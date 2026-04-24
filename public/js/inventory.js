@@ -668,6 +668,9 @@ window.executeDemolding = async function (batchId, tileId, currentWipQty) {
         UI.closeModal();
         UI.toast('Партия успешно распределена по складам!', 'success');
         loadTable();
+        if (typeof loadDryingHistory === 'function' && document.getElementById('drying-history-block') && !document.getElementById('drying-history-block').classList.contains('d-none')) {
+            loadDryingHistory();
+        }
     } catch (e) {
         console.error(e);
         if (btn) { btn.disabled = false; btn.textContent = '💾 Сохранить выход'; }
