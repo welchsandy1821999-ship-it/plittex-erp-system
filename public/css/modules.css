@@ -2423,12 +2423,28 @@
     margin-right: 10px;
 }
 
+.mr-15 {
+    margin-right: 15px;
+}
+
 .ml-5 {
     margin-left: 5px;
 }
 
 .ml-10 {
     margin-left: 10px;
+}
+
+.ml-15 {
+    margin-left: 15px;
+}
+
+.pl-15 {
+    padding-left: 15px;
+}
+
+.pr-15 {
+    padding-right: 15px;
 }
 
 .flex-wrap {
@@ -4573,13 +4589,13 @@
 
 /* --- 25.5 Поля доставки --- */
 .pur-delivery-fields-grid {
-    grid-column: span 2;
+    grid-column: span 3;
     background: var(--surface-alt);
     padding: 15px;
     border-radius: 8px;
-    gap: 15px;
+    gap: 1rem;
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     margin-bottom: 5px;
 }
 
@@ -9947,13 +9963,13 @@
 
 /* --- 25.5 Поля доставки --- */
 .pur-delivery-fields-grid {
-    grid-column: span 2;
+    grid-column: span 3;
     background: var(--surface-alt);
     padding: 15px;
     border-radius: 8px;
-    gap: 15px;
+    gap: 1rem;
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     margin-bottom: 5px;
 }
 
