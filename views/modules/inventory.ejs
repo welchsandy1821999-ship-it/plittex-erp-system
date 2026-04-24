@@ -21,7 +21,7 @@
                 <input type="text" id="inventory-date-filter" class="input-modern prod-date-input" placeholder="Сегодня">
             </div>
             
-            <button class="btn btn-outline" onclick="openSiftingModal()">Просеивание</button>
+            <button class="btn btn-outline hide-in-audit" onclick="openSiftingModal()">Просеивание</button>
             <button class="btn btn-outline" id="btn-audit-mode" onclick="toggleAuditMode()">📋 Ревизия</button>
             
                         <div id="audit-controls" class="flex-row gap-10 items-center justify-end flex-wrap inv-hidden">
@@ -38,9 +38,9 @@
             </div>
             
             
-            <button class="btn btn-outline" onclick="openPrintModal()">Печать</button>
+            <button class="btn btn-outline hide-in-audit" onclick="openPrintModal()">Печать</button>
             
-            <div class="dropdown inline-block relative">
+            <div class="dropdown inline-block relative hide-in-audit">
                 <button class="btn btn-outline" onclick="this.nextElementSibling.classList.toggle('inv-hidden')">📥 Экспорт XLS ▼</button>
                 <div class="dropdown-menu inv-hidden absolute top-100 right-0 bg-surface border z-100 radius-md mt-5 shadow-sm">
                     <a href="javascript:void(0)" onclick="executeExport('blind')" class="block p-10 text-main text-decoration-none border-bottom">Слепой бланк</a>
@@ -48,10 +48,12 @@
                 </div>
             </div>
             
-            <button class="btn btn-outline" onclick="document.getElementById('import-xlsx-file').click()">📤 Загрузить</button>
-            <input type="file" id="import-xlsx-file" class="hidden" accept=".xlsx" onchange="handleExcelImport(event)">
+            <div class="hide-in-audit">
+                <button class="btn btn-outline" onclick="document.getElementById('import-xlsx-file').click()">📤 Загрузить</button>
+                <input type="file" id="import-xlsx-file" class="hidden" accept=".xlsx" onchange="handleExcelImport(event)">
+            </div>
 
-            <button class="btn btn-blue" onclick="loadTable()">🔄 Обновить</button>
+            <button class="btn btn-blue hide-in-audit" onclick="loadTable()">🔄 Обновить</button>
         </div>
     </div>
 

@@ -175,6 +175,18 @@ function applyWarehouseFilter(id, btn) {
 
 // === РЕЖИМ ИНВЕНТАРИЗАЦИИ ===
 
+function syncAuditUI(auditEnabled) {
+    const controlsToToggle = document.querySelectorAll('#stock-mod .hide-in-audit');
+    controlsToToggle.forEach((el) => {
+        el.classList.toggle('inv-hidden', auditEnabled);
+    });
+
+    // На всякий случай закрываем открытые export dropdown при входе в ревизию
+    if (auditEnabled) {
+        document.querySelectorAll('#stock-mod .dropdown-menu').forEach((menu) => menu.classList.add('inv-hidden'));
+    }
+}
+
 window.toggleAuditMode = function () {
     // Разрешаем ревизию на вкладке "Все склады" для 1, 4, 5
     if (['3', '6', '7'].includes(currentWarehouseFilter) && !isAuditMode) {
@@ -189,11 +201,13 @@ window.toggleAuditMode = function () {
         btnMode.classList.replace('btn-outline', 'btn-red');
         btnMode.innerText = '❌ Отменить инвентаризацию';
         if (auditControls) auditControls.classList.remove('inv-hidden');
+        syncAuditUI(true);
         UI.toast('Режим инвентаризации включен. Введите фактические остатки.', 'info');
     } else {
         btnMode.classList.replace('btn-red', 'btn-outline');
         btnMode.innerText = '📋 Ревизия';
         if (auditControls) auditControls.classList.add('inv-hidden');
+        syncAuditUI(false);
     }
     // ЗАГРУЖАЕМ новые данные с сервера, чтобы получить нулевые позиции
     loadTable();
