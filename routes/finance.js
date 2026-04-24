@@ -824,6 +824,17 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     WHERE o.status IS DISTINCT FROM 'cancelled'
                     GROUP BY o.id, o.doc_number, o.created_at, o.counterparty_id, o.paid_amount, o.discount, o.logistics_cost
                 ),
+                -- Сумма фактических приходов, привязанных к заказу (как в акте/главной книге). client_orders.paid_amount иногда отстаёт.
+                order_income_ledger AS (
+                    SELECT
+                        linked_order_id AS order_id,
+                        COALESCE(SUM(amount), 0)::numeric AS tx_income_sum
+                    FROM transactions
+                    WHERE COALESCE(is_deleted, false) = false
+                      AND transaction_type = 'income'
+                      AND linked_order_id IS NOT NULL
+                    GROUP BY linked_order_id
+                ),
                 order_real_due AS (
                     SELECT
                         t.order_id,
@@ -837,9 +848,13 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                             + CASE WHEN t.ord_sub > 0.0001
                                 THEN COALESCE(t.logistics_cost, 0) * (t.ship_sub / t.ord_sub)
                                 ELSE 0::numeric END
-                            - COALESCE(t.paid_amount, 0)
+                            - GREATEST(
+                                COALESCE(t.paid_amount, 0),
+                                COALESCE(oi.tx_income_sum, 0)
+                              )
                         ))::numeric AS real_due
                     FROM order_line_totals t
+                    LEFT JOIN order_income_ledger oi ON oi.order_id = t.order_id
                 )
                 SELECT
                     i.id,
