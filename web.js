@@ -316,7 +316,7 @@ if (bot) {
 
 // [Блок 8.5: Фоновые задачи (Cron)]
 const { initCronJobs } = require('./utils/cron');
-initCronJobs();
+initCronJobs(pool);
 
 // [Блок 9: Socket.io и Старт сервера]
 io.on('connection', (socket) => logger.info(`🔌 Подключен: ${socket.id}`));
