@@ -1965,9 +1965,15 @@
         }
 
         if (financeInvoices.length === 0) {
+            const totalEl0 = document.getElementById('fin-invoices-total');
+            if (totalEl0) totalEl0.textContent = '0 ₽';
             container.classList.add('d-none');
             return;
         }
+
+        const invTotal = financeInvoices.reduce((s, inv) => s + (parseFloat(inv.amount) || 0), 0);
+        const totalEl = document.getElementById('fin-invoices-total');
+        if (totalEl) totalEl.textContent = Utils.formatMoney(invTotal) + ' ₽';
 
         container.classList.remove('d-none');
         tbody.innerHTML = financeInvoices.map(inv => `

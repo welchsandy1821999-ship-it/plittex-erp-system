@@ -362,7 +362,7 @@ module.exports = function (pool, withTransaction) {
             monthFilter = `AND t.transaction_date <= $1::timestamp`;
             params.push(`${year}-${month}-01`);
         }
-        
+
         try {
             // Динамический расчет prev_balance (строго по транзакциям)
             const result = await pool.query(`
@@ -428,7 +428,7 @@ module.exports = function (pool, withTransaction) {
                     const cpRes = await client.query('SELECT id FROM counterparties WHERE employee_id = $1 LIMIT 1', [b.employee_id]);
                     if (cpRes.rows.length > 0) {
                         const cpId = cpRes.rows[0].id;
-                        
+
                         // 1. Начисление ЗП
                         if (b.accrued && parseFloat(b.accrued) > 0) {
                             await client.query(`
@@ -452,7 +452,7 @@ module.exports = function (pool, withTransaction) {
                             const adj = parseFloat(b.adjSum);
                             const tType = adj > 0 ? 'income' : 'expense';
                             const tCat = adj > 0 ? 'Премии' : 'Удержание из ЗП';
-                            
+
                             await client.query(`
                                 INSERT INTO transactions 
                                 (amount, transaction_type, category, description, counterparty_id, account_id, payment_method, transaction_date)
@@ -496,13 +496,17 @@ module.exports = function (pool, withTransaction) {
                 // Описание у нас жестко фиксировано: "Начислено за период: YYYY-MM"
                 // Больше никаких откатов e.prev_balance не нужно, так как сальдо динамическое!
 
-                // Б) Удаление сгенерированных автоматических транзакций
-                // Описание у нас жестко фиксировано: "Начислено за период: YYYY-MM"
+                // Б) Удаление сгенерированных автоматических транзакций (включая налоги и корректировки)
                 await client.query(`
                     DELETE FROM transactions 
-                    WHERE category = 'Начисление ЗП' 
-                      AND description LIKE $1
-                `, [`Начислено за период: ${monthStr}%`]);
+                    WHERE description LIKE $1 
+                       OR description LIKE $2 
+                       OR description LIKE $3
+                `, [
+                    `Начислено за период: ${monthStr}%`,
+                    `Удержан налог за период: ${monthStr}%`,
+                    `Доп. корректировки за период: ${monthStr}%`
+                ]);
 
                 // В) Удаление блокировок из архива закрытых периодов
                 await client.query(`DELETE FROM closed_periods WHERE period_str = $1 AND module = 'salary'`, [monthStr]);

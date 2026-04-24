@@ -310,6 +310,27 @@ window.executePurchase = async function (materialId, counterparty_id, account_id
     try {
         await API.post('/api/inventory/purchase', { itemId: materialId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost, deliveryCost, deliveryAccountId, deliveryCounterpartyId });
         UI.toast('✅ Закупка успешно оформлена!', 'success');
+        
+        const searchInput = document.getElementById('purchase-search-input');
+        if (searchInput && searchInput.value.trim().length > 0) {
+            handlePurchaseSearch();
+        } else {
+            const dateStr = document.getElementById('purchase-date').value;
+            if (typeof loadDailyPurchases === 'function') loadDailyPurchases(dateStr);
+        }
+
+        // Очищаем форму
+        const matSelect = document.getElementById('purchase-material-select');
+        if (matSelect && matSelect.tomselect) matSelect.tomselect.clear();
+        document.getElementById('purchase-qty').value = '';
+        document.getElementById('purchase-price').value = '';
+        document.getElementById('purchase-total-cost').value = '';
+        document.getElementById('purchase-has-delivery').checked = false;
+        if (typeof toggleDeliveryFields === 'function') toggleDeliveryFields();
+
+    } catch (e) { console.error(e); }
+};
+
 window.executeUpdatePurchase = async function (purchaseId, materialId, counterparty_id, account_id, quantity, pricePerUnit, purchaseDate, totalCost, deliveryCost, deliveryAccountId) {
     UI.closeModal();
     UI.toast('⏳ Сохранение изменений...', 'info');

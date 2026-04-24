@@ -65,7 +65,10 @@
     <div id="invoices-container" class="finance-invoices-wrap card mb-20 p-0 d-none overflow-hidden">
         <div class="p-15 cursor-pointer flex-between align-center bg-surface-hover"
             onclick="const invBody=document.getElementById('invoices-body'); const invIcon=this.querySelector('.acc-icon'); invBody.classList.toggle('d-none'); invIcon.innerText=invBody.classList.contains('d-none')?'▼ РАСКРЫТЬ':'▲ СВЕРНУТЬ';">
-            <h3 class="m-0 text-main font-16">🟡 Ожидаемые платежи (Счета и Заказы)</h3>
+            <div>
+                <h3 class="m-0 text-main font-16">🟡 Ожидаемые платежи (Счета и Заказы)</h3>
+                <p class="text-muted m-0 mt-5 font-12">Общая сумма: <span id="fin-invoices-total" class="font-bold text-warning">0 ₽</span></p>
+            </div>
             <div class="text-muted font-11 font-bold acc-icon user-select-none">▼ РАСКРЫТЬ</div>
         </div>
 
