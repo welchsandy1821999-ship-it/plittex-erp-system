@@ -350,6 +350,8 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     router.get('/print/act', authenticateToken, async (req, res) => {
         try {
             const { cpId, start, end } = req.query;
+            const safeStart = start || '2000-01-01';
+            const safeEnd = end || '2100-01-01';
             const cpRes = await pool.query('SELECT name, inn FROM counterparties WHERE id = $1', [cpId]);
             const queries = `
                 SELECT amount, transaction_type, category, description, 
@@ -373,7 +375,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
             const transactions = await pool.query(`
                 SELECT * FROM (${queries}) AS combined
                 ORDER BY sort_date ASC
-            `, [cpId, start, end]);
+            `, [cpId, safeStart, safeEnd]);
 
             res.render('docs/act', {
                 cp: cpRes.rows[0], transactions: transactions.rows,
