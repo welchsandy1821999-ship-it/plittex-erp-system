@@ -2200,13 +2200,15 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
     router.get('/api/analytics/dashboard-widgets', async (req, res) => {
         try {
-            // Сальдо контрагентов — дословно как в GET /api/invoices (ожидаемые платежи), иначе дашборд и Финансы расходятся
+            // --- Ожидаемые поступления (AR) на дашборде / НЕ то же самое, что GET /api/invoices ---
+            // Дашборд: «к нам придёт денег» по заказу минус оплаты, в т.ч. до отгрузки (pending/processing).
+            // Финансы /api/invoices: «фактическая» дебиторка после логики Заказ → отгрузка (в основном completed + остаток).
             const expectedSaldoCTE = `
                 WITH CP_Balances AS (
                     SELECT 
                         c.id as counterparty_id,
                         (
-                            COALESCE((SELECT SUM(total_amount) FROM client_orders WHERE counterparty_id = c.id AND status IN ('completed')), 0) +
+                            COALESCE((SELECT SUM(total_amount) FROM client_orders WHERE counterparty_id = c.id AND status IN ('pending', 'processing', 'completed')), 0) +
                             COALESCE((SELECT SUM(amount) FROM transactions WHERE counterparty_id = c.id AND transaction_type = 'expense' AND COALESCE(is_deleted, false) = false AND category != 'Зачёт аванса'), 0) -
                             COALESCE((SELECT SUM(amount) FROM inventory_movements WHERE supplier_id = c.id AND movement_type = 'purchase'), 0) -
                             COALESCE((SELECT SUM(amount) FROM transactions WHERE counterparty_id = c.id AND transaction_type = 'income' AND COALESCE(is_deleted, false) = false AND category != 'Зачёт аванса'), 0)
@@ -2223,7 +2225,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     SELECT o.pending_debt as total 
                     FROM client_orders o
                     LEFT JOIN CP_Balances b ON o.counterparty_id = b.counterparty_id
-                    WHERE o.status = 'completed' AND o.pending_debt > 0 AND COALESCE(b.saldo, 0) > 0
+                    WHERE o.status IN ('pending', 'processing', 'completed') AND o.pending_debt > 0 AND COALESCE(b.saldo, 0) > 0
                 ) sub
             `);
             const totalAr = arRes.rows[0].total_debt || 0;
@@ -2245,7 +2247,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     FROM client_orders o 
                     JOIN counterparties c ON o.counterparty_id = c.id 
                     LEFT JOIN CP_Balances b ON o.counterparty_id = b.counterparty_id
-                    WHERE o.status = 'completed' AND o.pending_debt > 0 AND COALESCE(b.saldo, 0) > 0
+                    WHERE o.status IN ('pending', 'processing', 'completed') AND o.pending_debt > 0 AND COALESCE(b.saldo, 0) > 0
                 ) combined
                 ORDER BY created_at DESC LIMIT 5
             `);
