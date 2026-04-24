@@ -1186,7 +1186,7 @@ window.loadDashboardWidgets = async function () {
         const arListEl = document.getElementById('dash-widget-ar-list');
         if (arListEl && data.ar.list) {
             if (data.ar.list.length === 0) {
-                arListEl.innerHTML = '<div style="padding: 10px; color: var(--success); font-weight: bold;">✅ Все счета оплачены</div>';
+                arListEl.innerHTML = '<div style="padding: 10px; color: var(--success); font-weight: bold;">✅ Нет неоплаченного долга по заказам (по договору)</div>';
             } else {
                 arListEl.innerHTML = data.ar.list.map(inv => {
                     const click = inv.is_order

@@ -7,6 +7,7 @@ const path = require('path');
 const Big = require('big.js');
 const { requireAdmin, authenticateToken } = require('../middleware/auth');
 const { validateTransaction, validateTransactionEdit, validateTransfer, validateCounterparty, validateInvoice, validateAccount, validateAccountEdit, validateCategory, validateCorrection, validatePayment, validateCostGroup } = require('../middleware/validator');
+const { allocateUnlinkedClientIncome } = require('../utils/allocateClientAdvance');
 
 // 🚀 Единая функция поиска документов в тексте (Защита от опечаток)
 function extractDocNumber(description) {
@@ -807,26 +808,48 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     router.get('/api/invoices', async (req, res) => {
         try {
             const result = await pool.query(`
-                WITH CP_Balances AS (
-                    SELECT 
-                        c.id as counterparty_id,
-                        (
-                            COALESCE((SELECT SUM(total_amount) FROM client_orders WHERE counterparty_id = c.id AND status = 'completed'), 0) +
-                            COALESCE((SELECT SUM(amount) FROM transactions WHERE counterparty_id = c.id AND transaction_type = 'expense' AND COALESCE(is_deleted, false) = false AND category != 'Зачёт аванса'), 0) -
-                            COALESCE((SELECT SUM(amount) FROM inventory_movements WHERE supplier_id = c.id AND movement_type = 'purchase'), 0) -
-                            COALESCE((SELECT SUM(amount) FROM transactions WHERE counterparty_id = c.id AND transaction_type = 'income' AND COALESCE(is_deleted, false) = false AND category != 'Зачёт аванса'), 0)
-                        ) as saldo
-                    FROM counterparties c
+                WITH order_line_totals AS (
+                    SELECT
+                        o.id AS order_id,
+                        o.doc_number,
+                        o.created_at,
+                        o.counterparty_id,
+                        o.paid_amount,
+                        o.discount,
+                        o.logistics_cost,
+                        COALESCE(SUM(coi.qty_ordered * coi.price), 0)::numeric AS ord_sub,
+                        COALESCE(SUM(coi.qty_shipped * coi.price), 0)::numeric AS ship_sub
+                    FROM client_orders o
+                    LEFT JOIN client_order_items coi ON coi.order_id = o.id
+                    WHERE o.status IS DISTINCT FROM 'cancelled'
+                    GROUP BY o.id, o.doc_number, o.created_at, o.counterparty_id, o.paid_amount, o.discount, o.logistics_cost
+                ),
+                order_real_due AS (
+                    SELECT
+                        t.order_id,
+                        t.doc_number,
+                        t.created_at,
+                        t.counterparty_id,
+                        GREATEST(0, (
+                            t.ship_sub
+                            - CASE WHEN t.ord_sub > 0.0001
+                                THEN COALESCE(t.discount, 0) * (t.ship_sub / t.ord_sub) ELSE 0::numeric END
+                            + CASE WHEN t.ord_sub > 0.0001
+                                THEN COALESCE(t.logistics_cost, 0) * (t.ship_sub / t.ord_sub)
+                                ELSE 0::numeric END
+                            - COALESCE(t.paid_amount, 0)
+                        ))::numeric AS real_due
+                    FROM order_line_totals t
                 )
-                SELECT 
-                    i.id, 
-                    i.invoice_number, 
-                    i.total_amount as amount, 
-                    i.purpose as description, 
-                    i.status, 
+                SELECT
+                    i.id,
+                    i.invoice_number,
+                    i.total_amount as amount,
+                    i.purpose as description,
+                    i.status,
                     i.created_at,
                     TO_CHAR(i.created_at, 'DD.MM.YYYY') as date_formatted,
-                    c.name as counterparty_name, 
+                    c.name as counterparty_name,
                     c.id as counterparty_id,
                     false as is_order
                 FROM invoices i
@@ -835,21 +858,20 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
                 UNION ALL
 
-                SELECT 
-                    o.id, 
-                    o.doc_number as invoice_number, 
-                    o.pending_debt as amount, 
-                    'Остаток долга по заказу № ' || o.doc_number as description, 
-                    'pending' as status, 
+                SELECT
+                    o.order_id as id,
+                    o.doc_number as invoice_number,
+                    o.real_due as amount,
+                    'Дебиторка по отгрузкам, заказ №' || o.doc_number as description,
+                    'pending' as status,
                     o.created_at,
                     TO_CHAR(o.created_at, 'DD.MM.YYYY') as date_formatted,
-                    c.name as counterparty_name, 
+                    c.name as counterparty_name,
                     o.counterparty_id as counterparty_id,
                     true as is_order
-                FROM client_orders o
-                LEFT JOIN counterparties c ON o.counterparty_id = c.id
-                LEFT JOIN CP_Balances b ON o.counterparty_id = b.counterparty_id
-                WHERE o.status = 'completed' AND o.pending_debt > 0 AND COALESCE(b.saldo, 0) > 0
+                FROM order_real_due o
+                JOIN counterparties c ON o.counterparty_id = c.id
+                WHERE o.real_due > 0.005
 
                 ORDER BY created_at DESC
             `);
@@ -1172,6 +1194,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         // 🛡️ AUDIT-018: ad-hoc проверка amount удалена — покрыта validateTransaction middleware
 
         try {
+            let advanceTouchedOrders = false;
             await withTransaction(pool, async (client) => {
                 if (employee_mode === 'instant_expense' && counterparty_id) {
                     const cpRes = await client.query('SELECT name FROM counterparties WHERE id = $1', [counterparty_id]);
@@ -1256,10 +1279,19 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
                 } else {
                     // 🚀 2. СТАНДАРТНАЯ ЗАПИСЬ: ДОБАВИЛИ cost_group_override В INSERT
-                    await client.query(`
+                    const insRes = await client.query(
+                        `
                         INSERT INTO transactions (amount, transaction_type, category, description, vat_amount, payment_method, account_id, counterparty_id, transaction_date, cost_group_override)
                         VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9)
-                    `, [amount, type, category, description, method, account_id, counterparty_id || null, finalDate, cost_group_override || null]);
+                        RETURNING *
+                    `,
+                        [amount, type, category, description, method, account_id, counterparty_id || null, finalDate, cost_group_override || null]
+                    );
+                    const newRow = insRes.rows[0];
+                    if (newRow) {
+                        const adv = await allocateUnlinkedClientIncome(client, newRow);
+                        if (adv.orders && adv.orders.length > 0) advanceTouchedOrders = true;
+                    }
                 }
 
                 // 🚀 3. МАГИЯ САМООБУЧЕНИЯ (Запоминаем правило, если стоит галочка)
@@ -1273,11 +1305,52 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             });
 
             const io = req.app.get('io');
-            if (io) io.emit('finance_updated');
+            if (io) {
+                io.emit('finance_updated');
+                if (advanceTouchedOrders) io.emit('sales_updated');
+            }
             res.json({ success: true, message: 'Операция сохранена' });
         } catch (err) {
             logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
+    });
+
+    /**
+     * Однократное перераспределение несвязанных приходов покупателя по заказам (FIFO).
+     * Для контрагента с уже введёнными «простыми» оплатами без привязки к ЗК.
+     */
+    router.post('/api/finance/reconcile-advances/:counterpartyId', requireAdmin, async (req, res) => {
+        const cpId = parseInt(req.params.counterpartyId, 10);
+        if (!cpId) return res.status(400).json({ error: 'Некорректный id' });
+        try {
+            let touched = 0;
+            await withTransaction(pool, async (client) => {
+                const txs = await client.query(
+                    `
+                    SELECT * FROM transactions
+                    WHERE counterparty_id = $1
+                      AND transaction_type = 'income'
+                      AND linked_order_id IS NULL
+                      AND COALESCE(is_deleted, false) = false
+                    ORDER BY transaction_date ASC, id ASC
+                `,
+                    [cpId]
+                );
+                for (const t of txs.rows) {
+                    const adv = await allocateUnlinkedClientIncome(client, t);
+                    if (adv.orders && adv.orders.length > 0) touched += adv.orders.length;
+                }
+            });
+            const io = req.app.get('io');
+            if (io) {
+                io.emit('finance_updated');
+                if (touched) io.emit('sales_updated');
+            }
+            res.json({ success: true, message: 'Перераспределение выполнено', ordersTouched: touched });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: err.message || 'Ошибка сервера' });
         }
     });
 
@@ -2200,56 +2273,32 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
     router.get('/api/analytics/dashboard-widgets', async (req, res) => {
         try {
-            // --- Ожидаемые поступления (AR) на дашборде / НЕ то же самое, что GET /api/invoices ---
-            // Дашборд: «к нам придёт денег» по заказу минус оплаты, в т.ч. до отгрузки (pending/processing).
-            // Финансы /api/invoices: «фактическая» дебиторка после логики Заказ → отгрузка (в основном completed + остаток).
-            const expectedSaldoCTE = `
-                WITH CP_Balances AS (
-                    SELECT 
-                        c.id as counterparty_id,
-                        (
-                            COALESCE((SELECT SUM(total_amount) FROM client_orders WHERE counterparty_id = c.id AND status IN ('pending', 'processing', 'completed')), 0) +
-                            COALESCE((SELECT SUM(amount) FROM transactions WHERE counterparty_id = c.id AND transaction_type = 'expense' AND COALESCE(is_deleted, false) = false AND category != 'Зачёт аванса'), 0) -
-                            COALESCE((SELECT SUM(amount) FROM inventory_movements WHERE supplier_id = c.id AND movement_type = 'purchase'), 0) -
-                            COALESCE((SELECT SUM(amount) FROM transactions WHERE counterparty_id = c.id AND transaction_type = 'income' AND COALESCE(is_deleted, false) = false AND category != 'Зачёт аванса'), 0)
-                        ) as saldo
-                    FROM counterparties c
-                )
-            `;
-
+            // --- «Ожидаемые поступления» (дашборд) = КОНТРАКТНЫЙ долг по client_orders: Σ max(0, total_amount - paid_amount), без cancel.
+            // --- «Реальные долги» в Финансах: GET /api/invoices (позиция заказа) = стоимость ОТГРУЗКИ − оплаты (см. order_line_totals там).
             const arRes = await pool.query(`
-                ${expectedSaldoCTE}
-                SELECT COALESCE(SUM(total), 0) as total_debt FROM (
-                    SELECT total_amount as total FROM invoices WHERE status = 'pending'
-                    UNION ALL
-                    SELECT o.pending_debt as total 
-                    FROM client_orders o
-                    LEFT JOIN CP_Balances b ON o.counterparty_id = b.counterparty_id
-                    WHERE o.status IN ('pending', 'processing', 'completed') AND o.pending_debt > 0 AND COALESCE(b.saldo, 0) > 0
-                ) sub
+                SELECT COALESCE(SUM(
+                    GREATEST(0, COALESCE(o.total_amount, 0) - COALESCE(o.paid_amount, 0))
+                ), 0)::numeric AS total_debt
+                FROM client_orders o
+                WHERE o.status IS DISTINCT FROM 'cancelled'
             `);
             const totalAr = arRes.rows[0].total_debt || 0;
 
             const arListRes = await pool.query(`
-                ${expectedSaldoCTE}
-                SELECT id, doc_number, counterparty_name, pending_debt, date, is_order
-                FROM (
-                    SELECT i.id, i.invoice_number as doc_number, c.name as counterparty_name, i.total_amount as pending_debt,
-                        TO_CHAR(i.created_at, 'DD.MM.YYYY') as date, i.created_at, false as is_order
-                    FROM invoices i
-                    JOIN counterparties c ON i.counterparty_id = c.id
-                    WHERE i.status = 'pending'
-                    
-                    UNION ALL
-                    
-                    SELECT o.id, o.doc_number, c.name as counterparty_name, o.pending_debt,
-                        TO_CHAR(o.created_at, 'DD.MM.YYYY') as date, o.created_at, true as is_order
-                    FROM client_orders o 
-                    JOIN counterparties c ON o.counterparty_id = c.id 
-                    LEFT JOIN CP_Balances b ON o.counterparty_id = b.counterparty_id
-                    WHERE o.status IN ('pending', 'processing', 'completed') AND o.pending_debt > 0 AND COALESCE(b.saldo, 0) > 0
-                ) combined
-                ORDER BY created_at DESC LIMIT 5
+                SELECT
+                    o.id,
+                    o.doc_number,
+                    c.name AS counterparty_name,
+                    GREATEST(0, COALESCE(o.total_amount, 0) - COALESCE(o.paid_amount, 0))::numeric AS pending_debt,
+                    TO_CHAR(o.created_at, 'DD.MM.YYYY') AS date,
+                    o.created_at,
+                    true AS is_order
+                FROM client_orders o
+                JOIN counterparties c ON o.counterparty_id = c.id
+                WHERE o.status IS DISTINCT FROM 'cancelled'
+                  AND (COALESCE(o.total_amount, 0) - COALESCE(o.paid_amount, 0)) > 0.005
+                ORDER BY o.created_at DESC
+                LIMIT 5
             `);
             // 2. Умный расчет дефицита (Свободный остаток < Порог)
             // Учитываем общие остатки и вычитаем зарезервированные под заказы позиции
