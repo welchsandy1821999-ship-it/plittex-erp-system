@@ -1188,19 +1188,26 @@ window.loadDashboardWidgets = async function () {
             if (data.ar.list.length === 0) {
                 arListEl.innerHTML = '<div style="padding: 10px; color: var(--success); font-weight: bold;">✅ Все счета оплачены</div>';
             } else {
-                arListEl.innerHTML = data.ar.list.map(inv => `
+                arListEl.innerHTML = data.ar.list.map(inv => {
+                    const click = inv.is_order
+                        ? `openOrderDetails(${inv.id})`
+                        : `(window.app && window.app.openEntity('document_invoice', ${inv.id}))`;
+                    const subline = inv.is_order
+                        ? `Заказ №${Utils.escapeHtml(String(inv.doc_number))} от ${inv.date}`
+                        : `Счёт №${Utils.escapeHtml(String(inv.doc_number))} от ${inv.date}`;
+                    return `
                 <div class="cursor-pointer" style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border); padding: 8px 10px; border-radius: 6px; transition: background 0.2s;" 
                      onmouseover="this.style.background='var(--surface-hover)'" onmouseout="this.style.background='transparent'" 
-                     onclick="openOrderDetails(${inv.id})">
+                     onclick="${click}">
                     <div>
                         <span style="font-weight: bold; color: var(--text-main);">${Utils.escapeHtml(inv.counterparty_name)}</span>
-                        <br><small class="text-muted">Заказ №${inv.doc_number} от ${inv.date}</small>
+                        <br><small class="text-muted">${subline}</small>
                     </div>
                     <div style="font-weight: bold; color: var(--warning-text); padding-top: 5px;">
                         ${fmtRub(inv.pending_debt)} ₽
                     </div>
-                </div>
-            `).join('');
+                </div>`;
+                }).join('');
             }
         }
 
