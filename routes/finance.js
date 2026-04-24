@@ -581,7 +581,9 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     COALESCE(SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END), 0) as total_paid_to_us,
                     COALESCE(SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END), 0) as total_paid_to_them
                 FROM transactions 
-                WHERE counterparty_id = $1 AND COALESCE(is_deleted, false) = false AND category != 'Зачёт аванса' AND COALESCE(payment_method, '') != 'Взаимозачет'
+                WHERE counterparty_id = $1 AND COALESCE(is_deleted, false) = false 
+                  AND category NOT IN ('Зачёт аванса', 'Взаимозачет') 
+                  AND (COALESCE(payment_method, '') != 'Взаимозачет' OR category IN ('Начисление ЗП', 'Зарплата', 'Оплата труда', 'Зарплата и Авансы', 'Премии', 'Штрафы', 'Удержание из ЗП', 'Ввод начальных остатков'))
             `, [cpId]);
 
             const finances = finRes.rows[0];
@@ -604,11 +606,13 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             const cp = cpRes.rows[0];
 
             const queries = `
-                SELECT amount, transaction_type, category, description,
+                SELECT amount::numeric, transaction_type, category, description,
                        TO_CHAR(transaction_date, 'DD.MM.YYYY HH24:MI') as date, 'money' as origin, transaction_date as sort_date
-                FROM transactions WHERE counterparty_id = $1 AND COALESCE(is_deleted, false) = false AND category != 'Зачёт аванса' AND COALESCE(payment_method, '') != 'Взаимозачет'
+                FROM transactions WHERE counterparty_id = $1 AND COALESCE(is_deleted, false) = false 
+                  AND category NOT IN ('Зачёт аванса', 'Взаимозачет') 
+                  AND (COALESCE(payment_method, '') != 'Взаимозачет' OR category IN ('Начисление ЗП', 'Зарплата', 'Оплата труда', 'Зарплата и Авансы', 'Премии', 'Штрафы', 'Удержание из ЗП', 'Ввод начальных остатков'))
                 UNION ALL
-                SELECT SUM(ABS(m.quantity) * coi.price) as amount, 'expense' as transaction_type, 'Отгрузка продукции' as category,
+                SELECT SUM(ABS(m.quantity) * coi.price)::numeric as amount, 'expense' as transaction_type, 'Отгрузка продукции' as category,
                        m.description as description, TO_CHAR(COALESCE(m.movement_date, m.created_at), 'DD.MM.YYYY') as date, 'goods' as origin, COALESCE(m.movement_date, m.created_at) as sort_date
                 FROM inventory_movements m
                 JOIN client_order_items coi ON m.linked_order_item_id = coi.id
@@ -616,7 +620,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 WHERE co.counterparty_id = $1 AND m.movement_type = 'sales_shipment'
                 GROUP BY m.description, COALESCE(m.movement_date, m.created_at)
                 UNION ALL
-                SELECT amount, 'income' as transaction_type, 'Поставка сырья' as category,
+                SELECT amount::numeric, 'income' as transaction_type, 'Поставка сырья' as category,
                        description, TO_CHAR(COALESCE(movement_date, created_at), 'DD.MM.YYYY') as date, 'goods' as origin, COALESCE(movement_date, created_at) as sort_date
                 FROM inventory_movements WHERE supplier_id = $1 AND movement_type = 'purchase'
             `;
@@ -794,18 +798,8 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
-    router.get('/print/act', async (req, res) => {
-        const cp_id = req.query.cp_id || req.query.cpId;
-        try {
-            const cpRes = await pool.query('SELECT * FROM counterparties WHERE id = $1', [cp_id]);
-            if (cpRes.rows.length === 0) return res.status(404).send('Контрагент не найден');
-            const transRes = await pool.query(`SELECT amount, transaction_type, category, description, TO_CHAR(created_at, 'DD.MM.YYYY') as date FROM transactions WHERE counterparty_id = $1 AND category != 'Взаимозачет' AND COALESCE(is_deleted, false) = false ORDER BY created_at ASC`, [cp_id]);
-            res.render('docs/act', { cp: cpRes.rows[0], transactions: transRes.rows });
-        } catch (err) {
-            logger.error(err);
-            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
-        }
-    });
+    // УДАЛЁН: дублирующий handler /print/act — актуальная версия в routes/docs.js
+
 
     // ==========================================
     // 6. КОНТРОЛЬ ОЖИДАЕМЫХ ПЛАТЕЖЕЙ (СЧЕТА)

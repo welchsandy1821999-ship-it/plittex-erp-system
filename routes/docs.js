@@ -349,18 +349,20 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     // 7. АКТ СВЕРКИ (Act)
     router.get('/print/act', authenticateToken, async (req, res) => {
         try {
-            const { cpId, start, end } = req.query;
-            const safeStart = start || '2000-01-01';
-            const safeEnd = end || '2100-01-01';
+            // Поддержка обоих форматов: cpId и cp_id
+            const cpId = req.query.cpId || req.query.cp_id;
+            const safeStart = (!req.query.start || req.query.start === 'undefined') ? '2000-01-01' : req.query.start;
+            const safeEnd = (!req.query.end || req.query.end === 'undefined') ? '2100-01-01' : req.query.end;
             const cpRes = await pool.query('SELECT name, inn FROM counterparties WHERE id = $1', [cpId]);
             const queries = `
-                SELECT amount, transaction_type, category, description, 
+                SELECT amount::numeric, transaction_type, category, description, 
                        TO_CHAR(transaction_date, 'DD.MM.YYYY') as date, transaction_date as sort_date
-                FROM transactions WHERE counterparty_id = $1 AND transaction_date BETWEEN $2 AND $3 
+                FROM transactions WHERE counterparty_id = $1 AND transaction_date BETWEEN $2::timestamp AND ($3::timestamp + interval '1 day' - interval '1 second')
                   AND COALESCE(is_deleted, false) = false
-                  AND COALESCE(payment_method, '') != 'Взаимозачет'
+                  AND category NOT IN ('Зачёт аванса', 'Взаимозачет')
+                  AND (COALESCE(payment_method, '') != 'Взаимозачет' OR category IN ('Начисление ЗП', 'Зарплата', 'Оплата труда', 'Зарплата и Авансы', 'Премии', 'Штрафы', 'Удержание из ЗП', 'Ввод начальных остатков'))
                 UNION ALL
-                SELECT SUM(ABS(m.quantity) * coi.price) as amount, 'expense' as transaction_type, 'Отгрузка продукции' as category, 
+                SELECT SUM(ABS(m.quantity) * coi.price)::numeric as amount, 'expense' as transaction_type, 'Отгрузка продукции' as category, 
                        m.description as description, TO_CHAR(COALESCE(m.movement_date, m.created_at), 'DD.MM.YYYY') as date, COALESCE(m.movement_date, m.created_at) as sort_date
                 FROM inventory_movements m
                 JOIN client_order_items coi ON m.linked_order_item_id = coi.id
@@ -368,7 +370,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
                 WHERE co.counterparty_id = $1 AND COALESCE(m.movement_date, m.created_at) >= $2::timestamp AND COALESCE(m.movement_date, m.created_at) <= ($3::timestamp + interval '1 day' - interval '1 second') AND m.movement_type = 'sales_shipment'
                 GROUP BY m.description, COALESCE(m.movement_date, m.created_at)
                 UNION ALL
-                SELECT amount, 'income' as transaction_type, 'Поставка сырья' as category, 
+                SELECT amount::numeric, 'income' as transaction_type, 'Поставка сырья' as category, 
                        description, TO_CHAR(movement_date, 'DD.MM.YYYY') as date, movement_date as sort_date
                 FROM inventory_movements WHERE supplier_id = $1 AND COALESCE(movement_date, created_at) >= $2::timestamp AND COALESCE(movement_date, created_at) <= ($3::timestamp + interval '1 day' - interval '1 second') AND movement_type = 'purchase'
             `;
@@ -379,7 +381,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
 
             res.render('docs/act', {
                 cp: cpRes.rows[0], transactions: transactions.rows,
-                period: { start, end }, company: COMPANY_CONFIG
+                period: { start: req.query.start, end: req.query.end }, company: COMPANY_CONFIG
             });
         } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
