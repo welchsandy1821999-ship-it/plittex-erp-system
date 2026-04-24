@@ -2837,9 +2837,47 @@
         } catch (e) { console.error(e); }
     };
 
+    function isCurrentUserAdmin() {
+        try {
+            const token = localStorage.getItem('token') || localStorage.getItem('jwtToken');
+            if (!token) return false;
+            const parts = token.split('.');
+            if (parts.length !== 3) return false;
+            const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+            return payload.role === 'admin';
+        } catch (e) {
+            return false;
+        }
+    }
+
+    /**
+     * Ручной запуск FIFO-аллокации «простых» авансов по заказам (admin API).
+     */
+    window.reconcileAdvances = async function (counterpartyId) {
+        const btn = document.getElementById(`reconcile-advances-btn-${counterpartyId}`);
+        if (btn) {
+            btn.disabled = true;
+            if (btn.dataset._orig === undefined) btn.dataset._orig = btn.innerHTML;
+            btn.innerHTML = '⏳ Распределение...';
+        }
+        try {
+            await API.post(`/api/finance/reconcile-advances/${counterpartyId}`, {});
+            UI.toast('Авансы успешно распределены', 'success');
+            await openCounterpartyProfile(counterpartyId, { silent: true });
+            if (typeof loadFinanceData === 'function') loadFinanceData();
+        } catch (e) {
+            // API.post уже показывает тост с ошибкой
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = btn.dataset._orig || '💰 Распределить авансы';
+            }
+        }
+    };
+
     // === КАРТОЧКА КОНТРАГЕНТА (CRM) ===
-    window.openCounterpartyProfile = async function (id) {
-        UI.toast('Загрузка профиля...', 'info');
+    window.openCounterpartyProfile = async function (id, opts = {}) {
+        if (!opts.silent) UI.toast('Загрузка профиля...', 'info');
 
         if (!id || id === 'null' || id === 'undefined') return;
 
@@ -2937,6 +2975,7 @@
                     <div class="crm-actions-grid">
                         <button class="btn btn-outline btn-outline-warning p-5 font-13" onclick="openFinanceInvoiceModal(${cp.id}, '${cp.name.replace(/'/g, "\\'").replace(/"/g, '&quot;')}')">🖨️ Выставить Счет</button>
                         <button class="btn btn-outline p-5 font-13 text-primary" onclick="void window.openPrintUrl('/print/act?cp_id=${cp.id}')">📑 Акт сверки</button>
+                        ${isCurrentUserAdmin() ? `<button type="button" class="btn btn-outline p-5 font-13" id="reconcile-advances-btn-${cp.id}" style="border-color: var(--success); color: var(--success);" onclick="reconcileAdvances(${cp.id})" title="Перераспределить непривязанные приходы по заказам (по очереди заказов)">💰 Распределить авансы</button>` : ''}
                         <button class="btn btn-outline p-5 font-13 font-bold text-primary" onclick="openCorrectionModal(${cp.id})">⚖️ Коррекция</button>
                     </div>
                 </div>
