@@ -259,20 +259,6 @@
         };
 
         window.escapeHTML = (str) => str ? String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;") : '';
-
-        let socket;
-        try {
-            socket = io();
-            socket.on('inventory_updated', () => {
-                if (document.getElementById('stock-mod').classList.contains('active')) {
-                    if (typeof loadTable === 'function') loadTable();
-                    if (typeof loadDryingHistory === 'function' && document.getElementById('drying-history-block') && !document.getElementById('drying-history-block').classList.contains('d-none')) {
-                        loadDryingHistory();
-                    }
-                }
-                if (document.getElementById('dashboard-mod').classList.contains('active')) typeof initDashboard === 'function' && initDashboard();
-            });
-        } catch (e) { console.warn("Socket.io registration failed:", e); }
     </script>
 
     <% if (locals.devMode) { %>

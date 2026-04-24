@@ -35,7 +35,90 @@ Big.RM = Big.roundHalfUp;
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+
+/**
+ * CORS: список origin из CORS_ORIGIN (через запятую). Пусто — только локальные URL.
+ * Не используем "*": при credentials: true это некорректно.
+ */
+function getAllowedCorsOrigins() {
+    const raw = process.env.CORS_ORIGIN;
+    if (!raw || !String(raw).trim()) {
+        return ['http://localhost:3000', 'http://127.0.0.1:3000'];
+    }
+    return String(raw)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+}
+
+function corsAllowOriginCallback(origin, callback) {
+    const allowlist = getAllowedCorsOrigins();
+    if (!origin) {
+        return callback(null, true);
+    }
+    if (allowlist.includes(origin)) {
+        return callback(null, true);
+    }
+    logger.warn(`CORS: origin не разрешён: ${origin}`);
+    return callback(new Error('Not allowed by CORS'));
+}
+
+const io = new Server(server, {
+    cors: {
+        origin: corsAllowOriginCallback,
+        methods: ['GET', 'POST'],
+        credentials: true
+    }
+});
+
+/**
+ * Токен для Socket.io: auth.token, Authorization: Bearer, cookie token / access_token
+ */
+function extractSocketToken(socket) {
+    const a = socket.handshake?.auth;
+    if (a && a.token) {
+        return String(a.token);
+    }
+    const hdr = socket.handshake?.headers?.authorization;
+    if (hdr && String(hdr).startsWith('Bearer ')) {
+        return String(hdr).slice(7).trim();
+    }
+    const cookie = socket.handshake?.headers?.cookie;
+    if (cookie) {
+        for (const part of String(cookie).split(';')) {
+            const eq = part.indexOf('=');
+            if (eq === -1) continue;
+            const k = part.slice(0, eq).trim();
+            const v = part.slice(eq + 1).trim();
+            if (k === 'token' || k === 'access_token') {
+                try {
+                    return decodeURIComponent(v);
+                } catch (e) {
+                    return v;
+                }
+            }
+        }
+    }
+    return null;
+}
+
+io.use((socket, next) => {
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+        logger.error('Socket.io: JWT_SECRET не задан');
+        return next(new Error('Authentication error'));
+    }
+    const token = extractSocketToken(socket);
+    if (!token) {
+        return next(new Error('Authentication error'));
+    }
+    jwt.verify(token, secret, (err) => {
+        if (err) {
+            return next(new Error('Authentication error'));
+        }
+        next();
+    });
+});
 
 const port = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -95,7 +178,7 @@ app.use(helmet({
     contentSecurityPolicy: false // Отключаем CSP для inline-скриптов в EJS
 }));
 app.use(cors({
-    origin: process.env.CORS_ORIGIN || '*',
+    origin: corsAllowOriginCallback,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     credentials: true
 }));

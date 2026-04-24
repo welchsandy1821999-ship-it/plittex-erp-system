@@ -209,7 +209,15 @@ throw err;
 (function () {
     if (typeof io === 'undefined') return; // socket.io не подключен
 
-    const socket = io();
+    const t = (typeof _getAuthToken === 'function' && _getAuthToken()) || '';
+    if (!t) {
+        console.warn('WebSocket: нет JWT — real-time обновления отключены');
+        return;
+    }
+    const socket = io({ auth: { token: t } });
+    socket.on('connect_error', (e) => {
+        console.warn('WebSocket connect_error:', e && e.message);
+    });
     let debounceTimers = {};
 
     // Дебаунс: предотвращает множественные перезагрузки при пачке событий
