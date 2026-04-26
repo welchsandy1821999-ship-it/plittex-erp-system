@@ -131,10 +131,27 @@ function reportsMeasureStickyOffsets() {
     const filterCard = document.querySelector('#reports-mod .reports-filter-card');
     if (!mod || !filterCard) return;
     if (!mod.classList.contains('active')) return;
-    const stickyTop = parseFloat(window.getComputedStyle(filterCard).top || '0') || 0;
-    const filterHeight = Math.ceil(filterCard.offsetHeight || 0);
-    if (filterHeight < 24) return;
-    mod.style.setProperty('--reports-filter-height', `${Math.max(0, Math.ceil(filterHeight + stickyTop))}px`);
+
+    const pos = window.getComputedStyle(filterCard).position;
+    if (pos === 'static') {
+        mod.style.setProperty('--reports-panel-top', '0px');
+        mod.style.setProperty('--reports-table-head-top', '0px');
+        return;
+    }
+
+    const scrollBox = mod.closest('.content-area') || mod.parentElement;
+    const padTop = parseFloat(window.getComputedStyle(scrollBox).paddingTop) || 0;
+    const panelTop = -padTop;
+    mod.style.setProperty('--reports-panel-top', `${panelTop}px`);
+
+    const filterHeight = Math.round(filterCard.getBoundingClientRect().height) || 0;
+    if (filterHeight < 1) {
+        mod.style.setProperty('--reports-table-head-top', '0px');
+        return;
+    }
+    // Шапка таблицы: высота панели + (отрицательный) top панели
+    const headTop = filterHeight + panelTop;
+    mod.style.setProperty('--reports-table-head-top', `${Math.max(0, headTop)}px`);
 }
 
 function reportsInitFilterHeightObserver() {
@@ -425,14 +442,6 @@ window.reportsLoadPreview = async function() {
         const data = await API.post('/api/reports/preview', payload);
         window.__reportsState.lastData = data;
         reportsRender(data);
-        reportsMeasureStickyOffsets();
-        setTimeout(() => {
-            const filterCard = document.querySelector('#reports-mod .reports-filter-card');
-            const mod = document.getElementById('reports-mod');
-            if (!filterCard || !mod) return;
-            const panelHeight = Math.ceil(filterCard.offsetHeight || 0);
-            mod.style.setProperty('--reports-filter-height', `${panelHeight}px`);
-        }, 50);
     } catch (err) {
         console.error(err);
         UI.toast(err.message || 'Ошибка формирования отчета', 'error');

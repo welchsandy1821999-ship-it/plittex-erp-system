@@ -11405,6 +11405,7 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
 
 /* Reports module */
 #reports-mod {
+    --reports-panel-top: 0px;
     --reports-table-head-top: 0px;
 }
 
@@ -11416,7 +11417,7 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
 
 .reports-filter-card {
     position: sticky !important;
-    top: 0;
+    top: var(--reports-panel-top, 0px);
     z-index: 100;
     box-shadow: var(--shadow-sm);
     border: 1px solid var(--border);
