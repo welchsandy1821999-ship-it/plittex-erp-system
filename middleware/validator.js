@@ -296,14 +296,58 @@ module.exports = {
         next();
     },
 
+    /** POST /api/finance/planned-expenses — новый плановый исходящий платёж */
+    validatePlannedExpense: (req, res, next) => {
+        const { date, amount, category } = req.body;
+        const errors = [];
+
+        if (!date || String(date).trim() === '') {
+            errors.push('Укажите плановую дату.');
+        } else {
+            const d = new Date(date);
+            if (isNaN(d.getTime())) {
+                errors.push('Некорректная дата.');
+            }
+        }
+
+        if (!category || String(category).trim() === '') {
+            errors.push('Укажите статью расхода (категорию).');
+        }
+
+        const a = parseFloat(String(amount).replace(/\s/g, '').replace(',', '.'));
+        if (isNaN(a) || a <= 0) {
+            errors.push('Сумма должна быть больше нуля.');
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
+    },
+
+    /** Оплата плана: account_id; amount — опционально (частичная, не больше остатка) */
+    validatePlannedPay: (req, res, next) => {
+        const { account_id, amount } = req.body;
+        const errors = [];
+        if (!account_id) {
+            errors.push('Не указан счёт (касса) для проведения оплаты.');
+        }
+        if (amount !== undefined && amount !== null && String(amount).trim() !== '') {
+            const a = parseFloat(String(amount).replace(/\s/g, '').replace(',', '.'));
+            if (isNaN(a) || a <= 0) {
+                errors.push('Сумма списания должна быть больше нуля.');
+            }
+        }
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
+    },
+
     /** PUT /api/finance/categories/:id/group — обновление группы затрат */
     validateCostGroup: (req, res, next) => {
         const { cost_group } = req.body;
         const errors = [];
 
-        const allowed = ['direct', 'opex', 'capex', 'overhead', null, undefined, ''];
-        if (cost_group !== undefined && cost_group !== null && cost_group !== '' && !['direct', 'opex', 'capex', 'overhead'].includes(cost_group)) {
-            errors.push('Группа затрат должна быть: direct, opex, capex или overhead.');
+        const allowed = ['direct', 'opex', 'capex', 'overhead', 'capital', 'cogs', null, undefined, ''];
+        if (cost_group !== undefined && cost_group !== null && cost_group !== '' && !allowed.includes(cost_group)) {
+            errors.push('Группа затрат должна быть: direct, opex, capex (или legacy: overhead/capital/cogs).');
         }
 
         if (errors.length > 0) return _validationError(res, errors);
@@ -862,6 +906,111 @@ module.exports = {
             const cy = parseFloat(planned_cycles);
             if (isNaN(cy) || cy <= 0) {
                 errors.push('Плановый ресурс (циклы) должен быть больше нуля.');
+            }
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
+    },
+
+    /** POST /api/reports/* — генерация отчетов */
+    validateReportRequest: (req, res, next) => {
+        const { reportType, dateFrom, dateTo, filters, pagination, accountingMode, visibleColumns, printTemplateVersion } = req.body || {};
+        const errors = [];
+        const allowedTypes = [
+            'osv_counterparties',
+            'osv_cash_accounts',
+            'osv_materials',
+            'osv_products',
+            'turnover_finance',
+            'inventory_register'
+        ];
+
+        if (!reportType || !allowedTypes.includes(reportType)) {
+            errors.push(`Тип отчета должен быть одним из: ${allowedTypes.join(', ')}.`);
+        }
+
+        const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+        if (dateFrom && !dateRegex.test(String(dateFrom))) {
+            errors.push('dateFrom должен быть в формате YYYY-MM-DD.');
+        }
+        if (dateTo && !dateRegex.test(String(dateTo))) {
+            errors.push('dateTo должен быть в формате YYYY-MM-DD.');
+        }
+        if (dateFrom && dateTo && String(dateFrom) > String(dateTo)) {
+            errors.push('dateFrom не может быть больше dateTo.');
+        }
+
+        if (filters !== undefined && (typeof filters !== 'object' || Array.isArray(filters))) {
+            errors.push('filters должен быть объектом.');
+        }
+        if (accountingMode !== undefined && !['managerial', 'regulatory'].includes(String(accountingMode))) {
+            errors.push('accountingMode должен быть managerial или regulatory.');
+        }
+        if (visibleColumns !== undefined) {
+            if (!Array.isArray(visibleColumns) || visibleColumns.some((x) => typeof x !== 'string')) {
+                errors.push('visibleColumns должен быть массивом строк.');
+            }
+        }
+        if (printTemplateVersion !== undefined && !['v1', 'v2'].includes(String(printTemplateVersion))) {
+            errors.push('printTemplateVersion должен быть v1 или v2.');
+        }
+        if (filters && typeof filters === 'object') {
+            if (filters.counterpartyId !== undefined && Number.isNaN(Number(filters.counterpartyId))) {
+                errors.push('filters.counterpartyId должен быть числом.');
+            }
+            if (filters.accountId !== undefined && Number.isNaN(Number(filters.accountId))) {
+                errors.push('filters.accountId должен быть числом.');
+            }
+            if (filters.itemId !== undefined && Number.isNaN(Number(filters.itemId))) {
+                errors.push('filters.itemId должен быть числом.');
+            }
+            if (filters.warehouseType !== undefined) {
+                const allowedWh = ['materials', 'finished', 'markdown', 'reserve', 'drying', 'defect', 'equipment'];
+                if (!allowedWh.includes(String(filters.warehouseType))) {
+                    errors.push(`filters.warehouseType должен быть одним из: ${allowedWh.join(', ')}.`);
+                }
+            }
+            if (filters.transactionType !== undefined && !['income', 'expense'].includes(String(filters.transactionType))) {
+                errors.push('filters.transactionType должен быть income или expense.');
+            }
+            if (filters.nonZeroClosing !== undefined && typeof filters.nonZeroClosing !== 'boolean') {
+                errors.push('filters.nonZeroClosing должен быть boolean.');
+            }
+            if (filters.counterpartyBalanceMode !== undefined) {
+                const allowedBalanceModes = ['nonzero', 'movement', 'credit', 'debit', 'all'];
+                if (!allowedBalanceModes.includes(String(filters.counterpartyBalanceMode))) {
+                    errors.push(`filters.counterpartyBalanceMode должен быть одним из: ${allowedBalanceModes.join(', ')}.`);
+                }
+            }
+            ['regExcludeReserve', 'regExcludeAdjustments', 'regExcludeOffset', 'regExcludeTechnical'].forEach((k) => {
+                if (filters[k] !== undefined && typeof filters[k] !== 'boolean') {
+                    errors.push(`filters.${k} должен быть boolean.`);
+                }
+            });
+            ['regOnlyPosted', 'regOnlyPrimaryDoc', 'regRequireDocumentNo'].forEach((k) => {
+                if (filters[k] !== undefined && typeof filters[k] !== 'boolean') {
+                    errors.push(`filters.${k} должен быть boolean.`);
+                }
+            });
+            if (filters.excludeEmployees !== undefined && typeof filters.excludeEmployees !== 'boolean') {
+                errors.push('filters.excludeEmployees должен быть boolean.');
+            }
+            if (filters.regSourceTag !== undefined && typeof filters.regSourceTag !== 'string') {
+                errors.push('filters.regSourceTag должен быть строкой.');
+            }
+        }
+
+        if (pagination !== undefined) {
+            if (typeof pagination !== 'object' || Array.isArray(pagination)) {
+                errors.push('pagination должен быть объектом.');
+            } else {
+                if (pagination.page !== undefined && (!Number.isInteger(Number(pagination.page)) || Number(pagination.page) < 1)) {
+                    errors.push('pagination.page должен быть целым числом >= 1.');
+                }
+                if (pagination.pageSize !== undefined && (!Number.isInteger(Number(pagination.pageSize)) || Number(pagination.pageSize) < 1 || Number(pagination.pageSize) > 1000)) {
+                    errors.push('pagination.pageSize должен быть целым числом от 1 до 1000.');
+                }
             }
         }
 

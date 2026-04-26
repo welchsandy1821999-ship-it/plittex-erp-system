@@ -1,0 +1,244 @@
+<div id="reports-mod" class="module hidden">
+    <div class="flex-between align-end mb-15">
+        <div>
+            <h2 class="module-title mb-0">Отчеты и ОСВ</h2>
+            <p class="text-muted mt-5 mb-0 font-13">Формирование документов за любой период, печать и экспорт</p>
+        </div>
+        <div class="reports-actions">
+            <button id="reports-density-btn" class="btn btn-outline" onclick="reportsToggleDensity()">Плотность: компактно</button>
+            <button class="btn btn-outline" onclick="reportsOpenPrintSettings()">Реквизиты печати</button>
+            <button class="btn btn-outline" onclick="reportsOpenColumns()">Колонки</button>
+            <button class="btn btn-outline" onclick="reportsPrint()">Печать</button>
+            <button class="btn btn-outline" onclick="reportsExportCsv()">CSV</button>
+            <button class="btn btn-blue" onclick="reportsExportXlsx()">XLSX</button>
+        </div>
+    </div>
+
+    <div class="card p-15 mb-15 reports-filter-card">
+        <div class="reports-filters-grid">
+            <div class="form-group m-0">
+                <label>Документ</label>
+                <select id="reports-type" class="input-modern" onchange="reportsOnReportTypeChange()">
+                    <option value="osv_counterparties">ОСВ по контрагентам</option>
+                    <option value="osv_cash_accounts">ОСВ по деньгам (кассы/счета)</option>
+                    <option value="osv_materials">ОСВ по материалам (Склад №1)</option>
+                    <option value="osv_products">ОСВ по продукции (Склад №4/№5)</option>
+                    <option value="turnover_finance">Обороты по финстатьям</option>
+                    <option value="inventory_register">Реестр движений запасов</option>
+                </select>
+            </div>
+            <div class="form-group m-0">
+                <label>Режим учета</label>
+                <select id="reports-accounting-mode" class="input-modern" onchange="reportsOnAccountingModeChange()">
+                    <option value="managerial">Управленческий</option>
+                    <option value="regulatory">Регламентный</option>
+                </select>
+                <div id="reports-regulatory-filters" class="reports-regulatory-inline d-none mt-8">
+                    <label id="reports-reg-opt-posted" class="reports-reg-checkbox"><input id="reports-reg-only-posted" type="checkbox" checked onchange="reportsLoadPreview()"> Только проведенные операции</label>
+                    <label id="reports-reg-opt-primary" class="reports-reg-checkbox"><input id="reports-reg-only-primary" type="checkbox" onchange="reportsLoadPreview()"> Только с первичным документом</label>
+                    <label id="reports-reg-opt-docno" class="reports-reg-checkbox"><input id="reports-reg-require-docno" type="checkbox" onchange="reportsLoadPreview()"> Только с заполненным № документа</label>
+                    <label id="reports-reg-opt-offset" class="reports-reg-checkbox d-none"><input id="reports-reg-exclude-offset" type="checkbox" checked onchange="reportsLoadPreview()"> Исключить взаимозачет</label>
+                    <label id="reports-reg-opt-technical" class="reports-reg-checkbox d-none"><input id="reports-reg-exclude-technical" type="checkbox" checked onchange="reportsLoadPreview()"> Исключить технические операции</label>
+                    <label id="reports-reg-opt-reserve" class="reports-reg-checkbox d-none"><input id="reports-reg-exclude-reserve" type="checkbox" checked onchange="reportsLoadPreview()"> Исключить резервные движения</label>
+                    <label id="reports-reg-opt-adjustments" class="reports-reg-checkbox d-none"><input id="reports-reg-exclude-adjustments" type="checkbox" checked onchange="reportsLoadPreview()"> Исключить корректировки и ревизии</label>
+                    <select id="reports-reg-source-tag" class="input-modern reports-reg-source" onchange="reportsLoadPreview()">
+                        <option value="">Источник данных: любой</option>
+                    </select>
+                    <span id="reports-reg-none" class="text-muted font-12 d-none">Для выбранного документа доп. регламентные ограничения не применяются</span>
+                </div>
+            </div>
+            <div class="form-group m-0">
+                <label>Шаблон печати</label>
+                <select id="reports-print-template-version" class="input-modern">
+                    <option value="v1">Официальная форма v1</option>
+                    <option value="v2">Официальная форма v2 (расширенная)</option>
+                </select>
+            </div>
+            <div class="form-group m-0">
+                <label>Период</label>
+                <div class="reports-period-row">
+                    <button id="reports-period-prev-btn" class="btn btn-outline btn-sm" type="button" onclick="window.reportsShiftPeriod(-1)" title="Назад">◀</button>
+                    <div class="reports-period-display-wrap">
+                        <input id="reports-period-display" type="text" class="input-modern" readonly onclick="reportsOpenPeriodPicker()">
+                        <button class="reports-period-icon-btn" type="button" onclick="reportsOpenPeriodPicker()" title="Выбрать дату" aria-label="Выбрать дату">📅</button>
+                    </div>
+                    <button id="reports-period-next-btn" class="btn btn-outline btn-sm" type="button" onclick="window.reportsShiftPeriod(1)" title="Вперед">▶</button>
+                    <select id="reports-period-mode" class="input-modern" onchange="reportsOnPeriodModeChange()">
+                        <option value="day">День</option>
+                        <option value="month">Месяц</option>
+                        <option value="quarter">Квартал</option>
+                        <option value="year">Год</option>
+                    </select>
+                </div>
+                <input id="reports-date-anchor" type="text" class="d-none" onchange="reportsOnPeriodAnchorChange()">
+                <input id="reports-date-from" type="hidden">
+                <input id="reports-date-to" type="hidden">
+            </div>
+        </div>
+        <div id="reports-extra-filters" class="reports-filters-grid mt-10">
+            <div class="form-group m-0">
+                <label>Контрагент</label>
+                <select id="reports-filter-counterparty" class="input-modern" onchange="reportsLoadPreview()">
+                    <option value="">Все</option>
+                </select>
+            </div>
+            <div class="form-group m-0">
+                <label>Сальдо контрагентов</label>
+                <select id="reports-filter-nonzero" class="input-modern" onchange="reportsOnCounterpartyBalanceModeChange()">
+                    <option value="nonzero">Контрагенты с остатками</option>
+                    <option value="movement">Контрагенты с движением за период</option>
+                    <option value="credit">Только с КЗ</option>
+                    <option value="debit">Только с ДЗ</option>
+                    <option value="all">Все контрагенты</option>
+                </select>
+                <div id="reports-filter-nonzero-hint" class="reports-filter-hint text-muted font-11">Показываются только контрагенты с ненулевым конечным сальдо.</div>
+            </div>
+            <div class="form-group m-0">
+                <label>Счет/Касса</label>
+                <select id="reports-filter-account" class="input-modern" onchange="reportsLoadPreview()">
+                    <option value="">Все</option>
+                </select>
+            </div>
+            <div class="form-group m-0">
+                <label>Номенклатура</label>
+                <select id="reports-filter-item" class="input-modern" onchange="reportsLoadPreview()">
+                    <option value="">Все</option>
+                </select>
+            </div>
+            <div class="form-group m-0">
+                <label>Склад</label>
+                <select id="reports-filter-warehouse" class="input-modern" onchange="reportsLoadPreview()">
+                    <option value="">Все</option>
+                    <option value="materials" data-reports="inventory_register">Склад №1 (материалы)</option>
+                    <option value="finished" data-reports="inventory_register,osv_products">Склад №4 (готовая продукция)</option>
+                    <option value="markdown" data-reports="inventory_register,osv_products">Склад №5 (2 сорт)</option>
+                    <option value="reserve" data-reports="inventory_register">Склад №7 (резерв)</option>
+                </select>
+            </div>
+            <div class="form-group m-0">
+                <label>Тип движения</label>
+                <select id="reports-filter-movement-type" class="input-modern" onchange="reportsLoadPreview()">
+                    <option value="">Все</option>
+                </select>
+            </div>
+            <div class="form-group m-0">
+                <label>Тип финоперации</label>
+                <select id="reports-filter-transaction-type" class="input-modern" onchange="reportsLoadPreview()">
+                    <option value="">Все</option>
+                    <option value="income">Доход</option>
+                    <option value="expense">Расход</option>
+                </select>
+            </div>
+            <div class="form-group m-0 reports-actions-slot">
+                <label class="reports-actions-label" aria-hidden="true">Действия</label>
+                <div class="reports-filter-actions">
+                    <div class="reports-filter-actions-main">
+                        <label class="reports-inline-check reports-inline-check-pill">
+                            <input id="reports-filter-exclude-employees" type="checkbox" checked onchange="reportsLoadPreview()">
+                            Не учитывать сотрудников
+                        </label>
+                        <button class="btn btn-blue" onclick="reportsLoadPreview()">Сформировать</button>
+                    </div>
+                    <div class="reports-filter-actions-presets">
+                        <button class="btn btn-outline" onclick="reportsSavePreset()">Сохранить</button>
+                        <select id="reports-presets" class="input-modern reports-preset-select" onchange="reportsApplyPreset(this.value)">
+                            <option value="">Пресеты...</option>
+                        </select>
+                        <button class="btn btn-outline" onclick="reportsDeletePreset()">Удалить</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="reports-warning" class="reports-warning mt-10 d-none"></div>
+    </div>
+
+    <div class="card p-15 reports-preview-card">
+        <div class="flex-between mb-10">
+            <h3 id="reports-title" class="m-0 font-16">Отчет</h3>
+            <span id="reports-meta" class="text-muted font-12"></span>
+        </div>
+        <div class="table-responsive reports-preview-scroll">
+            <table class="data-table" id="reports-table">
+                <colgroup id="reports-colgroup"></colgroup>
+                <thead id="reports-head"></thead>
+                <tbody id="reports-body">
+                    <tr><td class="text-muted">Нажмите «Сформировать»</td></tr>
+                </tbody>
+                <tfoot id="reports-foot"></tfoot>
+            </table>
+        </div>
+        <div class="reports-actions mt-10">
+            <button class="btn btn-outline btn-sm" onclick="reportsChangePage(-1)">Предыдущая</button>
+            <button class="btn btn-outline btn-sm" onclick="reportsChangePage(1)">Следующая</button>
+        </div>
+        <div id="reports-totals" class="reports-totals mt-10"></div>
+    </div>
+
+    <div class="card p-15 mt-15 reports-runs-card">
+        <details id="reports-runs-accordion" class="reports-runs-accordion">
+            <summary class="reports-runs-summary">
+                <h3 class="m-0 font-16">История формирований</h3>
+                <span class="text-muted font-12">Развернуть</span>
+            </summary>
+            <div class="reports-runs-content mt-10">
+                <div class="flex-between mb-10">
+                    <div></div>
+                    <div class="reports-actions">
+                        <button class="btn btn-outline btn-sm" onclick="reportsAskCleanupRuns()">Очистить тестовые</button>
+                        <button class="btn btn-outline btn-sm" onclick="reportsLoadRuns()">Обновить</button>
+                        <button class="btn btn-outline btn-sm" onclick="reportsExportRunsCsv()">Экспорт CSV</button>
+                    </div>
+                </div>
+                <div class="reports-runs-filters mb-10">
+                    <select id="reports-runs-report-type" class="input-modern" onchange="reportsLoadRuns()">
+                        <option value="">Все документы</option>
+                        <option value="osv_counterparties">ОСВ контрагентов</option>
+                        <option value="osv_cash_accounts">ОСВ денег</option>
+                        <option value="osv_materials">ОСВ материалов</option>
+                        <option value="osv_products">ОСВ продукции</option>
+                        <option value="turnover_finance">Обороты финстатей</option>
+                        <option value="inventory_register">Реестр движений</option>
+                    </select>
+                    <select id="reports-runs-format" class="input-modern" onchange="reportsLoadRuns()">
+                        <option value="">Все форматы</option>
+                        <option value="print">Печать</option>
+                        <option value="csv">Экспорт CSV</option>
+                        <option value="xlsx">Экспорт XLSX</option>
+                        <option value="print_blocked">Печать (заблокировано)</option>
+                        <option value="csv_blocked">CSV (заблокировано)</option>
+                        <option value="xlsx_blocked">XLSX (заблокировано)</option>
+                    </select>
+                    <select id="reports-runs-preflight" class="input-modern" onchange="reportsLoadRuns()">
+                        <option value="">Любой preflight</option>
+                        <option value="ok">OK</option>
+                        <option value="warning">Предупреждение</option>
+                        <option value="blocked">Заблокировано</option>
+                    </select>
+                    <input id="reports-runs-username" class="input-modern" placeholder="Пользователь..." oninput="reportsLoadRunsDebounced()">
+                    <input id="reports-runs-from" type="date" class="input-modern" onchange="reportsLoadRuns()">
+                    <input id="reports-runs-to" type="date" class="input-modern" onchange="reportsLoadRuns()">
+                </div>
+                <div class="table-responsive">
+                    <table class="data-table" id="reports-runs-table">
+                        <thead>
+                            <tr>
+                                <th>Дата</th>
+                                <th>Пользователь</th>
+                                <th>Документ</th>
+                                <th>Период</th>
+                                <th>Режим</th>
+                                <th>Формат</th>
+                                <th>Preflight</th>
+                                <th>Строк</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reports-runs-body">
+                            <tr><td colspan="9" class="text-muted">Откройте аккордеон для загрузки истории</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </details>
+    </div>
+</div>
