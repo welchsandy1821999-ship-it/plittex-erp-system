@@ -11406,7 +11406,6 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
 /* Reports module */
 #reports-mod {
     --reports-panel-top: 0px;
-    --reports-table-head-top: 0px;
 }
 
 .reports-actions {
@@ -11565,12 +11564,12 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
 }
 
 #reports-table thead th {
-    position: sticky;
-    top: var(--reports-table-head-top, 0px);
+    position: relative;
     z-index: 90;
     background-color: var(--card-bg);
     box-shadow: inset 0 -1px 0 var(--border), inset 0 1px 0 var(--border);
     padding: 10px 12px;
+    will-change: transform;
 }
 
 #reports-table td.reports-num,
@@ -11579,8 +11578,7 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     font-variant-numeric: tabular-nums;
 }
 
-#reports-table.reports-table-osv td.reports-col-main,
-#reports-table.reports-table-osv th.reports-col-main {
+#reports-table.reports-table-osv td.reports-col-main {
     position: sticky;
     left: 0;
     z-index: 3;
@@ -11588,9 +11586,14 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     box-shadow: inset -1px 0 0 var(--border);
 }
 
+/* Вертикальное «прилипание» шапки — через JS (transform); только горизонтальный sticky */
 #reports-table.reports-table-osv thead th.reports-col-main {
+    position: sticky;
+    left: 0;
+    top: auto;
     z-index: 91;
     background-color: var(--card-bg);
+    box-shadow: inset -1px 0 0 var(--border);
 }
 
 #reports-table.reports-table-osv td.reports-col-main,

@@ -126,6 +126,38 @@ function reportsApplyDensity() {
     try { localStorage.setItem('reportsDensity', density); } catch (_) {}
 }
 
+/** Без position: sticky у шапки (конфликт с overflow-x); оптическое удержание через transform */
+function reportsSyncTableHead() {
+    const mod = document.getElementById('reports-mod');
+    if (!mod || !mod.classList.contains('active')) return;
+    const panel = document.querySelector('#reports-mod .reports-filter-card');
+    const table = document.getElementById('reports-table');
+    const ths = table ? table.querySelectorAll('thead th') : [];
+    if (!table || ths.length === 0) return;
+    if (!panel) {
+        ths.forEach((th) => { th.style.transform = 'translateY(0)'; });
+        return;
+    }
+    const thead = table.querySelector('thead');
+    if (!thead) return;
+    const panelRect = panel.getBoundingClientRect();
+    const tableRect = table.getBoundingClientRect();
+    let offset = panelRect.bottom - tableRect.top;
+    if (offset > 0 && tableRect.bottom > panelRect.bottom) {
+        const theadHeight = thead.offsetHeight;
+        const maxOffset = Math.max(0, tableRect.height - theadHeight);
+        const finalOffset = Math.min(offset, maxOffset);
+        ths.forEach((th) => { th.style.transform = `translateY(${finalOffset}px)`; });
+    } else {
+        ths.forEach((th) => { th.style.transform = 'translateY(0)'; });
+    }
+}
+
+function reportsAfterReportsLayout() {
+    reportsMeasureStickyOffsets();
+    reportsSyncTableHead();
+}
+
 function reportsMeasureStickyOffsets() {
     const mod = document.getElementById('reports-mod');
     const filterCard = document.querySelector('#reports-mod .reports-filter-card');
@@ -135,7 +167,6 @@ function reportsMeasureStickyOffsets() {
     const pos = window.getComputedStyle(filterCard).position;
     if (pos === 'static') {
         mod.style.setProperty('--reports-panel-top', '0px');
-        mod.style.setProperty('--reports-table-head-top', '0px');
         return;
     }
 
@@ -143,15 +174,6 @@ function reportsMeasureStickyOffsets() {
     const padTop = parseFloat(window.getComputedStyle(scrollBox).paddingTop) || 0;
     const panelTop = -padTop;
     mod.style.setProperty('--reports-panel-top', `${panelTop}px`);
-
-    const filterHeight = Math.round(filterCard.getBoundingClientRect().height) || 0;
-    if (filterHeight < 1) {
-        mod.style.setProperty('--reports-table-head-top', '0px');
-        return;
-    }
-    // Шапка таблицы: высота панели + (отрицательный) top панели
-    const headTop = filterHeight + panelTop;
-    mod.style.setProperty('--reports-table-head-top', `${Math.max(0, headTop)}px`);
 }
 
 function reportsInitFilterHeightObserver() {
@@ -159,7 +181,7 @@ function reportsInitFilterHeightObserver() {
     const filterCard = document.querySelector('#reports-mod .reports-filter-card');
     if (!filterCard) return;
     const observer = new ResizeObserver(() => {
-        requestAnimationFrame(reportsMeasureStickyOffsets);
+        requestAnimationFrame(reportsAfterReportsLayout);
     });
     observer.observe(filterCard);
     window.__reportsState.filterHeightObserver = observer;
@@ -168,7 +190,7 @@ function reportsInitFilterHeightObserver() {
 window.reportsToggleDensity = function() {
     window.__reportsState.density = window.__reportsState.density === 'compact' ? 'standard' : 'compact';
     reportsApplyDensity();
-    reportsMeasureStickyOffsets();
+    requestAnimationFrame(reportsAfterReportsLayout);
 };
 
 function reportsRender(data) {
@@ -267,7 +289,7 @@ function reportsRender(data) {
         const badge = data.consistency.status === 'ok' ? 'Консистентность: OK' : 'Консистентность: есть замечания';
         totals.innerHTML = `<span class="reports-total-chip"><strong>${Utils.escapeHtml(badge)}</strong></span>` + totals.innerHTML;
     }
-    requestAnimationFrame(reportsMeasureStickyOffsets);
+    requestAnimationFrame(reportsAfterReportsLayout);
 }
 
 window.reportsSetQuick = function(mode) {
@@ -326,7 +348,7 @@ function reportsApplyFilterVisibility() {
             el.value = id === 'reports-filter-nonzero' ? 'all' : '';
         }
     });
-    requestAnimationFrame(reportsMeasureStickyOffsets);
+    requestAnimationFrame(reportsAfterReportsLayout);
 }
 
 function reportsDrilldownRangeLabel(rangeMode = 'period') {
@@ -530,22 +552,26 @@ window.initReports = function() {
     })();
     window.__reportsState.density = savedDensity === 'standard' ? 'standard' : 'compact';
     reportsApplyDensity();
-    reportsMeasureStickyOffsets();
+    reportsAfterReportsLayout();
     reportsInitFilterHeightObserver();
     if (!window.__reportsState.stickyResizeBound) {
-        window.addEventListener('resize', () => requestAnimationFrame(reportsMeasureStickyOffsets), { passive: true });
+        const rafHead = () => requestAnimationFrame(reportsSyncTableHead);
+        window.addEventListener('scroll', rafHead, { passive: true });
+        const contentArea = document.querySelector('.content-area');
+        if (contentArea) contentArea.addEventListener('scroll', rafHead, { passive: true });
+        window.addEventListener('resize', () => requestAnimationFrame(reportsAfterReportsLayout), { passive: true });
         window.__reportsState.stickyResizeBound = true;
     }
     if (document.getElementById('reports-mod')) {
-        setTimeout(reportsMeasureStickyOffsets, 0);
-        setTimeout(reportsMeasureStickyOffsets, 120);
+        setTimeout(reportsAfterReportsLayout, 0);
+        setTimeout(reportsAfterReportsLayout, 120);
         reportsBindTableLinks();
         reportsLoadOptions()
             .then(() => {
                 reportsApplyFilterVisibility();
                 reportsLoadPreview();
                 reportsLoadRuns();
-                reportsMeasureStickyOffsets();
+                reportsAfterReportsLayout();
             })
             .catch((err) => {
                 console.error(err);
