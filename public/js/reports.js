@@ -576,6 +576,62 @@ function reportsBuildOsvCounterpartyHeadRows(data, cols, numericCols) {
     return `${summaryRow}${groupRow}${level2Row}${level3Row}`;
 }
 
+function reportsBuildOsvCashHeadRows(data, cols, numericCols) {
+    const keys = cols.map((c) => c.key);
+    const expected = ['account', 'opening_balance', 'debit_turnover', 'credit_turnover', 'closing_balance'];
+    const isExpected = expected.length === keys.length && expected.every((k, i) => keys[i] === k);
+    if (!isExpected) return '';
+    const fromDate = reportsParseIsoDate(data?.period?.dateFrom);
+    const toDate = reportsParseIsoDate(data?.period?.dateTo);
+    const fromLabel = fromDate ? reportsDisplayDate(fromDate) : (data?.period?.dateFrom || '');
+    const toLabel = toDate ? reportsDisplayDate(toDate) : (data?.period?.dateTo || '');
+    const summaryRow = reportsBuildHeadSummaryRow(data, cols.length);
+    const groupRow = `
+        <tr class="reports-head-groups">
+            <th class="reports-col-main reports-head-group-main" rowspan="2">Счет/Касса</th>
+            <th class="reports-head-group" colspan="1">${Utils.escapeHtml(fromLabel)}</th>
+            <th class="reports-head-group" colspan="2">Оборот</th>
+            <th class="reports-head-group" colspan="1">${Utils.escapeHtml(toLabel)}</th>
+        </tr>
+    `;
+    const level2Labels = ['Сальдо', 'Приход', 'Расход', 'Сальдо'];
+    const level2Row = `<tr class="reports-head-level2">${level2Labels.map((label, idx) => {
+        const key = cols[idx + 1]?.key || '';
+        const cls = `${numericCols[idx + 1] ? 'reports-num ' : ''}${reportsPolarityClass(key)}`.trim();
+        return `<th class="${cls}">${Utils.escapeHtml(label)}</th>`;
+    }).join('')}</tr>`;
+    return `${summaryRow}${groupRow}${level2Row}`;
+}
+
+function reportsBuildOsvStockHeadRows(data, cols, numericCols) {
+    const keys = cols.map((c) => c.key);
+    const expected = ['item', 'warehouse', 'unit', 'opening_qty', 'inflow_qty', 'outflow_qty', 'closing_qty'];
+    const isExpected = expected.length === keys.length && expected.every((k, i) => keys[i] === k);
+    if (!isExpected) return '';
+    const fromDate = reportsParseIsoDate(data?.period?.dateFrom);
+    const toDate = reportsParseIsoDate(data?.period?.dateTo);
+    const fromLabel = fromDate ? reportsDisplayDate(fromDate) : (data?.period?.dateFrom || '');
+    const toLabel = toDate ? reportsDisplayDate(toDate) : (data?.period?.dateTo || '');
+    const summaryRow = reportsBuildHeadSummaryRow(data, cols.length);
+    const groupRow = `
+        <tr class="reports-head-groups">
+            <th class="reports-col-main reports-head-group-main" rowspan="2">Номенклатура</th>
+            <th class="reports-head-group" rowspan="2">Склад</th>
+            <th class="reports-head-group" rowspan="2">Ед.</th>
+            <th class="reports-head-group" colspan="1">${Utils.escapeHtml(fromLabel)}</th>
+            <th class="reports-head-group" colspan="2">Движение</th>
+            <th class="reports-head-group" colspan="1">${Utils.escapeHtml(toLabel)}</th>
+        </tr>
+    `;
+    const level2Labels = ['Остаток', 'Приход', 'Расход', 'Остаток'];
+    const level2Row = `<tr class="reports-head-level2">${level2Labels.map((label, idx) => {
+        const key = cols[idx + 3]?.key || '';
+        const cls = `${numericCols[idx + 3] ? 'reports-num ' : ''}${reportsPolarityClass(key)}`.trim();
+        return `<th class="${cls}">${Utils.escapeHtml(label)}</th>`;
+    }).join('')}</tr>`;
+    return `${summaryRow}${groupRow}${level2Row}`;
+}
+
 function reportsBuildOsvCounterpartyMatrix(cols, rows, totals) {
     const keys = new Set((cols || []).map((c) => String(c.key || '')));
     const required = ['counterparty', 'opening_debit', 'opening_credit', 'payment_in', 'payment_out', 'shipment_in', 'shipment_out', 'closing_debit', 'closing_credit'];
@@ -704,8 +760,14 @@ function reportsRender(data) {
     const osvCounterpartyHead = reportType === 'osv_counterparties'
         ? reportsBuildOsvCounterpartyHeadRows(data, cols, numericCols)
         : '';
-    if (osvCounterpartyHead) {
-        head.innerHTML = osvCounterpartyHead;
+    const osvCashHead = reportType === 'osv_cash_accounts'
+        ? reportsBuildOsvCashHeadRows(data, cols, numericCols)
+        : '';
+    const osvStockHead = (reportType === 'osv_materials' || reportType === 'osv_products')
+        ? reportsBuildOsvStockHeadRows(data, cols, numericCols)
+        : '';
+    if (osvCounterpartyHead || osvCashHead || osvStockHead) {
+        head.innerHTML = osvCounterpartyHead || osvCashHead || osvStockHead;
     } else {
         const summaryRow = reportsBuildHeadSummaryRow(data, cols.length);
         const labelsRow = `<tr>${cols.map((c, idx) => {
