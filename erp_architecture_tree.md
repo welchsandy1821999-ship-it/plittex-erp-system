@@ -17,7 +17,7 @@ plittex-erp/
 │
 ├── middleware/
 │   ├── auth.js            # authenticateToken, requireAdmin
-│   ├── rateLimit.js       # apiRateLimiter для /api
+│   ├── rateLimit.js       # apiRateLimiter для /api (logger.warn при блокировке)
 │   └── validator.js       # Централизованные проверки тела запроса (часть сценариев)
 │
 ├── routes/                # См. §3 — все вешаются на app из web.js
@@ -26,7 +26,7 @@ plittex-erp/
 │
 ├── views/
 │   ├── index.ejs          # Shell: layout + подключение модулей
-│   ├── modules/           # 12 UI-модулей (см. §5)
+│   ├── modules/           # 13 UI-модулей (см. §5)
 │   ├── partials/          # layout, scripts, modals
 │   └── docs/              # EJS печатных форм (УПД, акт, договор, …)
 │
@@ -38,6 +38,7 @@ plittex-erp/
 │   ├── saved_docs/        # Сгенерированные/сохранённые вложения (runtime)
 │   └── uploads/           # Загрузки (multer)
 │
+├── tmp/                   # Временные скрипты/отчёты (в .gitignore)
 ├── .agent/workflows/      # Сценарии агента (не рантайм)
 ├── .antigravity/          # db_protocol, styles, rules (см. .cursorrules)
 ├── audit_master_list.md  # Аудит вкладок (живой чеклист)
@@ -58,7 +59,7 @@ plittex-erp/
 | `views/*` | SSR-разметка; сценарий SPA внутри одной страницы (`switchModule`) |
 | `public/js/*` | Логика модулей в браузере, глобальные `API`, `UI`, сокет-клиент в `core.js` |
 | `public/css/*` | Тема, сетка, компоненты, модульные дополнения |
-| `utils/*` | Инфра: лог, cron, бэкапы, инициализация БД, Telegram, **allocateClientAdvance** (аллокация авансов по заказам) |
+| `utils/*` | Инфра: лог, cron, бэкапы, инициализация БД, Telegram, **allocateClientAdvance** (аллокация авансов), **orderSettlement** (расчёт по заказам), **palletCalc/palletRecipeEstimate** (поддоны), **packagingMaterial** (упаковка), **salesAnalyticsUnitCost** (себестоимость единицы) |
 
 ---
 
@@ -89,8 +90,13 @@ plittex-erp/
 | `db_init.js` | Системные таблицы при старте, audit |
 | `cron.js` | Планировщик |
 | `backup.js` | Бэкапы БД |
-| `telegram.js` | Бот, уведомления |
+| `telegram.js` | Бот, уведомления (logger.info при старте, console.error при критических ошибках) |
 | `allocateClientAdvance.js` | FIFO-распределение несвязанных **приходов** по `client_orders` (транзакции, reconcile API) |
+| `orderSettlement.js` | Расчёт взаиморасчётов по заказам |
+| `packagingMaterial.js` | Вычисление расхода упаковочных материалов |
+| `palletCalc.js` | Калькулятор потребности в поддонах |
+| `palletRecipeEstimate.js` | Оценка расхода поддонов по рецептуре |
+| `salesAnalyticsUnitCost.js` | Расчёт себестоимости единицы продукции для аналитики продаж |
 
 ---
 

@@ -14,7 +14,7 @@
 | БД | PostgreSQL, драйвер `pg` (пул в `web.js`) |
 | UI | EJS (SSR) + крупные клиентские модули в `public/js` |
 | Realtime | Socket.io (тот же HTTP-сервер, что и Express) |
-| Деньги (критично) | **Big.js** в серверном коде продаж/финансов/части инвентаря; на клиенте — по месту |
+| Деньги (критично) | **Big.js** в серверном коде финансов/продаж/инвентаря и в `web.js` (отгрузки, налоги, cashflow-forecast, P&L); на клиенте — по месту |
 | Мониторинг | Sentry (опционально, `SENTRY_DSN`) |
 | Тесты | Jest (`npm test`, каталог `test/`) |
 
@@ -34,7 +34,7 @@
 
 - **Глобально:** `app.use('/api', authenticateToken)` — кроме заранее выведенных наружу путей. В `middleware/auth.js` для `POST /api/login` пропуск задан по `req.path` смонтированного обработчика (`'/login'`), плюс дублирующая проверка `'/api/login'`. `GET /api/health` объявлен **до** `app.use('/api', authenticateToken)` в `web.js`. `POST /api/generate-print-token` идёт **перед** глобальным JWT-этапом, но сам требует обычный JWT в `Authorization` (см. `web.js`).
 - **Роль admin:** `requireAdmin` на выбранных эндпоинтах (часть финансов, админка, ряд удалений). Точка входа **всегда** в коде маршрута, не по одному лишь скрытыю кнопки.
-- **Лимит:** `middleware/rateLimit.js` на префикс `/api`.
+- **Лимит:** `middleware/rateLimit.js` на префикс `/api`; блокировки пишутся через `logger.warn`.
 - **Валидация:** `middleware/validator.js` + ad-hoc проверки в роутерах.
 - **CORS:** `CORS_ORIGIN` (через запятую) или fallback localhost; не `*`.
 
@@ -45,7 +45,7 @@
 - **`public/js/core.js`:** `window.API` — `get/post/put/patch/delete` с заголовком `Authorization: Bearer` и разбором JSON; при 401/403 — `handleLogout` где применимо.
 - **`views/partials/scripts.ejs`:** обёртка над `window.fetch` подставляет Bearer для URL с `/api` (кроме login) — **дополняет** `API`, предпочтительно писать новый код через **`API.*`**.
 - **Модули:** `views/index.ejs` подключает все `views/modules/*`; навигация `switchModule` + `activeModuleId` в `localStorage`.
-- **Стили:** `public/css/theme.css`, `layout.css`, `components.css`, `modules.css`. Инлайн в шаблонах встречается легаси; новые блоки — по **`styles_and_ui.md`**.
+- **Стили:** `public/css/theme.css`, `layout.css`, `components.css`, `modules.css`. Инлайн-стили в шаблонах в основном убраны; новые блоки — только через CSS-классы по **`styles_and_ui.md`**. В JS вместо `.style.display` используется `classList.add/remove/toggle('d-none')`.
 
 ---
 
@@ -83,7 +83,7 @@
 ## 7. Склад и движения
 
 - «Истина» — таблица движений (напр. `inventory_movements` и согласованные типы: закупка, отгрузка, резерв, сушилка и т.д.).
-- `getWhId` / склады: не хардкодить хрупко в новом коде — использовать существующие хелперы из `web.js`/роутов.
+- Правило: **не** хардкодить ID складов — использовать `getWhId(type)` из `web.js` (резолвит по столбцу `type` таблицы `warehouses`). На клиенте константы `WAREHOUSE_IDS` (из API `/api/warehouses/ids`) с фолбэками.
 - Сложные операции — **транзакции** `withTransaction` (`web.js`).
 
 ---
