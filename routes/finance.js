@@ -5,9 +5,10 @@ const { auditLog } = require('../utils/db_init');
 const fs = require('fs');
 const path = require('path');
 const Big = require('big.js');
-const { requireAdmin, authenticateToken } = require('../middleware/auth');
-const { validateTransaction, validateTransactionEdit, validateTransfer, validateCounterparty, validateInvoice, validateAccount, validateAccountEdit, validateCategory, validateCorrection, validatePayment, validateCostGroup } = require('../middleware/validator');
+const { requireAdmin, requirePlannedPlanManage, authenticateToken } = require('../middleware/auth');
+const { validateTransaction, validateTransactionEdit, validateTransfer, validateCounterparty, validateInvoice, validateAccount, validateAccountEdit, validateCategory, validateCorrection, validatePayment, validatePlannedExpense, validatePlannedPay, validateCostGroup } = require('../middleware/validator');
 const { allocateUnlinkedClientIncome } = require('../utils/allocateClientAdvance');
+const { money, reconcileOrderSettlement } = require('../utils/orderSettlement');
 
 // 🚀 Единая функция поиска документов в тексте (Защита от опечаток)
 function extractDocNumber(description) {
@@ -16,7 +17,499 @@ function extractDocNumber(description) {
     return match ? match[0].toUpperCase() : null;
 }
 
+/** SSoT: корректировка долга контрагента (КРМ) — та же статья, что «Корректировка Баланса» в справочнике ДДС. */
+const FINANCE_CP_BALANCE_CORRECTION_CATEGORY = 'Корректировка Баланса';
+const TRANSFER_CATEGORY_BASE = 'Перевод';
+const TECHNICAL_WILD_BASE = 'Технические операции';
+const TECHNICAL_CATEGORIES = Object.freeze({
+    TECHNICAL: 'Техническая проводка',
+    OPENING: 'Ввод начальных остатков',
+    BALANCE_CORRECTION: FINANCE_CP_BALANCE_CORRECTION_CATEGORY
+});
+const INCOME_DEFAULT_CATEGORY = 'Прочие доходы';
+const INCOME_REFUND_IMPREST_CATEGORY = 'Возврат подотчетных средств';
+const INCOME_SAFE_CATEGORIES = Object.freeze([
+    'Продажа продукции',
+    'Оплата по счету',
+    'Получение займов',
+    INCOME_REFUND_IMPREST_CATEGORY,
+    'Взнос учредителя',
+    'Нераспределенное',
+    INCOME_DEFAULT_CATEGORY
+]);
+const EXPENSE_SAFE_CATEGORIES = Object.freeze([
+    'Закупка сырья',
+    'Налоги, штрафы и взносы',
+    'Услуги банка и РКО',
+    'Зарплата и Авансы',
+    'Транспортные расходы',
+    'Транспортные расходы',
+    'Услуги банка и РКО',
+    'Возврат заемных средств',
+    'Нераспределенное',
+    'Техническая проводка',
+    'Ввод начальных остатков',
+    'Корректировка Баланса'
+]);
+const TRANSFER_CATEGORY_CHILDREN = Object.freeze({
+    INTERNAL: 'Перевод / Внутренний',
+    IMPREST_ISSUE: 'Перевод / Подотчет выдача',
+    IMPREST_TRANSIT: 'Перевод / Подотчет транзит',
+    IMPORT_OWN: 'Перевод / Импорт распознанный',
+    NEEDS_REVIEW: 'Перевод / Требует разбора'
+});
+const BIDIRECTIONAL_SYSTEM_CATEGORIES = Object.freeze([
+    TRANSFER_CATEGORY_BASE,
+    ...Object.values(TRANSFER_CATEGORY_CHILDREN),
+    TECHNICAL_CATEGORIES.TECHNICAL,
+    TECHNICAL_CATEGORIES.OPENING,
+    TECHNICAL_CATEGORIES.BALANCE_CORRECTION
+]);
+const CANONICAL_COST_GROUPS = Object.freeze(['direct', 'opex', 'capex']);
+const COST_GROUP_ALIASES = Object.freeze({
+    direct: 'direct',
+    cogs: 'direct',
+    opex: 'opex',
+    overhead: 'opex',
+    capex: 'capex',
+    capital: 'capex'
+});
+
+function normalizeCategoryName(v) {
+    return String(v || '').trim().toLowerCase();
+}
+
+function normalizeCostGroup(v, fallback = null) {
+    const n = normalizeCategoryName(v);
+    if (!n) return fallback;
+    return COST_GROUP_ALIASES[n] || fallback;
+}
+
+function ensureCanonicalCostGroup(v, fallback = 'opex') {
+    const normalized = normalizeCostGroup(v, fallback);
+    if (CANONICAL_COST_GROUPS.includes(normalized)) return normalized;
+    return fallback;
+}
+
+function sanitizeIdArray(values, { max = 500 } = {}) {
+    if (!Array.isArray(values)) return [];
+    const uniq = new Set();
+    for (const raw of values) {
+        const n = Number(raw);
+        if (Number.isInteger(n) && n > 0) uniq.add(n);
+        if (uniq.size > max) break;
+    }
+    return Array.from(uniq);
+}
+
+function sanitizeNameArray(values, { max = 100 } = {}) {
+    if (!Array.isArray(values)) return [];
+    const uniq = new Set();
+    for (const raw of values) {
+        const s = String(raw || '').trim();
+        if (s) uniq.add(s);
+        if (uniq.size > max) break;
+    }
+    return Array.from(uniq);
+}
+
+function getEffectiveCostGroupSql(txAlias = 't', catAlias = 'tc', overrideAlias = 'tc_override', fallback = 'opex') {
+    const t = txAlias ? `${txAlias}.` : '';
+    const c = catAlias ? `${catAlias}.` : '';
+    const o = overrideAlias ? `${overrideAlias}.` : '';
+    return `
+    COALESCE(
+        CASE
+            WHEN LOWER(TRIM(COALESCE(${t}cost_group_override, ''))) IN ('direct', 'cogs') THEN 'direct'
+            WHEN LOWER(TRIM(COALESCE(${t}cost_group_override, ''))) IN ('opex', 'overhead') THEN 'opex'
+            WHEN LOWER(TRIM(COALESCE(${t}cost_group_override, ''))) IN ('capex', 'capital') THEN 'capex'
+            ELSE NULL
+        END,
+        CASE
+            WHEN LOWER(TRIM(COALESCE(${o}cost_group, ''))) IN ('direct', 'cogs') THEN 'direct'
+            WHEN LOWER(TRIM(COALESCE(${o}cost_group, ''))) IN ('opex', 'overhead') THEN 'opex'
+            WHEN LOWER(TRIM(COALESCE(${o}cost_group, ''))) IN ('capex', 'capital') THEN 'capex'
+            ELSE NULL
+        END,
+        CASE
+            WHEN LOWER(TRIM(COALESCE(${c}cost_group, ''))) IN ('direct', 'cogs') THEN 'direct'
+            WHEN LOWER(TRIM(COALESCE(${c}cost_group, ''))) IN ('opex', 'overhead') THEN 'opex'
+            WHEN LOWER(TRIM(COALESCE(${c}cost_group, ''))) IN ('capex', 'capital') THEN 'capex'
+            ELSE NULL
+        END,
+        '${fallback}'
+    )`;
+}
+
+function isTechnicalWildCategory(categoryName) {
+    const n = normalizeCategoryName(categoryName);
+    if (!n) return false;
+    return (
+        n.startsWith('технические операции') ||
+        (n.includes('техничес') && n.includes('операц')) ||
+        (n.includes('тех') && n.includes('операц'))
+    );
+}
+
+function isBidirectionalSystemCategory(categoryName) {
+    const n = normalizeCategoryName(categoryName);
+    return BIDIRECTIONAL_SYSTEM_CATEGORIES.some((x) => normalizeCategoryName(x) === n);
+}
+
+function getEffectiveCategorySql(alias = 't') {
+    const p = alias ? `${alias}.` : '';
+    return `LOWER(TRIM(COALESCE(${p}category_override, ${p}category, '')))`;
+}
+
+function getTransferCategoryPredicateSql(alias = 't') {
+    const e = getEffectiveCategorySql(alias);
+    return `(${e} = 'перевод' OR ${e} LIKE 'перевод /%')`;
+}
+
+function resolveTransferOverrideByContext({ description = '', paymentMethod = '', employeeMode = '', category = '' }) {
+    const desc = String(description || '').toLowerCase();
+    const method = String(paymentMethod || '').toLowerCase();
+    const mode = String(employeeMode || '').toLowerCase();
+    const cat = normalizeCategoryName(category);
+    if (!(cat === 'перевод' || cat.startsWith('перевод /'))) return null;
+
+    if (mode === 'imprest') return TRANSFER_CATEGORY_CHILDREN.IMPREST_ISSUE;
+    if (mode === 'instant_expense') return TRANSFER_CATEGORY_CHILDREN.IMPREST_TRANSIT;
+    if (desc.includes('мгновенный транзит под отчет')) return TRANSFER_CATEGORY_CHILDREN.IMPREST_TRANSIT;
+    if (desc.includes('выдача под отчет') || desc.includes('получение под отчет')) return TRANSFER_CATEGORY_CHILDREN.IMPREST_ISSUE;
+    if (desc.includes('внутренний перевод')) return TRANSFER_CATEGORY_CHILDREN.INTERNAL;
+    if (
+        method.includes('импорт') ||
+        desc.includes('между своими') ||
+        desc.includes('собственных средств') ||
+        desc.includes('перевод средств')
+    ) {
+        return TRANSFER_CATEGORY_CHILDREN.IMPORT_OWN;
+    }
+    return TRANSFER_CATEGORY_CHILDREN.NEEDS_REVIEW;
+}
+
+async function ensureTransferCategories(client) {
+    let baseId = null;
+    const baseFindRes = await client.query(
+        `SELECT id FROM transaction_categories WHERE LOWER(TRIM(name)) = LOWER(TRIM($1::text)) LIMIT 1`,
+        [TRANSFER_CATEGORY_BASE]
+    );
+    if (baseFindRes.rows.length > 0) {
+        baseId = baseFindRes.rows[0].id;
+    } else {
+        const baseInsRes = await client.query(
+            `
+            INSERT INTO transaction_categories (name, type, cost_group, parent_id, monthly_limit)
+            SELECT $1::text, 'expense', 'capital', NULL, 0
+            WHERE NOT EXISTS (
+                SELECT 1 FROM transaction_categories WHERE LOWER(TRIM(name)) = LOWER(TRIM($1::text))
+            )
+            RETURNING id
+        `,
+            [TRANSFER_CATEGORY_BASE]
+        );
+        if (baseInsRes.rows.length > 0) {
+            baseId = baseInsRes.rows[0].id;
+        } else {
+            const baseRefetchRes = await client.query(
+                `SELECT id FROM transaction_categories WHERE LOWER(TRIM(name)) = LOWER(TRIM($1::text)) LIMIT 1`,
+                [TRANSFER_CATEGORY_BASE]
+            );
+            if (baseRefetchRes.rows.length > 0) baseId = baseRefetchRes.rows[0].id;
+        }
+    }
+    if (!baseId) return;
+    const children = Object.values(TRANSFER_CATEGORY_CHILDREN);
+    for (const childName of children) {
+        await client.query(
+            `
+            INSERT INTO transaction_categories (name, type, cost_group, parent_id, monthly_limit)
+            SELECT $1::text, 'expense', 'capital', $2::int, 0
+            WHERE NOT EXISTS (
+                SELECT 1 FROM transaction_categories WHERE LOWER(TRIM(name)) = LOWER(TRIM($1::text))
+            )
+        `,
+            [childName, baseId]
+        );
+    }
+}
+
+async function ensureTechnicalCategories(client) {
+    const names = Object.values(TECHNICAL_CATEGORIES);
+    for (const nm of names) {
+        await client.query(
+            `
+            INSERT INTO transaction_categories (name, type, cost_group, parent_id, monthly_limit)
+            SELECT $1::text, 'expense', 'capital', NULL, 0
+            WHERE NOT EXISTS (
+                SELECT 1 FROM transaction_categories WHERE LOWER(TRIM(name)) = LOWER(TRIM($1::text))
+            )
+        `,
+            [nm]
+        );
+    }
+}
+
+async function ensureCategoryExists(client, name, type = 'expense', costGroup = null, parentId = null) {
+    const n = String(name || '').trim();
+    if (!n) return;
+    await client.query(
+        `
+        INSERT INTO transaction_categories (name, type, cost_group, parent_id, monthly_limit)
+        SELECT $1::text, $2::text, $3::text, $4::int, 0
+        WHERE NOT EXISTS (
+            SELECT 1 FROM transaction_categories WHERE LOWER(TRIM(name)) = LOWER(TRIM($1::text))
+        )
+    `,
+        [n, type, costGroup, parentId]
+    );
+}
+
+async function ensureIncomeCategories(client) {
+    for (const cat of INCOME_SAFE_CATEGORIES) {
+        await ensureCategoryExists(client, cat, 'income', null, null);
+    }
+}
+
+async function ensureExpenseCategories(client) {
+    for (const cat of EXPENSE_SAFE_CATEGORIES) {
+        await ensureCategoryExists(client, cat, 'expense', null, null);
+    }
+}
+
+async function ensureCategoryAliasesTable(client) {
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS category_aliases (
+            id SERIAL PRIMARY KEY,
+            old_name VARCHAR(255) NOT NULL,
+            old_name_norm VARCHAR(255) NOT NULL,
+            target_name VARCHAR(255) NOT NULL,
+            is_active BOOLEAN NOT NULL DEFAULT true,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    `);
+    await client.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS category_aliases_old_name_norm_uq
+            ON category_aliases (old_name_norm)
+    `);
+}
+
+async function upsertCategoryAlias(client, oldName, targetName) {
+    const oldRaw = String(oldName || '').trim();
+    const targetRaw = String(targetName || '').trim();
+    if (!oldRaw || !targetRaw) return;
+    const oldNorm = normalizeCategoryName(oldRaw);
+    const targetNorm = normalizeCategoryName(targetRaw);
+    if (!oldNorm || oldNorm === targetNorm) return;
+    await ensureCategoryAliasesTable(client);
+    await client.query(
+        `
+        INSERT INTO category_aliases (old_name, old_name_norm, target_name, is_active, updated_at)
+        VALUES ($1, $2, $3, true, NOW())
+        ON CONFLICT (old_name_norm)
+        DO UPDATE SET target_name = EXCLUDED.target_name, is_active = true, updated_at = NOW()
+    `,
+        [oldRaw, oldNorm, targetRaw]
+    );
+}
+
+async function resolveCategoryAlias(client, categoryName) {
+    const raw = String(categoryName || '').trim();
+    if (!raw) return raw;
+    const norm = normalizeCategoryName(raw);
+    if (!norm) return raw;
+    await ensureCategoryAliasesTable(client);
+    const res = await client.query(
+        `
+        SELECT target_name
+        FROM category_aliases
+        WHERE old_name_norm = $1 AND is_active = true
+        LIMIT 1
+    `,
+        [norm]
+    );
+    if (res.rows.length > 0 && res.rows[0].target_name) return String(res.rows[0].target_name).trim();
+    return raw;
+}
+
+function resolveIncomeCategoryByContext({ category = '', description = '', paymentMethod = '' }) {
+    const original = String(category || '').trim();
+    if (!original) return INCOME_DEFAULT_CATEGORY;
+    if (isBidirectionalSystemCategory(original)) return original;
+    const n = normalizeCategoryName(original);
+    const d = String(description || '').toLowerCase();
+    const m = String(paymentMethod || '').toLowerCase();
+
+    if (n.includes('займ') || n.includes('заем') || n.includes('кредит')) return 'Получение займов';
+    if (n.includes('возврат')) return INCOME_REFUND_IMPREST_CATEGORY;
+    if (n.includes('учред')) return 'Взнос учредителя';
+    if (n === 'нераспределенное') {
+        if (d.includes('зач') && d.includes('аван')) return 'Оплата по счету';
+        return INCOME_DEFAULT_CATEGORY;
+    }
+    if (n === 'услуги банка и рко') return INCOME_REFUND_IMPREST_CATEGORY;
+    if (n === 'закупка сырья') return INCOME_REFUND_IMPREST_CATEGORY;
+    if (n === 'зарплата и авансы') return INCOME_REFUND_IMPREST_CATEGORY;
+    if (n === 'оплата по счету') return 'Оплата по счету';
+    if (n === 'продажа продукции') return 'Продажа продукции';
+    if (n === 'прочие доходы') return INCOME_DEFAULT_CATEGORY;
+
+    if (d.includes('зк-') || d.includes('сч-')) return 'Оплата по счету';
+    if (d.includes('займ') || d.includes('заем') || d.includes('кредит')) return 'Получение займов';
+    if (d.includes('возврат')) return INCOME_REFUND_IMPREST_CATEGORY;
+    if (d.includes('учред')) return 'Взнос учредителя';
+    if (m.includes('эквайринг') || m.includes('рко') || m.includes('комисс')) return INCOME_DEFAULT_CATEGORY;
+
+    return original;
+}
+
+function resolveExpenseCategoryByContext({ category = '', description = '', paymentMethod = '' }) {
+    const original = String(category || '').trim();
+    if (!original) return 'Нераспределенное';
+    if (isBidirectionalSystemCategory(original)) return original;
+    const n = normalizeCategoryName(original);
+    const d = String(description || '').toLowerCase();
+    const m = String(paymentMethod || '').toLowerCase();
+
+    if (n === 'зарплата') return 'Зарплата и Авансы';
+    if (n === 'транспортные услуги') return 'Транспортные расходы';
+    if (n.includes('транспорт')) return 'Транспортные расходы';
+    if (n.includes('комисс') && n.includes('банк')) return 'Услуги банка и РКО';
+    if (n.includes('рко') || n.includes('эквайр')) return 'Услуги банка и РКО';
+    if (n.includes('налог') || n.includes('штраф') || n.includes('взнос')) return 'Налоги, штрафы и взносы';
+    if (n.includes('зарплат') || n.includes('аванс')) return 'Зарплата и Авансы';
+    if (n.includes('сыр') || n.includes('материал') || n.includes('закуп')) return 'Закупка сырья';
+    if (n.includes('займ') || n.includes('заем') || n.includes('кредит')) return 'Возврат заемных средств';
+
+    if (d.includes('зарплат') || d.includes('аванс')) return 'Зарплата и Авансы';
+    if (d.includes('доставк') || d.includes('логист') || d.includes('транспорт')) return 'Транспортные расходы';
+    if (d.includes('комисс') || m.includes('эквайр') || m.includes('рко')) return 'Услуги банка и РКО';
+    if (d.includes('займ') || d.includes('заем') || d.includes('кредит')) return 'Возврат заемных средств';
+    if (d.includes('налог') || d.includes('штраф') || d.includes('взнос')) return 'Налоги, штрафы и взносы';
+
+    return original;
+}
+
+function resolveTechnicalOverrideByContext({
+    category = '',
+    description = '',
+    paymentMethod = '',
+    accountId = null,
+    counterpartyId = null
+}) {
+    if (!isTechnicalWildCategory(category)) return null;
+    const d = String(description || '').toLowerCase();
+    const m = String(paymentMethod || '').toLowerCase();
+
+    if (d.includes('ввод начальных остатков') || d.includes('начальн') && d.includes('остат')) {
+        return TECHNICAL_CATEGORIES.OPENING;
+    }
+    if (m.includes('системная правка')) {
+        return TECHNICAL_CATEGORIES.BALANCE_CORRECTION;
+    }
+    if (d.includes('коррект')) {
+        return TECHNICAL_CATEGORIES.BALANCE_CORRECTION;
+    }
+    if (m.includes('взаимозач')) {
+        return TECHNICAL_CATEGORIES.TECHNICAL;
+    }
+    if (accountId == null) {
+        return TECHNICAL_CATEGORIES.BALANCE_CORRECTION;
+    }
+    return TECHNICAL_CATEGORIES.TECHNICAL;
+}
+
+/**
+ * Удаление проводки, привязанной к плану: уменьшает amount_paid, статус paid только если остаток по-прежнему закрывает план.
+ */
+async function revertPlannedExpenseOnTxDelete(client, plannedId, txAmount) {
+    const pRes = await client.query(
+        'SELECT id, amount, COALESCE(amount_paid, 0) AS amount_paid FROM planned_expenses WHERE id = $1',
+        [plannedId]
+    );
+    if (pRes.rows.length === 0) return;
+    const p = pRes.rows[0];
+    const total = new Big(String(p.amount));
+    let newPaid = new Big(String(p.amount_paid)).minus(String(txAmount));
+    if (newPaid.lt(0)) newPaid = new Big(0);
+    const r = newPaid.round(2);
+    const newStatus = r.cmp(total) >= 0 || total.minus(r).abs().lt(0.01) ? 'paid' : 'pending';
+    await client.query('UPDATE planned_expenses SET amount_paid = $1::numeric, status = $2 WHERE id = $3', [
+        r.toFixed(2),
+        newStatus,
+        plannedId
+    ]);
+}
+
 module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
+    async function recalcAccountBalances(client, accountIds = []) {
+        const unique = Array.from(new Set((accountIds || []).map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0)));
+        if (!unique.length) return;
+        await client.query(
+            `
+            UPDATE accounts a
+            SET balance = ROUND(COALESCE((
+                SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) -
+                       SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END)
+                FROM transactions t
+                WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
+            ), 0), 2)
+            WHERE a.id = ANY($1::int[])
+        `,
+            [unique]
+        );
+    }
+
+    async function softDeleteTransactionWithRollback(client, txId) {
+        const txRes = await client.query(
+            `SELECT id, amount, transaction_type, linked_order_id, linked_planned_id, linked_id, account_id
+             FROM transactions
+             WHERE id = $1
+               AND COALESCE(is_deleted, false) = false`,
+            [txId]
+        );
+        if (txRes.rows.length === 0) return { found: false, affectedAccountIds: [] };
+        const tx = txRes.rows[0];
+        const affectedAccountIds = [];
+
+        if (tx.linked_order_id && tx.transaction_type === 'income') {
+            await client.query(
+                `
+                UPDATE client_orders
+                SET paid_amount = GREATEST(COALESCE(paid_amount, 0) - $1, 0),
+                    pending_debt = COALESCE(pending_debt, 0) + $1
+                WHERE id = $2
+            `,
+                [tx.amount, tx.linked_order_id]
+            );
+            await reconcileOrderSettlement(client, Number(tx.linked_order_id), { apply: true, forUpdate: true });
+        }
+
+        if (tx.linked_planned_id) {
+            await revertPlannedExpenseOnTxDelete(client, tx.linked_planned_id, tx.amount);
+        }
+
+        if (tx.linked_id) {
+            const pairRes = await client.query(
+                `SELECT id, account_id
+                 FROM transactions
+                 WHERE (id = $1 OR linked_id = $2)
+                   AND COALESCE(is_deleted, false) = false`,
+                [txId, tx.linked_id]
+            );
+            for (const row of pairRes.rows) {
+                if (row.account_id) affectedAccountIds.push(Number(row.account_id));
+            }
+            await client.query('UPDATE transactions SET is_deleted = true WHERE id = $1 OR linked_id = $2', [txId, tx.linked_id]);
+        } else {
+            await client.query('UPDATE transactions SET is_deleted = true WHERE id = $1', [txId]);
+            if (tx.account_id) affectedAccountIds.push(Number(tx.account_id));
+        }
+
+        return { found: true, affectedAccountIds };
+    }
 
 
 
@@ -30,18 +523,28 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     // ==========================================
     router.get('/api/finance/categories', async (req, res) => {
         try {
+            await ensureTransferCategories(pool);
+            await ensureTechnicalCategories(pool);
+            await ensureIncomeCategories(pool);
+            await ensureExpenseCategories(pool);
+            await ensureCategoryAliasesTable(pool);
             // Выдаем полный плоский список (дерево соберет фронтенд)
             // Но мы все еще объединяем "дикие" категории, которых нет в справочнике
             const result = await pool.query(`
                 SELECT id, name, type, cost_group, parent_id, is_archived, monthly_limit, false as is_wild
                 FROM transaction_categories
                 UNION
-                SELECT NULL as id, category as name, MAX(transaction_type) as type, NULL as cost_group, NULL as parent_id, false as is_archived, 0 as monthly_limit, true as is_wild
+                SELECT NULL as id, COALESCE(NULLIF(TRIM(category_override), ''), category) as name, MAX(transaction_type) as type, NULL as cost_group, NULL as parent_id, false as is_archived, 0 as monthly_limit, true as is_wild
                   FROM transactions
-                 WHERE category IS NOT NULL AND category != ''
+                 WHERE COALESCE(NULLIF(TRIM(category_override), ''), category) IS NOT NULL
+                   AND COALESCE(NULLIF(TRIM(category_override), ''), category) != ''
                    AND (is_deleted IS NULL OR is_deleted = false)
-                   AND category NOT IN (SELECT name FROM transaction_categories)
-                 GROUP BY category
+                   AND LOWER(TRIM(COALESCE(NULLIF(TRIM(category_override), ''), category))) NOT IN (
+                       SELECT LOWER(TRIM(tc.name))
+                       FROM transaction_categories tc
+                       WHERE tc.name IS NOT NULL AND TRIM(tc.name) != ''
+                   )
+                 GROUP BY COALESCE(NULLIF(TRIM(category_override), ''), category)
                 ORDER BY name
             `);
             res.json(result.rows);
@@ -51,14 +554,108 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
+    /**
+     * Операции по статье ДДС: для строки справочника с id — все проводки по этой статье и подстатьям (дерево),
+     * для «дикой» — только по точному совпадению текста категории (без учёта регистра и краевых пробелов).
+     */
+    router.get('/api/finance/category-transactions', async (req, res) => {
+        const rawId = req.query.category_id;
+        const name = (req.query.name || '').trim();
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 80, 1), 200);
+
+        try {
+            if (rawId != null && String(rawId).trim() !== '' && String(rawId) !== 'undefined') {
+                const id = parseInt(rawId, 10);
+                if (Number.isNaN(id)) {
+                    return res.status(400).json({ error: 'Некорректный category_id' });
+                }
+                const cntRes = await pool.query(
+                    `
+                    WITH RECURSIVE subtree AS (
+                        SELECT id, name FROM transaction_categories WHERE id = $1
+                        UNION ALL
+                        SELECT tc.id, tc.name FROM transaction_categories tc
+                        INNER JOIN subtree s ON tc.parent_id = s.id
+                    ),
+                    keys AS (SELECT DISTINCT LOWER(TRIM(name)) AS k FROM subtree WHERE TRIM(name) != '')
+                    SELECT COUNT(*)::int AS cnt FROM transactions t
+                    WHERE COALESCE(t.is_deleted, false) = false
+                      AND LOWER(TRIM(COALESCE(NULLIF(TRIM(t.category_override), ''), t.category))) IN (SELECT k FROM keys)
+                `,
+                    [id]
+                );
+                const rowsRes = await pool.query(
+                    `
+                    WITH RECURSIVE subtree AS (
+                        SELECT id, name FROM transaction_categories WHERE id = $1
+                        UNION ALL
+                        SELECT tc.id, tc.name FROM transaction_categories tc
+                        INNER JOIN subtree s ON tc.parent_id = s.id
+                    ),
+                    keys AS (SELECT DISTINCT LOWER(TRIM(name)) AS k FROM subtree WHERE TRIM(name) != '')
+                    SELECT t.id,
+                           t.transaction_date,
+                           t.amount::text,
+                           t.transaction_type,
+                           t.category,
+                           LEFT(COALESCE(t.description, ''), 200) AS description
+                    FROM transactions t
+                    WHERE COALESCE(t.is_deleted, false) = false
+                      AND LOWER(TRIM(COALESCE(NULLIF(TRIM(t.category_override), ''), t.category))) IN (SELECT k FROM keys)
+                    ORDER BY t.transaction_date DESC NULLS LAST, t.id DESC
+                    LIMIT $2
+                `,
+                    [id, limit]
+                );
+                return res.json({ count: cntRes.rows[0].cnt, transactions: rowsRes.rows });
+            }
+
+            if (!name) {
+                return res.status(400).json({ error: 'Укажите category_id или name' });
+            }
+
+            const cntRes = await pool.query(
+                `
+                SELECT COUNT(*)::int AS cnt FROM transactions t
+                WHERE COALESCE(t.is_deleted, false) = false
+                  AND LOWER(TRIM(COALESCE(NULLIF(TRIM(t.category_override), ''), t.category))) = LOWER(TRIM($1::text))
+            `,
+                [name]
+            );
+            const rowsRes = await pool.query(
+                `
+                SELECT t.id,
+                       t.transaction_date,
+                       t.amount::text,
+                       t.transaction_type,
+                       t.category,
+                       LEFT(COALESCE(t.description, ''), 200) AS description
+                FROM transactions t
+                WHERE COALESCE(t.is_deleted, false) = false
+                  AND LOWER(TRIM(COALESCE(NULLIF(TRIM(t.category_override), ''), t.category))) = LOWER(TRIM($1::text))
+                ORDER BY t.transaction_date DESC NULLS LAST, t.id DESC
+                LIMIT $2
+            `,
+                [name, limit]
+            );
+            return res.json({ count: cntRes.rows[0].cnt, transactions: rowsRes.rows });
+        } catch (err) {
+            logger.error('[API] Error in GET /api/finance/category-transactions:', err);
+            res.status(500).json({ error: 'Ошибка загрузки операций по статье' });
+        }
+    });
+
     // Добавление новой категории
     router.post('/api/finance/category-full', requireAdmin, async (req, res) => {
         try {
             const { name, type, cost_group, parent_id, monthly_limit } = req.body;
+            const safeType = type === 'income' ? 'income' : 'expense';
+            const safeCostGroup = safeType === 'expense' ? ensureCanonicalCostGroup(cost_group, 'opex') : null;
             await pool.query(
                 'INSERT INTO transaction_categories (name, type, cost_group, parent_id, monthly_limit) VALUES ($1, $2, $3, $4, $5)', 
-                [name, type, cost_group || null, parent_id || null, monthly_limit || 0]
+                [name, safeType, safeCostGroup, parent_id || null, monthly_limit || 0]
             );
+            await auditLog(pool, req, 'finance_category_create', 'transaction_category', null, `Создана категория: ${name}`);
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
@@ -70,27 +667,28 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     router.put('/api/finance/category-full/:id', requireAdmin, async (req, res) => {
         try {
             const { name, type, cost_group, parent_id, monthly_limit } = req.body;
-            
-            await pool.query('BEGIN');
-            
-            const oldCatRes = await pool.query('SELECT name FROM transaction_categories WHERE id = $1', [req.params.id]);
-            if (oldCatRes.rows.length === 0) throw new Error('Category not found');
-            const oldName = oldCatRes.rows[0].name;
-            
-            await pool.query(
-                'UPDATE transaction_categories SET name=$1, type=$2, cost_group=$3, parent_id=$4, monthly_limit=$5 WHERE id=$6', 
-                [name, type, cost_group || null, parent_id || null, monthly_limit || 0, req.params.id]
-            );
-            
-            // Если переименовали, обновляем все исторические транзакции (чтобы не отвязались)
-            if (oldName !== name) {
-                await pool.query('UPDATE transactions SET category = $1 WHERE category = $2', [name, oldName]);
-            }
-            
-            await pool.query('COMMIT');
+            const safeType = type === 'income' ? 'income' : 'expense';
+            const safeCostGroup = safeType === 'expense' ? ensureCanonicalCostGroup(cost_group, 'opex') : null;
+
+            const oldName = await withTransaction(pool, async (client) => {
+                const oldCatRes = await client.query('SELECT name FROM transaction_categories WHERE id = $1', [req.params.id]);
+                if (oldCatRes.rows.length === 0) throw new Error('Category not found');
+                const prevName = oldCatRes.rows[0].name;
+
+                await client.query(
+                    'UPDATE transaction_categories SET name=$1, type=$2, cost_group=$3, parent_id=$4, monthly_limit=$5 WHERE id=$6', 
+                    [name, safeType, safeCostGroup, parent_id || null, monthly_limit || 0, req.params.id]
+                );
+
+                // Если переименовали, обновляем все исторические транзакции (чтобы не отвязались)
+                if (prevName !== name) {
+                    await client.query('UPDATE transactions SET category = $1 WHERE category = $2', [name, prevName]);
+                }
+                return prevName;
+            });
+            await auditLog(pool, req, 'finance_category_update', 'transaction_category', Number(req.params.id), `Обновлена категория: ${oldName} -> ${name}`);
             res.json({ success: true });
         } catch (err) {
-            await pool.query('ROLLBACK');
             logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
@@ -100,7 +698,10 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     router.put('/api/finance/category-full/:id/archive', requireAdmin, async (req, res) => {
         try {
             const { is_archived } = req.body;
+            const reason = String((req.body || {}).reason || '').trim();
+            if (!reason) return res.status(400).json({ error: 'Укажите причину изменения статуса' });
             await pool.query('UPDATE transaction_categories SET is_archived = $1 WHERE id = $2', [is_archived, req.params.id]);
+            await auditLog(pool, req, 'finance_category_archive', 'transaction_category', Number(req.params.id), `is_archived=${Boolean(is_archived)}; reason=${reason}`);
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
@@ -113,27 +714,47 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     // и target_name (имя категории в которую объединяем)
     router.post('/api/finance/category-merge', requireAdmin, async (req, res) => {
         try {
-            const { source_names, target_name } = req.body;
-            if (!target_name || !source_names || source_names.length === 0) {
+            const sourceNames = sanitizeNameArray((req.body || {}).source_names, { max: 200 });
+            const targetName = String((req.body || {}).target_name || '').trim();
+            const reason = String((req.body || {}).reason || '').trim();
+            if (!targetName || !sourceNames || sourceNames.length === 0) {
                 return res.status(400).json({ error: 'Не переданы данные для объединения' });
             }
+            if (!reason) return res.status(400).json({ error: 'Укажите причину слияния' });
+            if (sourceNames.some((n) => n.toLowerCase() === targetName.toLowerCase())) {
+                return res.status(400).json({ error: 'Целевая категория не должна входить в список source_names' });
+            }
 
-            await pool.query('BEGIN');
+            await withTransaction(pool, async (client) => {
+                const targetExists = await client.query('SELECT id FROM transaction_categories WHERE LOWER(TRIM(name)) = LOWER(TRIM($1::text)) LIMIT 1', [targetName]);
+                if (!targetExists.rows.length) {
+                    const err = new Error('Целевая категория не найдена в справочнике');
+                    err.statusCode = 400;
+                    throw err;
+                }
 
-            await pool.query(
-                'UPDATE transactions SET category = $2 WHERE category = ANY($1::varchar[])',
-                [source_names, target_name]
-            );
+                await client.query(
+                    'UPDATE transactions SET category = $2 WHERE category = ANY($1::varchar[])',
+                    [sourceNames, targetName]
+                );
+                await client.query(
+                    'UPDATE transactions SET category_override = $2 WHERE category_override = ANY($1::varchar[])',
+                    [sourceNames, targetName]
+                );
 
-            await pool.query(
-                'DELETE FROM transaction_categories WHERE name = ANY($1::varchar[]) AND name != $2',
-                [source_names, target_name]
-            );
+                await client.query(
+                    'DELETE FROM transaction_categories WHERE name = ANY($1::varchar[]) AND name != $2',
+                    [sourceNames, targetName]
+                );
 
-            await pool.query('COMMIT');
+                for (const sourceName of sourceNames) {
+                    await upsertCategoryAlias(client, sourceName, targetName);
+                }
+            });
+            await auditLog(pool, req, 'finance_category_merge', 'transaction_category', null, `Merge категорий [${sourceNames.join(', ')}] -> ${targetName}; reason=${reason}`);
             res.json({ success: true });
         } catch (err) {
-            await pool.query('ROLLBACK');
+            if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
             logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка.' });
         }
@@ -185,6 +806,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
 
         try {
+            const effectiveGroupSql = getEffectiveCostGroupSql('t', 'tc', 'tc_override', 'opex');
             const [revenueRes, otherIncomeRes, cogsRes, opexRes, laborRes, capexRes] = await Promise.all([
                 // 💰 1. ВЫРУЧКА = income с категорией 'Продажа продукции'
                 pool.query(`
@@ -192,7 +814,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     FROM transactions
                     WHERE transaction_type = 'income'
                       AND (is_deleted IS NULL OR is_deleted = false)
-                      AND category = 'Продажа продукции'
+                      AND COALESCE(NULLIF(TRIM(category_override), ''), category) = 'Продажа продукции'
                       AND transaction_date >= $1::timestamp AND transaction_date < ($2::timestamp + interval '1 day')
                 `, [start, end]),
 
@@ -202,7 +824,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     FROM transactions
                     WHERE transaction_type = 'income'
                       AND (is_deleted IS NULL OR is_deleted = false)
-                      AND category != 'Продажа продукции'
+                      AND COALESCE(NULLIF(TRIM(category_override), ''), category) != 'Продажа продукции'
                       AND transaction_date >= $1::timestamp AND transaction_date < ($2::timestamp + interval '1 day')
                 `, [start, end]),
 
@@ -211,10 +833,11 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     SELECT COALESCE(SUM(t.amount), 0) as total
                     FROM transactions t
                     LEFT JOIN transaction_categories tc ON t.category = tc.name
+                    LEFT JOIN transaction_categories tc_override ON t.category_override = tc_override.name
                     WHERE t.transaction_type = 'expense'
-                      AND t.category != 'Перевод'
+                      AND NOT (${getTransferCategoryPredicateSql('t')})
                       AND (t.is_deleted IS NULL OR t.is_deleted = false)
-                      AND COALESCE(t.cost_group_override, tc.cost_group, 'capex') = 'direct'
+                      AND (${effectiveGroupSql}) = 'direct'
                       AND t.transaction_date >= $1::timestamp AND t.transaction_date < ($2::timestamp + interval '1 day')
                 `, [start, end]),
 
@@ -223,10 +846,11 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     SELECT COALESCE(SUM(t.amount), 0) as total
                     FROM transactions t
                     LEFT JOIN transaction_categories tc ON t.category = tc.name
+                    LEFT JOIN transaction_categories tc_override ON t.category_override = tc_override.name
                     WHERE t.transaction_type = 'expense'
-                      AND t.category != 'Перевод'
+                      AND NOT (${getTransferCategoryPredicateSql('t')})
                       AND (t.is_deleted IS NULL OR t.is_deleted = false)
-                      AND COALESCE(t.cost_group_override, tc.cost_group, 'capex') = 'opex'
+                      AND (${effectiveGroupSql}) = 'opex'
                       AND t.transaction_date >= $1::timestamp AND t.transaction_date < ($2::timestamp + interval '1 day')
                 `, [start, end]),
 
@@ -244,10 +868,11 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     SELECT COALESCE(SUM(t.amount), 0) as total
                     FROM transactions t
                     LEFT JOIN transaction_categories tc ON t.category = tc.name
+                    LEFT JOIN transaction_categories tc_override ON t.category_override = tc_override.name
                     WHERE t.transaction_type = 'expense'
-                      AND t.category != 'Перевод'
+                      AND NOT (${getTransferCategoryPredicateSql('t')})
                       AND (t.is_deleted IS NULL OR t.is_deleted = false)
-                      AND COALESCE(t.cost_group_override, tc.cost_group, 'capex') NOT IN ('direct', 'opex')
+                      AND (${effectiveGroupSql}) NOT IN ('direct', 'opex')
                       AND t.transaction_date >= $1::timestamp AND t.transaction_date < ($2::timestamp + interval '1 day')
                 `, [start, end])
             ]);
@@ -297,8 +922,17 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     router.get('/api/finance/planned-expenses', async (req, res) => {
         try {
             const result = await pool.query(`
-                SELECT id, TO_CHAR(date, 'DD.MM.YYYY') as date, category, description, amount, is_recurring 
-                FROM planned_expenses WHERE status = 'pending' ORDER BY date ASC
+                SELECT id,
+                    TO_CHAR(date, 'DD.MM.YYYY') AS date,
+                    TO_CHAR(date, 'YYYY-MM-DD') AS date_iso,
+                    TO_CHAR(date, 'IYYY-IW') AS week_id,
+                    category, description, is_recurring,
+                    amount::text,
+                    COALESCE(amount_paid, 0)::text AS amount_paid,
+                    (amount - COALESCE(amount_paid, 0))::text AS amount_remaining
+                FROM planned_expenses
+                WHERE status = 'pending'
+                ORDER BY date ASC, id ASC
             `);
             res.json(result.rows);
         } catch (err) {
@@ -307,34 +941,120 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
-    router.post('/api/finance/planned-expenses/:id/pay', validatePayment, async (req, res) => {
+    /** Создать плановый исходящий платёж (напоминание + будущая оплата из календаря) */
+    router.post('/api/finance/planned-expenses', requirePlannedPlanManage, validatePlannedExpense, async (req, res) => {
+        const { date, amount, category, description, is_recurring } = req.body;
+        const amt = Number(new Big(String(amount).replace(/\s/g, '').replace(',', '.')).round(2));
+        const desc = (description && String(description).trim()) || null;
+        const rec = Boolean(is_recurring);
+        const cat = String(category).trim();
+
+        try {
+            const ins = await pool.query(
+                `INSERT INTO planned_expenses (date, amount, amount_paid, category, description, is_recurring, status)
+                 VALUES ($1::date, $2, 0, $3, $4, $5, 'pending')
+                 RETURNING id`,
+                [date, amt, cat, desc, rec]
+            );
+            const io = req.app.get('io');
+            if (io) io.emit('finance_updated');
+            res.json({ success: true, id: ins.rows[0].id });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Не удалось сохранить план. Проверьте дату и форму.' });
+        }
+    });
+
+    /** Удалить план без проведённых списаний (отмена обязательства) */
+    router.delete('/api/finance/planned-expenses/:id', requirePlannedPlanManage, async (req, res) => {
+        const id = parseInt(req.params.id, 10);
+        if (isNaN(id)) return res.status(400).json({ error: 'Некорректный ID' });
+
+        try {
+            const del = await pool.query(
+                `DELETE FROM planned_expenses
+                 WHERE id = $1 AND status = 'pending' AND COALESCE(amount_paid, 0) = 0
+                 RETURNING id`,
+                [id]
+            );
+            if (del.rowCount === 0) {
+                return res.status(400).json({
+                    error: 'План не найден, уже закрыт или по нему есть проводки. Удалите/отмените проводки в журнале, затем повторите.'
+                });
+            }
+            const io = req.app.get('io');
+            if (io) io.emit('finance_updated');
+            res.json({ success: true });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+        }
+    });
+
+    router.post('/api/finance/planned-expenses/:id/pay', validatePlannedPay, async (req, res) => {
         const { account_id } = req.body;
+        const id = parseInt(req.params.id, 10);
+        if (isNaN(id)) return res.status(400).json({ error: 'Некорректный ID' });
 
         try {
             await withTransaction(pool, async (client) => {
-                const expRes = await client.query("UPDATE planned_expenses SET status = 'paid' WHERE id = $1 RETURNING *", [req.params.id]);
-                if (expRes.rows.length === 0) throw new Error('Платеж не найден');
+                const expRes = await client.query(
+                    "SELECT * FROM planned_expenses WHERE id = $1 AND status = 'pending' FOR UPDATE",
+                    [id]
+                );
+                if (expRes.rows.length === 0) throw new Error('Плановый платёж не найден или уже полностью закрыт');
                 const exp = expRes.rows[0];
 
-                if (parseFloat(exp.amount) <= 0) throw new Error('Сумма платежа должна быть больше нуля');
+                const total = new Big(String(exp.amount));
+                const paid = new Big(String(exp.amount_paid != null ? exp.amount_paid : 0));
+                if (parseFloat(String(exp.amount)) <= 0) throw new Error('Сумма по плану должна быть больше нуля');
+                const remaining = total.minus(paid);
+                if (remaining.lte(0)) throw new Error('По плану нет остатка к списанию');
 
-                const desc = `Оплата плана: ${exp.category} (${exp.description || ''})`;
+                let payAmount;
+                if (req.body.amount != null && String(req.body.amount).trim() !== '') {
+                    payAmount = new Big(String(req.body.amount).replace(/\s/g, '').replace(',', '.')).round(2);
+                } else {
+                    payAmount = remaining;
+                }
+                if (payAmount.lte(0)) throw new Error('Сумма списания должна быть больше нуля');
+                if (payAmount.gt(remaining)) {
+                    throw new Error(`Сумма не больше остатка по плану: ${remaining.toFixed(2)} ₽`);
+                }
 
-                await client.query(`
-                    INSERT INTO transactions (account_id, amount, transaction_type, category, description, transaction_date, payment_method, source_module, linked_planned_id)
-                    VALUES ($1, $2, 'expense', $3, $4, NOW(), $5, $6, $7)
-                `, [account_id, exp.amount, exp.category, desc, 'Безналичный расчет', 'finance', req.params.id]);
+                const newPaid = paid.plus(payAmount).round(2);
+                const fullyClosed = newPaid.cmp(total) >= 0 || total.minus(newPaid).abs().lt(0.01);
+                const desc = fullyClosed
+                    ? `Оплата плана: ${exp.category} (${exp.description || ''})`
+                    : `Оплата плана (часть): ${exp.category} (${exp.description || ''})`;
+                const payAt = exp.date ? new Date(exp.date) : new Date();
 
-                if (exp.is_recurring) {
-                    const nextDate = new Date(exp.date);
-                    nextDate.setMonth(nextDate.getMonth() + 1);
+                await client.query(
+                    `INSERT INTO transactions (account_id, amount, transaction_type, category, description, transaction_date, payment_method, source_module, linked_planned_id)
+                    VALUES ($1, $2, 'expense', $3, $4, $5, $6, $7, $8)`,
+                    [account_id, payAmount.toFixed(2), exp.category, desc, payAt, 'Безналичный расчет', 'finance', id]
+                );
+
+                if (fullyClosed) {
                     await client.query(
-                        'INSERT INTO planned_expenses (date, amount, category, description, is_recurring, status) VALUES ($1, $2, $3, $4, $5, $6)',
-                        [nextDate, exp.amount, exp.category, exp.description, true, 'pending']
+                        'UPDATE planned_expenses SET status = $1, amount_paid = $2 WHERE id = $3',
+                        ['paid', total.toFixed(2), id]
                     );
+                    if (exp.is_recurring) {
+                        const nextDate = new Date(exp.date);
+                        nextDate.setMonth(nextDate.getMonth() + 1);
+                        await client.query(
+                            'INSERT INTO planned_expenses (date, amount, amount_paid, category, description, is_recurring, status) VALUES ($1, $2, 0, $3, $4, $5, $6)',
+                            [nextDate, exp.amount, exp.category, exp.description, true, 'pending']
+                        );
+                    }
+                } else {
+                    await client.query('UPDATE planned_expenses SET amount_paid = $1 WHERE id = $2', [newPaid.toFixed(2), id]);
                 }
             });
-            res.json({ success: true, message: 'Платеж успешно проведен' });
+            const io = req.app.get('io');
+            if (io) io.emit('finance_updated');
+            res.json({ success: true, message: 'Платёж успешно проведён' });
         } catch (e) {
             res.status(400).json({ error: e.message });
         }
@@ -372,7 +1092,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             }
 
             if (search && String(search).trim() !== '') {
-                conditions.push(`(t.description ILIKE $${paramIndex} OR t.category ILIKE $${paramIndex} OR c.name ILIKE $${paramIndex})`);
+                conditions.push(`(t.description ILIKE $${paramIndex} OR COALESCE(t.category_override, t.category) ILIKE $${paramIndex} OR c.name ILIKE $${paramIndex})`);
                 params.push(`%${String(search).trim()}%`);
                 paramIndex++;
             }
@@ -390,15 +1110,16 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
             const dataQuery = `
                 SELECT DISTINCT ON (t.transaction_date, t.id) t.id, t.transaction_date, t.amount, t.transaction_type, 
-                       t.category, t.description, t.payment_method, t.vat_amount,
+                       COALESCE(t.category_override, t.category) AS category, t.description, t.payment_method, t.vat_amount,
                        t.counterparty_id, t.account_id, 
                        t.cost_group_override, /* 👈 Добавили ручное исключение */
-                       COALESCE(t.cost_group_override, tc.cost_group, 'overhead') as current_cost_group, /* 👈 Вычисляем итоговую группу */
+                       ${getEffectiveCostGroupSql('t', 'tc', 'tc_override', 'opex')} as current_cost_group,
                        c.name as counterparty_name, a.name as account_name
                 FROM transactions t
                 LEFT JOIN counterparties c ON t.counterparty_id = c.id
                 LEFT JOIN accounts a ON t.account_id = a.id
                 LEFT JOIN transaction_categories tc ON t.category = tc.name /* 👈 Джойним матрицу категорий */
+                LEFT JOIN transaction_categories tc_override ON t.category_override = tc_override.name
                 ${whereClause} 
                 ORDER BY t.transaction_date DESC, t.id DESC 
                 LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
@@ -422,53 +1143,32 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     });
 
     router.delete('/api/transactions/bulk-delete', requireAdmin, async (req, res) => {
-        const { ids } = req.body;
+        const ids = sanitizeIdArray((req.body || {}).ids, { max: 1000 });
+        const reason = String((req.body || {}).reason || '').trim();
         if (!ids || ids.length === 0) return res.json({ success: true });
+        if (!reason) return res.status(400).json({ error: 'Укажите причину массового удаления' });
 
         try {
             await withTransaction(pool, async (client) => {
+                const touchedAccounts = [];
                 for (let id of ids) {
-                    const txRes = await client.query('SELECT amount, transaction_type, linked_order_id, linked_planned_id FROM transactions WHERE id = $1', [id]);
-                    if (txRes.rows.length > 0) {
-                        const { amount, transaction_type, linked_order_id, linked_planned_id } = txRes.rows[0];
-
-                        if (linked_order_id && transaction_type === 'income') {
-                            await client.query(`
-                                UPDATE client_orders 
-                                SET paid_amount = GREATEST(paid_amount - $1, 0), 
-                                    pending_debt = pending_debt + $1 
-                                WHERE id = $2
-                            `, [amount, linked_order_id]);
-                        }
-
-                        if (linked_planned_id) {
-                            await client.query("UPDATE planned_expenses SET status = 'pending' WHERE id = $1", [linked_planned_id]);
-                        }
-
-                        await client.query('UPDATE transactions SET is_deleted = true WHERE id = $1', [id]);
+                    const out = await softDeleteTransactionWithRollback(client, id);
+                    if (out.found && out.affectedAccountIds.length) {
+                        touchedAccounts.push(...out.affectedAccountIds);
                     }
                 }
-
-                // Пересчет балансов всех касс после массового удаления
-                await client.query(`
-                    UPDATE accounts a 
-                    SET balance = ROUND(COALESCE((
-                        SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) - 
-                               SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END) 
-                        FROM transactions t 
-                        WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
-                    ), 0), 2)
-                `);
+                await recalcAccountBalances(client, touchedAccounts);
             });
 
             // Аудит: запись о массовом удалении
             for (const id of ids) {
-                auditLog(pool, req, 'delete_transaction', 'transaction', id, `Массовое удаление (bulk-delete)`);
+                await auditLog(pool, req, 'delete_transaction', 'transaction', id, `Массовое удаление (bulk-delete); reason=${reason}`);
             }
+            await auditLog(pool, req, 'finance_bulk_delete', 'transaction', null, `count=${ids.length}; reason=${reason}`);
 
             res.json({ success: true });
         } catch (e) {
-            logger.error(err);
+            logger.error(e);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
@@ -488,8 +1188,11 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     });
 
     router.delete('/api/finance/categories/:id', requireAdmin, async (req, res) => {
+        const reason = String((req.query || {}).reason || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину удаления категории' });
         try {
             await pool.query('DELETE FROM transaction_categories WHERE id = $1', [req.params.id]);
+            await auditLog(pool, req, 'finance_category_delete', 'transaction_category', Number(req.params.id), `reason=${reason}`);
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
@@ -501,7 +1204,9 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     router.put('/api/finance/categories/:id/group', requireAdmin, validateCostGroup, async (req, res) => {
         try {
             const { cost_group } = req.body;
-            await pool.query('UPDATE transaction_categories SET cost_group = $1 WHERE id = $2', [cost_group, req.params.id]);
+            const safeGroup = ensureCanonicalCostGroup(cost_group, 'opex');
+            await pool.query('UPDATE transaction_categories SET cost_group = $1 WHERE id = $2', [safeGroup, req.params.id]);
+            await auditLog(pool, req, 'finance_category_group_update', 'transaction_category', Number(req.params.id), `Смена группы категории -> ${safeGroup}`);
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
@@ -509,27 +1214,84 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
-    // Получение группы затрат для предпросмотра категории
+    // Получение группы затрат для предпросмотра категории (с учётом transaction_rules для контрагента)
     router.get('/api/finance/category-info', async (req, res) => {
-        const { name } = req.query;
-        if (!name) return res.json({ cost_group: null });
+        const { name, counterparty_id: cpRaw } = req.query;
+        const empty = () => res.json({ cost_group: null, source: null });
+        if (!name) return empty();
 
         try {
-            // Приоритет: dashboard_rules
-            const ruleRes = await pool.query('SELECT mapped_cost_group FROM dashboard_rules WHERE original_category = $1 OR mapped_category = $1 LIMIT 1', [name]);
+            await ensureCategoryAliasesTable(pool);
+            const n = (name || '').trim();
+            if (!n) return empty();
+
+            const cpId = parseInt(cpRaw, 10);
+            const hasCp = Number.isInteger(cpId) && cpId > 0;
+
+            let aliasCanon = null;
+            const aliasRes = await pool.query(
+                `SELECT target_name FROM category_aliases WHERE old_name_norm = LOWER(TRIM($1::text)) AND is_active = true LIMIT 1`,
+                [n]
+            );
+            if (aliasRes.rows.length > 0 && aliasRes.rows[0].target_name) {
+                aliasCanon = String(aliasRes.rows[0].target_name || '').trim() || null;
+            }
+
+            if (hasCp) {
+                const trRes = await pool.query(
+                    `
+                    SELECT target_cost_group FROM transaction_rules
+                    WHERE counterparty_id = $1
+                      AND (
+                        target_category = $2
+                        OR LOWER(TRIM(target_category)) = LOWER(TRIM($2::text))
+                        OR ($3::text IS NOT NULL AND (
+                             target_category = $3
+                             OR LOWER(TRIM(target_category)) = LOWER(TRIM($3::text))
+                        ))
+                      )
+                    LIMIT 1
+                    `,
+                    [cpId, n, aliasCanon]
+                );
+                if (trRes.rows.length > 0) {
+                    const tcg = trRes.rows[0].target_cost_group;
+                    if (tcg != null && String(tcg).trim() !== '') {
+                        const cgRule = ensureCanonicalCostGroup(String(tcg).trim(), null);
+                        if (cgRule && CANONICAL_COST_GROUPS.includes(cgRule)) {
+                            return res.json({ cost_group: cgRule, source: 'rule' });
+                        }
+                    }
+                }
+            }
+
+            // Приоритет: dashboard_rules (точное совпадение, затем без учёта регистра)
+            const ruleRes = await pool.query(
+                `SELECT mapped_cost_group FROM dashboard_rules
+                 WHERE original_category = $1 OR mapped_category = $1
+                    OR LOWER(TRIM(original_category)) = LOWER($2) OR LOWER(TRIM(mapped_category)) = LOWER($2)
+                 LIMIT 1`,
+                [n, n]
+            );
             if (ruleRes.rows.length > 0 && ruleRes.rows[0].mapped_cost_group) {
-                return res.json({ cost_group: ruleRes.rows[0].mapped_cost_group });
+                const cg = ensureCanonicalCostGroup(ruleRes.rows[0].mapped_cost_group, null);
+                return res.json({ cost_group: cg, source: 'dashboard_rule' });
             }
 
-            // Затем transaction_categories
-            const catRes = await pool.query('SELECT cost_group FROM transaction_categories WHERE name = $1 LIMIT 1', [name]);
+            const catRes = await pool.query(
+                `SELECT cost_group FROM transaction_categories
+                 WHERE name = $1 OR LOWER(TRIM(name)) = LOWER($2::text) LIMIT 1`,
+                [n, n]
+            );
             if (catRes.rows.length > 0 && catRes.rows[0].cost_group) {
-                return res.json({ cost_group: catRes.rows[0].cost_group });
+                const cg = ensureCanonicalCostGroup(catRes.rows[0].cost_group, null);
+                return res.json({ cost_group: cg, source: 'category' });
             }
 
-            res.json({ cost_group: null });
+            return empty();
         } catch (err) {
-            res.json({ cost_group: null });
+            logger.error('[category-info]', err);
+            return empty();
         }
     });
 
@@ -690,11 +1452,13 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             const finalRole = type || role || 'Покупатель';
             let buyer = is_buyer !== undefined ? is_buyer : (finalRole === 'Покупатель' || !finalRole);
             let supplier = is_supplier !== undefined ? is_supplier : (finalRole === 'Поставщик');
+            const etRaw = String(entity_type || '').trim().toLowerCase();
+            const entityTypeNorm = etRaw === 'physical' ? 'physical' : 'legal';
 
             await pool.query(`
                 INSERT INTO counterparties (name, role, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type, is_buyer, is_supplier, price_level) 
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-            `, [name, finalRole, client_category || 'Обычный', inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type || 'legal', buyer, supplier, price_level || 'basic']);
+            `, [name, finalRole, client_category || 'Обычный', inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entityTypeNorm, buyer, supplier, price_level || 'basic']);
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
@@ -707,11 +1471,13 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         const { name, role, type, price_level, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type, is_buyer, is_supplier } = req.body;
         try {
             const finalRole = type || role; // Берем то, что прислал фронтенд
+            const etRaw = String(entity_type || '').trim().toLowerCase();
+            const entityTypeNorm = etRaw === 'physical' ? 'physical' : 'legal';
 
             await pool.query(`
                 UPDATE counterparties SET name=$1, role=$2, client_category=$3, inn=$4, kpp=$5, ogrn=$6, legal_address=$7, fact_address=$8, bank_name=$9, bank_bik=$10, bank_account=$11, bank_corr=$12, director_name=$13, phone=$14, email=$15, comment=$16, entity_type=$17, is_buyer=$18, is_supplier=$19, price_level=$20 
                 WHERE id=$21
-            `, [name, finalRole, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entity_type || 'legal', is_buyer || false, is_supplier || false, price_level || 'basic', req.params.id]);
+            `, [name, finalRole, client_category, inn, kpp, ogrn, legal_address, fact_address, bank_name, bank_bik, bank_account, bank_corr, director_name, phone, email, comment, entityTypeNorm, is_buyer || false, is_supplier || false, price_level || 'basic', req.params.id]);
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
@@ -723,10 +1489,13 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         const cpId = req.params.id;
         const { amount, type, date, description } = req.body;
         try {
-            await pool.query(`
+            await pool.query(
+                `
                 INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, transaction_date) 
-                VALUES ($1, $2, 'Корректировка долга', $3, 'Системная правка', NULL, $4, $5)
-            `, [amount, type, description, cpId, date]);
+                VALUES ($1, $2, $3, $4, 'Системная правка', NULL, $5, $6)
+            `,
+                [amount, type, FINANCE_CP_BALANCE_CORRECTION_CATEGORY, description, cpId, date]
+            );
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
@@ -736,12 +1505,20 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
     router.get('/api/counterparties/:id/corrections', authenticateToken, async (req, res) => {
         try {
-            const result = await pool.query(`
+            const result = await pool.query(
+                `
                 SELECT id, amount, transaction_type, description, TO_CHAR(transaction_date, 'YYYY-MM-DD') as date
                 FROM transactions 
-                WHERE counterparty_id = $1 AND category = 'Корректировка долга' AND COALESCE(is_deleted, false) = false
+                WHERE counterparty_id = $1
+                  AND LOWER(TRIM(category)) IN (
+                      LOWER(TRIM($2::text)),
+                      LOWER(TRIM('Корректировка долга'))
+                  )
+                  AND COALESCE(is_deleted, false) = false
                 ORDER BY transaction_date DESC, id DESC
-            `, [req.params.id]);
+            `,
+                [req.params.id, FINANCE_CP_BALANCE_CORRECTION_CATEGORY]
+            );
             res.json(result.rows);
         } catch (err) {
             logger.error(err);
@@ -761,9 +1538,17 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     });
 
     router.delete('/api/finance/transactions/:id', requireAdmin, async (req, res) => {
+        const reason = String((req.query || {}).reason || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину удаления транзакции' });
         try {
-            const txRes = await pool.query('UPDATE transactions SET is_deleted = true WHERE id = $1 RETURNING counterparty_id', [req.params.id]);
-            if (txRes.rows.length === 0) return res.status(404).json({error: 'Транзакция не найдена'});
+            let found = false;
+            await withTransaction(pool, async (client) => {
+                const out = await softDeleteTransactionWithRollback(client, Number(req.params.id));
+                found = out.found;
+                await recalcAccountBalances(client, out.affectedAccountIds || []);
+            });
+            if (!found) return res.status(404).json({ error: 'Транзакция не найдена' });
+            await auditLog(pool, req, 'finance_transaction_delete_fast', 'transaction', Number(req.params.id), `reason=${reason}`);
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
@@ -772,8 +1557,11 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     });
 
     router.delete('/api/counterparties/:id', requireAdmin, async (req, res) => {
+        const reason = String((req.query || {}).reason || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину удаления контрагента' });
         try {
             await pool.query('UPDATE counterparties SET is_deleted = true WHERE id = $1', [req.params.id]);
+            await auditLog(pool, req, 'finance_counterparty_delete', 'counterparty', Number(req.params.id), `reason=${reason}`);
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
@@ -855,6 +1643,62 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                         ))::numeric AS real_due
                     FROM order_line_totals t
                     LEFT JOIN order_income_ledger oi ON oi.order_id = t.order_id
+                ),
+                cp_candidates AS (
+                    SELECT DISTINCT counterparty_id
+                    FROM order_real_due
+                ),
+                cp_money AS (
+                    SELECT
+                        t.counterparty_id,
+                        COALESCE(SUM(CASE WHEN t.transaction_type = 'income' THEN t.amount ELSE 0 END), 0)::numeric AS money_income,
+                        COALESCE(SUM(CASE WHEN t.transaction_type = 'expense' THEN t.amount ELSE 0 END), 0)::numeric AS money_expense
+                    FROM transactions t
+                    WHERE COALESCE(t.is_deleted, false) = false
+                      AND t.counterparty_id IN (SELECT counterparty_id FROM cp_candidates)
+                      AND t.category NOT IN ('Зачёт аванса', 'Взаимозачет')
+                      AND (
+                            COALESCE(t.payment_method, '') != 'Взаимозачет'
+                            OR t.category IN (
+                                'Начисление ЗП', 'Зарплата', 'Оплата труда', 'Зарплата и Авансы',
+                                'Премии', 'Штрафы', 'Удержание из ЗП', 'Ввод начальных остатков'
+                            )
+                          )
+                    GROUP BY t.counterparty_id
+                ),
+                cp_shipments_to_client AS (
+                    SELECT
+                        co.counterparty_id,
+                        COALESCE(SUM(ABS(m.quantity) * coi.price), 0)::numeric AS our_shipments
+                    FROM inventory_movements m
+                    JOIN client_order_items coi ON m.linked_order_item_id = coi.id
+                    JOIN client_orders co ON coi.order_id = co.id
+                    WHERE m.movement_type = 'sales_shipment'
+                      AND co.counterparty_id IN (SELECT counterparty_id FROM cp_candidates)
+                    GROUP BY co.counterparty_id
+                ),
+                cp_shipments_from_supplier AS (
+                    SELECT
+                        supplier_id AS counterparty_id,
+                        COALESCE(SUM(amount), 0)::numeric AS their_shipments
+                    FROM inventory_movements
+                    WHERE movement_type = 'purchase'
+                      AND supplier_id IN (SELECT counterparty_id FROM cp_candidates)
+                    GROUP BY supplier_id
+                ),
+                cp_balance AS (
+                    SELECT
+                        cc.counterparty_id,
+                        (
+                            COALESCE(sc.our_shipments, 0)
+                            + COALESCE(cm.money_expense, 0)
+                            - COALESCE(ss.their_shipments, 0)
+                            - COALESCE(cm.money_income, 0)
+                        )::numeric AS balance
+                    FROM cp_candidates cc
+                    LEFT JOIN cp_money cm ON cm.counterparty_id = cc.counterparty_id
+                    LEFT JOIN cp_shipments_to_client sc ON sc.counterparty_id = cc.counterparty_id
+                    LEFT JOIN cp_shipments_from_supplier ss ON ss.counterparty_id = cc.counterparty_id
                 )
                 SELECT
                     i.id,
@@ -886,7 +1730,9 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     true as is_order
                 FROM order_real_due o
                 JOIN counterparties c ON o.counterparty_id = c.id
+                LEFT JOIN cp_balance cb ON cb.counterparty_id = o.counterparty_id
                 WHERE o.real_due > 0.005
+                  AND COALESCE(cb.balance, 0) > 0.005
 
                 ORDER BY created_at DESC
             `);
@@ -899,56 +1745,51 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
     router.post('/api/invoices', requireAdmin, validateInvoice, async (req, res) => {
         const { cp_id, amount, desc } = req.body;
-        let client;
         try {
-            client = await pool.connect();
-            await client.query('BEGIN');
+            const generatedInvoiceNumber = await withTransaction(pool, async (client) => {
+                const cpRes = await client.query('SELECT * FROM counterparties WHERE id = $1', [cp_id]);
+                const clientData = cpRes.rows[0] || { name: 'Неизвестный контрагент', id: cp_id };
+                const snapshot = JSON.stringify(clientData);
 
-            const cpRes = await client.query('SELECT * FROM counterparties WHERE id = $1', [cp_id]);
-            const clientData = cpRes.rows[0] || { name: 'Неизвестный контрагент', id: cp_id };
-            const snapshot = JSON.stringify(clientData);
+                let invoiceNumber = '';
+                let isUnique = false;
+                for (let i = 0; i < 100; i++) {
+                    let counterRes = await client.query(`UPDATE document_counters SET last_number = last_number + 1 WHERE prefix = 'СЧ-26-' RETURNING last_number`);
+                    if (counterRes.rows.length === 0) {
+                        await client.query(`INSERT INTO document_counters (prefix, last_number) VALUES ('СЧ-26-', 0) ON CONFLICT DO NOTHING`);
+                        counterRes = await client.query(`UPDATE document_counters SET last_number = last_number + 1 WHERE prefix = 'СЧ-26-' RETURNING last_number`);
+                    }
+                    let seqNum = counterRes.rows[0].last_number;
+                    invoiceNumber = `СЧ-26-${String(seqNum).padStart(5, '0')}`;
 
-            let generatedInvoiceNumber = '';
-            let isUnique = false;
-            for (let i = 0; i < 100; i++) {
-                let counterRes = await client.query(`UPDATE document_counters SET last_number = last_number + 1 WHERE prefix = 'СЧ-26-' RETURNING last_number`);
-                if (counterRes.rows.length === 0) {
-                    await client.query(`INSERT INTO document_counters (prefix, last_number) VALUES ('СЧ-26-', 0) ON CONFLICT DO NOTHING`);
-                    counterRes = await client.query(`UPDATE document_counters SET last_number = last_number + 1 WHERE prefix = 'СЧ-26-' RETURNING last_number`);
+                    const checkRes = await client.query(`SELECT id FROM invoices WHERE invoice_number = $1`, [invoiceNumber]);
+                    if (checkRes.rows.length === 0) {
+                        isUnique = true;
+                        break;
+                    }
                 }
-                let seqNum = counterRes.rows[0].last_number;
-                generatedInvoiceNumber = `СЧ-26-${String(seqNum).padStart(5, '0')}`;
+                if (!isUnique) throw new Error("Не удалось сгенерировать уникальный номер счета.");
 
-                const checkRes = await client.query(`SELECT id FROM invoices WHERE invoice_number = $1`, [generatedInvoiceNumber]);
-                if (checkRes.rows.length === 0) {
-                    isUnique = true;
-                    break;
-                }
-            }
-            if (!isUnique) throw new Error("Не удалось сгенерировать уникальный номер счета.");
+                const crypto = require('crypto');
+                const createdAt = new Date().toISOString();
+                const authorId = (req.user && req.user.id) ? req.user.id : null;
+                const hashString = `${invoiceNumber}|${createdAt}|${amount}|${cp_id}`;
+                const notaryHash = crypto.createHash('sha256').update(hashString).digest('hex');
 
-            const crypto = require('crypto');
-            const createdAt = new Date().toISOString();
-            const authorId = (req.user && req.user.id) ? req.user.id : null;
-            const hashString = `${generatedInvoiceNumber}|${createdAt}|${amount}|${cp_id}`;
-            const notaryHash = crypto.createHash('sha256').update(hashString).digest('hex');
+                await client.query(
+                    `INSERT INTO invoices (
+                        counterparty_id, doc_number, total_amount, purpose, 
+                        client_snapshot, author_id, created_at, notary_hash
+                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                    [cp_id, invoiceNumber, amount, desc, snapshot, authorId, createdAt, notaryHash]
+                );
 
-            await client.query(
-                `INSERT INTO invoices (
-                    counterparty_id, doc_number, total_amount, purpose, 
-                    client_snapshot, author_id, created_at, notary_hash
-                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-                [cp_id, generatedInvoiceNumber, amount, desc, snapshot, authorId, createdAt, notaryHash]
-            );
-
-            await client.query('COMMIT');
+                return invoiceNumber;
+            });
             res.json({ success: true, invoiceNumber: generatedInvoiceNumber });
         } catch (err) {
-            if (client) await client.query('ROLLBACK');
             logger.error('Ошибка сервера при сохранении счета:', err);
             res.status(500).json({ error: 'Ошибка сервера при сохранении счета' });
-        } finally {
-            if (client) client.release();
         }
     });
 
@@ -1023,42 +1864,44 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     });
 
     router.delete('/api/invoices/:id', requireAdmin, async (req, res) => {
-        const client = await pool.connect();
+        const reason = String((req.query || {}).reason || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину удаления/аннулирования счета' });
         try {
-            await client.query('BEGIN');
             const { id } = req.params;
+            const action = await withTransaction(pool, async (client) => {
+                const invRes = await client.query('SELECT * FROM invoices WHERE id = $1', [id]);
+                if (invRes.rows.length === 0) {
+                    const err = new Error('Счет не найден');
+                    err.statusCode = 404;
+                    throw err;
+                }
+                const invoice = invRes.rows[0];
 
-            const invRes = await client.query('SELECT * FROM invoices WHERE id = $1', [id]);
-            if (invRes.rows.length === 0) {
-                await client.query('ROLLBACK');
-                return res.status(404).json({ error: 'Счет не найден' });
-            }
-            const invoice = invRes.rows[0];
+                if (invoice.status !== 'pending') {
+                    const err = new Error('Счет участвует в финансовых движениях или оплачен. Удаление заблокировано.');
+                    err.statusCode = 400;
+                    throw err;
+                }
 
-            if (invoice.status !== 'pending') {
-                await client.query('ROLLBACK');
-                return res.status(400).json({ error: 'Счет участвует в финансовых движениях или оплачен. Удаление заблокировано.' });
-            }
+                const lastInvRes = await client.query('SELECT id FROM invoices ORDER BY id DESC LIMIT 1');
+                const lastId = lastInvRes.rows[0] ? lastInvRes.rows[0].id : null;
 
-            const lastInvRes = await client.query('SELECT id FROM invoices ORDER BY id DESC LIMIT 1');
-            const lastId = lastInvRes.rows[0] ? lastInvRes.rows[0].id : null;
-
-            if (invoice.id === lastId) {
-                await client.query('DELETE FROM invoices WHERE id = $1', [id]);
-                await client.query("UPDATE document_counters SET last_number = last_number - 1 WHERE prefix = 'СЧ-26-' AND last_number > 0");
-                await client.query('COMMIT');
-                return res.json({ success: true, action: 'deleted' });
-            } else {
-                await client.query("UPDATE invoices SET status = 'cancelled' WHERE id = $1", [id]);
-                await client.query('COMMIT');
-                return res.json({ success: true, action: 'cancelled' });
-            }
+                if (invoice.id === lastId) {
+                    await client.query('DELETE FROM invoices WHERE id = $1', [id]);
+                    await client.query("UPDATE document_counters SET last_number = last_number - 1 WHERE prefix = 'СЧ-26-' AND last_number > 0");
+                    return 'deleted';
+                } else {
+                    await client.query("UPDATE invoices SET status = 'cancelled' WHERE id = $1", [id]);
+                    return 'cancelled';
+                }
+            });
+            const auditAction = action === 'deleted' ? 'invoice_delete' : 'invoice_cancel';
+            await auditLog(pool, req, auditAction, 'invoice', Number(req.params.id), `action=${action}; reason=${reason}`);
+            res.json({ success: true, action });
         } catch (err) {
-            await client.query('ROLLBACK');
+            if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
             logger.error('Ошибка при удалении счета:', err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
-        } finally {
-            client.release();
         }
     });
 
@@ -1075,10 +1918,12 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             let whereClause = "WHERE COALESCE(is_deleted, false) = false ";
 
             if (!account_id || account_id === 'null' || account_id === '') {
-                whereClause += ` AND COALESCE(category, '') NOT IN (
+                whereClause += ` AND NOT (${getTransferCategoryPredicateSql('')}) AND COALESCE(category, '') NOT IN (
                     'Техническая проводка', 
                     'Ввод начальных остатков', 
                     'Корректировка',
+                    'Корректировка Баланса',
+                    'Корректировка долга',
                     'Перевод',
                     'Подотчет'
                 ) `;
@@ -1110,11 +1955,11 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 SELECT 
                     SUM(CASE 
                         WHEN transaction_type = 'income' 
-                         AND category NOT IN ('Техническая проводка', 'Ввод начальных остатков', 'Корректировка') 
+                         AND category NOT IN ('Техническая проводка', 'Ввод начальных остатков', 'Корректировка', 'Корректировка Баланса', 'Корректировка долга') 
                         THEN amount ELSE 0 END) AS income,
                     SUM(CASE 
                         WHEN transaction_type = 'expense' 
-                         AND category NOT IN ('Техническая проводка', 'Ввод начальных остатков', 'Корректировка') 
+                         AND category NOT IN ('Техническая проводка', 'Ввод начальных остатков', 'Корректировка', 'Корректировка Баланса', 'Корректировка долга') 
                         THEN amount ELSE 0 END) AS expense
                 FROM transactions
                 ${whereClause}
@@ -1211,7 +2056,9 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         try {
             let advanceTouchedOrders = false;
             await withTransaction(pool, async (client) => {
+                if (category) category = await resolveCategoryAlias(client, category);
                 if (employee_mode === 'instant_expense' && counterparty_id) {
+                    await ensureTransferCategories(client);
                     const cpRes = await client.query('SELECT name FROM counterparties WHERE id = $1', [counterparty_id]);
                     if (cpRes.rows.length === 0) throw new Error('Сотрудник не найден');
                     const cpName = cpRes.rows[0].name;
@@ -1222,15 +2069,15 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
                     // Запись 1: Транзит на imprest счет (Списание из кассы)
                     await client.query(`
-                        INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, transaction_date)
-                        VALUES ($1, 'expense', 'Перевод', $2, $3, $4, $5)
-                    `, [amount, `Мгновенный транзит под отчет: ${cpName}`, method, account_id, finalDate]);
+                        INSERT INTO transactions (amount, transaction_type, category, category_override, description, payment_method, account_id, transaction_date)
+                        VALUES ($1, 'expense', 'Перевод', $2, $3, $4, $5, $6)
+                    `, [amount, TRANSFER_CATEGORY_CHILDREN.IMPREST_TRANSIT, `Мгновенный транзит под отчет: ${cpName}`, method, account_id, finalDate]);
 
                     // Запись 1.5: Транзит на imprest счет (Зачисление в imprest)
                     await client.query(`
-                        INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, transaction_date)
-                        VALUES ($1, 'income', 'Перевод', $2, $3, $4, $5)
-                    `, [amount, `Мгновенный транзит под отчет: ${cpName}`, method, imprest_account_id, finalDate]);
+                        INSERT INTO transactions (amount, transaction_type, category, category_override, description, payment_method, account_id, transaction_date)
+                        VALUES ($1, 'income', 'Перевод', $2, $3, $4, $5, $6)
+                    `, [amount, TRANSFER_CATEGORY_CHILDREN.IMPREST_TRANSIT, `Мгновенный транзит под отчет: ${cpName}`, method, imprest_account_id, finalDate]);
 
                     // Запись 2: Непосредственная покупка (🚀 СЮДА ДОБАВИЛИ cost_group_override)
                     await client.query(`
@@ -1239,6 +2086,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     `, [amount, category || 'Хоз. нужды', `${description} (через сотрудника: ${cpName})`, method, imprest_account_id, finalDate, cost_group_override || null]);
 
                 } else if (employee_mode === 'imprest' && counterparty_id) {
+                    await ensureTransferCategories(client);
                     const cpRes = await client.query('SELECT name FROM counterparties WHERE id = $1', [counterparty_id]);
                     const cpName = cpRes.rows[0].name;
 
@@ -1249,14 +2097,14 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     const linkedId = crypto.randomUUID();
 
                     await client.query(`
-                        INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, linked_id, transaction_date)
-                        VALUES ($1, 'expense', 'Перевод', $2, $3, $4, $5, $6)
-                    `, [amount, `Выдача под отчет: ${cpName}`, method, account_id, linkedId, finalDate]);
+                        INSERT INTO transactions (amount, transaction_type, category, category_override, description, payment_method, account_id, linked_id, transaction_date)
+                        VALUES ($1, 'expense', 'Перевод', $2, $3, $4, $5, $6, $7)
+                    `, [amount, TRANSFER_CATEGORY_CHILDREN.IMPREST_ISSUE, `Выдача под отчет: ${cpName}`, method, account_id, linkedId, finalDate]);
 
                     await client.query(`
-                        INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, linked_id, transaction_date)
-                        VALUES ($1, 'income', 'Перевод', $2, $3, $4, $5, $6)
-                    `, [amount, `Получение под отчет: ${cpName}`, method, imprest_account_id, linkedId, finalDate]);
+                        INSERT INTO transactions (amount, transaction_type, category, category_override, description, payment_method, account_id, linked_id, transaction_date)
+                        VALUES ($1, 'income', 'Перевод', $2, $3, $4, $5, $6, $7)
+                    `, [amount, TRANSFER_CATEGORY_CHILDREN.IMPREST_ISSUE, `Получение под отчет: ${cpName}`, method, imprest_account_id, linkedId, finalDate]);
 
                 } else if (employee_mode === 'return' && counterparty_id) {
                     const cpRes = await client.query('SELECT name FROM counterparties WHERE id = $1', [counterparty_id]);
@@ -1293,14 +2141,39 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     `, [account_id, imprest_account_id]);
 
                 } else {
+                    if (type === 'income') {
+                        category = resolveIncomeCategoryByContext({ category, description, paymentMethod: method });
+                        await ensureIncomeCategories(client);
+                    } else if (type === 'expense') {
+                        category = resolveExpenseCategoryByContext({ category, description, paymentMethod: method });
+                        await ensureExpenseCategories(client);
+                    }
+                    const technicalOverride = resolveTechnicalOverrideByContext({
+                        category,
+                        description,
+                        paymentMethod: method,
+                        accountId: account_id,
+                        counterpartyId: counterparty_id || null
+                    });
+                    const transferOverride = resolveTransferOverrideByContext({
+                        description,
+                        paymentMethod: method,
+                        employeeMode: employee_mode,
+                        category
+                    });
+                    if (transferOverride) await ensureTransferCategories(client);
+                    if (technicalOverride) await ensureTechnicalCategories(client);
+                    await ensureCategoryExists(client, category, type === 'income' ? 'income' : 'expense', null, null);
+                    if (transferOverride) await ensureCategoryExists(client, transferOverride, 'expense', 'capital', null);
+                    if (technicalOverride) await ensureCategoryExists(client, technicalOverride, 'expense', 'capital', null);
                     // 🚀 2. СТАНДАРТНАЯ ЗАПИСЬ: ДОБАВИЛИ cost_group_override В INSERT
                     const insRes = await client.query(
                         `
-                        INSERT INTO transactions (amount, transaction_type, category, description, vat_amount, payment_method, account_id, counterparty_id, transaction_date, cost_group_override)
-                        VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9)
+                        INSERT INTO transactions (amount, transaction_type, category, category_override, description, vat_amount, payment_method, account_id, counterparty_id, transaction_date, cost_group_override)
+                        VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8, $9, $10)
                         RETURNING *
                     `,
-                        [amount, type, category, description, method, account_id, counterparty_id || null, finalDate, cost_group_override || null]
+                        [amount, type, category, transferOverride || technicalOverride, description, method, account_id, counterparty_id || null, finalDate, cost_group_override || null]
                     );
                     const newRow = insRes.rows[0];
                     if (newRow) {
@@ -1324,7 +2197,29 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 io.emit('finance_updated');
                 if (advanceTouchedOrders) io.emit('sales_updated');
             }
-            res.json({ success: true, message: 'Операция сохранена' });
+
+            // 💰 Смарт-промпт: если income-транзакция для контрагента, авто-аллокация не сработала,
+            // но у контрагента есть незакрытые заказы → предложить распределить вручную.
+            let suggestReconcile = null;
+            if (type === 'income' && counterparty_id && !advanceTouchedOrders) {
+                try {
+                    const openRes = await pool.query(
+                        `SELECT COALESCE(SUM(GREATEST(0, COALESCE(pending_debt,0))),0)::numeric AS total_debt,
+                                COUNT(*)::int AS order_count
+                         FROM client_orders
+                         WHERE counterparty_id = $1 AND status != 'cancelled'
+                           AND COALESCE(pending_debt,0) > 0.005`,
+                        [counterparty_id]
+                    );
+                    const openDebt = parseFloat(openRes.rows[0].total_debt);
+                    const orderCount = openRes.rows[0].order_count;
+                    if (openDebt > 0.005) {
+                        suggestReconcile = { counterparty_id, open_debt: openDebt, order_count: orderCount };
+                    }
+                } catch (_) { /* не критично */ }
+            }
+
+            res.json({ success: true, message: 'Операция сохранена', suggest_reconcile: suggestReconcile || undefined });
         } catch (err) {
             logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
@@ -1377,10 +2272,11 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
         try {
             await withTransaction(pool, async (client) => {
+                await ensureTransferCategories(client);
                 const comment = `Внутренний перевод: ${description}`;
                 const linkedId = crypto.randomUUID(); // Связываем парные проводки
-                await client.query(`INSERT INTO transactions (amount, transaction_type, category, description, account_id, linked_id, transaction_date) VALUES ($1, 'expense', 'Перевод', $2, $3, $4, $5)`, [amount, comment, from_account_id, linkedId, finalDate]);
-                await client.query(`INSERT INTO transactions (amount, transaction_type, category, description, account_id, linked_id, transaction_date) VALUES ($1, 'income', 'Перевод', $2, $3, $4, $5)`, [amount, comment, to_account_id, linkedId, finalDate]);
+                await client.query(`INSERT INTO transactions (amount, transaction_type, category, category_override, description, account_id, linked_id, transaction_date) VALUES ($1, 'expense', 'Перевод', $2, $3, $4, $5, $6)`, [amount, TRANSFER_CATEGORY_CHILDREN.INTERNAL, comment, from_account_id, linkedId, finalDate]);
+                await client.query(`INSERT INTO transactions (amount, transaction_type, category, category_override, description, account_id, linked_id, transaction_date) VALUES ($1, 'income', 'Перевод', $2, $3, $4, $5, $6)`, [amount, TRANSFER_CATEGORY_CHILDREN.INTERNAL, comment, to_account_id, linkedId, finalDate]);
             });
 
             const io = req.app.get('io');
@@ -1473,6 +2369,8 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     // ==========================================
     router.delete('/api/transactions/:id', requireAdmin, async (req, res) => {
         const { id } = req.params;
+        const reason = String((req.query || {}).reason || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину удаления транзакции' });
 
         try {
             await withTransaction(pool, async (client) => {
@@ -1484,56 +2382,19 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
                 if (txRes.rows.length === 0) throw new Error("Транзакция не найдена");
 
-                const { description, source_module, linked_id, amount, transaction_type, linked_order_id, linked_planned_id, linked_purchase_id } = txRes.rows[0];
+                const { source_module } = txRes.rows[0];
 
                 // 🛡️ Блокируем удаление зарплатных проводок
                 if (source_module === 'salary') {
                     throw new Error("Это выплата зарплаты. Удаление разрешено только в модуле 'Кадры' через историю выплат сотрудника.");
                 }
-
-                // Логика отката для client_orders
-                if (linked_order_id && transaction_type === 'income') {
-                    await client.query(`
-                        UPDATE client_orders 
-                        SET paid_amount = GREATEST(paid_amount - $1, 0), 
-                            pending_debt = pending_debt + $1 
-                        WHERE id = $2
-                    `, [amount, linked_order_id]);
-                }
-
-                if (linked_planned_id) {
-                    await client.query("UPDATE planned_expenses SET status = 'pending' WHERE id = $1", [linked_planned_id]);
-                }
-
-                if (linked_purchase_id) {
-                    // В таблице inventory_movements НЕТ колонок paid_amount или status.
-                    // Долг поставщику считается чисто динамически (по разнице сумм закупок и транзакций).
-                    // Поэтому изменять inventory_movements не нужно. Удаление самой транзакции 
-                    // автоматически откатывает долг перед поставщиком к прежнему значению!
-                }
-
-                // 2. Удаляем транзакцию (и её пару по linked_id, если есть)
-                if (linked_id) {
-                    await client.query('UPDATE transactions SET is_deleted = true WHERE id = $1 OR linked_id = $2', [id, linked_id]);
-                } else {
-                    await client.query('UPDATE transactions SET is_deleted = true WHERE id = $1', [id]);
-                }
-
-                // 3. Синхронизируем балансы всех счетов сразу после удаления
-                await client.query(`
-                    UPDATE accounts a
-                    SET balance = ROUND(COALESCE((
-                        SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) -
-                               SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END)
-                        FROM transactions t
-                        WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
-                    ), 0), 2);
-                `);
+                const out = await softDeleteTransactionWithRollback(client, Number(id));
+                await recalcAccountBalances(client, out.affectedAccountIds || []);
             });
 
             const io = req.app.get('io');
             if (io) io.emit('finance_updated');
-            auditLog(pool, req, 'delete_transaction', 'transaction', parseInt(id), `Удаление транзакции #${id}`);
+            auditLog(pool, req, 'delete_transaction', 'transaction', parseInt(id, 10), `reason=${reason}`);
             res.json({ success: true, message: "Транзакция удалена и балансы пересчитаны" });
         } catch (err) {
             const statusCode = err.message.includes('модуле "Кадры"') ? 403 : 500;
@@ -1609,7 +2470,9 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     // 🚀 БЫСТРЫЙ ПЕРЕНОС ГРУППЫ (Для Конструктора себестоимости на дашборде)
     router.patch('/api/transactions/:id/override', requireAdmin, async (req, res) => {
         try {
-            await pool.query('UPDATE transactions SET cost_group_override = $1 WHERE id = $2', [req.body.cost_group_override || null, req.params.id]);
+            const normalizedGroup = req.body.cost_group_override ? ensureCanonicalCostGroup(req.body.cost_group_override, null) : null;
+            await pool.query('UPDATE transactions SET cost_group_override = $1 WHERE id = $2', [normalizedGroup, req.params.id]);
+            await auditLog(pool, req, 'finance_tx_group_override', 'transaction', Number(req.params.id), `group=${normalizedGroup || 'auto'}`);
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
@@ -1619,15 +2482,20 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
     // 🚀 МАССОВЫЙ ПЕРЕНОС ПАПКИ (По массиву ID транзакций)
     router.patch('/api/transactions/bulk-override', requireAdmin, async (req, res) => {
-        const { transactionIds, cost_group_override } = req.body;
+        const transactionIds = sanitizeIdArray((req.body || {}).transactionIds, { max: 2000 });
+        const { cost_group_override } = req.body || {};
+        const reason = String((req.body || {}).reason || '').trim();
         if (!transactionIds || !Array.isArray(transactionIds) || transactionIds.length === 0) {
             return res.status(400).json({ error: 'Не передан массив ID транзакций' });
         }
+        if (!reason) return res.status(400).json({ error: 'Укажите причину массового изменения группы' });
         try {
+            const normalizedGroup = cost_group_override ? ensureCanonicalCostGroup(cost_group_override, null) : null;
             const result = await pool.query(
                 'UPDATE transactions SET cost_group_override = $1 WHERE id = ANY($2::int[])',
-                [cost_group_override || null, transactionIds]
+                [normalizedGroup, transactionIds]
             );
+            await auditLog(pool, req, 'finance_tx_bulk_group_override', 'transaction', null, `count=${result.rowCount}, group=${normalizedGroup || 'auto'}; reason=${reason}`);
             res.json({ success: true, updated: result.rowCount });
         } catch (err) {
             logger.error(err);
@@ -1639,15 +2507,18 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     // Оригинальная колонка `category` НИКОГДА не перезаписывается.
     // Все изменения пишутся в `category_override` и запоминаются в `dashboard_rules`.
     router.patch('/api/transactions/bulk-rename', requireAdmin, async (req, res) => {
-        const { transactionIds, newCategoryName, costGroup } = req.body;
+        const transactionIds = sanitizeIdArray((req.body || {}).transactionIds, { max: 2000 });
+        const { newCategoryName, costGroup } = req.body || {};
+        const reason = String((req.body || {}).reason || '').trim();
         if (!transactionIds || !Array.isArray(transactionIds) || transactionIds.length === 0) {
             return res.status(400).json({ error: 'Не передан массив ID транзакций' });
         }
         if (!newCategoryName || !newCategoryName.trim()) {
             return res.status(400).json({ error: 'Не указано новое имя категории' });
         }
+        if (!reason) return res.status(400).json({ error: 'Укажите причину массового переименования' });
         const safeCatName = newCategoryName.trim();
-        const safeGroup = costGroup || 'opex';
+        const safeGroup = ensureCanonicalCostGroup(costGroup, 'opex');
 
         try {
             // А) Убедиться, что целевая категория есть в справочнике (или создать)
@@ -1673,10 +2544,136 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 WHERE id = ANY($3::int[])
             `, [safeCatName, safeGroup, transactionIds]);
 
+            await auditLog(pool, req, 'finance_tx_bulk_rename', 'transaction', null, `count=${transactionIds.length}, category=${safeCatName}, group=${safeGroup}; reason=${reason}`);
             res.json({ success: true, updated: transactionIds.length });
         } catch (err) {
             logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
+    });
+
+    router.post('/api/finance/movements/preview', requireAdmin, async (req, res) => {
+        const { operation_type, transaction_ids, target_category, target_cost_group, category_id, target_parent_id } = req.body || {};
+        const op = String(operation_type || '').trim();
+        const txIds = sanitizeIdArray(transaction_ids, { max: 2000 });
+        const safeTargetCategory = String(target_category || '').trim();
+        const safeGroup = target_cost_group ? ensureCanonicalCostGroup(target_cost_group, null) : null;
+
+        try {
+            if (!op) return res.status(400).json({ error: 'operation_type обязателен' });
+            if (op.startsWith('tx_') && txIds.length === 0) return res.status(400).json({ error: 'Нужно передать transaction_ids' });
+            if ((op === 'tx_category' || op === 'tx_category_group') && !safeTargetCategory) {
+                return res.status(400).json({ error: 'target_category обязателен' });
+            }
+            if ((op === 'tx_group' || op === 'tx_category_group') && !safeGroup) {
+                return res.status(400).json({ error: 'target_cost_group обязателен' });
+            }
+            if (op === 'category_parent_change' && (!category_id || target_parent_id === undefined)) {
+                return res.status(400).json({ error: 'category_id и target_parent_id обязательны' });
+            }
+
+            let impacted = [];
+            if (op.startsWith('tx_')) {
+                const rows = await pool.query(`
+                    SELECT t.id,
+                           COALESCE(NULLIF(TRIM(t.category_override), ''), t.category) AS current_category,
+                           ${getEffectiveCostGroupSql('t', 'tc', 'tc_override', 'opex')} AS current_group
+                    FROM transactions t
+                    LEFT JOIN transaction_categories tc ON t.category = tc.name
+                    LEFT JOIN transaction_categories tc_override ON t.category_override = tc_override.name
+                    WHERE t.id = ANY($1::int[]) AND COALESCE(t.is_deleted, false) = false
+                `, [txIds]);
+                impacted = rows.rows.map((r) => ({
+                    id: r.id,
+                    before_category: r.current_category,
+                    before_group: r.current_group,
+                    after_category: (op === 'tx_group') ? r.current_category : safeTargetCategory,
+                    after_group: (op === 'tx_category') ? r.current_group : (safeGroup || r.current_group)
+                }));
+            } else if (op === 'category_parent_change') {
+                const row = await pool.query('SELECT id, name, parent_id FROM transaction_categories WHERE id = $1 LIMIT 1', [category_id]);
+                if (!row.rows.length) return res.status(404).json({ error: 'Категория не найдена' });
+                impacted = [{
+                    id: row.rows[0].id,
+                    name: row.rows[0].name,
+                    before_parent_id: row.rows[0].parent_id,
+                    after_parent_id: target_parent_id || null
+                }];
+            }
+
+            return res.json({
+                operation_type: op,
+                impacted_count: impacted.length,
+                impacted
+            });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Ошибка предпросмотра перемещения' });
+        }
+    });
+
+    router.post('/api/finance/movements/apply', requireAdmin, async (req, res) => {
+        const { operation_type, transaction_ids, target_category, target_cost_group, category_id, target_parent_id } = req.body || {};
+        const op = String(operation_type || '').trim();
+        const txIds = sanitizeIdArray(transaction_ids, { max: 2000 });
+        const safeTargetCategory = String(target_category || '').trim();
+        const safeGroup = target_cost_group ? ensureCanonicalCostGroup(target_cost_group, null) : null;
+        const reason = String((req.body || {}).reason || '').trim();
+
+        try {
+            if (!op) return res.status(400).json({ error: 'operation_type обязателен' });
+            if (op.startsWith('tx_') && txIds.length === 0) return res.status(400).json({ error: 'Нужно передать transaction_ids' });
+            if (!reason) return res.status(400).json({ error: 'Укажите причину применения изменения' });
+            if ((op === 'tx_category' || op === 'tx_category_group') && !safeTargetCategory) {
+                return res.status(400).json({ error: 'target_category обязателен' });
+            }
+            if ((op === 'tx_group' || op === 'tx_category_group') && !safeGroup) {
+                return res.status(400).json({ error: 'target_cost_group обязателен' });
+            }
+
+            let updated = 0;
+            await withTransaction(pool, async (client) => {
+                if (op === 'tx_group') {
+                    const q = await client.query(
+                        'UPDATE transactions SET cost_group_override = $1 WHERE id = ANY($2::int[]) AND COALESCE(is_deleted, false) = false',
+                        [safeGroup, txIds]
+                    );
+                    updated = q.rowCount;
+                } else if (op === 'tx_category') {
+                    await ensureCategoryExists(client, safeTargetCategory, 'expense', null, null);
+                    const q = await client.query(
+                        'UPDATE transactions SET category_override = $1 WHERE id = ANY($2::int[]) AND COALESCE(is_deleted, false) = false',
+                        [safeTargetCategory, txIds]
+                    );
+                    updated = q.rowCount;
+                } else if (op === 'tx_category_group') {
+                    await ensureCategoryExists(client, safeTargetCategory, 'expense', safeGroup, null);
+                    await client.query(
+                        'UPDATE transaction_categories SET cost_group = $1 WHERE LOWER(TRIM(name)) = LOWER(TRIM($2::text))',
+                        [safeGroup, safeTargetCategory]
+                    );
+                    const q = await client.query(
+                        'UPDATE transactions SET category_override = $1, cost_group_override = $2 WHERE id = ANY($3::int[]) AND COALESCE(is_deleted, false) = false',
+                        [safeTargetCategory, safeGroup, txIds]
+                    );
+                    updated = q.rowCount;
+                } else if (op === 'category_parent_change') {
+                    if (!category_id || target_parent_id === undefined) throw new Error('category_id и target_parent_id обязательны');
+                    const q = await client.query(
+                        'UPDATE transaction_categories SET parent_id = $1 WHERE id = $2',
+                        [target_parent_id || null, category_id]
+                    );
+                    updated = q.rowCount;
+                } else {
+                    throw new Error('Неизвестный operation_type');
+                }
+            });
+
+            await auditLog(pool, req, 'finance_movement_apply', 'transaction', null, `op=${op}, updated=${updated}; reason=${reason}`);
+            return res.json({ success: true, operation_type: op, updated });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: err.message || 'Ошибка применения перемещения' });
         }
     });
 
@@ -1693,6 +2690,9 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             let importedCount = 0; let autoPaidInvoicesCount = 0;
 
             await withTransaction(pool, async (client) => {
+                await ensureTransferCategories(client);
+                await ensureTechnicalCategories(client);
+                await ensureCategoryAliasesTable(client);
                 for (let tr of transactions) {
                     let cp_id = null;
                     let safeInn = tr.counterparty_inn ? String(tr.counterparty_inn).split('/')[0].split('\\')[0].trim().substring(0, 20) : null;
@@ -1785,7 +2785,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                             else if (descForCheck.includes('комисс') || cpName.includes('банк') || descForCheck.includes('эквайринг') || descForCheck.includes('рко')) category = 'Услуги банка и РКО';
                             else if (descForCheck.includes('аренд')) category = 'Аренда помещений';
                             else if (descForCheck.includes('займ') || descForCheck.includes('заем') || descForCheck.includes('кредит')) category = 'Возврат займов';
-                            else if (descForCheck.includes('зарплат') || descForCheck.includes('аванс') || descForCheck.includes('реестр') || descForCheck.includes('оплат труда') || descForCheck.includes('ндфл')) category = 'Зарплата';
+                            else if (descForCheck.includes('зарплат') || descForCheck.includes('аванс') || descForCheck.includes('реестр') || descForCheck.includes('оплат труда') || descForCheck.includes('ндфл')) category = 'Зарплата и Авансы';
                             else if (descForCheck.includes('доставк') || descForCheck.includes('логист') || descForCheck.includes('пэк') || descForCheck.includes('сдэк') || descForCheck.includes('деловые линии')) category = 'Транспортные расходы';
                             else if (descForCheck.includes('материал') || descForCheck.includes('сырь') || descForCheck.includes('цемент') || descForCheck.includes('песок') || descForCheck.includes('арматур') || descForCheck.includes('бетон')) category = 'Закупка сырья';
                         }
@@ -1794,12 +2794,43 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                             const descForCheck = descLower; // Объявляем переменную для проверки
 
                             if (descForCheck.includes('займ') || descForCheck.includes('заем') || descForCheck.includes('кредит')) category = 'Получение займов';
-                            else if (descForCheck.includes('возврат')) category = 'Возврат средств';
+                            else if (descForCheck.includes('возврат')) category = INCOME_REFUND_IMPREST_CATEGORY;
                         }
+                        category = await resolveCategoryAlias(client, category);
+                        if (tr.type === 'income') {
+                            category = resolveIncomeCategoryByContext({
+                                category,
+                                description: safeDescription,
+                                paymentMethod: 'Безналичный расчет (Импорт)'
+                            });
+                            await ensureIncomeCategories(client);
+                        } else if (tr.type === 'expense') {
+                            category = resolveExpenseCategoryByContext({
+                                category,
+                                description: safeDescription,
+                                paymentMethod: 'Безналичный расчет (Импорт)'
+                            });
+                            await ensureExpenseCategories(client);
+                        }
+                        await ensureCategoryExists(client, category, tr.type === 'income' ? 'income' : 'expense', null, null);
+                        const importTransferOverride = resolveTransferOverrideByContext({
+                            description: safeDescription,
+                            paymentMethod: 'Безналичный расчет (Импорт)',
+                            category
+                        });
+                        const importTechnicalOverride = resolveTechnicalOverrideByContext({
+                            category,
+                            description: safeDescription,
+                            paymentMethod: 'Безналичный расчет (Импорт)',
+                            accountId: account_id,
+                            counterpartyId: cp_id
+                        });
+                        if (importTransferOverride) await ensureCategoryExists(client, importTransferOverride, 'expense', 'capital', null);
+                        if (importTechnicalOverride) await ensureCategoryExists(client, importTechnicalOverride, 'expense', 'capital', null);
                         await client.query(`
-                            INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, transaction_date, created_at, cost_group_override) 
-                            VALUES ($1, $2, $3, $4, 'Безналичный расчет (Импорт)', $5, $6, $7::timestamp, NOW(), $8)
-                        `, [tr.amount, tr.type, category, safeDescription, account_id, cp_id, txDate, overrideGroup]);
+                            INSERT INTO transactions (amount, transaction_type, category, category_override, description, payment_method, account_id, counterparty_id, transaction_date, created_at, cost_group_override) 
+                            VALUES ($1, $2, $3, $4, $5, 'Безналичный расчет (Импорт)', $6, $7, $8::timestamp, NOW(), $9)
+                        `, [tr.amount, tr.type, category, importTransferOverride || importTechnicalOverride, safeDescription, account_id, cp_id, txDate, overrideGroup]);
 
                         // Логика автоматического закрытия выставленных счетов
                         if (tr.type === 'income') {
@@ -1835,6 +2866,298 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         }
     });
 
+    router.post('/api/finance/reclassify-transfer-wild', requireAdmin, async (req, res) => {
+        const reason = String((req.body || {}).reason || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину переклассификации переводов' });
+        try {
+            let updated = 0;
+            await withTransaction(pool, async (client) => {
+                await ensureTransferCategories(client);
+                const listRes = await client.query(
+                    `
+                    SELECT id, category, category_override, description, payment_method
+                    FROM transactions
+                    WHERE COALESCE(is_deleted, false) = false
+                      AND LOWER(TRIM(COALESCE(category, ''))) = 'перевод'
+                `
+                );
+                for (const tx of listRes.rows) {
+                    const nextOverride = resolveTransferOverrideByContext({
+                        description: tx.description,
+                        paymentMethod: tx.payment_method,
+                        category: tx.category_override || tx.category
+                    });
+                    if (!nextOverride) continue;
+                    if (normalizeCategoryName(tx.category_override) === normalizeCategoryName(nextOverride)) continue;
+                    await client.query('UPDATE transactions SET category_override = $1 WHERE id = $2', [nextOverride, tx.id]);
+                    updated += 1;
+                }
+            });
+            const io = req.app.get('io');
+            if (io) io.emit('finance_updated');
+            await auditLog(pool, req, 'finance_reclassify_transfer_wild', 'transaction', null, `updated=${updated}; reason=${reason}`);
+            res.json({ success: true, updated });
+        } catch (err) {
+            logger.error('[API] Error in POST /api/finance/reclassify-transfer-wild:', err);
+            res.status(500).json({ error: 'Не удалось переклассифицировать переводы' });
+        }
+    });
+
+    router.post('/api/finance/reclassify-technical-wild', requireAdmin, async (req, res) => {
+        const reason = String((req.body || {}).reason || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину переклассификации техопераций' });
+        try {
+            const stats = {
+                scanned: 0,
+                updated: 0,
+                by_target: {}
+            };
+            await withTransaction(pool, async (client) => {
+                await ensureTechnicalCategories(client);
+                const listRes = await client.query(
+                    `
+                    SELECT id, category, category_override, description, payment_method, account_id, counterparty_id
+                    FROM transactions
+                    WHERE COALESCE(is_deleted, false) = false
+                      AND (
+                           LOWER(TRIM(COALESCE(category, ''))) LIKE '%техничес%операц%'
+                        OR LOWER(TRIM(COALESCE(category_override, ''))) LIKE '%техничес%операц%'
+                        OR LOWER(TRIM(COALESCE(category, ''))) LIKE '%тех%операц%'
+                        OR LOWER(TRIM(COALESCE(category_override, ''))) LIKE '%тех%операц%'
+                      )
+                `
+                );
+                stats.scanned = listRes.rows.length;
+                for (const tx of listRes.rows) {
+                    const sourceCategory = tx.category_override || tx.category;
+                    const target = resolveTechnicalOverrideByContext({
+                        category: sourceCategory,
+                        description: tx.description,
+                        paymentMethod: tx.payment_method,
+                        accountId: tx.account_id,
+                        counterpartyId: tx.counterparty_id
+                    });
+                    if (!target) continue;
+                    stats.by_target[target] = (stats.by_target[target] || 0) + 1;
+                    if (normalizeCategoryName(tx.category_override) === normalizeCategoryName(target)) continue;
+                    await client.query('UPDATE transactions SET category_override = $1 WHERE id = $2', [target, tx.id]);
+                    stats.updated += 1;
+                }
+            });
+            const io = req.app.get('io');
+            if (io) io.emit('finance_updated');
+            await auditLog(pool, req, 'finance_reclassify_technical_wild', 'transaction', null, `updated=${Number(stats.updated || 0)}; scanned=${Number(stats.scanned || 0)}; reason=${reason}`);
+            res.json({ success: true, ...stats });
+        } catch (err) {
+            logger.error('[API] Error in POST /api/finance/reclassify-technical-wild:', err);
+            res.status(500).json({ error: 'Не удалось переклассифицировать технические операции' });
+        }
+    });
+
+    router.get('/api/finance/audit-income-categories', requireAdmin, async (req, res) => {
+        try {
+            const result = await pool.query(
+                `
+                WITH tx AS (
+                    SELECT id,
+                           amount,
+                           description,
+                           transaction_date,
+                           COALESCE(NULLIF(TRIM(category_override), ''), TRIM(category)) AS eff_category
+                    FROM transactions
+                    WHERE COALESCE(is_deleted, false) = false
+                      AND transaction_type = 'income'
+                )
+                SELECT tx.eff_category AS category,
+                       tc.type AS dict_type,
+                       COUNT(*)::int AS cnt,
+                       COALESCE(SUM(tx.amount), 0)::text AS total_amount
+                FROM tx
+                LEFT JOIN transaction_categories tc
+                  ON LOWER(TRIM(tc.name)) = LOWER(TRIM(tx.eff_category))
+                WHERE tx.eff_category IS NOT NULL AND tx.eff_category <> ''
+                GROUP BY tx.eff_category, tc.type
+                HAVING COALESCE(tc.type, 'income') <> 'income'
+                ORDER BY cnt DESC, tx.eff_category
+            `
+            );
+            const rows = result.rows || [];
+            const expected_system = [];
+            const problematic = [];
+            for (const r of rows) {
+                if (isBidirectionalSystemCategory(r.category)) expected_system.push(r);
+                else problematic.push(r);
+            }
+            res.json({
+                success: true,
+                mismatches: rows,
+                problematic,
+                expected_system
+            });
+        } catch (err) {
+            logger.error('[API] Error in GET /api/finance/audit-income-categories:', err);
+            res.status(500).json({ error: 'Не удалось получить аудит статей доходов' });
+        }
+    });
+
+    router.post('/api/finance/reclassify-income-suspicious', requireAdmin, async (req, res) => {
+        const reason = String((req.body || {}).reason || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину нормализации доходов' });
+        try {
+            const stats = { scanned: 0, updated: 0, skipped_system: 0, unchanged: 0 };
+            await withTransaction(pool, async (client) => {
+                await ensureIncomeCategories(client);
+                const listRes = await client.query(
+                    `
+                    SELECT t.id, t.category, t.category_override, t.description, t.payment_method
+                    FROM transactions t
+                    WHERE COALESCE(t.is_deleted, false) = false
+                      AND t.transaction_type = 'income'
+                `
+                );
+                stats.scanned = listRes.rows.length;
+                for (const tx of listRes.rows) {
+                    const current = tx.category_override || tx.category;
+                    if (isBidirectionalSystemCategory(current)) {
+                        stats.skipped_system += 1;
+                        continue;
+                    }
+                    const next = resolveIncomeCategoryByContext({
+                        category: current,
+                        description: tx.description,
+                        paymentMethod: tx.payment_method
+                    });
+                    if (!next || normalizeCategoryName(next) === normalizeCategoryName(current)) {
+                        stats.unchanged += 1;
+                        continue;
+                    }
+                    await ensureCategoryExists(client, next, 'income', null, null);
+                    await client.query('UPDATE transactions SET category_override = $1 WHERE id = $2', [next, tx.id]);
+                    stats.updated += 1;
+                }
+            });
+            const io = req.app.get('io');
+            if (io) io.emit('finance_updated');
+            await auditLog(pool, req, 'finance_reclassify_income_suspicious', 'transaction', null, `updated=${Number(stats.updated || 0)}; scanned=${Number(stats.scanned || 0)}; reason=${reason}`);
+            res.json({ success: true, ...stats });
+        } catch (err) {
+            logger.error('[API] Error in POST /api/finance/reclassify-income-suspicious:', err);
+            res.status(500).json({ error: 'Не удалось переклассифицировать доходные статьи' });
+        }
+    });
+
+    router.get('/api/finance/audit-expense-categories', requireAdmin, async (req, res) => {
+        try {
+            const result = await pool.query(
+                `
+                WITH tx AS (
+                    SELECT id,
+                           amount,
+                           description,
+                           transaction_date,
+                           COALESCE(NULLIF(TRIM(category_override), ''), TRIM(category)) AS eff_category
+                    FROM transactions
+                    WHERE COALESCE(is_deleted, false) = false
+                      AND transaction_type = 'expense'
+                )
+                SELECT tx.eff_category AS category,
+                       tc.type AS dict_type,
+                       COUNT(*)::int AS cnt,
+                       COALESCE(SUM(tx.amount), 0)::text AS total_amount
+                FROM tx
+                LEFT JOIN transaction_categories tc
+                  ON LOWER(TRIM(tc.name)) = LOWER(TRIM(tx.eff_category))
+                WHERE tx.eff_category IS NOT NULL AND tx.eff_category <> ''
+                GROUP BY tx.eff_category, tc.type
+                HAVING COALESCE(tc.type, 'expense') <> 'expense'
+                ORDER BY cnt DESC, tx.eff_category
+            `
+            );
+            const rows = result.rows || [];
+            const expected_system = [];
+            const problematic = [];
+            for (const r of rows) {
+                if (isBidirectionalSystemCategory(r.category)) expected_system.push(r);
+                else problematic.push(r);
+            }
+            const wildRes = await pool.query(
+                `
+                WITH tx AS (
+                    SELECT COALESCE(NULLIF(TRIM(category_override), ''), TRIM(category)) AS eff_category
+                    FROM transactions
+                    WHERE COALESCE(is_deleted, false) = false
+                      AND transaction_type = 'expense'
+                )
+                SELECT eff_category AS category, COUNT(*)::int AS cnt
+                FROM tx
+                WHERE eff_category IS NOT NULL AND eff_category <> ''
+                  AND NOT EXISTS (
+                      SELECT 1 FROM transaction_categories tc
+                      WHERE LOWER(TRIM(tc.name)) = LOWER(TRIM(tx.eff_category))
+                  )
+                GROUP BY eff_category
+                ORDER BY cnt DESC, eff_category
+            `
+            );
+            res.json({
+                success: true,
+                mismatches: rows,
+                problematic,
+                expected_system,
+                wild: wildRes.rows || []
+            });
+        } catch (err) {
+            logger.error('[API] Error in GET /api/finance/audit-expense-categories:', err);
+            res.status(500).json({ error: 'Не удалось получить аудит статей расходов' });
+        }
+    });
+
+    router.post('/api/finance/reclassify-expense-suspicious', requireAdmin, async (req, res) => {
+        const reason = String((req.body || {}).reason || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину нормализации расходов' });
+        try {
+            const stats = { scanned: 0, updated: 0, skipped_system: 0, unchanged: 0 };
+            await withTransaction(pool, async (client) => {
+                await ensureExpenseCategories(client);
+                const listRes = await client.query(
+                    `
+                    SELECT t.id, t.category, t.category_override, t.description, t.payment_method
+                    FROM transactions t
+                    WHERE COALESCE(t.is_deleted, false) = false
+                      AND t.transaction_type = 'expense'
+                `
+                );
+                stats.scanned = listRes.rows.length;
+                for (const tx of listRes.rows) {
+                    const current = tx.category_override || tx.category;
+                    if (isBidirectionalSystemCategory(current)) {
+                        stats.skipped_system += 1;
+                        continue;
+                    }
+                    const next = resolveExpenseCategoryByContext({
+                        category: current,
+                        description: tx.description,
+                        paymentMethod: tx.payment_method
+                    });
+                    if (!next || normalizeCategoryName(next) === normalizeCategoryName(current)) {
+                        stats.unchanged += 1;
+                        continue;
+                    }
+                    await ensureCategoryExists(client, next, 'expense', null, null);
+                    await client.query('UPDATE transactions SET category_override = $1 WHERE id = $2', [next, tx.id]);
+                    stats.updated += 1;
+                }
+            });
+            const io = req.app.get('io');
+            if (io) io.emit('finance_updated');
+            await auditLog(pool, req, 'finance_reclassify_expense_suspicious', 'transaction', null, `updated=${Number(stats.updated || 0)}; scanned=${Number(stats.scanned || 0)}; reason=${reason}`);
+            res.json({ success: true, ...stats });
+        } catch (err) {
+            logger.error('[API] Error in POST /api/finance/reclassify-expense-suspicious:', err);
+            res.status(500).json({ error: 'Не удалось переклассифицировать расходные статьи' });
+        }
+    });
+
     // ==========================================
     // 9. ФАЙЛЫ, ЧЕКИ И АНАЛИТИКА СЕБЕСТОИМОСТИ
     // ==========================================
@@ -1853,6 +3176,8 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     }
 
     router.delete('/api/transactions/:id/receipt', requireAdmin, async (req, res) => {
+        const reason = String((req.query || {}).reason || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину удаления чека' });
         try {
             const transRes = await pool.query('SELECT receipt_url FROM transactions WHERE id = $1', [req.params.id]);
             if (transRes.rows.length > 0 && transRes.rows[0].receipt_url) {
@@ -1862,6 +3187,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 });
             }
             await pool.query('UPDATE transactions SET receipt_url = NULL WHERE id = $1', [req.params.id]);
+            await auditLog(pool, req, 'transaction_receipt_delete', 'transaction', Number(req.params.id), `reason=${reason}`);
             res.json({ success: true, message: 'Чек удален с сервера' });
         } catch (err) {
             logger.error(err);
@@ -1932,6 +3258,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
             // 🚀 2. НОВОЕ: Считаем сдельную зарплату цеха из Табеля (Прямые затраты)
             // 3. Берем вႁе ႈаႁходные платежи и ႁклеиваем с МАТРИЦЕИ ႐ТАТЕИ
+            const effectiveGroupSql = getEffectiveCostGroupSql('t', 'tc', 'tc_override', 'opex');
             const expensesRes = await pool.query(`
                 SELECT 
                     t.id,
@@ -1943,13 +3270,13 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     c.name as counterparty_name,
                     TO_CHAR(t.transaction_date, 'DD.MM.YYYY') as date,
                     t.cost_group_override,
-                    COALESCE(tc_override.cost_group, tc.cost_group) as matrix_cost_group
+                    ${effectiveGroupSql} as matrix_cost_group
                 FROM transactions t
                 LEFT JOIN transaction_categories tc ON t.category = tc.name
                 LEFT JOIN transaction_categories tc_override ON t.category_override = tc_override.name
                 LEFT JOIN counterparties c ON t.counterparty_id = c.id
                 WHERE t.transaction_type = 'expense'
-                  AND t.category != 'Перевод'
+                  AND NOT (${getTransferCategoryPredicateSql('t')})
                   AND (t.is_deleted IS NULL OR t.is_deleted = false)
                   AND (($1::timestamp IS NULL) OR (t.transaction_date >= $1::timestamp))
                   AND (($2::timestamp IS NULL) OR (t.transaction_date < ($2::timestamp + interval '1 day')))
@@ -1976,9 +3303,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 // 4. Expense без группы → capex (карантин)
 
                 const originalCategory = t.original_category || t.category;
-                let mappedGroup = t.cost_group_override || t.matrix_cost_group;
-                if (mappedGroup === 'overhead') mappedGroup = 'opex';
-                if (mappedGroup === 'capital') mappedGroup = 'capex';
+                const mappedGroup = ensureCanonicalCostGroup(t.matrix_cost_group, 'capex');
 
                 if (mappedGroup && ['direct', 'opex', 'capex'].includes(mappedGroup)) {
                     grp = mappedGroup;
@@ -2042,7 +3367,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             `);
 
             const expRes = await pool.query(`
-                SELECT amount, date as expected_date 
+                SELECT (amount - COALESCE(amount_paid, 0))::numeric AS amount, date AS expected_date
                 FROM planned_expenses WHERE status = 'pending'
             `);
 
@@ -2103,7 +3428,8 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
         let params = [start, end];
         let where = "WHERE COALESCE(t.is_deleted, false) = false ";
-        where += "AND t.category NOT IN ('Корректировка долга', 'Перевод', 'Ввод остатков', 'Ввод начальных остатков', 'Техническая проводка', 'Взнос учредителя', 'Получение займов') ";
+        where += `AND NOT (${getTransferCategoryPredicateSql('t')}) `;
+        where += "AND t.category NOT IN ('Корректировка Баланса', 'Корректировка долга', 'Перевод', 'Ввод остатков', 'Ввод начальных остатков', 'Техническая проводка', 'Взнос учредителя', 'Получение займов') ";
         where += "AND t.transaction_date >= $1 AND t.transaction_date <= $2";
 
         try {
@@ -2290,29 +3616,46 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         try {
             // --- «Ожидаемые поступления» (дашборд) = КОНТРАКТНЫЙ долг по client_orders: Σ max(0, total_amount - paid_amount), без cancel.
             // --- «Реальные долги» в Финансах: GET /api/invoices (позиция заказа) = стоимость ОТГРУЗКИ − оплаты (см. order_line_totals там).
+            // «Ожидаемые поступления» дашборда = контрактный долг: total_amount − paid_amount > 0.
+            // Фильтр cp_balance намеренно убран: предоплатные клиенты (cp_balance < 0)
+            // обязаны отображаться, пока есть непогашенный остаток по контракту.
             const arRes = await pool.query(`
-                SELECT COALESCE(SUM(
-                    GREATEST(0, COALESCE(o.total_amount, 0) - COALESCE(o.paid_amount, 0))
-                ), 0)::numeric AS total_debt
-                FROM client_orders o
-                WHERE o.status IS DISTINCT FROM 'cancelled'
+                WITH order_contract_due AS (
+                    SELECT
+                        o.counterparty_id,
+                        GREATEST(0, COALESCE(o.total_amount, 0) - COALESCE(o.paid_amount, 0))::numeric AS pending_debt
+                    FROM client_orders o
+                    WHERE o.status IS DISTINCT FROM 'cancelled'
+                )
+                SELECT COALESCE(SUM(ocd.pending_debt), 0)::numeric AS total_debt
+                FROM order_contract_due ocd
+                WHERE ocd.pending_debt > 0.005
             `);
             const totalAr = arRes.rows[0].total_debt || 0;
 
             const arListRes = await pool.query(`
+                WITH order_contract_due AS (
+                    SELECT
+                        o.id,
+                        o.doc_number,
+                        o.counterparty_id,
+                        o.created_at,
+                        GREATEST(0, COALESCE(o.total_amount, 0) - COALESCE(o.paid_amount, 0))::numeric AS pending_debt
+                    FROM client_orders o
+                    WHERE o.status IS DISTINCT FROM 'cancelled'
+                )
                 SELECT
-                    o.id,
-                    o.doc_number,
+                    ocd.id,
+                    ocd.doc_number,
                     c.name AS counterparty_name,
-                    GREATEST(0, COALESCE(o.total_amount, 0) - COALESCE(o.paid_amount, 0))::numeric AS pending_debt,
-                    TO_CHAR(o.created_at, 'DD.MM.YYYY') AS date,
-                    o.created_at,
+                    ocd.pending_debt,
+                    TO_CHAR(ocd.created_at, 'DD.MM.YYYY') AS date,
+                    ocd.created_at,
                     true AS is_order
-                FROM client_orders o
-                JOIN counterparties c ON o.counterparty_id = c.id
-                WHERE o.status IS DISTINCT FROM 'cancelled'
-                  AND (COALESCE(o.total_amount, 0) - COALESCE(o.paid_amount, 0)) > 0.005
-                ORDER BY o.created_at DESC
+                FROM order_contract_due ocd
+                JOIN counterparties c ON ocd.counterparty_id = c.id
+                WHERE ocd.pending_debt > 0.005
+                ORDER BY ocd.created_at DESC
                 LIMIT 5
             `);
             // 2. Умный расчет дефицита (Свободный остаток < Порог)
