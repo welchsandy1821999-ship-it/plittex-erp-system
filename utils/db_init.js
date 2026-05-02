@@ -70,6 +70,20 @@ async function initSystemTables(pool) {
         await pool.query(`CREATE INDEX IF NOT EXISTS idx_report_runs_preflight ON report_runs(preflight_status, generated_at DESC)`);
         await pool.query(`CREATE INDEX IF NOT EXISTS idx_report_runs_payload_hash ON report_runs(payload_hash)`);
 
+        // === EPIC-4: Performance indexes (migration 007) ===
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_tx_counterparty ON transactions(counterparty_id)`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_tx_cp_type ON transactions(counterparty_id, transaction_type) WHERE COALESCE(is_deleted, false) = false`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_tx_linked_order ON transactions(linked_order_id) WHERE linked_order_id IS NOT NULL`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_tx_category ON transactions(category)`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_tx_not_deleted ON transactions(transaction_date, transaction_type) WHERE COALESCE(is_deleted, false) = false`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_inv_mov_supplier ON inventory_movements(supplier_id) WHERE supplier_id IS NOT NULL`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_inv_mov_type ON inventory_movements(movement_type)`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_inv_mov_item ON inventory_movements(item_id)`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_co_counterparty ON client_orders(counterparty_id)`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_co_status ON client_orders(status)`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_timesheet_date ON timesheet_records(record_date)`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_txcat_name ON transaction_categories(name)`);
+
         // Миграция: поле default_layer в items — единая точка истины для авто-суггестии слоя при добавлении сырья
         await pool.query(`ALTER TABLE items ADD COLUMN IF NOT EXISTS default_layer VARCHAR(20) DEFAULT 'main'`);
         // Предзаполнение: упаковочные материалы
