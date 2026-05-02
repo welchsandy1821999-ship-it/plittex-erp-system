@@ -8,13 +8,19 @@ let bot = null;
 
 // Инициализируем бота только если есть токен
 if (token) {
-    bot = new TelegramBot(token, { polling: true });
-    logger.info('Telegram-бот запущен в интерактивном режиме');
+    bot = new TelegramBot(token, {
+        polling: {
+            interval: 300,
+            autoStart: true,
+            params: { timeout: 10 }
+        }
+    });
+    logger.info('Telegram-бот запущен в интерактивном режиме (polling: interval=300ms, long-poll timeout=10s).');
 
-    // === БЛОК ПЕРЕХВАТА СЕТЕВЫХ ОШИБОК ===
-    // Перехватываем ошибки поллинга (EFATAL и т.д.), чтобы они не засоряли лог поллинга
-    bot.on('polling_error', () => {
-        // Восстановление соединения бот выполняет сам; при нужде — временно включить logger.debug здесь.
+    bot.on('polling_error', (error) => {
+        const code = error && error.code !== undefined ? error.code : 'n/a';
+        const msg = error && error.message ? error.message : String(error);
+        logger.warn(`[TG] polling_error code=${code} ${msg}`);
     });
 
     // Перехват общих критических ошибок бота
