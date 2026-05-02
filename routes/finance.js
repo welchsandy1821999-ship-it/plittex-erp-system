@@ -3184,22 +3184,22 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             const result = await pool.query(`
                 SELECT 
                     o.doc_number,
-                    o.total_amount as revenue,
                     c.name as client_name,
                     o.created_at,
+                    o.total_amount as order_total,
+                    COALESCE(SUM(ABS(m.quantity) * coi.price), 0) as revenue,
                     COALESCE(SUM(
-                        ABS(m.quantity) * COALESCE(recipe_data.recipe_cost, i.current_price, 0)
+                        ABS(m.quantity) * COALESCE(recipe_data.recipe_cost, 0)
                     ), 0) as material_cost
                 FROM client_orders o
                 JOIN counterparties c ON o.counterparty_id = c.id
                 LEFT JOIN client_order_items coi ON coi.order_id = o.id
                 LEFT JOIN inventory_movements m ON m.linked_order_item_id = coi.id AND m.movement_type = 'sales_shipment'
-                LEFT JOIN items i ON m.item_id = i.id
                 LEFT JOIN LATERAL (
                     SELECT SUM(r.quantity_per_unit * ri_i.current_price) as recipe_cost
                     FROM recipes r
                     JOIN items ri_i ON ri_i.id = r.material_id
-                    WHERE r.product_id = m.item_id
+                    WHERE r.product_id = (SELECT item_id FROM client_order_items WHERE id = m.linked_order_item_id)
                 ) recipe_data ON true
                 WHERE o.status = 'completed'
                 GROUP BY o.id, o.doc_number, o.total_amount, c.name, o.created_at
@@ -3208,9 +3208,11 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             `);
 
             const data = result.rows.map(row => {
-                const profit = parseFloat(row.revenue) - parseFloat(row.material_cost);
-                const margin = row.revenue > 0 ? ((profit / row.revenue) * 100).toFixed(1) : 0;
-                return { ...row, profit, margin };
+                const revenue = parseFloat(row.revenue) || 0;
+                const materialCost = parseFloat(row.material_cost) || 0;
+                const profit = revenue - materialCost;
+                const margin = revenue > 0 ? ((profit / revenue) * 100).toFixed(1) : '0.0';
+                return { ...row, revenue, profit, margin };
             });
 
             res.json(data);
