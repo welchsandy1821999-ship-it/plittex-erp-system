@@ -3,7 +3,7 @@
  */
 const Big = require('big.js');
 const logger = require('../utils/logger');
-const { escapeHtml } = require('../utils/telegram');
+const { escapeHtml, NOTIFY_CB, getNotifySnapshot } = require('../utils/telegram');
 
 const KB = {
     REPORTS: '📊 Отчеты',
@@ -12,7 +12,6 @@ const KB = {
     REFRESH: '🔄 Обновить данные'
 };
 
-/** Тексты старого Reply-меню (дублируют SQL). */
 const LEGACY = {
     BALANCE: '💰 Баланс кассы',
     CEMENT: '📦 Остаток цемента',
@@ -23,9 +22,19 @@ const CB = {
     REPORT_SALES: 'tg:r:sales',
     REPORT_CEMENT: 'tg:r:cement',
     REPORT_ORDERS: 'tg:r:orders',
+    REPORT_MENU: 'tg:r:back',
+
     FIN_BALANCE: 'tg:f:balance',
-    WH_CEMENT: 'tg:w:cement'
+    FIN_MENU: 'tg:f:back',
+
+    WH_CEMENT: 'tg:w:cement',
+    WH_MENU: 'tg:w:back',
+
+    /** Повторная отправка подсказки главного Reply-меню (без сообщения нельзя «показать» клавиатуру). */
+    REPLY_MAIN_REFRESH: 'tg:ui:main'
 };
+
+const SEARCH_MIN_LENGTH = 2;
 
 function mainReplyKeyboard() {
     return {
@@ -35,6 +44,49 @@ function mainReplyKeyboard() {
         ],
         resize_keyboard: true
     };
+}
+
+function mainMenuInlineFooter() {
+    return [{ text: '🏠 Нижнее меню…', callback_data: CB.REPLY_MAIN_REFRESH }];
+}
+
+function reportsMenuMarkup() {
+    return {
+        inline_keyboard: [
+            [{ text: 'Продажи за сегодня', callback_data: CB.REPORT_SALES }],
+            [{ text: 'Остатки цемента', callback_data: CB.REPORT_CEMENT }],
+            [{ text: 'Заказы в работе', callback_data: CB.REPORT_ORDERS }],
+            mainMenuInlineFooter()
+        ]
+    };
+}
+
+function financeMenuMarkup() {
+    return {
+        inline_keyboard: [[{ text: 'Баланс кассы и счетов', callback_data: CB.FIN_BALANCE }], mainMenuInlineFooter()]
+    };
+}
+
+function warehouseMenuMarkup() {
+    return {
+        inline_keyboard: [[{ text: 'Остатки цемента', callback_data: CB.WH_CEMENT }], mainMenuInlineFooter()]
+    };
+}
+
+function backToReportsRow() {
+    return [{ text: '⬅️ Назад в меню отчётов', callback_data: CB.REPORT_MENU }];
+}
+
+function backToFinanceRow() {
+    return [{ text: '⬅️ Назад в меню финансов', callback_data: CB.FIN_MENU }];
+}
+
+function backToWarehouseRow() {
+    return [{ text: '⬅️ Назад в меню склада', callback_data: CB.WH_MENU }];
+}
+
+function notifyBackRow() {
+    return [{ text: '⬅️ Назад к уведомлению', callback_data: NOTIFY_CB.NOTIFY_BACK }];
 }
 
 async function buildBalanceMessage(pool) {
@@ -89,6 +141,69 @@ async function buildOrdersInWorkMessage(pool) {
 }
 
 /**
+ * Упрощённый взаиморасчёт по логике checkout (sales).
+ */
+async function buildCounterpartyBalanceMessage(pool, row) {
+    const cpId = row.id;
+    const name = escapeHtml(row.name);
+    const balRes = await pool.query(
+        `
+        SELECT
+            (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders WHERE counterparty_id = $1 AND status = 'completed') as our_shipments,
+            (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = $1 AND transaction_type = 'expense' AND COALESCE(is_deleted, false) = false) as our_payments,
+            (SELECT COALESCE(SUM(amount), 0) FROM inventory_movements WHERE supplier_id = $1 AND movement_type = 'purchase') as their_shipments,
+            (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = $1 AND transaction_type = 'income' AND COALESCE(is_deleted, false) = false) as their_payments
+    `,
+        [cpId]
+    );
+    const b = balRes.rows[0];
+    const realBalance = new Big(b.our_shipments).plus(b.our_payments).minus(b.their_shipments).minus(b.their_payments);
+    const debtRes = await pool.query(
+        `SELECT COALESCE(SUM(pending_debt), 0) as d FROM client_orders WHERE counterparty_id = $1 AND status NOT IN ('cancelled','returned')`,
+        [cpId]
+    );
+    const pendDebt = new Big(debtRes.rows[0]?.d || 0);
+    return (
+        `<b>👤 ${name}</b> (контрагент)\n\n` +
+        `Взаиморасчёт: <b>${Number(realBalance.toFixed(2)).toLocaleString()} ₽</b>\n` +
+        `(исходящая отгрузка и расход минус входящая оплата и закупки)\n\n` +
+        `Суммарный <b>pending_debt</b> по неотменённым заказам: <b>${Number(pendDebt.toFixed(2)).toLocaleString()} ₽</b>`
+    );
+}
+
+function sanitizeSearch(text) {
+    return String(text)
+        .replace(/\\/g, '')
+        .replace(/%/g, '')
+        .replace(/_/g, '')
+        .trim();
+}
+
+async function lookupCounterpartyByText(pool, rawText) {
+    const q = sanitizeSearch(rawText);
+    if (q.length < SEARCH_MIN_LENGTH) return { kind: 'short' };
+
+    const res = await pool.query(
+        `SELECT id, name FROM counterparties
+         WHERE COALESCE(is_deleted,false) = false AND name ILIKE $1
+         ORDER BY LENGTH(name) ASC, name ASC LIMIT 8`,
+        [`%${q}%`]
+    );
+    const rows = res.rows;
+    if (rows.length === 0) return { kind: 'none' };
+    if (rows.length > 1) {
+        let m = `<b>По запросу «${escapeHtml(q)}» найдено ${rows.length} контрагента:</b>\n`;
+        rows.forEach((r) => {
+            m += `\n• ${escapeHtml(r.name)}`;
+        });
+        m += `\n\n<i>Уточните текст, чтобы остался один результат.</i>`;
+        return { kind: 'many', html: m };
+    }
+    const html = await buildCounterpartyBalanceMessage(pool, rows[0]);
+    return { kind: 'one', html };
+}
+
+/**
  * @param {import('node-telegram-bot-api')} bot
  * @param {import('pg').Pool} pool
  * @param {string|number|null|undefined} authorizedChatId
@@ -108,6 +223,38 @@ module.exports = function registerTelegramMessageHandlers(bot, pool, authorizedC
         }
     }
 
+    async function safeEditMessageText(chatId, messageId, htmlText, markup) {
+        const opts = {
+            chat_id: chatId,
+            message_id: messageId,
+            parse_mode: 'HTML',
+            ...(markup !== undefined ? { reply_markup: markup } : {})
+        };
+        try {
+            await bot.editMessageText(htmlText, opts);
+        } catch (e) {
+            const raw = `${e.response && e.response.body ? JSON.stringify(e.response.body) : ''} ${e.message || ''}`;
+            if (/message is not modified|MESSAGE_NOT_MODIFIED/i.test(raw)) {
+                return;
+            }
+            throw e;
+        }
+    }
+
+    function isReservedButtonOrCommand(t) {
+        if (!t) return true;
+        if (t.startsWith('/')) return true;
+        return (
+            t === KB.REPORTS ||
+            t === KB.FINANCE ||
+            t === KB.WAREHOUSE ||
+            t === KB.REFRESH ||
+            t === LEGACY.BALANCE ||
+            t === LEGACY.CEMENT ||
+            t === LEGACY.SALES_TODAY
+        );
+    }
+
     bot.on('message', async (msg) => {
         const currentChatId = msg.chat.id;
         if (!authorizedChat(currentChatId)) return;
@@ -124,31 +271,21 @@ module.exports = function registerTelegramMessageHandlers(bot, pool, authorizedC
         if (text === KB.REPORTS) {
             return bot.sendMessage(currentChatId, '📊 <b>Отчёты</b>\nВыберите:', {
                 parse_mode: 'HTML',
-                reply_markup: {
-                    inline_keyboard: [
-                        [{ text: 'Продажи за сегодня', callback_data: CB.REPORT_SALES }],
-                        [{ text: 'Остатки цемента', callback_data: CB.REPORT_CEMENT }],
-                        [{ text: 'Заказы в работе', callback_data: CB.REPORT_ORDERS }]
-                    ]
-                }
+                reply_markup: reportsMenuMarkup()
             });
         }
 
         if (text === KB.FINANCE) {
             return bot.sendMessage(currentChatId, '💰 <b>Финансы</b>\nВыберите:', {
                 parse_mode: 'HTML',
-                reply_markup: {
-                    inline_keyboard: [[{ text: 'Баланс кассы и счетов', callback_data: CB.FIN_BALANCE }]]
-                }
+                reply_markup: financeMenuMarkup()
             });
         }
 
         if (text === KB.WAREHOUSE) {
             return bot.sendMessage(currentChatId, '🏗 <b>Склад</b>\nВыберите:', {
                 parse_mode: 'HTML',
-                reply_markup: {
-                    inline_keyboard: [[{ text: 'Остатки цемента', callback_data: CB.WH_CEMENT }]]
-                }
+                reply_markup: warehouseMenuMarkup()
             });
         }
 
@@ -188,41 +325,153 @@ module.exports = function registerTelegramMessageHandlers(bot, pool, authorizedC
             }
         }
 
-        return bot.sendMessage(currentChatId, 'ℹ️ Неизвестная команда. Откройте главное меню:', {
+        if (!isReservedButtonOrCommand(text)) {
+            try {
+                const lookup = await lookupCounterpartyByText(pool, text);
+                if (lookup.kind === 'short') {
+                    return bot.sendMessage(currentChatId, '⌨️ Команда не распознана. Откройте главное меню:', {
+                        reply_markup: mainReplyKeyboard()
+                    });
+                }
+                if (lookup.kind === 'none') {
+                    return bot.sendMessage(currentChatId, '⌨️ Команда не распознана.\n<i>Контрагент не найден.</i>', {
+                        parse_mode: 'HTML',
+                        reply_markup: mainReplyKeyboard()
+                    });
+                }
+                if (lookup.kind === 'many') {
+                    return bot.sendMessage(currentChatId, lookup.html, { parse_mode: 'HTML', reply_markup: mainReplyKeyboard() });
+                }
+                return bot.sendMessage(currentChatId, lookup.html, { parse_mode: 'HTML' });
+            } catch (e) {
+                logger.warn(`[TG] lookup: ${e.message || e}`);
+                return bot.sendMessage(currentChatId, '❌ Ошибка поиска', { reply_markup: mainReplyKeyboard() });
+            }
+        }
+
+        return bot.sendMessage(currentChatId, '⌨️ Команда не распознана.', {
             reply_markup: mainReplyKeyboard()
         });
     });
 
     bot.on('callback_query', async (cq) => {
         const chatId = cq.message?.chat?.id;
-        if (chatId == null || !authorizedChat(chatId)) return;
+        const messageId = cq.message?.message_id;
+        if (chatId == null || messageId == null || !authorizedChat(chatId)) return;
 
         const data = cq.data || '';
         const qid = cq.id;
 
-        const map = {
-            [CB.REPORT_SALES]: () => buildSalesTodayMessage(pool),
-            [CB.REPORT_CEMENT]: () => buildCementMessage(pool),
-            [CB.REPORT_ORDERS]: () => buildOrdersInWorkMessage(pool),
-            [CB.FIN_BALANCE]: () => buildBalanceMessage(pool),
-            [CB.WH_CEMENT]: () => buildCementMessage(pool)
-        };
-
-        const builder = map[data];
-        if (!builder) {
-            await safeAnswerCallback(qid);
-            return;
-        }
-
         try {
-            const reply = await builder();
-            await bot.sendMessage(chatId, reply, { parse_mode: 'HTML' });
+            if (data === CB.REPLY_MAIN_REFRESH) {
+                await safeAnswerCallback(qid);
+                await bot.sendMessage(chatId, '👋 Выберите раздел ниже 👇', {
+                    parse_mode: 'HTML',
+                    reply_markup: mainReplyKeyboard()
+                });
+                return;
+            }
+
+            if (data === CB.REPORT_MENU) {
+                await safeEditMessageText(
+                    chatId,
+                    messageId,
+                    '📊 <b>Отчёты</b>\nВыберите:',
+                    reportsMenuMarkup()
+                );
+                await safeAnswerCallback(qid);
+                return;
+            }
+
+            if (data === CB.FIN_MENU) {
+                await safeEditMessageText(
+                    chatId,
+                    messageId,
+                    '💰 <b>Финансы</b>\nВыберите:',
+                    financeMenuMarkup()
+                );
+                await safeAnswerCallback(qid);
+                return;
+            }
+
+            if (data === CB.WH_MENU) {
+                await safeEditMessageText(chatId, messageId, '🏗 <b>Склад</b>\nВыберите:', warehouseMenuMarkup());
+                await safeAnswerCallback(qid);
+                return;
+            }
+
+            if (data === CB.REPORT_SALES || data === CB.REPORT_CEMENT || data === CB.REPORT_ORDERS) {
+                const map = {
+                    [CB.REPORT_SALES]: buildSalesTodayMessage,
+                    [CB.REPORT_CEMENT]: buildCementMessage,
+                    [CB.REPORT_ORDERS]: buildOrdersInWorkMessage
+                };
+                const reply = await map[data](pool);
+                await safeEditMessageText(chatId, messageId, reply, {
+                    inline_keyboard: [backToReportsRow()]
+                });
+                await safeAnswerCallback(qid);
+                return;
+            }
+
+            if (data === CB.FIN_BALANCE) {
+                const reply = await buildBalanceMessage(pool);
+                await safeEditMessageText(chatId, messageId, reply, {
+                    inline_keyboard: [backToFinanceRow()]
+                });
+                await safeAnswerCallback(qid);
+                return;
+            }
+
+            if (data === CB.WH_CEMENT) {
+                const reply = await buildCementMessage(pool);
+                await safeEditMessageText(chatId, messageId, reply, {
+                    inline_keyboard: [backToWarehouseRow()]
+                });
+                await safeAnswerCallback(qid);
+                return;
+            }
+
+            if (data === NOTIFY_CB.STOCK_SUMMARY) {
+                const reply = await buildCementMessage(pool);
+                await safeEditMessageText(chatId, messageId, reply, {
+                    inline_keyboard: [notifyBackRow()]
+                });
+                await safeAnswerCallback(qid);
+                return;
+            }
+
+            if (data === NOTIFY_CB.ORDERS_OPEN) {
+                const reply = await buildOrdersInWorkMessage(pool);
+                await safeEditMessageText(chatId, messageId, reply, {
+                    inline_keyboard: [notifyBackRow()]
+                });
+                await safeAnswerCallback(qid);
+                return;
+            }
+
+            if (data === NOTIFY_CB.NOTIFY_BACK) {
+                const snap = getNotifySnapshot(chatId, messageId);
+                if (!snap || !snap.text) {
+                    await safeEditMessageText(
+                        chatId,
+                        messageId,
+                        '📭 <i>Исходный текст уведомления недоступен.</i>',
+                        { inline_keyboard: [] }
+                    );
+                } else {
+                    await safeEditMessageText(chatId, messageId, snap.text, snap.reply_markup || undefined);
+                }
+                await safeAnswerCallback(qid);
+                return;
+            }
+
             await safeAnswerCallback(qid);
         } catch (e) {
             logger.warn(`[TG] callback ${data}: ${e.message || e}`);
             await safeAnswerCallback(qid, { text: 'Ошибка', show_alert: false });
             try {
-                await bot.sendMessage(chatId, '❌ Ошибка при получении данных');
+                await bot.sendMessage(chatId, '❌ Ошибка при действии.');
             } catch (_) { /* ignore */ }
         }
     });

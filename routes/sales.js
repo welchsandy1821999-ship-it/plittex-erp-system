@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
 const Big = require('big.js');
-const { sendNotify, escapeHtml } = require('../utils/telegram');
+const { sendNotify, escapeHtml, NOTIFY_CB } = require('../utils/telegram');
 const { auditLog } = require('../utils/db_init');
 const {
     SETTLEMENT_MODES,
@@ -481,7 +481,11 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 }
             });
 
-            sendNotify(`🛒 <b>Новый заказ: ${escapeHtml(docNum)}</b>`);
+            sendNotify(`🛒 <b>Новый заказ: ${escapeHtml(docNum)}</b>`, {
+                reply_markup: {
+                    inline_keyboard: [[{ text: '📋 Заказы в работе', callback_data: NOTIFY_CB.ORDERS_OPEN }]]
+                }
+            });
             res.json({ success: true, docNum, totalAmount: finalAmount, deficitReport });
 
         } catch (err) {

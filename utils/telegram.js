@@ -6,7 +6,31 @@ const chatId = process.env.TELEGRAM_CHAT_ID;
 
 let bot = null;
 
-// Инициализируем бота только если есть токен
+/** Снимок уведомления ERP (ключ chatId:messageId): исходный HTML и разметка для «⬅️ Назад». */
+const notifyMessageSnapshots = new Map();
+const SNAP_MAX = 200;
+
+function stashNotifySnapshot(chatKey, messageKey, snapshot) {
+    while (notifyMessageSnapshots.size >= SNAP_MAX) {
+        const firstKey = notifyMessageSnapshots.keys().next().value;
+        notifyMessageSnapshots.delete(firstKey);
+    }
+    notifyMessageSnapshots.set(`${chatKey}:${messageKey}`, snapshot);
+}
+
+function getNotifySnapshot(chatId, messageId) {
+    return notifyMessageSnapshots.get(`${chatId}:${messageId}`);
+}
+
+/**
+ * Колбэки из уведомлений ERP (общие действия после списания/заказа).
+ */
+const NOTIFY_CB = {
+    STOCK_SUMMARY: 'tg:n:stk',
+    ORDERS_OPEN: 'tg:n:ord',
+    NOTIFY_BACK: 'tg:n:bk'
+};
+
 if (token) {
     bot = new TelegramBot(token, {
         polling: {
@@ -23,7 +47,6 @@ if (token) {
         logger.warn(`[TG] polling_error code=${code} ${msg}`);
     });
 
-    // Перехват общих критических ошибок бота
     bot.on('error', (error) => {
         console.error('🔴 [TG] Критическая ошибка бота:', error.message);
     });
@@ -38,12 +61,35 @@ function escapeHtml(value) {
         .replace(/>/g, '&gt;');
 }
 
-// Функция отправки уведомлений
-const sendNotify = (message) => {
-    if (!bot || !chatId) return;
-    bot.sendMessage(chatId, message, { parse_mode: 'HTML' })
-       .catch(err => console.error('ТГ Ошибка отправки:', err.message)); // Оставил только сообщение, без огромного стека
-};
+/**
+ * Уведомление в единственный авторизованный чат ERP.
+ * @param {string} message HTML-сообщение
+ * @param {{ reply_markup?: object }} [options] — см. Telegram API (inline_keyboard и т.д.)
+ * @returns {Promise<import('node-telegram-bot-api').TelegramBot.Message>|undefined}
+ */
+function sendNotify(message, options = {}) {
+    if (!bot || !chatId) return undefined;
 
-// Экспортируем и функцию, и самого бота, и твой ID
-module.exports = { sendNotify, bot, chatId, escapeHtml };
+    const payload = { parse_mode: 'HTML', ...options };
+    return bot.sendMessage(chatId, message, payload)
+        .then((sent) => {
+            const snap = {
+                text: message,
+                reply_markup: payload.reply_markup || undefined
+            };
+            stashNotifySnapshot(sent.chat.id, sent.message_id, snap);
+            return sent;
+        })
+        .catch((err) => {
+            logger.warn(`ТГ отправка уведомления: ${err.message || err}`);
+        });
+}
+
+module.exports = {
+    sendNotify,
+    bot,
+    chatId,
+    escapeHtml,
+    NOTIFY_CB,
+    getNotifySnapshot
+};
