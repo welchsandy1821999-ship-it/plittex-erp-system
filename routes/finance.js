@@ -810,83 +810,53 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
         try {
             const effectiveGroupSql = getEffectiveCostGroupSql('t', 'tc', 'tc_override', 'opex');
-            const [revenueRes, otherIncomeRes, cogsRes, opexRes, laborRes, capexRes] = await Promise.all([
-                // 💰 1. ВЫРУЧКА = income с категорией 'Продажа продукции'
+            const transferPredicate = getTransferCategoryPredicateSql('t');
+            const effectiveCatSql = `COALESCE(NULLIF(TRIM(t.category_override), ''), t.category)`;
+
+            // 🚀 EPIC-4 P2: 6 запросов → 2 (1 CTE для transactions + 1 для timesheet)
+            const [txRes, laborRes] = await Promise.all([
+                // Единый запрос: все компоненты P&L за один проход по transactions
                 pool.query(`
-                    SELECT COALESCE(SUM(amount), 0) as total
-                    FROM transactions
-                    WHERE transaction_type = 'income'
-                      AND (is_deleted IS NULL OR is_deleted = false)
-                      AND COALESCE(NULLIF(TRIM(category_override), ''), category) = 'Продажа продукции'
-                      AND transaction_date >= $1::timestamp AND transaction_date < ($2::timestamp + interval '1 day')
+                    WITH tx AS (
+                        SELECT
+                            t.amount,
+                            t.transaction_type,
+                            ${effectiveCatSql} as effective_cat,
+                            (${effectiveGroupSql}) as effective_group,
+                            (${transferPredicate}) as is_transfer
+                        FROM transactions t
+                        LEFT JOIN transaction_categories tc ON t.category = tc.name
+                        LEFT JOIN transaction_categories tc_override ON t.category_override = tc_override.name
+                        WHERE (t.is_deleted IS NULL OR t.is_deleted = false)
+                          AND t.transaction_date >= $1::timestamp AND t.transaction_date < ($2::timestamp + interval '1 day')
+                    )
+                    SELECT
+                        COALESCE(SUM(CASE WHEN transaction_type = 'income' AND effective_cat = 'Продажа продукции' THEN amount ELSE 0 END), 0) as revenue,
+                        COALESCE(SUM(CASE WHEN transaction_type = 'income' AND effective_cat != 'Продажа продукции' THEN amount ELSE 0 END), 0) as other_income,
+                        COALESCE(SUM(CASE WHEN transaction_type = 'expense' AND NOT is_transfer AND effective_group = 'direct' THEN amount ELSE 0 END), 0) as cogs,
+                        COALESCE(SUM(CASE WHEN transaction_type = 'expense' AND NOT is_transfer AND effective_group = 'opex' THEN amount ELSE 0 END), 0) as opex,
+                        COALESCE(SUM(CASE WHEN transaction_type = 'expense' AND NOT is_transfer AND effective_group NOT IN ('direct', 'opex') THEN amount ELSE 0 END), 0) as capex
+                    FROM tx
                 `, [start, end]),
 
-                // 📈 2. ДРУГИЕ ДОХОДЫ (все income КРОМЕ Продажи) — справочно
-                pool.query(`
-                    SELECT COALESCE(SUM(amount), 0) as total
-                    FROM transactions
-                    WHERE transaction_type = 'income'
-                      AND (is_deleted IS NULL OR is_deleted = false)
-                      AND COALESCE(NULLIF(TRIM(category_override), ''), category) != 'Продажа продукции'
-                      AND transaction_date >= $1::timestamp AND transaction_date < ($2::timestamp + interval '1 day')
-                `, [start, end]),
-
-                // 🧱 3. COGS = expense-транзакции в группе 'direct'
-                pool.query(`
-                    SELECT COALESCE(SUM(t.amount), 0) as total
-                    FROM transactions t
-                    LEFT JOIN transaction_categories tc ON t.category = tc.name
-                    LEFT JOIN transaction_categories tc_override ON t.category_override = tc_override.name
-                    WHERE t.transaction_type = 'expense'
-                      AND NOT (${getTransferCategoryPredicateSql('t')})
-                      AND (t.is_deleted IS NULL OR t.is_deleted = false)
-                      AND (${effectiveGroupSql}) = 'direct'
-                      AND t.transaction_date >= $1::timestamp AND t.transaction_date < ($2::timestamp + interval '1 day')
-                `, [start, end]),
-
-                // 📉 4. OPEX = expense-транзакции в группе 'opex'
-                pool.query(`
-                    SELECT COALESCE(SUM(t.amount), 0) as total
-                    FROM transactions t
-                    LEFT JOIN transaction_categories tc ON t.category = tc.name
-                    LEFT JOIN transaction_categories tc_override ON t.category_override = tc_override.name
-                    WHERE t.transaction_type = 'expense'
-                      AND NOT (${getTransferCategoryPredicateSql('t')})
-                      AND (t.is_deleted IS NULL OR t.is_deleted = false)
-                      AND (${effectiveGroupSql}) = 'opex'
-                      AND t.transaction_date >= $1::timestamp AND t.transaction_date < ($2::timestamp + interval '1 day')
-                `, [start, end]),
-
-                // 🛝 5. ФОТ (Справочно, метод начисления из Табеля)
+                // ФОТ (отдельная таблица — нельзя объединить с transactions)
                 pool.query(`
                     SELECT COALESCE(SUM(
                         COALESCE(bonus, 0) + COALESCE(custom_rate, 0) - COALESCE(penalty, 0)
                     ), 0) as total
                     FROM timesheet_records
                     WHERE record_date >= $1::timestamp AND record_date < ($2::timestamp + interval '1 day')
-                `, [start, end]),
-
-                // 🏗️ 6. CAPEX = expense-транзакции, не direct и не opex
-                pool.query(`
-                    SELECT COALESCE(SUM(t.amount), 0) as total
-                    FROM transactions t
-                    LEFT JOIN transaction_categories tc ON t.category = tc.name
-                    LEFT JOIN transaction_categories tc_override ON t.category_override = tc_override.name
-                    WHERE t.transaction_type = 'expense'
-                      AND NOT (${getTransferCategoryPredicateSql('t')})
-                      AND (t.is_deleted IS NULL OR t.is_deleted = false)
-                      AND (${effectiveGroupSql}) NOT IN ('direct', 'opex')
-                      AND t.transaction_date >= $1::timestamp AND t.transaction_date < ($2::timestamp + interval '1 day')
                 `, [start, end])
             ]);
 
             // 🧮 МАТЕМАТИКА P&L (Big.js для точности до копеек)
-            const revenue = new Big(Number(revenueRes.rows[0].total));
-            const otherIncome = new Big(Number(otherIncomeRes.rows[0].total));
+            const r = txRes.rows[0];
+            const revenue = new Big(Number(r.revenue));
+            const otherIncome = new Big(Number(r.other_income));
 
-            const cogs = new Big(Number(cogsRes.rows[0].total));
-            const opex = new Big(Number(opexRes.rows[0].total));
-            const capex = new Big(Number(capexRes.rows[0].total));
+            const cogs = new Big(Number(r.cogs));
+            const opex = new Big(Number(r.opex));
+            const capex = new Big(Number(r.capex));
             const labor = new Big(Number(laborRes.rows[0].total)).abs();
 
             const totalExpenses = cogs.plus(opex).plus(capex);
