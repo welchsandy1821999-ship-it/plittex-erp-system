@@ -166,15 +166,14 @@ window.loadCostConstructor = async function () {
         tabEl.classList.remove('tab-active');
         container.classList.add('collapsed-panel');
         if (wrapper) {
-            wrapper.style.borderTop = 'none';
-            wrapper.style.borderLeft = 'none';
-            wrapper.style.borderRight = 'none';
-            wrapper.style.borderBottom = 'none';
+            wrapper.style.setProperty('--dash-drill-border', 'transparent');
         }
         if (gridContainer) {
             gridContainer.classList.remove('active-drilldown');
             gridContainer.style.removeProperty('--active-border-color');
         }
+        document.querySelectorAll('.dash-drill-panel-card').forEach((pc) => pc.style.removeProperty('--dash-panel-accent'));
+        container.style.setProperty('--dash-tab-offset', '0%');
         ccCurrentGroup = null;
         ccCurrentCategory = null;
         return;
@@ -186,15 +185,12 @@ window.loadCostConstructor = async function () {
 
     container.classList.remove('collapsed-panel');
     const offset = -(tabIndex * 33.333333);
-    container.style.transform = `translateX(${offset}%)`;
+    container.style.setProperty('--dash-tab-offset', `${offset}%`);
 
-    // 🎨 Цветовая синхронизация: Красим окно Drilldown (полная обводка)
+    // 🎨 Цветовая синхронизация: переменная границы контейнера + панелей
     const color = tabColors[groupId];
     if (wrapper) {
-        wrapper.style.borderTop = `1.5px solid ${color}`;
-        wrapper.style.borderLeft = `1.5px solid ${color}`;
-        wrapper.style.borderRight = `1.5px solid ${color}`;
-        wrapper.style.borderBottom = `1.5px solid ${color}`;
+        wrapper.style.setProperty('--dash-drill-border', color);
     }
 
     if (gridContainer) {
@@ -202,9 +198,8 @@ window.loadCostConstructor = async function () {
         gridContainer.style.setProperty('--active-border-color', color);
     }
 
-    // Красим верхнюю рамку внутренних панелей 
-    document.querySelectorAll('.tab-panel .card').forEach(panelCard => {
-        panelCard.style.borderColor = color;
+    document.querySelectorAll('.dash-drill-panel-card').forEach((panelCard) => {
+        panelCard.style.setProperty('--dash-panel-accent', color);
     });
 
     ccCurrentGroup = groupId;
@@ -237,17 +232,20 @@ window.closeCostTabs = function () {
     const container = document.getElementById('dashboard-tabs-content');
     if (container) {
         container.classList.add('collapsed-panel');
-        if (container.parentElement) {
-            container.parentElement.style.borderTop = 'none';
-            container.parentElement.style.borderLeft = 'none';
-            container.parentElement.style.borderRight = 'none';
-            container.parentElement.style.borderBottom = 'none';
+        const wrap = container.parentElement;
+        if (wrap) {
+            wrap.style.setProperty('--dash-drill-border', 'transparent');
         }
     }
     const gridContainer = document.querySelector('.cost-triad-grid');
     if (gridContainer) {
         gridContainer.classList.remove('active-drilldown');
         gridContainer.style.removeProperty('--active-border-color');
+    }
+
+    document.querySelectorAll('.dash-drill-panel-card').forEach((pc) => pc.style.removeProperty('--dash-panel-accent'));
+    if (container) {
+        container.style.setProperty('--dash-tab-offset', '0%');
     }
 
     document.querySelectorAll('.dashboard-tabs-nav .card').forEach(c => c.classList.remove('tab-active'));
@@ -273,6 +271,45 @@ window.openCostCategory = function (catName) {
     const titleEl = document.getElementById('drill-title-' + ccCurrentGroup);
     if (titleEl) titleEl.innerText = '🧾 Транзакции: ' + catName;
     renderDrilldown();
+};
+
+window.openDashboardCategory = function(categoryName) {
+    const target = String(categoryName || '').trim();
+    if (!target) return;
+    const norm = target.toLowerCase();
+    const groups = ['direct', 'opex', 'capex'];
+    let foundGroup = null;
+
+    for (const group of groups) {
+        const list = Array.isArray(ccGroupedExpenses[group]) ? ccGroupedExpenses[group] : [];
+        const hit = list.some((cat) => String(cat?.name || '').trim().toLowerCase() === norm);
+        if (hit) {
+            foundGroup = group;
+            break;
+        }
+    }
+
+    if (!foundGroup) {
+        for (const group of groups) {
+            const list = Array.isArray(ccGroupedExpenses[group]) ? ccGroupedExpenses[group] : [];
+            const hit = list.some((cat) => String(cat?.name || '').trim().toLowerCase().includes(norm));
+            if (hit) {
+                foundGroup = group;
+                break;
+            }
+        }
+    }
+
+    if (!foundGroup) foundGroup = 'opex';
+    const tabIndexMap = { direct: 0, opex: 1, capex: 2 };
+    if (typeof window.switchCostTab === 'function') {
+        window.switchCostTab(foundGroup, tabIndexMap[foundGroup] ?? 1);
+    }
+    setTimeout(() => {
+        if (typeof window.openCostCategory === 'function') {
+            window.openCostCategory(target);
+        }
+    }, 120);
 };
 
 window.handleCostSearch = function (query) {
@@ -587,80 +624,130 @@ window.moveSelectedTransactions = function (btnElement) {
     checked.forEach(function (cb) { var n = Number(cb.value); if (n > 0) selectedIds.push(n); });
     if (selectedIds.length === 0) return UI.toast('Отметьте хотя бы одну транзакцию', 'warning');
 
-    // Сохраняем ID в глобальную переменную, которую читает executeRenameFolder
-    ccRenameIds = selectedIds;
-    ccRenameGroup = ccCurrentGroup || 'opex';
+    openTxReassignModal({
+        ids: selectedIds,
+        title: `🔄 Переназначение проводок (${selectedIds.length})`,
+        defaultMode: 'tx_category_group'
+    });
+};
 
-    // Собираем все существующие имена папок для select
-    var allNames = [];
+function collectDashboardCategoryNames() {
+    const allNames = [];
     ['direct', 'opex', 'capex'].forEach(function (grp) {
         (ccGroupedExpenses[grp] || []).forEach(function (cat) { allNames.push(cat.name); });
     });
-    var uniqueNames = allNames.filter(function (v, i, a) { return a.indexOf(v) === i; }).sort();
-    var selectOptions = '<option value="">-- Ввести новое название ниже --</option>';
-    uniqueNames.forEach(function (n) {
-        selectOptions += '<option value="' + n.replace(/"/g, '&quot;') + '">' + n + '</option>';
-    });
+    return allNames.filter(function (v, i, a) { return a.indexOf(v) === i; }).sort();
+}
 
-    var modalHtml = '<div class="flex-col gap-15">' +
-        '<div class="font-bold font-13">Выбрано транзакций: <span class="text-primary">' + selectedIds.length + ' шт.</span></div>' +
-
-        '<div class="form-group m-0" >' +
-        '<label class="font-600 mb-5 block">Переместить в существующую папку:</label>' +
-        '<select id="renameExistingSelect" class="input-modern font-14 p-10" >' + selectOptions + '</select>' +
-        '</div>' +
-
-        '<div class="form-group m-0" >' +
-        '<label class="font-600 mb-5 block">Или создать новую папку:</label>' +
-        '<input type="text" id="renameNameInput" class="input-modern font-14 p-10 font-600"  placeholder="Например: Канцтовары...">' +
-        '</div>' +
-
-        '<div class="form-group m-0" >' +
-        '<label class="font-600 mb-5 block">Группа для новой категории:</label>' +
-        '<select id="rename-folder-group" class="input-modern font-13 p-10" >' +
-        '<option value="direct"' + (ccRenameGroup === 'direct' ? ' selected' : '') + '>🟢 Прямые (COGS)</option>' +
-        '<option value="opex"' + (ccRenameGroup === 'opex' ? ' selected' : '') + '>🟠 Косвенные (OPEX)</option>' +
-        '<option value="capex"' + (ccRenameGroup === 'capex' ? ' selected' : '') + '>🟣 Капитал (CAPEX)</option>' +
-        '</select>' +
-        '</div>' +
-        '</div>';
-
-    UI.showModal('🔄 Перемещение / Переименование', modalHtml,
-        '<button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>' +
-        '<button class="btn btn-blue" onclick="executeRenameFolder()">Сохранить</button>'
+async function previewAndApplyMovement(payload, successMessage, savedGroup, savedCategory) {
+    const preview = await API.post('/api/finance/movements/preview', payload);
+    const previewRows = (preview.impacted || []).slice(0, 5).map(row =>
+        `<tr><td>${row.id}</td><td>${Utils.escapeHtml(row.before_category || '-')}</td><td>${Utils.escapeHtml(row.after_category || '-')}</td><td>${Utils.escapeHtml(row.before_group || '-')}</td><td>${Utils.escapeHtml(row.after_group || '-')}</td></tr>`
+    ).join('');
+    const more = preview.impacted_count > 5 ? `<div class="font-11 text-muted mt-5">... и еще ${preview.impacted_count - 5}</div>` : '';
+    const body = `
+        <div class="font-13 mb-10">Будет изменено записей: <b>${preview.impacted_count}</b></div>
+        <div class="table-container">
+            <table class="finance-table w-100">
+                <thead><tr><th>ID</th><th>Было (статья)</th><th>Станет (статья)</th><th>Было (группа)</th><th>Станет (группа)</th></tr></thead>
+                <tbody>${previewRows || '<tr><td colspan="5" class="text-center text-muted">Нет изменений</td></tr>'}</tbody>
+            </table>
+        </div>
+        ${more}
+        <div class="form-group mt-10 m-0">
+            <label>Причина применения (обязательно)</label>
+            <textarea id="movement-apply-reason" class="input-modern" rows="3" placeholder="Например: исправление неверной группировки"></textarea>
+        </div>
+    `;
+    UI.showModal('Предпросмотр изменений', body,
+        `<button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+         <button class="btn btn-blue" onclick="executeMovementApply()">Применить</button>`
     );
-
-    // Слушатель: при выборе из select — заполнить input
-    setTimeout(function () {
-        var sel = document.getElementById('renameExistingSelect');
-        if (sel) {
-            sel.addEventListener('change', function (e) {
-                var inp = document.getElementById('renameNameInput');
-                if (inp && e.target.value) inp.value = e.target.value;
-            });
+    window.executeMovementApply = async function () {
+        const reason = (document.getElementById('movement-apply-reason')?.value || '').trim();
+        if (!reason) return UI.toast('Укажите причину применения', 'warning');
+        try {
+            await API.post('/api/finance/movements/apply', { ...payload, reason });
+            UI.closeModal();
+            UI.toast(successMessage || 'Изменения применены', 'success');
+            await loadCostConstructor();
+            const tabIndexMap = { direct: 0, opex: 1, capex: 2 };
+            if (savedGroup && tabIndexMap[savedGroup] !== undefined) {
+                switchCostTab(savedGroup, tabIndexMap[savedGroup]);
+                if (savedCategory) openCostCategory(savedCategory);
+            }
+        } catch (err) {
+            console.error(err);
+            UI.toast(err.message || 'Ошибка применения', 'error');
+        } finally {
+            try { delete window.executeMovementApply; } catch (_) { }
         }
-    }, 50);
-};
+    };
+}
+
+function openTxReassignModal({ ids, title, defaultMode = 'tx_group' }) {
+    const uniqueNames = collectDashboardCategoryNames();
+    const options = ['<option value="">-- выбрать статью --</option>'].concat(
+        uniqueNames.map((n) => `<option value="${n.replace(/"/g, '&quot;')}">${n}</option>`)
+    ).join('');
+    const html = `
+        <div class="flex-col gap-10">
+            <div class="font-13">Записей: <b>${ids.length}</b></div>
+            <div class="form-group m-0">
+                <label>Режим:</label>
+                <select id="tx-move-mode" class="input-modern">
+                    <option value="tx_group" ${defaultMode === 'tx_group' ? 'selected' : ''}>Сменить только группу</option>
+                    <option value="tx_category" ${defaultMode === 'tx_category' ? 'selected' : ''}>Сменить только статью</option>
+                    <option value="tx_category_group" ${defaultMode === 'tx_category_group' ? 'selected' : ''}>Сменить статью и группу</option>
+                </select>
+            </div>
+            <div class="form-group m-0">
+                <label>Статья назначения:</label>
+                <select id="tx-move-category-select" class="input-modern">${options}</select>
+                <input type="text" id="tx-move-category-input" class="input-modern mt-5" placeholder="Или новая статья...">
+            </div>
+            <div class="form-group m-0">
+                <label>Группа назначения:</label>
+                <select id="tx-move-group" class="input-modern">
+                    <option value="direct">🟢 Прямые (COGS)</option>
+                    <option value="opex" selected>🟠 Косвенные (OPEX)</option>
+                    <option value="capex">🟣 Капитал (CAPEX)</option>
+                </select>
+            </div>
+        </div>
+    `;
+    UI.showModal(title, html,
+        `<button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+         <button class="btn btn-blue" onclick="submitTxReassign()">Далее</button>`
+    );
+    window.submitTxReassign = async function () {
+        const mode = document.getElementById('tx-move-mode')?.value || 'tx_group';
+        const categoryFromSelect = document.getElementById('tx-move-category-select')?.value || '';
+        const categoryFromInput = (document.getElementById('tx-move-category-input')?.value || '').trim();
+        const targetCategory = categoryFromInput || categoryFromSelect;
+        const targetGroup = document.getElementById('tx-move-group')?.value || 'opex';
+        if ((mode === 'tx_category' || mode === 'tx_category_group') && !targetCategory) {
+            return UI.toast('Укажите статью назначения', 'warning');
+        }
+        const payload = {
+            operation_type: mode,
+            transaction_ids: ids,
+            target_category: targetCategory || null,
+            target_cost_group: (mode === 'tx_group' || mode === 'tx_category_group') ? targetGroup : null
+        };
+        const savedGroup = ccCurrentGroup;
+        const savedCategory = ccCurrentCategory;
+        await previewAndApplyMovement(payload, 'Переназначение выполнено', savedGroup, savedCategory);
+    };
+}
 
 window.moveTransaction = async function (txId) {
     try {
-        const html = `
-            <div class="form-group">
-                <label>Выберите новую группу (перенос):</label>
-                <select id="move-cat-select" class="input-modern font-14 p-10" >
-                    <option value="" selected>Автоматически (По матрице)</option>
-                    <option value="direct">🟢 Прямые (COGS)</option>
-                    <option value="overhead">🟠 Косвенные (OPEX)</option>
-                    <option value="capital">🟣 Капитал (CAPEX)</option>
-                </select>
-            </div>
-        `;
-
-        UI.showModal('🔄 Смена группы (Перенос)', html, `
-            <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-            <button class="btn btn-blue" onclick="executeMoveTransaction(${txId})">Подтвердить</button>
-        `);
-
+        openTxReassignModal({
+            ids: [txId],
+            title: '🔄 Переназначение проводки',
+            defaultMode: 'tx_group'
+        });
     } catch (e) {
         console.error(e);
         UI.toast('Ошибка открытия окна', 'error');
@@ -668,36 +755,7 @@ window.moveTransaction = async function (txId) {
 };
 
 window.executeMoveTransaction = async function (txId) {
-    const sel = document.getElementById('move-cat-select');
-    if (!sel) return;
-
-    const newCategory = sel.value;
-
-    // ШАГ 1: Сохраняем состояние UI ДО отправки
-    const savedGroup = ccCurrentGroup;
-    const savedCategory = ccCurrentCategory;
-
-    try {
-        // ШАГ 2: Отправляем PATCH через обёртку API
-        await API.patch(`/api/transactions/${txId}/override`, { cost_group_override: newCategory || null });
-
-        UI.toast('Транзакция успешно перенесена', 'success');
-        UI.closeModal();
-
-        // ШАГ 3: Перезагружаем данные (loadCostConstructor вызовет closeCostTabs внутри)
-        await loadCostConstructor();
-
-        // ШАГ 4: Восстанавливаем состояние UI
-        const tabIndexMap = { direct: 0, opex: 1, capex: 2 };
-        if (savedGroup && tabIndexMap[savedGroup] !== undefined) {
-            switchCostTab(savedGroup, tabIndexMap[savedGroup]);
-            if (savedCategory) openCostCategory(savedCategory);
-        }
-
-    } catch (err) {
-        console.error(err);
-        UI.toast(err.message, 'error');
-    }
+    return moveTransaction(txId);
 };
 
 let ccCurrentFolderIds = [];
@@ -718,8 +776,8 @@ window.moveFolderCategory = function (btnElement) {
                 <select id="move-folder-select" class="input-modern font-14 p-10" >
                     <option value="" selected>Автоматически (По матрице)</option>
                     <option value="direct">🟢 Прямые (COGS)</option>
-                    <option value="overhead">🟠 Косвенные (OPEX)</option>
-                    <option value="capital">🟣 Капитал (CAPEX)</option>
+                    <option value="opex">🟠 Косвенные (OPEX)</option>
+                    <option value="capex">🟣 Капитал (CAPEX)</option>
                 </select>
             </div>
         `;
@@ -743,25 +801,13 @@ window.executeMoveFolder = async function () {
     const savedGroup = ccCurrentGroup;
 
     try {
-        // ШАГ 2: Отправляем PATCH через обёртку API
-        const data = await API.patch('/api/transactions/bulk-override', {
-            transactionIds: ccCurrentFolderIds,
-            cost_group_override: sel.value || null
-        });
-
-        UI.toast(`Перенесено ${data.updated} транзакций`, 'success');
-        UI.closeModal();
+        const payload = {
+            operation_type: 'tx_group',
+            transaction_ids: ccCurrentFolderIds,
+            target_cost_group: sel.value || 'opex'
+        };
+        await previewAndApplyMovement(payload, 'Группа папки изменена', savedGroup, null);
         ccCurrentFolderIds = [];
-
-        // ШАГ 3: Перезагружаем данные
-        await loadCostConstructor();
-
-        // ШАГ 4: Восстанавливаем состояние — возвращаемся к списку папок в той же группе
-        const tabIndexMap = { direct: 0, opex: 1, capex: 2 };
-        if (savedGroup && tabIndexMap[savedGroup] !== undefined) {
-            switchCostTab(savedGroup, tabIndexMap[savedGroup]);
-        }
-
     } catch (err) {
         console.error(err);
         UI.toast(err.message, 'error');
@@ -782,12 +828,7 @@ window.renameFolder = function (btnElement) {
             return UI.toast('В этой папке нет реальных транзакций', 'warning');
         }
 
-        // Собираем все существующие имена папок для select
-        var allNames = [];
-        ['direct', 'opex', 'capex'].forEach(function (grp) {
-            (ccGroupedExpenses[grp] || []).forEach(function (cat) { allNames.push(cat.name); });
-        });
-        var uniqueNames = allNames.filter(function (v, i, a) { return a.indexOf(v) === i; }).sort();
+        var uniqueNames = collectDashboardCategoryNames();
         var selectOptions = '<option value="">-- Ввести новое название ниже --</option>';
         uniqueNames.forEach(function (n) {
             selectOptions += '<option value="' + n.replace(/"/g, '&quot;') + '">' + n + '</option>';
@@ -816,7 +857,7 @@ window.renameFolder = function (btnElement) {
             '</div>' +
             '</div>';
 
-        UI.showModal('✏️ Переименование папки', modalHtml,
+        UI.showModal('✏️ Операции со статьей', modalHtml,
             '<button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>' +
             '<button class="btn btn-blue" onclick="executeRenameFolder()">Сохранить</button>'
         );
@@ -846,22 +887,14 @@ window.executeRenameFolder = async function () {
     var savedGroup = ccCurrentGroup;
 
     try {
-        var data = await API.patch('/api/transactions/bulk-rename', {
-            transactionIds: ccRenameIds,
-            newCategoryName: input.value.trim(),
-            costGroup: groupSel ? groupSel.value : ccRenameGroup
-        });
-
-        UI.toast('Переименовано ' + data.updated + ' транзакций', 'success');
-        UI.closeModal();
+        const payload = {
+            operation_type: 'tx_category_group',
+            transaction_ids: ccRenameIds,
+            target_category: input.value.trim(),
+            target_cost_group: groupSel ? groupSel.value : ccRenameGroup
+        };
+        await previewAndApplyMovement(payload, 'Операция со статьей выполнена', savedGroup, null);
         ccRenameIds = [];
-
-        await loadCostConstructor();
-
-        var tabIndexMap = { direct: 0, opex: 1, capex: 2 };
-        if (savedGroup && tabIndexMap[savedGroup] !== undefined) {
-            switchCostTab(savedGroup, tabIndexMap[savedGroup]);
-        }
     } catch (err) {
         console.error(err);
         UI.toast(err.message, 'error');
@@ -1048,9 +1081,9 @@ window.openCategoryMatrix = async function () {
         const categories = await API.get('/api/finance/categories');
 
         const groups = {
-            direct: categories.filter(c => c.cost_group === 'direct'),
-            overhead: categories.filter(c => c.cost_group === 'overhead' || !c.cost_group), // overhead по умолчанию
-            capital: categories.filter(c => c.cost_group === 'capital')
+            direct: categories.filter(c => ['direct', 'cogs'].includes(c.cost_group)),
+            opex: categories.filter(c => ['opex', 'overhead', null, undefined, ''].includes(c.cost_group)),
+            capex: categories.filter(c => ['capex', 'capital'].includes(c.cost_group))
         };
 
         const renderCol = (title, color, desc, items) => `
@@ -1065,9 +1098,9 @@ window.openCategoryMatrix = async function () {
                                 <div style="font-size: 9px; color: var(--text-muted); margin-top: 2px;">${c.type === 'income' ? 'Доход' : 'Расход'}</div>
                             </div>
                             <select class="input-modern matrix-cat-select" data-id="${c.id}" style="padding: 2px 5px; font-size: 11px; height: 24px; width: 110px; cursor: pointer;">
-                                <option value="direct" ${c.cost_group === 'direct' ? 'selected' : ''}>В Прямые</option>
-                                <option value="overhead" ${c.cost_group === 'overhead' || !c.cost_group ? 'selected' : ''}>В Оверхед</option>
-                                <option value="capital" ${c.cost_group === 'capital' ? 'selected' : ''}>В Капитал</option>
+                                <option value="direct" ${['direct', 'cogs'].includes(c.cost_group) ? 'selected' : ''}>В Прямые</option>
+                                <option value="opex" ${['opex', 'overhead', null, undefined, ''].includes(c.cost_group) ? 'selected' : ''}>В OPEX</option>
+                                <option value="capex" ${['capex', 'capital'].includes(c.cost_group) ? 'selected' : ''}>В CAPEX</option>
                             </select>
                         </div>
                     `).join('')}
@@ -1079,8 +1112,8 @@ window.openCategoryMatrix = async function () {
         const html = `
             <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
                 ${renderCol('🟢 COGS (Прямые)', 'var(--success)', 'Материалы, сдельная ЗП, прямые расходы', groups.direct)}
-                ${renderCol('🟠 OPEX (Косвенные)', 'var(--warning)', 'Аренда, оклады, налоги, маркетинг', groups.overhead)}
-                ${renderCol('🔵 CAPEX (Капитал)', 'var(--primary)', 'Оборудование, стройка, инвестиции', groups.capital)}
+                ${renderCol('🟠 OPEX (Косвенные)', 'var(--warning)', 'Аренда, оклады, налоги, маркетинг', groups.opex)}
+                ${renderCol('🔵 CAPEX (Капитал)', 'var(--primary)', 'Оборудование, стройка, инвестиции', groups.capex)}
             </div>
         `;
 
@@ -1196,14 +1229,12 @@ window.loadDashboardWidgets = async function () {
                         ? `Заказ №${Utils.escapeHtml(String(inv.doc_number))} от ${inv.date}`
                         : `Счёт №${Utils.escapeHtml(String(inv.doc_number))} от ${inv.date}`;
                     return `
-                <div class="cursor-pointer" style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border); padding: 8px 10px; border-radius: 6px; transition: background 0.2s;" 
-                     onmouseover="this.style.background='var(--surface-hover)'" onmouseout="this.style.background='transparent'" 
-                     onclick="${click}">
+                <div class="cursor-pointer dash-widget-row dash-widget-row-ar" onclick="${click}">
                     <div>
-                        <span style="font-weight: bold; color: var(--text-main);">${Utils.escapeHtml(inv.counterparty_name)}</span>
+                        <span class="font-bold text-main">${Utils.escapeHtml(inv.counterparty_name)}</span>
                         <br><small class="text-muted">${subline}</small>
                     </div>
-                    <div style="font-weight: bold; color: var(--warning-text); padding-top: 5px;">
+                    <div class="font-bold text-warning-text dash-widget-ar-amt">
                         ${fmtRub(inv.pending_debt)} ₽
                     </div>
                 </div>`;
@@ -1225,20 +1256,19 @@ window.loadDashboardWidgets = async function () {
                     const deficit = item.min_stock - available;
 
                     return `
-                    <div class="cursor-pointer" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border); padding: 8px 10px; border-radius: 6px; transition: background 0.2s;"
-                         onmouseover="this.style.background='var(--surface-hover)'" onmouseout="this.style.background='transparent'"
+                    <div class="cursor-pointer dash-widget-row dash-widget-row-stock"
                          onclick="if(window.switchModule){ switchModule('stock-mod', document.querySelector('[onclick*=\\'stock-mod\\']')); setTimeout(() => { const mod = document.getElementById('stock-mod'); const s = mod ? mod.querySelector('input[type=\\'text\\']') : null; if(s){ s.value='${Utils.escapeHtml(item.name)}'; s.dispatchEvent(new Event('input')); } }, 300); }">
-                        <div style="max-width: 70%;">
-                            <span style="font-weight: bold; color: var(--text-main); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        <div class="dash-widget-stock-name">
+                            <span class="font-bold text-main dash-widget-stock-title">
                                 ${Utils.escapeHtml(item.name)}
                             </span>
                             <small class="text-muted">${item.article || 'Без арт.'} | Порог: ${item.min_stock} ${item.unit}</small>
                         </div>
-                        <div style="text-align: right; min-width: 80px;">
-                            <span style="color: var(--danger); font-weight: 900; font-size: 14px;" title="Физически: ${item.physical_qty} | Резерв: ${item.reserved_qty}">
+                        <div class="text-right dash-widget-stock-qty-cell">
+                            <span class="text-danger dash-widget-stock-qty-num" title="Физически: ${item.physical_qty} | Резерв: ${item.reserved_qty}">
                                 ${available} ${item.unit}
                             </span>
-                            <br><small style="color: var(--warning-text); font-weight: bold;">📉 Нужно: ${deficit.toFixed(1)}</small>
+                            <br><small class="text-warning-text font-bold">📉 Нужно: ${deficit.toFixed(1)}</small>
                         </div>
                     </div>
                 `}).join('');

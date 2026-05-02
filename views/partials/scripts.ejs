@@ -27,7 +27,9 @@
                 if (targetModal) { 
                     targetModal.classList.remove('active'); 
                     targetModal.classList.add('d-none'); 
+                    targetModal.classList.remove('reports-batch-modal-front', 'reports-batch-card-modal-front');
                     targetModal.style.removeProperty('display');
+                    targetModal.style.removeProperty('z-index');
                 }
             },
             confirm: (msg, onConfirm) => {
@@ -53,6 +55,7 @@
     <script src="/js/inventory.js?v=<%= Date.now() %>"></script>
     <script src="/js/sales.js"></script>
     <script src="/js/finance.js"></script>
+    <script src="/js/reports.js?v=<%= Date.now() %>"></script>
     <script src="/js/salary.js?v=<%= Date.now() %>"></script>
     <script src="/js/docs_registry.js"></script>
     <script src="/js/dashboard.js"></script>
@@ -92,10 +95,11 @@
         };
 
         window.switchModule = function (moduleId, navElement) {
-            document.querySelectorAll('.modal-overlay').forEach(m => {
-                m.classList.remove('active');
+            document.querySelectorAll('.modal-overlay').forEach((m) => {
+                m.classList.remove('active', 'reports-batch-modal-front', 'reports-batch-card-modal-front');
                 m.classList.add('d-none');
                 m.style.removeProperty('display');
+                m.style.removeProperty('z-index');
             });
             document.querySelectorAll('.module').forEach(mod => {
                 mod.classList.remove('active');
@@ -114,6 +118,7 @@
                 if (moduleId === 'stock-mod' && typeof loadTable === 'function') loadTable();
                 if (moduleId === 'sales-mod') (typeof initSales === 'function') ? initSales() : (typeof loadSalesData === 'function' && loadSalesData(false));
                 if (moduleId === 'fin-mod') (typeof initFinance === 'function') ? initFinance() : (typeof loadFinanceData === 'function' && loadFinanceData());
+                if (moduleId === 'reports-mod' && typeof initReports === 'function') initReports();
                 if (moduleId === 'purchase-mod' && typeof loadPurchaseMaterials === 'function') loadPurchaseMaterials();
                 if (moduleId === 'salary-mod' && typeof initSalary === 'function') initSalary();
                 if (moduleId === 'prod-mod' && typeof initProduction === 'function') initProduction();
@@ -134,7 +139,13 @@
                     else if (typeof editClient === 'function') editClient(id);
                     break;
                 case 'employee': if (typeof editWorker === 'function') editWorker(id); break;
-                case 'nomenclature': if (typeof editNomenclature === 'function') editNomenclature(id); break;
+                case 'nomenclature':
+                    if (typeof editReference === 'function') editReference(id);
+                    else {
+                        if (typeof window.switchModule === 'function') window.switchModule('ref-mod');
+                        setTimeout(() => { if (typeof editReference === 'function') editReference(id); }, 180);
+                    }
+                    break;
                 case 'equipment': if (typeof editEquipment === 'function') editEquipment(id); break;
                 case 'recipe': if (typeof editRecipe === 'function') editRecipe(id); break;
                 case 'document_order': if (typeof openOrderDetails === 'function') openOrderDetails(id); break;

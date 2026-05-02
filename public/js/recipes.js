@@ -1912,7 +1912,7 @@ window.bomCompareToggleThicknessDisabled = function () {
     if (!thickEl || !typeEl) return;
     const dis = typeEl.value !== 'Плитка' && typeEl.value !== 'Все';
     thickEl.disabled = dis;
-    thickEl.style.opacity = dis ? '0.5' : '1';
+    thickEl.classList.toggle('is-visually-muted', dis);
 };
 
 function bomCompareProductOptionsHtml() {
@@ -1974,8 +1974,8 @@ window.__auditState = {
     focusedProductId: null,
     pigmentIds: new Set(),
     loadingKeys: new Set(),
-    /** Выбранный ключ матрицы в фильтре левой панели экрана 2 ('' = все) */
-    auditMatrixFilterKey: '',
+    /** Ключи матриц левого фильтра экрана 2 ([] = все матрицы, несколько ключей — объединение OR) */
+    auditMatrixFilterKeys: [],
     /** Выбранная категория в фильтре левой панели ('' = все) */
     auditCategoryFilterKey: ''
 };
@@ -2035,9 +2035,27 @@ function auditDecodeDataAttr(raw) {
 }
 
 function auditApplyLeftMatrixFilter() {
-    const sel = document.getElementById('audit-left-matrix-filter');
-    if (sel) window.__auditState.auditMatrixFilterKey = sel.value || '';
+    const keys = [];
+    document.querySelectorAll('.audit-matrix-filter-cb:checked').forEach((cb) => {
+        keys.push(auditDecodeDataAttr(cb.getAttribute('data-matrix-key')));
+    });
+    window.__auditState.auditMatrixFilterKeys = keys;
     auditApplyLeftPanelFilters();
+}
+
+function auditMatrixFilterClear() {
+    document.querySelectorAll('.audit-matrix-filter-cb').forEach((cb) => {
+        cb.checked = false;
+    });
+    window.__auditState.auditMatrixFilterKeys = [];
+    auditApplyLeftPanelFilters();
+}
+
+function auditMatrixFilterSelectAll() {
+    document.querySelectorAll('.audit-matrix-filter-cb').forEach((cb) => {
+        cb.checked = true;
+    });
+    auditApplyLeftMatrixFilter();
 }
 
 function auditApplyLeftCategoryFilter() {
@@ -2046,14 +2064,24 @@ function auditApplyLeftCategoryFilter() {
     auditApplyLeftPanelFilters();
 }
 
+/** Товар проходит активные фильтры левой панели (категория + матрица). */
+function auditProductMatchesActiveLeftFilters(productId) {
+    const item = auditGetFullRecipeProduct(productId);
+    const mk = auditProductMatrixBucket(item).key;
+    const ck = auditProductCategoryBucket(item).key;
+    const filterMatrix = Array.isArray(window.__auditState.auditMatrixFilterKeys)
+        ? window.__auditState.auditMatrixFilterKeys
+        : [];
+    const filterCategory = window.__auditState.auditCategoryFilterKey || '';
+    const matrixOk = filterMatrix.length === 0 || filterMatrix.includes(mk);
+    const categoryOk = filterCategory === '' || ck === filterCategory;
+    return matrixOk && categoryOk;
+}
+
 /** Совмещает фильтры «категория» и «матрица»; эталон всегда виден. */
 function auditApplyLeftPanelFilters() {
-    const mSel = document.getElementById('audit-left-matrix-filter');
     const cSel = document.getElementById('audit-left-category-filter');
-    const filterMatrix = (mSel && mSel.value) || window.__auditState.auditMatrixFilterKey || '';
-    const filterCategory = (cSel && cSel.value) || window.__auditState.auditCategoryFilterKey || '';
-    window.__auditState.auditMatrixFilterKey = filterMatrix;
-    window.__auditState.auditCategoryFilterKey = filterCategory;
+    if (cSel) window.__auditState.auditCategoryFilterKey = cSel.value || '';
 
     const group = auditGetSelectedGroup();
     const refId = group && group.defaultReferenceId != null ? Number(group.defaultReferenceId) : null;
@@ -2062,11 +2090,7 @@ function auditApplyLeftPanelFilters() {
     list.querySelectorAll('.rec-audit-prow').forEach((el) => {
         const pid = Number(el.getAttribute('data-audit-product-id'));
         const isRef = Number.isFinite(refId) && pid === refId;
-        const mk = auditDecodeDataAttr(el.getAttribute('data-audit-matrix-key'));
-        const ck = auditDecodeDataAttr(el.getAttribute('data-audit-category-key'));
-        const matrixOk = filterMatrix === '' || mk === filterMatrix;
-        const categoryOk = filterCategory === '' || ck === filterCategory;
-        const show = isRef || (matrixOk && categoryOk);
+        const show = isRef || auditProductMatchesActiveLeftFilters(pid);
         el.classList.toggle('d-none', !show);
     });
 }
@@ -2517,6 +2541,7 @@ function auditCollectDefaultSyncTargets(groupKey) {
     (group.products || []).forEach((p) => {
         const id = Number(p.id);
         if (id === Number(refId)) return;
+        if (!auditProductMatchesActiveLeftFilters(id)) return;
         if (!auditRecipeRowLoadedInCache(id)) return;
         const cmp = auditComparePair(refId, id);
         if (cmp.overallStatus === 'diff' || cmp.overallStatus === 'pigment_only') {
@@ -2532,6 +2557,105 @@ function auditFormatQtyHuman(q) {
     const t = (Math.round(n * 1000) / 1000).toString().replace(/\.?0+$/, '');
     return t;
 }
+
+/** Строки отличий только по одному слою (эталон = A в compareBomRecipesPair, товар = B). */
+function auditHumanLinesForLayerCompare(d, layerKey) {
+    if (!d || d.ingredientSetEqual) return [];
+    const ly = normalizeRecipeLayer(layerKey);
+    const lines = [];
+    (d.onlyA || []).forEach((r) => {
+        if (normalizeRecipeLayer(r.layer) !== ly) return;
+        lines.push(
+            `${r.name || 'Материал'}: в эталоне ${auditFormatQtyHuman(r.qty)} — у сравниваемого товара этой строки нет`
+        );
+    });
+    (d.onlyB || []).forEach((r) => {
+        if (normalizeRecipeLayer(r.layer) !== ly) return;
+        lines.push(`${r.name || 'Материал'}: в эталоне отсутствует → у товара ${auditFormatQtyHuman(r.qty)}`);
+    });
+    (d.qtyDiff || []).forEach((r) => {
+        if (normalizeRecipeLayer(r.layer) !== ly) return;
+        lines.push(
+            `${r.name || 'Материал'}: количество эталон ${auditFormatQtyHuman(r.qtyA)} → у товара ${auditFormatQtyHuman(
+                r.qtyB
+            )}`
+        );
+    });
+    return lines;
+}
+
+function auditLayerBreakdownModalTitle(layerKey) {
+    const ly = normalizeRecipeLayer(layerKey);
+    if (ly === 'face') return 'Лицевой слой — расшифровка';
+    if (ly === 'packaging') return 'Упаковка — расшифровка';
+    return 'Основной слой — расшифровка';
+}
+
+/** Собирает HTML модалки: по каждому товару блок с отличиями в выбранном слое. */
+function auditBuildLayerBreakdownModalInner(groupKey, layerKey) {
+    const group = (window.__auditState.groups || {})[groupKey];
+    const summary = auditComputeGroupSummary(groupKey);
+    const refId = summary.referenceId;
+    const ly = normalizeRecipeLayer(layerKey);
+    if (!group || !Number.isFinite(Number(refId))) {
+        return '<p class="text-muted font-13 m-0">Нет эталона или группы.</p>';
+    }
+    const refRow = (group.products || []).find((p) => Number(p.id) === Number(refId));
+    const refTitle = Utils.escapeHtml(refRow ? refRow.name : `ID ${refId}`);
+
+    const blocks = [];
+    (group.products || []).forEach((p) => {
+        const id = Number(p.id);
+        if (!Number.isFinite(id) || id === Number(refId)) return;
+        if (!auditProductMatchesActiveLeftFilters(id)) return;
+        if (!auditRecipeRowLoadedInCache(id)) return;
+        const cmp = auditComparePair(refId, id);
+        const ls = cmp.layerStatus && cmp.layerStatus[ly];
+        if (ls !== 'diff') return;
+        const d = cmp.base;
+        const lineTexts = d ? auditHumanLinesForLayerCompare(d, ly) : [];
+        const pTitle = Utils.escapeHtml(p.name || `ID ${id}`);
+        if (!lineTexts.length) {
+            blocks.push(
+                `<div class="rec-audit-layer-break-block card p-12 mb-10">
+              <div class="font-13 font-600 mb-6">${pTitle} <span class="text-muted font-12">ID ${id}</span></div>
+              <p class="text-muted font-12 m-0">Слой помечен как отличающийся, но детальных строк нет (обновите рецепты в кэше).</p>
+            </div>`
+            );
+            return;
+        }
+        const lis = lineTexts.map((t) => `<li class="mb-6">${Utils.escapeHtml(t)}</li>`).join('');
+        blocks.push(
+            `<div class="rec-audit-layer-break-block card p-12 mb-10">
+          <div class="font-13 font-600 mb-8">${pTitle} <span class="text-muted font-12">ID ${id}</span></div>
+          <ul class="m-0 pl-18 font-13 rec-audit-diff-list">${lis}</ul>
+        </div>`
+        );
+    });
+
+    if (!blocks.length) {
+        return `<p class="text-muted font-13 m-0 mb-10">Нет позиций с отличиями в этом слое среди отфильтрованных товаров с загруженными рецептами.</p>
+        <p class="text-muted font-12 m-0">Эталон: <strong>${refTitle}</strong> (ID ${refId})</p>`;
+    }
+
+    return `<p class="text-muted font-12 m-0 mb-12">Сравнение с эталоном: <strong>${refTitle}</strong> (ID ${refId}). Ниже — только блок «${Utils.escapeHtml(
+        layerLabel(ly)
+    )}».</p>
+      <div class="rec-audit-layer-break-scroll">${blocks.join('')}</div>`;
+}
+
+window.auditShowLayerBreakdown = function (layerKey) {
+    const ly = normalizeRecipeLayer(layerKey);
+    const k = window.__auditState.selectedGroupKey;
+    if (!k) return;
+    const inner = auditBuildLayerBreakdownModalInner(k, ly);
+    const title = auditLayerBreakdownModalTitle(ly);
+    UI.showModal(
+        title,
+        `<div class="rec-audit-layer-break-modal-inner p-2">${inner}</div>`,
+        `<button type="button" class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>`
+    );
+};
 
 function auditRenderCompareHumanLines(cmp) {
     const d = cmp && cmp.base;
@@ -2586,7 +2710,7 @@ function auditInstallDetailShell(groupTitleHtml) {
 function auditBackToGroupList() {
     window.__auditState.selectedGroupKey = null;
     window.__auditState.focusedProductId = null;
-    window.__auditState.auditMatrixFilterKey = '';
+    window.__auditState.auditMatrixFilterKeys = [];
     window.__auditState.auditCategoryFilterKey = '';
     const s1 = document.getElementById('audit-screen-1');
     const s2 = document.getElementById('audit-screen-2');
@@ -2646,16 +2770,26 @@ function auditRenderDetailLeft() {
         const b = auditProductMatrixBucket(item);
         if (!matrixOptionsMap.has(b.key)) matrixOptionsMap.set(b.key, b.label);
     });
-    const matrixRows = [...matrixOptionsMap.entries()]
-        .sort((a, b) => {
-            if (a[0] === '__none__') return 1;
-            if (b[0] === '__none__') return -1;
-            return String(a[1]).localeCompare(String(b[1]), 'ru');
-        })
+    const matrixSorted = [...matrixOptionsMap.entries()].sort((a, b) => {
+        if (a[0] === '__none__') return 1;
+        if (b[0] === '__none__') return -1;
+        return String(a[1]).localeCompare(String(b[1]), 'ru');
+    });
+
+    let savedMxKeys = Array.isArray(window.__auditState.auditMatrixFilterKeys)
+        ? [...window.__auditState.auditMatrixFilterKeys]
+        : [];
+    savedMxKeys = savedMxKeys.filter((k) => matrixOptionsMap.has(k));
+    window.__auditState.auditMatrixFilterKeys = savedMxKeys;
+
+    const matrixChecks = matrixSorted
         .map(([key, label]) => {
-            const esc = Utils.escapeHtml(label);
-            const keyEsc = Utils.escapeHtml(key);
-            return `<option value="${keyEsc}">${esc}</option>`;
+            const mkAttr = encodeURIComponent(key);
+            const checked = savedMxKeys.includes(key) ? ' checked' : '';
+            return `<label class="rec-inline-label font-13 m-0 mb-6">
+              <input type="checkbox" class="audit-matrix-filter-cb rec-checkbox-md"${checked} data-matrix-key="${mkAttr}" onchange="auditApplyLeftMatrixFilter()" />
+              ${Utils.escapeHtml(label)}
+            </label>`;
         })
         .join('');
 
@@ -2671,10 +2805,6 @@ function auditRenderDetailLeft() {
             return `<option value="${keyEsc}">${esc}</option>`;
         })
         .join('');
-
-    let savedFilter = window.__auditState.auditMatrixFilterKey || '';
-    if (savedFilter && !matrixOptionsMap.has(savedFilter)) savedFilter = '';
-    window.__auditState.auditMatrixFilterKey = savedFilter;
 
     let savedCatFilter = window.__auditState.auditCategoryFilterKey || '';
     if (savedCatFilter && !categoryOptionsMap.has(savedCatFilter)) savedCatFilter = '';
@@ -2731,40 +2861,49 @@ function auditRenderDetailLeft() {
         </select>
       </div>
       <div class="rec-audit-matrix-filter-wrap mb-10">
-        <label class="rec-filter-label" for="audit-left-matrix-filter">Фильтр по матрице</label>
-        <select id="audit-left-matrix-filter" class="input-modern w-100 rec-audit-matrix-select font-13" onchange="auditApplyLeftMatrixFilter()">
-          <option value="">Все матрицы</option>
-          ${matrixRows}
-        </select>
+        <label class="rec-filter-label">Матрицы (несколько)</label>
+        <p class="text-muted font-11 m-0 mb-8" style="line-height:1.45;">Галочек нет — показаны все. Отмечены одна или несколько — видны только товары этих матриц (эталон всегда в списке).</p>
+        <div class="flex-row gap-8 flex-wrap mb-8">
+          <button type="button" class="btn btn-outline font-12 py-4 px-10" onclick="auditMatrixFilterSelectAll()">Все матрицы</button>
+          <button type="button" class="btn btn-outline font-12 py-4 px-10" onclick="auditMatrixFilterClear()">Сбросить</button>
+        </div>
+        <div id="audit-left-matrix-filter-list" class="rec-audit-matrix-check-list">${matrixChecks}</div>
       </div>
       <div class="rec-audit-prow-list" id="audit-left-prow-list">${rows}</div>`;
 
     const cSelRestore = document.getElementById('audit-left-category-filter');
     if (cSelRestore) cSelRestore.value = savedCatFilter;
-    const sel = document.getElementById('audit-left-matrix-filter');
-    if (sel) sel.value = savedFilter;
     auditApplyLeftPanelFilters();
 }
 
-function auditLayerCardHtml(title, agg) {
-    let icon = '✅';
+/** @param {string|null} breakdownLayer — 'main'|'face'|'packaging' если при diff иконку можно нажать */
+function auditLayerCardHtml(title, agg, breakdownLayer) {
+    let iconHtml = '';
     let cls = 'rec-audit-layer-card rec-audit-layer-card--ok';
     let sub = '';
     if (agg.kind === 'diff') {
-        icon = '✖';
         cls = 'rec-audit-layer-card rec-audit-layer-card--bad';
-        sub = '<div class="text-muted font-12 mt-6">Есть отличия в составе или количествах</div>';
+        sub = `<div class="text-muted font-12 mt-6">Есть отличия в составе или количествах. Нажмите ✖ для расшифровки по SKU.</div>`;
+        const bl = breakdownLayer && ['main', 'face', 'packaging'].includes(normalizeRecipeLayer(breakdownLayer))
+            ? normalizeRecipeLayer(breakdownLayer)
+            : '';
+        iconHtml = bl
+            ? `<button type="button" class="rec-audit-layer-breakdown-btn font-18" onclick="auditShowLayerBreakdown('${bl}')" title="Подробная расшифровка по товарам" aria-label="Расшифровка отличий: ${Utils.escapeHtml(
+                  title
+              )}">✖</button>`
+            : '<span class="font-18" aria-hidden="true">✖</span>';
     } else if (agg.kind === 'pigment_ok') {
-        icon = '✅';
+        iconHtml = '<span class="font-18" aria-hidden="true">✅</span>';
         cls = 'rec-audit-layer-card rec-audit-layer-card--pig';
         sub = `<div class="font-12 mt-6 text-muted">${Utils.escapeHtml(agg.detail)}</div>`;
     } else {
+        iconHtml = '<span class="font-18" aria-hidden="true">✅</span>';
         sub = '<div class="text-muted font-12 mt-6">Слой совпадает у всех загруженных позиций</div>';
     }
     return `
       <div class="card ${cls} p-12 mb-10">
         <div class="flex-row gap-10 align-center">
-          <span class="font-18" aria-hidden="true">${icon}</span>
+          <span class="flex-shrink-0">${iconHtml}</span>
           <div class="font-14 font-600">${Utils.escapeHtml(title)}</div>
         </div>
         ${sub}
@@ -2783,9 +2922,9 @@ function auditRenderGroupSummary() {
     const agg = auditAggregateLayerStatusForGroup(k);
     const body = `
       <div class="font-14 font-600 mb-10">Сводка по слоям (к эталону)</div>
-      ${auditLayerCardHtml('Основной слой', agg.main)}
-      ${auditLayerCardHtml('Лицевой слой', agg.face)}
-      ${auditLayerCardHtml('Упаковка', agg.packaging)}
+      ${auditLayerCardHtml('Основной слой', agg.main, 'main')}
+      ${auditLayerCardHtml('Лицевой слой', agg.face, 'face')}
+      ${auditLayerCardHtml('Упаковка', agg.packaging, 'packaging')}
       <button type="button" class="btn btn-blue w-100 font-14 py-12 mt-8" onclick="auditShowSyncModal(null)">Синхронизировать группу…</button>
       <p class="text-muted font-12 m-0 mt-10">Синхронизация копирует выбранные блоки с эталона на отмеченные позиции; для лица пигменты целевого товара сохраняются.</p>`;
     container.innerHTML = `<div class="rec-audit-right-panel">${body}</div>`;
@@ -2879,13 +3018,41 @@ function auditShowSyncModal(targetIds) {
         : auditCollectDefaultSyncTargets(k);
     targets = [...new Set(targets)];
     if (!targets.length) {
-        UI.toast('Нет товаров для синхронизации (все совпадают с эталоном или не загружены)', 'info');
+        UI.toast(
+            'Нет товаров для синхронизации: учтены фильтры матриц/категории, загрузка рецептов или все уже совпадают с эталоном',
+            'info'
+        );
         return;
     }
 
     const ov = document.getElementById('audit-sync-overlay');
     const dlg = document.getElementById('audit-sync-dialog-inner');
     if (!ov || !dlg) return;
+
+    const mxLbl = new Map();
+    const catLbl = new Map();
+    (group.products || []).forEach((p) => {
+        const item = auditGetFullRecipeProduct(p.id);
+        const mx = auditProductMatrixBucket(item);
+        if (!mxLbl.has(mx.key)) mxLbl.set(mx.key, mx.label);
+        const ct = auditProductCategoryBucket(item);
+        if (!catLbl.has(ct.key)) catLbl.set(ct.key, ct.label);
+    });
+    const mxFk = Array.isArray(window.__auditState.auditMatrixFilterKeys) ? window.__auditState.auditMatrixFilterKeys : [];
+    const catFk = window.__auditState.auditCategoryFilterKey || '';
+    let filterNoteHtml = '';
+    if (mxFk.length || catFk) {
+        const bits = [];
+        if (mxFk.length) {
+            bits.push(`матрицы: ${mxFk.map((key) => Utils.escapeHtml(mxLbl.get(key) || key)).join(', ')}`);
+        }
+        if (catFk) bits.push(`категория: ${Utils.escapeHtml(catLbl.get(catFk) || catFk)}`);
+        filterNoteHtml = `<p class="text-muted font-12 m-0 mb-12">Активный фильтр левой панели: ${bits.join('; ')}.${
+            Array.isArray(targetIds) && targetIds.length
+                ? ''
+                : ' В список целей попали только товары, подходящие под фильтр и отличающиеся от эталона.'
+        }</p>`;
+    }
 
     const productChecks = targets
         .map((id) => {
@@ -2904,6 +3071,7 @@ function auditShowSyncModal(targetIds) {
     dlg.innerHTML = `
       <div class="font-15 font-600 mb-10">Синхронизация с эталоном</div>
       <p class="text-muted font-12 m-0 mb-12">Эталон ID <strong>${refId}</strong>. Отметьте блоки и товары. Для лица в целевых позициях сохраняются пигменты.</p>
+      ${filterNoteHtml}
       <div class="font-13 font-600 mb-6">Слои</div>
       <div class="rec-audit-sync-layers mb-10">
         <div class="mb-6">
@@ -3000,7 +3168,7 @@ async function auditOpenGroupDetail(groupKey) {
     if (!groupKey) return;
     window.__auditState.selectedGroupKey = groupKey;
     window.__auditState.focusedProductId = null;
-    window.__auditState.auditMatrixFilterKey = '';
+    window.__auditState.auditMatrixFilterKeys = [];
     window.__auditState.auditCategoryFilterKey = '';
 
     const s1 = document.getElementById('audit-screen-1');
@@ -4054,10 +4222,10 @@ window.updateMassApplyList = function(sourceId) {
 
     if (fType !== 'Плитка' && fType !== 'Все') {
         thickEl.disabled = true;
-        thickEl.style.opacity = '0.5';
+        thickEl.classList.add('is-visually-muted');
     } else {
         thickEl.disabled = false;
-        thickEl.style.opacity = '1';
+        thickEl.classList.remove('is-visually-muted');
     }
 
     const matched = allRecipeProducts.filter(p => {
@@ -4277,6 +4445,8 @@ function updateRecipeDirtyState() {
     if (typeof auditExecuteSync === 'function') window.auditExecuteSync = auditExecuteSync;
     if (typeof auditCloseSyncOverlay === 'function') window.auditCloseSyncOverlay = auditCloseSyncOverlay;
     if (typeof auditApplyLeftMatrixFilter === 'function') window.auditApplyLeftMatrixFilter = auditApplyLeftMatrixFilter;
+    if (typeof auditMatrixFilterClear === 'function') window.auditMatrixFilterClear = auditMatrixFilterClear;
+    if (typeof auditMatrixFilterSelectAll === 'function') window.auditMatrixFilterSelectAll = auditMatrixFilterSelectAll;
     if (typeof auditApplyLeftCategoryFilter === 'function') window.auditApplyLeftCategoryFilter = auditApplyLeftCategoryFilter;
     if (typeof auditApplyLeftPanelFilters === 'function') window.auditApplyLeftPanelFilters = auditApplyLeftPanelFilters;
 })();

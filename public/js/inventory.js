@@ -2422,6 +2422,7 @@ window.openBatchStatsModal = async function(batchId, batchNum) {
     }
     const modal = document.getElementById('modal-batch-stats');
     if (!modal) return;
+    modal.classList.remove('reports-batch-modal-front', 'reports-batch-card-modal-front');
     modal.classList.remove('d-none');
     modal.classList.add('active');
     
@@ -2501,6 +2502,7 @@ window.openBatchCard = async function(batchId) {
     title.textContent = 'Загрузка...';
     badges.innerHTML = '';
     body.innerHTML = '<div class="p-20 text-center text-muted">⏳ Загрузка данных партии...</div>';
+    modal.classList.remove('reports-batch-modal-front', 'reports-batch-card-modal-front');
     modal.classList.remove('d-none');
     modal.classList.add('active');
 

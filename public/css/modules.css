@@ -14533,3 +14533,403 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
         width: 100%;
     }
 }
+
+/* ==========================================================================
+   UI cleanup batch: dashboard carousel, dash widgets, sales, recipes, reports
+   ========================================================================== */
+
+/* ----- Dashboard drilldown carousel ----- */
+#drilldown-container.dash-carousel {
+    overflow: hidden;
+    width: 100%;
+    margin-bottom: 20px;
+    border-radius: 12px;
+    transition: border-color 0.3s ease;
+    box-sizing: border-box;
+    --dash-drill-border: transparent;
+    border: 1.5px solid var(--dash-drill-border);
+}
+
+#dashboard-tabs-content.dash-carousel-inner {
+    display: flex;
+    width: 300%;
+    align-items: flex-start;
+    overflow: hidden;
+    --dash-tab-offset: 0%;
+    transform: translateX(var(--dash-tab-offset));
+    transition:
+        transform 0.4s ease-in-out,
+        max-height 0.4s ease-in-out,
+        opacity 0.4s ease-in-out;
+}
+
+.dash-slide {
+    width: 33.333%;
+    padding-right: 10px;
+    padding-left: 10px;
+    box-sizing: border-box;
+}
+
+.dash-drill-panel-card {
+    border-color: var(--dash-panel-accent, var(--border));
+    transition: border-color 0.25s ease;
+}
+
+/* Dashboard widget rows (repl. inline hover) */
+.dash-widget-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 6px;
+    transition: background 0.2s ease;
+}
+
+.dash-widget-row:hover {
+    background: var(--surface-hover);
+}
+
+.dash-widget-row-ar {
+    border-bottom: 1px solid var(--border);
+}
+
+.dash-widget-row-stock {
+    border-bottom: 1px dashed var(--border);
+}
+
+.dash-widget-ar-amt {
+    padding-top: 5px;
+}
+
+.dash-widget-stock-name {
+    max-width: 70%;
+    min-width: 0;
+}
+
+.dash-widget-stock-title {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dash-widget-stock-qty-cell {
+    min-width: 80px;
+    text-align: right;
+}
+
+.dash-widget-stock-qty-num {
+    font-weight: 900;
+    font-size: 14px;
+}
+
+/* ----- Reports modal stack over drilldown ----- */
+.modal-overlay.reports-batch-modal-front {
+    z-index: 10020;
+}
+
+.modal-overlay.reports-batch-card-modal-front {
+    z-index: 10021;
+}
+
+.reports-accent-orange {
+    color: #fd7e14 !important;
+}
+
+.reports-cost-right-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+/* ----- Recipes: muted disabled control ----- */
+select.input-modern.is-visually-muted,
+.input-modern.is-visually-muted {
+    opacity: 0.5;
+}
+
+/* ----- Sales: cart profit banner ----- */
+#cart-profit-header.sales-profit-header {
+    transition:
+        background 0.25s ease,
+        border-color 0.25s ease;
+    border-top: 3px solid transparent;
+}
+
+#cart-profit-header.sales-profit-header--profit {
+    background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+    border-top-color: #66bb6a;
+}
+
+#cart-profit-header.sales-profit-header--loss {
+    background: linear-gradient(135deg, #ffebee, #ffcdd2);
+    border-top-color: #ef5350;
+}
+
+#cart-profit-margin.sales-profit-margin-chip {
+    color: #fff;
+}
+
+#cart-profit-margin.sales-profit-margin-chip--profit {
+    background: #1b5e20;
+}
+
+#cart-profit-margin.sales-profit-margin-chip--loss {
+    background: #b71c1c;
+}
+
+.sales-profit-breakdown-inner {
+    padding: 6px 18px 10px;
+    border-radius: 8px;
+}
+
+.sales-profit-breakdown-inner--profit {
+    background: rgba(232, 245, 233, 0.38);
+}
+
+.sales-profit-breakdown-inner--loss {
+    background: rgba(255, 235, 238, 0.38);
+}
+
+.sales-profit-bd-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 3px 0;
+    border-bottom-width: 1px;
+    border-bottom-style: dotted;
+}
+
+.sales-profit-breakdown-inner--profit .sales-profit-bd-row {
+    border-bottom-color: #a5d6a7;
+}
+
+.sales-profit-breakdown-inner--loss .sales-profit-bd-row {
+    border-bottom-color: #ef9a9a;
+}
+
+/* Kanban drag */
+.kanban-card.kanban-card--dragging {
+    opacity: 0.4;
+}
+
+.kanban-column.kanban-col--drag-over {
+    background: #e2e8f0;
+}
+
+/* Price import CSV highlights */
+.price-dealer.sales-price-input--import-dealer,
+.price-basic.sales-price-input--import-dealer {
+    background-color: var(--success-bg) !important;
+    border: 1px solid #22c55e !important;
+}
+
+.price-basic.sales-price-input--import-basic {
+    background-color: #eff6ff !important;
+    border: 1px solid #3b82f6 !important;
+}
+
+/* Return modal layout */
+.form-grid.sales-return-prod-grid {
+    grid-template-columns: 2fr 1fr 1fr;
+}
+
+.form-grid.sales-contract-grid-pair {
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.sales-modal-pad-xs {
+    padding: 5px;
+}
+
+/* Pricelist toolbar */
+.overflow-auto.pr-10.sales-pricelist-scroll {
+    max-height: 60vh;
+}
+
+.flex-row.gap-10.sales-pricelist-toolbar-inner {
+    gap: 15px;
+}
+
+.input-modern.sales-pricelist-search {
+    max-width: 250px;
+    padding: 4px 10px;
+}
+
+th.sales-th-130 {
+    width: 130px;
+}
+
+.flex-row.gap-10.sales-price-toolbar-grow {
+    flex: 1;
+    min-width: 250px;
+}
+
+/* Live calc modal (sales) */
+.sales-live-calc-pad {
+    padding: 8px 4px;
+}
+
+.sales-calc-micro-label {
+    letter-spacing: 0.5px;
+}
+
+.sales-calc-card-reset {
+    padding: 0;
+    overflow: hidden;
+}
+
+.overflow-x-auto.sales-calc-x-scroll {
+    overflow-x: auto;
+}
+
+.table-modern.sales-calc-table-mini {
+    min-width: 520px;
+    font-size: 12px;
+}
+
+tr.sales-calc-tr-sep {
+    border-bottom: 1px solid var(--bg-surface-hover);
+}
+
+tr.sales-calc-tr-bold {
+    font-weight: 900;
+}
+
+.cursor-help.sales-cursor-help {
+    cursor: help;
+}
+
+.flex-col.gap-14.sales-calc-stack-col {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.calc-card.sales-calc-accent-primary {
+    border-left: 4px solid var(--primary);
+}
+
+.calc-card.sales-calc-accent-warn-orange {
+    border-left: 4px solid #ff9800;
+}
+
+.calc-card.sales-calc-accent-danger {
+    border-left: 4px solid var(--danger);
+}
+
+.flex-between.sales-calc-total-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.sales-ship-tr {
+    border-bottom: 1px solid var(--border);
+}
+
+td.sales-ship-td {
+    padding: 8px;
+}
+
+td.sales-ship-td-center-bold {
+    padding: 8px;
+    text-align: center;
+    font-weight: bold;
+}
+
+td.sales-ship-td-center {
+    padding: 8px;
+    text-align: center;
+}
+
+.form-grid.sales-ship-poa-grid {
+    grid-column: 1 / -1;
+}
+
+.btn.btn-outline.sales-btn-pad-x {
+    padding: 0 15px;
+}
+
+input[type="checkbox"].sales-chk-16 {
+    width: 16px;
+    height: 16px;
+}
+
+.d-flex.gap-10.flex-wrap.mb-15.sales-ship-footer-dash {
+    border-bottom: 1px dashed var(--border);
+    padding-bottom: 15px;
+}
+
+.border-top.sales-contract-sep-dashed {
+    border-top: 1px dashed var(--border);
+    margin: 20px 0;
+}
+
+label.doc-section-title.sales-contract-kicker {
+    color: var(--primary);
+}
+
+.input-modern.sales-contract-bank-select {
+    flex: 1;
+    min-width: 0;
+}
+
+td.sales-empty-muted {
+    text-align: center;
+    padding: 20px;
+    color: var(--text-muted);
+}
+
+table.sales-pallet-score-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th.sales-pallet-th-num {
+    padding: 10px;
+    text-align: right;
+}
+
+.overflow-hidden.h-100.border-radius-4.sales-score-bar-fill {
+    background: linear-gradient(90deg, #38bdf8, #3b82f6);
+}
+
+.p-25.border-radius-12.text-center.mb-20.shadow-sm.text-white.sales-stat-hero-banner {
+    background: linear-gradient(135deg, #3b82f6, var(--info));
+}
+
+.bg-surface-hover.border.border-radius-8.p-15.flex-shrink-0.sales-log-card-col {
+    min-width: 320px;
+    max-width: 320px;
+}
+
+h4.border-bottom.pb-8.mb-15.sales-logistics-date-title {
+    border-bottom-style: solid;
+    border-bottom-width: 3px;
+}
+
+h4.sales-logistics-date-title--today {
+    border-bottom-color: #ef4444 !important;
+}
+
+h4.sales-logistics-date-title--usual {
+    border-bottom-color: #38bdf8 !important;
+}
+
+.form-group.sales-export-label-left {
+    text-align: left;
+}
+
+.sales-top-item-name {
+    max-width: 65%;
+}
+
+.sales-reserve-empty-icon {
+    font-size: 40px;
+    margin-bottom: 10px;
+}
+
+#sales-mod .sales-cart-extra-field-max {
+    max-width: 22rem;
+}

@@ -1,76 +1,84 @@
-<div id="sales-mod" class="module">
-    <div class="flex-between mb-20">
-        <div>
-            <h2 class="mt-0 mb-0">🛒 Отгрузка и Продажи</h2>
-            <p class="text-muted font-14 mt-5 mb-0">Управление заказами (OMS) и реализация</p>
+<div id="sales-mod" class="module sales-module-root">
+    <header class="sales-page-header flex-between mb-15">
+        <div class="sales-page-title-wrap min-w-0">
+            <h2 class="mt-0 mb-0">🛒 Продажи и Отгрузка</h2>
+            <p class="text-muted font-14 mt-5 mb-0 sales-page-subtitle">Заказы клиентов, резервирование и отгрузка готовой продукции</p>
         </div>
 
-        <div class="flex-row gap-10 align-center">
-            <button class="btn btn-outline" onclick="openClientDocsModal()">
+        <div class="flex-row gap-10 align-center sales-page-actions flex-wrap justify-end">
+            <button type="button" class="btn btn-outline sales-toolbar-btn" onclick="openClientDocsModal()">
                 🖨️ Документы клиенту
             </button>
-            <button class="btn btn-outline" onclick="openReturnModal()">
+            <button type="button" class="btn btn-outline sales-toolbar-btn" onclick="openReturnModal()">
                 🔙 Возврат
             </button>
 
             <div class="sales-dropdown">
-                <button class="btn btn-outline">
+                <button type="button" class="btn btn-outline sales-toolbar-btn">
                     ⚙️ Инструменты и Отчеты <span class="font-10 ml-5">▼</span>
                 </button>
                 <div class="sales-dropdown-content">
-                    <button onclick="openSalesDashboard()">📊 Дашборд продаж</button>
-                    <button onclick="openLogisticsCalendar()">🚚 Календарь логиста</button>
-                    <button onclick="openPalletsReport()">📦 Отчет по таре</button>
-                    <button onclick="openPriceListModal()">📋 Установка Прайс-листа</button>
-                    <button class="text-primary font-bold" onclick="openExport1CModal()">📥 Выгрузить в 1С (Excel)</button>
+                    <button type="button" onclick="openSalesDashboard()">📊 Дашборд продаж</button>
+                    <button type="button" onclick="openLogisticsCalendar()">🚚 Календарь логиста</button>
+                    <button type="button" onclick="openPalletsReport()">📦 Отчет по таре</button>
+                    <button type="button" onclick="openPriceListModal()">📋 Установка Прайс-листа</button>
+                    <button type="button" class="text-primary font-bold" onclick="openExport1CModal()">📥 Выгрузить в 1С (Excel)</button>
                 </div>
             </div>
         </div>
-    </div>
+    </header>
 
-    <div class="sales-tabs">
-        <div class="sales-tab-btn active" onclick="switchSalesTab('tab-new-order', this)">➕ Новый заказ / Отгрузка</div>
+    <div class="sales-tabs sales-tabs-modern">
+        <div class="sales-tab-btn active" onclick="switchSalesTab('tab-new-order', this)">➕ Новый заказ и отгрузка</div>
         <div class="sales-tab-btn" onclick="switchSalesTab('tab-active-orders', this)">📦 Управление заказами</div>
         <div class="sales-tab-btn" onclick="switchSalesTab('tab-history', this)">📜 Архив отгрузок</div>
     </div>
 
-    <div id="tab-new-order" class="sales-tab-content active">
+    <div id="tab-new-order" class="sales-tab-content active sales-checkout-column">
 
-        <!-- ════ БЛОК 1: КЛИЕНТ + ПОИСК ТОВАРА ════ -->
-        <div class="card p-20 m-0 mb-15">
-            <div class="flex-between m-0 mb-15">
-                <h3 id="checkout-title" class="font-18 mt-0 mb-0 text-main">1. Клиент и подбор товара</h3>
-                <div class="flex-row gap-5 align-center">
-                    <label class="font-12 text-muted m-0">Дата заказа:</label>
-                    <input type="date" id="sale-order-date" class="input-modern w-130p h-32p p-4-6">
-                </div>
+        <!-- Первая карточка: контрагент и поиск номенклатуры -->
+        <div class="card sales-checkout-card sales-checkout-card-client m-0 mb-15">
+            <div class="sales-card-head mb-15">
+                <h3 id="checkout-title" class="font-16 m-0 text-main">1. Клиент и подбор товара</h3>
             </div>
 
+            <div class="sales-new-order-grid">
+                <div class="sales-new-order-col sales-new-order-col-main min-w-0">
             <!-- Выбор клиента -->
-            <div class="form-group mb-10">
-                <label>Клиент (Контрагент):</label>
-                <div class="flex-row gap-10 align-stretch">
-                    <select id="sale-client" class="input-modern flex-grow-1" onchange="onClientChange()"></select>
-                    <button type="button" class="btn btn-outline p-10" onclick="openMiniClientModal()">➕</button>
+            <div class="form-group mb-12">
+                <label class="sales-label-strong">Клиент (Контрагент)</label>
+                <div class="sales-client-row flex-row gap-10 align-stretch">
+                    <div class="min-w-0 flex-grow-1">
+                    <select id="sale-client" class="input-modern w-100" onchange="onClientChange()"></select>
+                    </div>
+                    <button type="button" class="btn btn-outline sales-icon-btn flex-shrink-0" onclick="openMiniClientModal()" title="Добавить клиента">➕</button>
                 </div>
                 <div id="sale-client-info" class="sales-hidden mt-10 w-100"></div>
             </div>
 
             <!-- Договор -->
-            <div class="form-group mb-10 sales-hidden" id="sale-contract-group">
-                <label class="font-12 text-muted">Основание (Договор / Спецификация):</label>
-                <div class="flex-row gap-10 align-center w-100">
-                    <select id="sale-contract" class="input-modern flex-grow-1"></select>
-                    <button type="button" class="btn btn-outline p-10" onclick="openMiniContractModal()" title="Новый договор">➕</button>
-                    <button type="button" class="btn btn-outline p-10" onclick="printSelectedContract()" title="Распечатать договор">🖨️</button>
-                    <button type="button" class="btn btn-outline p-10 text-muted" onclick="openContractManager()" title="Управление договорами">⚙️</button>
+            <div class="form-group mb-0 sales-hidden" id="sale-contract-group">
+                <label class="font-12 text-muted">Основание (Договор / Спецификация)</label>
+                <div class="flex-row gap-10 align-center w-100 flex-wrap sales-contract-actions">
+                    <div class="min-w-0 flex-grow-1 sales-contract-select-wrap">
+                    <select id="sale-contract" class="input-modern w-100"></select>
+                    </div>
+                    <button type="button" class="btn btn-outline sales-icon-btn" onclick="openMiniContractModal()" title="Новый договор">➕</button>
+                    <button type="button" class="btn btn-outline sales-icon-btn" onclick="printSelectedContract()" title="Распечатать договор">🖨️</button>
+                    <button type="button" class="btn btn-outline sales-icon-btn text-muted" onclick="openContractManager()" title="Управление договорами">⚙️</button>
                 </div>
             </div>
+                </div>
 
+                <aside class="sales-new-order-col sales-new-order-col-side min-w-0">
+            <div class="sales-order-date-slot form-group m-0 sales-side-date">
+                <label class="font-12 text-muted m-0 d-block mb-5 sales-order-date-label" for="sale-order-date">Дата заказа</label>
+                <input type="date" id="sale-order-date" class="input-modern sales-order-date-input w-100" aria-label="Дата заказа">
+            </div>
             <!-- Режим склада -->
-            <div class="form-group mb-10">
-                <label class="font-12 text-warning font-bold">Режим поиска и распределения:</label>
-                <select id="sale-warehouse" class="input-modern" onchange="changeSaleWarehouse()">
+            <div class="form-group mb-12 m-0">
+                <label class="font-12 sales-label-accent">Режим поиска и распределения</label>
+                <select id="sale-warehouse" class="input-modern w-100 min-h-control" onchange="changeSaleWarehouse()">
                     <option value="all" selected>🌐 Авто: Резерв + Производство</option>
                     <option value="4">🟢 Склад №4 (1-й сорт)</option>
                     <option value="5">🟡 Склад №5 (Уценка)</option>
@@ -78,13 +86,15 @@
             </div>
 
             <!-- Поиск товара -->
-            <div class="form-group mb-0">
-                <label class="font-12 font-bold text-main">Поиск продукции:</label>
-                <select id="sale-product-select" class="input-modern w-100" placeholder="Начните вводить название..."></select>
+            <div class="form-group mb-0 m-0">
+                <label class="font-13 font-bold text-main sales-label-strong">Поиск продукции</label>
+                <select id="sale-product-select" class="input-modern w-100 min-h-control" placeholder="Начните вводить название..."></select>
+            </div>
+                </aside>
             </div>
 
             <!-- Кол-во / Цена / В заказ (появляется после выбора товара) -->
-            <div id="sale-spec-actions" class="sales-hidden mt-15 pt-15 border-top">
+            <div id="sale-spec-actions" class="sales-hidden mt-15 pt-15 border-top sales-spec-actions-wrap">
                 <div class="sales-qty-bar">
                     <div class="sales-qty-fields">
                         <div class="sales-qty-group">
@@ -126,12 +136,12 @@
         </div>
 
         <!-- ════ БЛОК 2: КОРЗИНА ════ -->
-        <div class="card p-0 m-0 mb-15 overflow-hidden">
-            <div class="p-15 border-bottom bg-surface-alt flex-between align-center">
+        <div class="card p-0 m-0 mb-15 overflow-hidden sales-checkout-card sales-cart-shell">
+            <div class="p-15 border-bottom bg-surface-alt flex-between align-center sales-cart-head">
                 <h3 class="font-16 m-0 text-main">2. Состав заказа (Корзина)</h3>
             </div>
-            <div class="overflow-auto">
-                <table class="table-modern w-100">
+            <div class="overflow-auto sales-cart-scroll">
+                <table class="table-modern w-100 sales-cart-table">
                     <thead class="bg-surface-alt">
                         <tr>
                             <th class="p-10 text-left font-12 text-muted">Сорт</th>
@@ -149,65 +159,70 @@
                 </table>
             </div>
 
-            <div class="bg-surface-alt p-20 border-top">
-                <div class="flex-row gap-20 flex-wrap mb-15">
-                    <div class="form-group m-0 flex-grow-1">
-                        <span class="font-13 font-bold text-muted d-block mb-5">Скидка на весь чек (%):</span>
+            <div class="bg-surface-alt p-15 border-top sales-cart-footer">
+                <div class="sales-cart-extra-grid mb-15">
+                    <div class="form-group m-0 sales-cart-extra-field sales-cart-extra-field-max min-w-0">
+                        <span class="font-13 font-bold text-muted d-block mb-5">Скидка на весь чек (%)</span>
                         <input type="number" id="sale-discount" class="input-modern m-0" placeholder="0" min="0" max="100" oninput="renderCart()">
                     </div>
-                    <div class="form-group m-0 flex-grow-1">
-                        <span class="font-13 font-bold text-muted d-block mb-5">Стоимость доставки (₽):</span>
-                        <input type="number" id="sale-logistics-cost" class="input-modern m-0" value="0" min="0" oninput="renderCart()">
-                    </div>
                 </div>
-                <p class="font-12 text-muted m-0 mb-5">💡 Индивидуальная скидка на каждую позицию задаётся в колонке «Скидка (%)» таблицы корзины. Глобальная скидка применяется поверх позиционных.</p>
-                <div class="flex-between mb-5 font-14 mt-10">
-                    <span>Общий вес продукции:</span>
-                    <strong><span id="cart-total-weight">0</span> кг</strong>
+                <p class="font-12 text-muted m-0 mb-10 sales-cart-hint">Индивидуальная скидка на каждую позицию задаётся в колонке «Скидка (%)» таблицы корзины. Глобальная скидка применяется поверх позиционных.</p>
+
+                <div class="sales-cart-summary-panel mt-15">
+                    <article class="sales-cart-summary-card">
+                        <span class="sales-cart-summary-card-label">Поддоны</span>
+                        <strong class="sales-cart-summary-card-value" id="cart-summary-pallets-main">—</strong>
+                        <span class="sales-cart-summary-card-hint font-11 text-muted" id="cart-summary-pallets-hint">По строке «поддон» в рецепте упаковки (без учёта дробного остатка с распалубки)</span>
+                    </article>
+                    <article class="sales-cart-summary-card">
+                        <span class="sales-cart-summary-card-label">Себестоимость партии</span>
+                        <label class="sales-cart-summary-finance-toggle cursor-pointer font-12 flex-row align-center m-0 mb-8">
+                            <input type="checkbox" id="cart-include-finance" checked class="mr-6" onchange="if(window.renderCart) window.renderCart()">
+                            <span>Налоги + оверхед в расчёте</span>
+                        </label>
+                        <div class="sales-cart-summary-cost-line align-baseline flex-row gap-6 flex-wrap">
+                            <strong class="sales-cart-summary-card-value font-17 text-muted m-0"><span id="cart-total-cost">0</span></strong>
+                            <span class="font-15 text-muted">₽</span>
+                        </div>
+                    </article>
+                    <article class="sales-cart-summary-card sales-cart-summary-card--pay">
+                        <span class="sales-cart-summary-card-label">Итого к оплате</span>
+                        <div class="sales-cart-summary-pay-nums font-21">
+                            <s id="cart-original-sum" class="text-muted font-15 mr-10 d-none">0 ₽</s>
+                            <strong class="text-primary"><span id="cart-total-sum">0</span>&nbsp;₽</strong>
+                        </div>
+                        <span id="cart-grand-hint" class="sales-cart-grand-hint font-12 text-muted d-none mt-8"></span>
+                    </article>
                 </div>
-                <div class="flex-between font-18">
-                    <span>Итого к оплате (с доставкой):</span>
-                    <div class="text-right">
-                        <s id="cart-original-sum" class="text-muted font-14 mr-10">0 ₽</s>
-                        <strong class="text-primary"><span id="cart-total-sum">0</span> ₽</strong>
-                    </div>
-                </div>
-                <!-- 🚀 Блок себестоимости -->
-                <div class="mt-15 pt-15 border-top" id="top-cart-cost-block">
-                    <div class="flex-between font-14 text-muted mb-0 align-center">
-                        <span class="d-flex align-center gap-10">
-                            Общая себестоимость:
-                            <label class="cursor-pointer font-12 flex-row align-center m-0 badge-surface">
-                                <input type="checkbox" id="cart-include-finance" checked class="mr-5" onchange="if(window.renderCart) window.renderCart()">
-                                ⚙️ Налоги + Оверхед
-                            </label>
-                        </span>
-                        <strong><span id="cart-total-cost">0</span> ₽</strong>
-                    </div>
-                </div>
+
+                <div class="sales-cart-details-after-summary pt-15 mt-15 border-top" id="top-cart-cost-block"></div>
             </div>
         </div>
 
         <!-- ════ БЛОК 3: ЛОГИСТИКА ════ -->
-        <div class="card p-0 m-0 mb-15 overflow-hidden">
+        <div class="card p-0 m-0 mb-15 overflow-hidden sales-checkout-card sales-section-logistics">
             <div class="p-15 border-bottom bg-surface-alt">
                 <h3 class="font-16 m-0 text-main">3. 🚚 Логистика</h3>
             </div>
-            <div class="p-20">
+            <div class="p-20 sales-section-body">
                 <div class="form-group mb-15">
                     <label>Способ получения:</label>
                     <div class="d-flex gap-20 align-center mb-15 mt-5">
                         <label class="cursor-pointer d-flex align-center font-14">
-                            <input type="radio" name="sale_delivery_type" value="pickup" onchange="toggleSaleDelivery()" class="mr-10"> Самовывоз
+                            <input type="radio" name="sale_delivery_type" value="pickup" onchange="toggleSaleDelivery()" checked class="mr-10"> Самовывоз
                         </label>
                         <label class="cursor-pointer d-flex align-center font-14">
-                            <input type="radio" name="sale_delivery_type" value="delivery" onchange="toggleSaleDelivery()" checked class="mr-10"> Доставка (Наш/наемный транспорт)
+                            <input type="radio" name="sale_delivery_type" value="delivery" onchange="toggleSaleDelivery()" class="mr-10"> Доставка (Наш/наемный транспорт)
                         </label>
                     </div>
                 </div>
-                <div class="form-group mb-15" id="sale-delivery-address-group">
+                <div class="form-group mb-15 d-none" id="sale-delivery-address-group">
                     <label>Адрес объекта (доставки):</label>
                     <input type="text" id="sale-delivery-address" class="input-modern" placeholder="г. Армавир, ул. Ленина 1">
+                </div>
+                <div class="form-group mb-15 d-none" id="sale-logistics-cost-group">
+                    <label>Стоимость доставки (₽)</label>
+                    <input type="number" id="sale-logistics-cost" class="input-modern" value="0" min="0" step="0.01" oninput="renderCart()" placeholder="0">
                 </div>
                 <div class="flex-row gap-15 flex-wrap">
                     <div class="form-group m-0 flex-grow-1">
@@ -223,11 +238,11 @@
         </div>
 
         <!-- ════ БЛОК 4: ОПЛАТА ════ -->
-        <div class="card p-0 m-0 mb-15 overflow-hidden">
+        <div class="card p-0 m-0 mb-15 overflow-hidden sales-checkout-card sales-section-payment">
             <div class="p-15 border-bottom bg-surface-alt">
                 <h3 class="font-16 m-0 text-main">4. 💳 Оплата</h3>
             </div>
-            <div class="p-20">
+            <div class="p-20 sales-section-body">
                 <!-- 🚀 ВЗАИМОЗАЧЕТ (появляется если есть аванс) -->
                 <div class="bg-success-lt border-success p-15 border-radius-8 mb-15 sales-hidden" id="sale-offset-group">
                     <div class="flex-between mb-10">
@@ -268,12 +283,12 @@
         </div>
 
         <!-- ════ БЛОК 5: ДЕЙСТВИЯ ════ -->
-        <div class="card p-20 m-0 mb-15">
-            <div class="flex-row gap-10 flex-wrap">
-                <button class="btn btn-outline flex-grow-1" onclick="generateKP()">📄 Печать КП</button>
-                <button class="btn btn-outline flex-grow-1" onclick="generateBlankOrder()">🖨️ Печать Бланк-заказа</button>
+        <div class="card p-20 m-0 mb-15 sales-checkout-card sales-section-actions">
+            <div class="flex-row gap-10 flex-wrap sales-secondary-actions">
+                <button type="button" class="btn btn-outline flex-grow-1" onclick="generateKP()">📄 Печать КП</button>
+                <button type="button" class="btn btn-outline flex-grow-1" onclick="generateBlankOrder()">🖨️ Печать Бланк-заказа</button>
             </div>
-            <button id="btn-checkout-save" class="btn btn-blue font-bold font-15 w-100 mt-10" onclick="processCheckout()">
+            <button type="button" id="btn-checkout-save" class="btn btn-blue font-bold font-15 w-100 mt-15 sales-checkout-primary-btn" onclick="processCheckout()">
                 💾 Оформить заказ
             </button>
         </div>
@@ -294,33 +309,50 @@
             </div>
 
             <div id="sales-table-wrapper">
+                <!-- ФИЛЬТРЫ: УПРАВЛЕНИЕ ЗАКАЗАМИ -->
                 <div class="bg-surface-alt p-15 border-bottom">
-                    <div class="form-grid gap-15 align-end grid-cols-5-auto">
-                        <div class="form-group m-0">
+                    <div class="sales-filter-row">
+
+                        <div class="form-group m-0 sf-search">
                             <label class="font-12 text-muted">🔍 Текст (Номер, Адрес):</label>
                             <input type="text" id="bo-search" class="input-modern m-0" placeholder="Поиск..." oninput="applyOrderFilters()">
                         </div>
-                        <div class="form-group m-0">
+
+                        <div class="form-group m-0 sf-client">
                             <label class="font-12 text-muted">👤 Клиент:</label>
                             <select id="bo-client-filter" class="input-modern m-0" onchange="applyOrderFilters()">
                                 <option value="">🌐 Все клиенты</option>
                             </select>
                         </div>
-                        <div class="form-group m-0">
+
+                        <div class="form-group m-0 sf-product">
                             <label class="font-12 text-muted">📦 В составе (Товар):</label>
                             <input type="text" id="bo-product-filter" class="input-modern m-0" placeholder="Название..." oninput="applyOrderFilters()">
                         </div>
-                        <div class="form-group m-0">
-                            <label class="font-12 text-muted">🚦 Статус оплаты:</label>
-                            <select id="bo-status-filter" class="input-modern m-0" onchange="applyOrderFilters()">
-                                <option value="">Все статусы</option>
-                                <option value="debt">🔴 Есть долг</option>
-                                <option value="paid">🟢 Оплачено 100%</option>
-                            </select>
+
+                        <div class="form-group m-0 sf-period">
+                            <label class="font-12 text-muted">📅 Дата заказа:</label>
+                            <div class="sales-period-nav" id="bo-period-nav">
+                                <button class="sales-period-arrow" onclick="boShiftPeriod(-1)" title="Предыдущий период">◀</button>
+                                <span class="sales-period-label" id="bo-period-label" onclick="boTogglePeriodType()" title="Нажмите: Всё → День → Неделя → Месяц → Квартал → Год">Всё время</span>
+                                <button class="sales-period-arrow" onclick="boShiftPeriod(1)" title="Следующий период">▶</button>
+                            </div>
                         </div>
-                        <button class="btn btn-outline p-10 h-100" onclick="resetOrderFilters()" title="Сбросить фильтры">🔄</button>
+
+                        <div class="form-group m-0 sf-status">
+                            <label class="font-12 text-muted">🚦 Статус оплаты:</label>
+                            <div class="sales-status-chips" id="bo-status-chips">
+                                <button class="sales-chip sales-chip--active" data-value="" onclick="setBoPillStatus('')">Все</button>
+                                <button class="sales-chip" data-value="debt" onclick="setBoPillStatus('debt')">🔴 Долг</button>
+                                <button class="sales-chip" data-value="paid" onclick="setBoPillStatus('paid')">🟢 Оплачено</button>
+                            </div>
+                            <input type="hidden" id="bo-status-filter" value="">
+                        </div>
+
+                        <button class="btn btn-outline sf-reset" onclick="resetOrderFilters()" title="Сбросить фильтры">🔄</button>
                     </div>
                 </div>
+
 
                 <div class="table-container m-0">
                     <table class="table-modern w-100">
@@ -340,6 +372,7 @@
                     </table>
                 </div>
 
+                <div id="bo-totals-bar" class="sales-totals-bar"></div>
                 <div class="flex-between p-15 border-top bg-surface">
                     <button class="btn btn-outline" onclick="changeBlankOrderPage(-1)">⬅ Назад</button>
                     <span class="font-bold text-muted" id="bo-page-info">Страница 1 из 1</span>
@@ -371,25 +404,30 @@
     <!-- === ВКЛАДКА 3: АРХИВ ОТГРУЗОК === -->
     <div id="tab-history" class="sales-tab-content">
         <div class="card p-0 overflow-hidden border-0">
+            <!-- ФИЛЬТРЫ: АРХИВ ОТГРУЗОК -->
             <div class="bg-surface-alt p-15 border-bottom">
-                <div class="form-grid gap-15 align-end grid-cols-4-auto">
-                    <div class="form-group m-0">
+                <div class="sales-filter-row">
+
+                    <div class="form-group m-0 sf-search">
                         <label class="font-12 text-muted">🔍 Номер документа:</label>
                         <input type="text" id="hist-search" class="input-modern m-0" placeholder="Поиск..." oninput="applyHistoryFilters()">
                     </div>
-                    <div class="form-group m-0">
+
+                    <div class="form-group m-0 sf-client">
                         <label class="font-12 text-muted">👤 Клиент:</label>
                         <select id="hist-client-filter" class="input-modern m-0" onchange="applyHistoryFilters()">
                             <option value="">🌐 Все клиенты</option>
                         </select>
                     </div>
-                    <div class="form-group m-0">
-                        <div class="flex-between mb-5">
-                            <label class="font-12 text-muted m-0">📅 Период отгрузки:</label>
+
+                    <div class="form-group m-0 sf-period">
+                        <label class="font-12 text-muted">📅 Период отгрузки:</label>
+                        <div class="sales-period-nav" id="hist-date-filter-container">
+                            <!-- Заполняется из renderHistoryPeriodUI() -->
                         </div>
-                        <div id="hist-date-filter-container" class="history-period-selector flex-row gap-10"></div>
                     </div>
-                    <button class="btn btn-outline p-10 h-100" onclick="resetHistoryFilters()" title="Сбросить фильтры">🔄</button>
+
+                    <button class="btn btn-outline sf-reset" onclick="resetHistoryFilters()" title="Сбросить фильтры">🔄</button>
                 </div>
             </div>
 
@@ -410,6 +448,7 @@
                     </tbody>
                 </table>
             </div>
+            <div id="hist-totals-bar" class="sales-totals-bar"></div>
             <div class="flex-between p-15 border-top bg-surface">
                 <button class="btn btn-outline" onclick="changeHistoryPage(-1)">⬅ Назад</button>
                 <span class="font-bold text-muted" id="hist-page-info">Страница 1 из 1</span>
@@ -419,14 +458,3 @@
     </div>
 
 </div>
-
-<script>
-    function switchSalesTab(tabId, btnElement) {
-        document.querySelectorAll('.sales-tab-content').forEach(tab => tab.classList.remove('active'));
-        document.querySelectorAll('.sales-tab-btn').forEach(btn => btn.classList.remove('active'));
-        document.getElementById(tabId).classList.add('active');
-        btnElement.classList.add('active');
-        if (tabId === 'tab-active-orders') loadActiveOrders();
-        if (tabId === 'tab-history') loadSalesHistory();
-    }
-</script>

@@ -139,13 +139,11 @@
         </div>
     </div>
 
-    <div id="drilldown-container" class="dash-drill-container"
-        style="overflow: hidden; width: 100%; margin-bottom: 20px; border-radius: 12px; transition: all 0.3s ease;">
-        <div id="dashboard-tabs-content" class="dashboard-tabs-content collapsed-panel"
-            style="display: flex; width: 300%; transition: transform 0.4s ease-in-out, max-height 0.4s ease-in-out, opacity 0.4s ease-in-out; align-items: flex-start; transform: translateX(0%); overflow: hidden;">
+    <div id="drilldown-container" class="dash-drill-container dash-carousel">
+        <div id="dashboard-tabs-content" class="dashboard-tabs-content dash-carousel-inner collapsed-panel">
 
-            <div class="tab-panel dash-tab-panel dash-tab-panel-1">
-                <div class="card mb-0 dash-panel-success">
+            <div class="tab-panel dash-tab-panel dash-slide dash-tab-panel-1">
+                <div class="card mb-0 dash-panel-success dash-drill-panel-card">
                     <div class="flex-between mb-15 dash-panel-header">
                         <div class="flex-row gap-10 align-center">
                             <button class="btn btn-outline btn-sm-pad" onclick="closeCostCategory()">⬅ Назад</button>
@@ -158,9 +156,8 @@
                 </div>
             </div>
 
-            <div class="tab-panel"
-                style="width: 33.333%; padding-right: 10px; padding-left: 10px; box-sizing: border-box;">
-                <div class="card mb-0 dash-panel-warning">
+            <div class="tab-panel dash-slide">
+                <div class="card mb-0 dash-panel-warning dash-drill-panel-card">
                     <div class="flex-between mb-15 dash-panel-header">
                         <div class="flex-row gap-10 align-center">
                             <button class="btn btn-outline btn-sm-pad" onclick="closeCostCategory()">⬅ Назад</button>
@@ -173,8 +170,8 @@
                 </div>
             </div>
 
-            <div class="tab-panel dash-tab-panel dash-tab-panel-3">
-                <div class="card mb-0 dash-panel-primary">
+            <div class="tab-panel dash-tab-panel dash-slide dash-tab-panel-3">
+                <div class="card mb-0 dash-panel-primary dash-drill-panel-card">
                     <div class="flex-between mb-15 dash-panel-header">
                         <div class="flex-row gap-10 align-center">
                             <button class="btn btn-outline btn-sm-pad" onclick="closeCostCategory()">⬅ Назад</button>

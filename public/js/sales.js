@@ -558,8 +558,6 @@ window.smartAccountToggle = function () {
     // Если способ оплаты = "В долг" и нет зачёта → касса не нужна
     if (methodVal === 'debt' && !(offsetCheck?.checked)) {
         accountGroup.classList.add('sales-hidden');
-        accountGroup.style.opacity = '1';
-        accountGroup.style.pointerEvents = 'auto';
         return;
     }
 
@@ -573,16 +571,12 @@ window.smartAccountToggle = function () {
     if (offsetCheck?.checked && isEmployeeCounterparty) {
         // При зачете касса всегда нужна: должны пройти 2 движения (приход продажи + выдача аванса).
         accountGroup.classList.remove('sales-hidden');
-        accountGroup.style.opacity = '1';
-        accountGroup.style.pointerEvents = 'auto';
         const lbl = accountGroup.querySelector('label');
         if (lbl) lbl.innerHTML = 'Касса / Банк:';
         salesSelectPreferredAccount();
     } else if (methodVal === 'paid' || methodVal === 'partial' || (offsetCheck?.checked && payNow > 0.01)) {
         // Есть живые деньги → касса обязательна
         accountGroup.classList.remove('sales-hidden');
-        accountGroup.style.opacity = '1';
-        accountGroup.style.pointerEvents = 'auto';
         const lbl = accountGroup.querySelector('label');
         if (lbl) lbl.innerHTML = 'Касса / Банк:';
         salesSelectPreferredAccount();
@@ -1098,8 +1092,8 @@ window.openProfitCalculator = async function() {
                     <div class="flex-between mb-10"><span class="text-muted">Общая себестоимость:</span> <strong>${totalCost.toLocaleString('ru-RU', {minimumFractionDigits:2})} ₽</strong></div>
                     
                     <div class="flex-between mt-15 pt-15 border-top">
-                        <span class="font-bold text-main">Прогноз маржинальности:</span> 
-                        <strong style="color: ${profit > 0 ? 'var(--success)' : 'var(--danger)'}; font-size: 18px;">
+                        <span class="font-bold text-main">Прогноз маржинальности:</span>
+                        <strong class="font-18 ${profit > 0 ? 'text-success' : 'text-danger'}">
                             ${profit > 0 ? '+' : ''}${profit.toLocaleString('ru-RU', {minimumFractionDigits:2})} ₽ (${marginPercent}%)
                         </strong>
                     </div>
@@ -1472,10 +1466,9 @@ window.renderCart = function () {
             // Стили заголовка
             const header = document.getElementById('cart-profit-header');
             if (header) {
-                header.style.background = isProfitable
-                    ? 'linear-gradient(135deg, #e8f5e9, #c8e6c9)'
-                    : 'linear-gradient(135deg, #ffebee, #ffcdd2)';
-                header.style.borderTopColor = isProfitable ? '#66bb6a' : '#ef5350';
+                header.classList.add('sales-profit-header');
+                header.classList.toggle('sales-profit-header--profit', isProfitable);
+                header.classList.toggle('sales-profit-header--loss', !isProfitable);
             }
 
             document.getElementById('cart-profit-tax-pct').innerText = safeTaxPct;
@@ -1486,27 +1479,29 @@ window.renderCart = function () {
 
             const marginEl = document.getElementById('cart-profit-margin');
             marginEl.innerText = `${marginPct}%`;
-            marginEl.style.background = isProfitable ? '#1b5e20' : '#b71c1c';
-            marginEl.classList.add('text-white');
+            marginEl.classList.add('sales-profit-margin-chip');
+            marginEl.classList.toggle('sales-profit-margin-chip--profit', isProfitable);
+            marginEl.classList.toggle('sales-profit-margin-chip--loss', !isProfitable);
 
             // Разбивка по продуктам
             const breakdownEl = document.getElementById('cart-profit-breakdown');
             const productKeys = Object.keys(productProfitMap);
             if (breakdownEl) {
                 if (productKeys.length > 1) {
+                    const bdMod = isProfitable ? 'sales-profit-breakdown-inner--profit' : 'sales-profit-breakdown-inner--loss';
+                    breakdownEl.className = `sales-profit-breakdown-inner ${bdMod}`;
                     breakdownEl.innerHTML = productKeys.map(name => {
                         const p = productProfitMap[name];
                         const ok = p.profit >= 0;
-                        return `<div style="display:flex; justify-content:space-between; padding: 3px 0; border-bottom: 1px dotted ${isProfitable ? '#a5d6a7' : '#ef9a9a'};">
+                        return `<div class="sales-profit-bd-row">
                             <span class="${isProfitable ? 'text-success' : 'text-danger'}">${name}</span>
                             <span class="font-bold ${ok ? 'text-success' : 'text-danger'}">${ok ? '+' : ''}${p.profit.toFixed(2)} ₽</span>
                         </div>`;
                     }).join('');
                     breakdownEl.classList.remove('d-none');
-                    breakdownEl.style.background = isProfitable ? '#e8f5e960' : '#ffebee60';
-                    breakdownEl.style.padding = '6px 18px 10px';
                 } else {
                     breakdownEl.innerHTML = '';
+                    breakdownEl.className = '';
                     breakdownEl.classList.add('d-none');
                 }
             }
@@ -2520,18 +2515,18 @@ window.openPriceListModal = async function () {
                 .price-list-table thead { position: sticky; top: 0; z-index: 10; }
             </style>
             
-            <div class="overflow-auto pr-10" style="max-height: 60vh;">
+            <div class="overflow-auto pr-10 sales-pricelist-scroll">
                 <table class="table-modern w-100 font-13 price-list-table">
                     <thead class="bg-surface-hover">
                         <tr>
                             <th class="p-10 text-left">
-                                <div class="d-flex align-items-center justify-content-between" style="gap: 15px;">
+                                <div class="d-flex align-items-center justify-content-between gap-15 sales-pricelist-toolbar-inner">
                                     <span>Товар</span>
-                                    <input type="text" class="input-modern m-0 font-12" style="max-width: 250px; padding: 4px 10px;" placeholder="Умный поиск (2 к 6)..." oninput="filterPriceList(this.value)">
+                                    <input type="text" class="input-modern m-0 font-12 sales-pricelist-search" placeholder="Умный поиск (2 к 6)..." oninput="filterPriceList(this.value)">
                                 </div>
                             </th>
-                            <th class="p-10 text-center text-main" style="width: 130px;">Основная<br><small class="text-muted">(Розница)</small></th>
-                            <th class="p-10 text-center text-info" style="width: 130px;">Дилерская<br><small class="text-muted">(Опт)</small></th>
+                            <th class="p-10 text-center text-main sales-th-130">Основная<br><small class="text-muted">(Розница)</small></th>
+                            <th class="p-10 text-center text-info sales-th-130">Дилерская<br><small class="text-muted">(Опт)</small></th>
                         </tr>
                     </thead>
                     <tbody>${tbody}</tbody>
@@ -2541,7 +2536,7 @@ window.openPriceListModal = async function () {
 
         UI.showModal('📋 Установка Прайс-листа', html, `
             <div class="flex-between flex-wrap gap-10 w-100">
-                <div class="flex-row gap-10" style="flex: 1; min-width: 250px;">
+                <div class="flex-row gap-10 sales-price-toolbar-grow">
                     <label class="btn btn-outline border-primary text-primary font-12 cursor-pointer m-0 px-10">
                         📥 Загрузить Базовый (Розница)
                         <input type="file" accept=".csv" class="d-none" onchange="handleBasicCsvImport(event)">
@@ -2884,15 +2879,15 @@ window.openCostAnalysisModal = async function () {
                 .calc-method { background: #e3f2fd; border: 1px solid #90caf9; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #1565c0; margin-top: 12px; line-height: 1.6; }
                 @media (max-width: 800px) { .calc-grid { grid-template-columns: 1fr; } }
             </style>
-            <div style="padding: 8px 4px;">
-                
+            <div class="sales-live-calc-pad">
+
                 <!-- Шапка: Партия + Прибыль -->
                 <div class="flex-between align-end mb-18 pb-12 border-bottom-2">
                     <div>
                         <div class="font-13 text-muted">Объем партии: <b class="text-main">${qty} ${currentSelectedItem.unit || 'шт.'}</b> × <b class="text-main">${salePrice} ₽</b></div>
                     </div>
                     <div class="text-right">
-                        <div class="font-11 text-muted text-uppercase" style="letter-spacing: 0.5px;">Чистая прибыль (Партия)</div>
+                        <div class="font-11 text-muted text-uppercase sales-calc-micro-label">Чистая прибыль (Партия)</div>
                         <div id="res-batch-profit" class="font-28 font-900 text-success line-height-1">0.00 ₽</div>
                     </div>
                 </div>
@@ -2901,12 +2896,12 @@ window.openCostAnalysisModal = async function () {
                     
                     <!-- ======== ЛЕВАЯ КОЛОНКА: Таблица сырья ======== -->
                     <div>
-                        <div class="calc-card" style="padding: 0; overflow: hidden;">
+                        <div class="calc-card sales-calc-card-reset">
                             <div class="crm-header-row">
                                 <span class="font-13 font-bold text-main">📦 Сравнительный расход сырья</span>
                             </div>
-                            <div style="overflow-x: auto;">
-                                <table class="table-modern w-100" style="min-width: 520px; font-size: 12px;">
+                            <div class="overflow-x-auto sales-calc-x-scroll">
+                                <table class="table-modern w-100 sales-calc-table-mini">
                                     <thead class="bg-surface-alt">
                                         <tr class="border-b">
                                             <th rowspan="2" class="th-sub header-border">МАТЕРИАЛ</th>
@@ -2923,12 +2918,12 @@ window.openCostAnalysisModal = async function () {
                                     </thead>
                                     <tbody>
                                         ${data.materials.map(m => `
-                                            <tr style="border-bottom: 1px solid var(--bg-surface-hover);">
+                                            <tr class="sales-calc-row-sep">
                                                 <td class="font-600 border-r padding-7-10">${m.name}</td>
                                                 <td class="td-center text-primary border-r-dashed padding-7-6">${m.theory_qty > 0 ? m.theory_qty.toFixed(3) : '-'} <small>${m.unit}</small></td>
                                                 <td class="td-center text-orange font-700 border-r padding-7-6">
                                                     ${m.fact_qty > 0 ? m.fact_qty.toFixed(3) : '-'} <small>${m.unit}</small>
-                                                    ${m.is_hybrid ? '<span title="Нет факта — подставлено из рецепта" style="cursor:help;">🪄</span>' : ''}
+                                                    ${m.is_hybrid ? '<span title="Нет факта — подставлено из рецепта" class="sales-cursor-help">🪄</span>' : ''}
                                                 </td>
                                                 <td class="td-right text-primary border-r-dashed padding-7-6">${m.theory_cost > 0 ? m.theory_cost.toFixed(2) + ' ₽' : '-'}</td>
                                                 <td class="td-right text-orange font-700 border-r padding-7-6">${m.fact_cost > 0 ? m.fact_cost.toFixed(2) + ' ₽' : '-'}</td>
@@ -2937,7 +2932,7 @@ window.openCostAnalysisModal = async function () {
                                         `).join('')}
                                     </tbody>
                                     <tfoot class="bg-surface-alt border-t-2">
-                                        <tr style="font-weight: 900;">
+                                        <tr class="sales-calc-tr-bold">
                                             <td class="border-r padding-10">ИТОГО (СЫРЬЕ):</td>
                                             <td class="border-r-dashed padding-10"></td>
                                             <td class="border-r padding-10"></td>
@@ -2957,10 +2952,10 @@ window.openCostAnalysisModal = async function () {
                     </div>
 
                     <!-- ======== ПРАВАЯ КОЛОНКА: Карточки ======== -->
-                    <div style="display: flex; flex-direction: column; gap: 14px;">
+                    <div class="sales-calc-stack-col">
 
                         <!-- Сырье: Идеал vs Опыт -->
-                        <div class="calc-card" style="border-left: 4px solid var(--primary);">
+                        <div class="calc-card sales-calc-accent-primary">
                             <div class="calc-card-header">📐 Себестоимость сырья (1 ед)</div>
                             <div class="calc-row">
                                 <span class="text-muted">Идеал (Рецепт):</span>
@@ -2973,7 +2968,7 @@ window.openCostAnalysisModal = async function () {
                         </div>
 
                         <!-- Доп. расходы -->
-                        <div class="calc-card" style="border-left: 4px solid #ff9800;">
+                        <div class="calc-card sales-calc-accent-warn-orange">
                             <div class="calc-card-header">🔨 Доп. расходы (на 1 ед)</div>
                             <div class="calc-row">
                                 <span class="text-muted">Амортизация:</span>
@@ -2995,7 +2990,7 @@ window.openCostAnalysisModal = async function () {
                         </div>
 
                         <!-- Коммерция -->
-                        <div class="calc-card" style="border-left: 4px solid var(--danger);">
+                        <div class="calc-card sales-calc-accent-danger">
                             <div class="calc-card-header">💼 Коммерция и Налоги</div>
                             <div class="calc-row">
                                 <span class="text-muted">Цена (1 ед):</span>
@@ -3021,7 +3016,7 @@ window.openCostAnalysisModal = async function () {
                                 <span>Налоги и комиссии:</span>
                                 <strong id="res-taxes" class="text-danger">-0.00 ₽</strong>
                             </div>
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div class="sales-calc-total-row">
                                 <div class="font-11 text-uppercase font-700 text-muted">Чистая прибыль (1 ед)</div>
                                 <div class="text-right">
                                     <div id="res-net-profit" class="font-22 font-900 line-height-1 text-success">0.00 ₽</div>
@@ -3110,17 +3105,17 @@ window.openOrderManager = async function (orderId) {
             }
 
             return `
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <td style="padding: 8px;">
+                <tr class="sales-ship-tr">
+                    <td class="sales-ship-td">
                         ${i.name}
                         ${actionsHtml ? '<br>' + actionsHtml : ''}
                     </td>
-                    <td style="padding: 8px; text-align: center; font-weight: bold;">${ordered}</td>
+                    <td class="sales-ship-td-center-bold">${ordered}</td>
                     <td class="padding-8 td-center text-success font-bold">${shipped}</td>
                     <td class="padding-8 td-center text-primary font-bold">${reserved}</td>
                     <td class="padding-8 td-center text-danger font-bold">${production}</td>
-                    <td style="padding: 8px; text-align: center;">
-                        <input type="number" class="input-modern ship-qty-input" 
+                    <td class="sales-ship-td-center">
+                        <input type="number" class="input-modern ship-qty-input"
                                data-coi-id="${i.id}" data-item-id="${i.item_id}" 
                                max="${remainText}" value="${Math.min(remainText, reserved)}" 
                                ${remainText <= 0 ? 'disabled' : ''} 
@@ -3156,16 +3151,16 @@ window.openOrderManager = async function (orderId) {
                             <input type="text" id="ship-auto" class="input-modern" placeholder="Гос. номер (Е123КХ)">
                         </div>
                     </div>
-                    <div class="form-group m-0" style="grid-column: 1 / -1;">
+                    <div class="form-group m-0 sales-ship-poa-grid">
                         <label class="font-12 text-muted mb-5">Основание (Доверенность) <span class="text-danger">*</span></label>
                         <div class="flex-column gap-10">
                             <div id="ship-poa-container" class="flex-row gap-10">
                                 <select id="ship-poa-select" class="input-modern flex-grow-1"></select>
-                                <button type="button" class="btn btn-outline" style="padding: 0 15px;" onclick="openPoaManager(${order.counterparty_id}, 'ship-poa-select')">➕ Новая</button>
+                                <button type="button" class="btn btn-outline sales-btn-pad-x" onclick="openPoaManager(${order.counterparty_id}, 'ship-poa-select')">➕ Новая</button>
                             </div>
                             
                             <label class="d-flex align-center cursor-pointer m-0 mt-5">
-                                <input type="checkbox" id="ship-no-poa" class="mr-10" onchange="toggleShipPoa()" style="width:16px; height:16px;"> 
+                                <input type="checkbox" id="ship-no-poa" class="mr-10 sales-chk-16" onchange="toggleShipPoa()">
                                 <span class="font-13">Без доверенности (Только по звонку / Особое распоряжение)</span>
                             </label>
 
@@ -3196,7 +3191,7 @@ window.openOrderManager = async function (orderId) {
         }
 
         UI.showModal(`Управление заказом: ${order.doc_number}`, html, `
-            <div class="d-flex gap-10 flex-wrap mb-15 w-100" style="border-bottom: 1px dashed var(--border); padding-bottom: 15px;">
+            <div class="d-flex gap-10 flex-wrap mb-15 w-100 sales-ship-footer-dash">
                 <button class="btn btn-outline sales-btn-sm text-primary" onclick="UI.closeModal(); loadOrderForEdit(${order.id})">✏️ Изменить (Товары / Цены)</button>
                 <button class="btn btn-outline sales-btn-sm text-danger" onclick="UI.closeModal(); forceCloseOrder(${order.id}, '${order.doc_number}')">❌ Принудительно закрыть (Отменить остатки)</button>
                 ${advanceBtnHtml}
@@ -3299,6 +3294,13 @@ window.executePartialShipment = async function (orderId, btnElement) {
 // ==========================================
 // === ВОЗВРАТЫ (ТОВАР И ПОДДОНЫ) ===
 // ==========================================
+window.salesToggleRetMethod = function (methodSelect) {
+    const g = document.getElementById('ret-acc-group');
+    if (!g) return;
+    const v = methodSelect && typeof methodSelect.value === 'string' ? methodSelect.value : String(methodSelect || '');
+    g.classList.toggle('d-none', v !== 'cash');
+};
+
 window.openReturnModal = async function () {
     try {
         const clients = await API.get('/api/counterparties');
@@ -3316,7 +3318,7 @@ window.openReturnModal = async function () {
 
                 <div class="bg-surface-hover p-10 border-radius-6 border dashed mb-15">
                     <h4 class="m-0 mb-10 text-muted">🧱 Возврат продукции (если есть)</h4>
-                    <div class="form-grid gap-10 align-end" style="grid-template-columns: 2fr 1fr 1fr;">
+                    <div class="form-grid gap-10 align-end sales-return-prod-grid">
                         <div class="form-group m-0">
                             <label>Товар:</label>
                             <select id="ret-item" class="input-modern">
@@ -3352,13 +3354,13 @@ window.openReturnModal = async function () {
 
                 <div class="form-group">
                     <label>Как компенсируем?</label>
-                    <select id="ret-method" class="input-modern" onchange="document.getElementById('ret-acc-group').style.display = this.value === 'cash' ? 'block' : 'none'">
+                    <select id="ret-method" class="input-modern" onchange="salesToggleRetMethod(this)">
                         <option value="debt">📉 Взаимозачет (Списать с его долга)</option>
                         <option value="cash">💸 Выдать деньги из кассы</option>
                     </select>
                 </div>
 
-                <div class="form-group" id="ret-acc-group" class="d-none">
+                <div class="form-group d-none" id="ret-acc-group">
                     <label>Из какой кассы выдаем?</label>
                     <select id="ret-account" class="input-modern">${accountOptions}</select>
                 </div>
@@ -3463,10 +3465,10 @@ window.openClientDocsModal = function () {
             }
         </style>
         
-        <div style="padding: 5px;">
+        <div class="sales-modal-pad-xs">
             <div class="doc-section">
                 <label class="doc-section-title">📊 ПРАЙС-ЛИСТЫ</label>
-                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-grid sales-contract-grid-pair">
                     <button class="doc-btn" onclick="printFile('price_main.pdf')">📄 Основной</button>
                     <button class="doc-btn" onclick="printFile('price_dealer.pdf')">📄 Дилерский</button>
                 </div>
@@ -3474,7 +3476,7 @@ window.openClientDocsModal = function () {
 
             <div class="doc-section">
                 <label class="doc-section-title">📜 СЕРТИФИКАТЫ ГОСТ</label>
-                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-grid sales-contract-grid-pair">
                     <button class="doc-btn" onclick="printFile('cert_tiles.pdf')">🧩 На плитку</button>
                     <button class="doc-btn" onclick="printFile('cert_curbs.pdf')">🛣️ На бордюры</button>
                 </div>
@@ -3487,12 +3489,12 @@ window.openClientDocsModal = function () {
                 </button>
             </div>
 
-            <div style="border-top: 1px dashed var(--border); margin: 20px 0;"></div>
+            <div class="border-top sales-contract-sep-dashed"></div>
 
             <div class="doc-section mb-0">
-                <label class="doc-section-title" style="color: var(--primary);">🏢 КАРТОЧКА ПРЕДПРИЯТИЯ</label>
-                <div class="bank-select-group">
-                    <select id="bank-select-docs" class="input-modern" style="flex: 1;">
+                <label class="doc-section-title sales-contract-kicker">🏢 КАРТОЧКА ПРЕДПРИЯТИЯ</label>
+                <div class="bank-select-group flex-row gap-10 align-center">
+                    <select id="bank-select-docs" class="input-modern sales-contract-bank-select">
                         <option value="tochka" selected>Точка банк</option>
                         <option value="alfa">Альфа-банк</option>
                     </select>
@@ -3741,14 +3743,14 @@ window.openPalletsReport = async function () {
         const data = await API.get('/api/sales/pallets-report');
 
         let tbody = data.map(c => `
-            <tr style="border-bottom: 1px solid var(--border);">
+            <tr class="sales-ship-tr">
                 <td class="p-10"><b>${c.name}</b></td>
                 <td class="padding-10 text-muted">${c.phone || 'Нет телефона'}</td>
                 <td class="padding-10 td-right text-warning font-bold font-16">${c.pallets_balance} шт.</td>
             </tr>
         `).join('');
 
-        if (data.length === 0) tbody = '<tr><td colspan="3" style="text-align: center; padding: 20px; color: var(--text-muted);">Нет должников по таре 🎉</td></tr>';
+        if (data.length === 0) tbody = '<tr><td colspan="3" class="sales-empty-muted">Нет должников по таре 🎉</td></tr>';
 
         const totalPallets = data.reduce((sum, c) => sum + parseInt(c.pallets_balance), 0);
 
@@ -3758,12 +3760,12 @@ window.openPalletsReport = async function () {
                     <span class="text-warning-dark font-14">Всего деревянных поддонов зависло у клиентов:</span><br>
                     <strong class="font-26 text-warning">${totalPallets} шт.</strong>
                 </div>
-                <table style="width: 100%; border-collapse: collapse;">
+                <table class="sales-pallet-score-table">
                     <thead class="bg-surface-hover text-left">
                         <tr>
                             <th class="p-10">Клиент</th>
                             <th class="p-10">Телефон для связи</th>
-                            <th style="padding: 10px; text-align: right;">Долг (шт)</th>
+                            <th class="sales-pallet-th-num">Долг (шт)</th>
                         </tr>
                     </thead>
                     <tbody>${tbody}</tbody>
@@ -3787,11 +3789,11 @@ window.openSalesDashboard = async function () {
         let itemsHtml = data.topItems.map((i, idx) => `
             <div class="mb-12">
                 <div class="flex-between font-12 mb-5">
-                    <span class="text-truncate" style="max-width: 65%;"><b>${idx + 1}.</b> ${i.name} (${i.total_qty} шт)</span>
+                    <span class="text-truncate sales-top-item-name"><b>${idx + 1}.</b> ${i.name} (${i.total_qty} шт)</span>
                     <span class="font-bold text-success">${formatSum(i.total_sum)}</span>
                 </div>
                 <div class="bg-surface-alt border-radius-4 overflow-hidden h-8">
-                    <div class="h-100 border-radius-4" style="background: linear-gradient(90deg, #38bdf8, #3b82f6); width: ${(parseFloat(i.total_sum) / maxItemSum) * 100}%;"></div>
+                    <div class="h-100 border-radius-4 overflow-hidden sales-score-bar-fill" style="width: ${(parseFloat(i.total_sum) / maxItemSum) * 100}%;"></div>
                 </div>
             </div>
         `).join('');
@@ -3807,7 +3809,7 @@ window.openSalesDashboard = async function () {
         const html = `
             <style>#app-modal .modal-content { max-width: 800px !important; }</style>
             <div class="p-10">
-                <div class="p-25 border-radius-12 text-center mb-20 shadow-sm text-white" style="background: linear-gradient(135deg, #3b82f6, var(--info));">
+                <div class="p-25 border-radius-12 text-center mb-20 shadow-sm text-white sales-stat-hero-banner">
                     <div class="font-14 opacity-90 text-uppercase tracking-wider">Выручка за текущий месяц</div>
                     <div class="font-42 font-black mt-5">${formatSum(data.monthRevenue)}</div>
                 </div>
@@ -3853,8 +3855,8 @@ window.openLogisticsCalendar = function () {
     dates.forEach(date => {
         const isToday = date === new Date().toLocaleDateString('ru-RU');
         html += `
-            <div class="bg-surface-hover border border-radius-8 p-15 flex-shrink-0" style="min-width: 320px; max-width: 320px;">
-                <h4 class="m-0 text-main border-bottom pb-8 mb-15" style="border-bottom-color: ${isToday ? '#ef4444' : '#38bdf8'} !important; border-bottom-style: solid; border-bottom-width: 3px;">
+            <div class="bg-surface-hover border border-radius-8 p-15 flex-shrink-0 sales-log-card-col">
+                <h4 class="m-0 text-main border-bottom pb-8 mb-15 sales-logistics-date-title ${isToday ? 'sales-logistics-date-title--today' : 'sales-logistics-date-title--usual'}">
                     ${isToday ? '🔥 СЕГОДНЯ' : '📅 ' + date} <span class="font-normal font-12 text-muted float-right">${grouped[date].length} маш.</span>
                 </h4>`;
 
@@ -3892,7 +3894,7 @@ window.openExport1CModal = function () {
         <div class="p-10 text-center">
             <p class="text-muted font-13 m-0 mt-0">Выберите период для выгрузки реестра отгрузок. Файл скачается в формате CSV (Excel), оптимизированном для загрузки в 1С Бухгалтерию.</p>
             <div class="flex-row gap-10 justify-center mt-20">
-                <div class="form-group m-0 pl-10" style="text-align: left;">
+                <div class="form-group m-0 pl-10 sales-export-label-left">
                     <label>Месяц</label>
                     <select id="export-month" class="input-modern w-150">
                         <option value="01" ${currentMonth === '01' ? 'selected' : ''}>Январь</option>
@@ -3909,7 +3911,7 @@ window.openExport1CModal = function () {
                         <option value="12" ${currentMonth === '12' ? 'selected' : ''}>Декабрь</option>
                     </select>
                 </div>
-                <div class="form-group m-0" style="text-align: left;">
+                <div class="form-group m-0 sales-export-label-left">
                     <label>Год</label>
                     <input type="number" id="export-year" class="input-modern w-100" value="${currentYear}">
                 </div>
@@ -3976,8 +3978,7 @@ window.handleDealerCsvImport = function (event) {
                     const input = document.querySelector(`.price-dealer[data-id="${dbItem.id}"]`);
                     if (input) {
                         input.value = price;
-                        input.style.backgroundColor = 'var(--success-bg)';
-                        input.style.border = '1px solid #22c55e';
+                        input.classList.add('sales-price-input--import-dealer');
                         matchCount++;
                     }
                 }
@@ -4036,8 +4037,7 @@ window.handleBasicCsvImport = function (event) {
                                 const input = document.querySelector(`.price-basic[data-id="${dbItem.id}"]`);
                                 if (input) {
                                     input.value = price;
-                                    input.style.backgroundColor = '#eff6ff';
-                                    input.style.border = '1px solid #3b82f6';
+                                    input.classList.add('sales-price-input--import-basic');
                                     matchCount++;
                                 }
                             }
@@ -4279,9 +4279,9 @@ window.renderKanbanBoard = function () {
 
         card.addEventListener('dragstart', (e) => {
             e.dataTransfer.setData('text/plain', order.id);
-            setTimeout(() => card.style.opacity = '0.4', 0);
+            setTimeout(() => card.classList.add('kanban-card--dragging'), 0);
         });
-        card.addEventListener('dragend', () => card.style.opacity = '1');
+        card.addEventListener('dragend', () => card.classList.remove('kanban-card--dragging'));
 
         const column = document.querySelector(`.kanban-column[data-status="${order.status}"] .kanban-items-container`);
         if (column) column.appendChild(card);
@@ -4291,18 +4291,15 @@ window.renderKanbanBoard = function () {
     document.querySelector('.kanban-column[data-status="pending"] .column-count').innerText = counts.pending;
     document.querySelector('.kanban-column[data-status="processing"] .column-count').innerText = counts.processing;
 
-    // Настраиваем Drag & Drop
-    document.querySelectorAll('.kanban-column').forEach(col => {
-        // Чтобы событие не дублировалось при перерисовке
-        col.removeEventListener('dragover', window.handleDragOver);
-        col.removeEventListener('dragleave', window.handleDragLeave);
-        col.removeEventListener('drop', window.handleDrop);
-
-        window.handleDragOver = e => { e.preventDefault(); col.style.background = '#e2e8f0'; };
-        window.handleDragLeave = e => { col.style.background = ''; };
-        window.handleDrop = async (e) => {
+    document.querySelectorAll('.kanban-column').forEach((col) => {
+        const onOver = (e) => {
             e.preventDefault();
-            col.style.background = '';
+            col.classList.add('kanban-col--drag-over');
+        };
+        const onLeave = () => col.classList.remove('kanban-col--drag-over');
+        const onDrop = async (e) => {
+            e.preventDefault();
+            col.classList.remove('kanban-col--drag-over');
 
             const orderId = e.dataTransfer.getData('text/plain');
             const newStatus = col.dataset.status;
@@ -4310,7 +4307,7 @@ window.renderKanbanBoard = function () {
             const order = allActiveOrders.find(o => o.id == orderId);
             if (order && order.status !== newStatus) {
                 order.status = newStatus;
-                renderKanbanBoard(); // Мгновенно перерисовываем
+                renderKanbanBoard();
 
                 try {
                     await API.put(`/api/sales/orders/${orderId}/status`, { status: newStatus });
@@ -4321,9 +4318,15 @@ window.renderKanbanBoard = function () {
             }
         };
 
-        col.addEventListener('dragover', window.handleDragOver);
-        col.addEventListener('dragleave', window.handleDragLeave);
-        col.addEventListener('drop', window.handleDrop);
+        col.removeEventListener('dragover', col._salesKanbanOver);
+        col.removeEventListener('dragleave', col._salesKanbanLeave);
+        col.removeEventListener('drop', col._salesKanbanDrop);
+        col._salesKanbanOver = onOver;
+        col._salesKanbanLeave = onLeave;
+        col._salesKanbanDrop = onDrop;
+        col.addEventListener('dragover', onOver);
+        col.addEventListener('dragleave', onLeave);
+        col.addEventListener('drop', onDrop);
     });
 };
 
@@ -4588,7 +4591,7 @@ window.openReserveTransferModal = async function(recCoiId, recOrderId, itemId, i
         if (donors.length === 0) {
             UI.showModal('Перехват резерва', `
                 <div class="p-20 text-center">
-                    <div style="font-size: 40px; margin-bottom: 10px;">❌</div>
+                    <div class="sales-reserve-empty-icon" aria-hidden="true">❌</div>
                     <h3 class="m-0 mb-10">Нет доступных доноров</h3>
                     <p class="text-muted m-0">Ни один другой активный заказ не имеет зарезервированного товара <b>${itemName}</b>.</p>
                 </div>
