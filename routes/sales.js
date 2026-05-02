@@ -58,6 +58,31 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
         return q.rows.length ? Number(q.rows[0].account_id) : null;
     }
 
+    /**
+     * DRY-хелпер: Баланс контрагента (5 компонентов).
+     * Используется: checkout, apply-advance, /counterparties/:id/balance.
+     * @param {object} dbClient — pool или client (внутри транзакции)
+     * @param {number|string} cpId — ID контрагента
+     * @returns {{ realBalance: Big, totalAdvance: Big, freeAdvance: Big, raw: object }}
+     */
+    async function getCounterpartyBalance(dbClient, cpId) {
+        const balRes = await dbClient.query(`
+            SELECT
+                (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders WHERE counterparty_id = $1 AND status = 'completed') as our_shipments,
+                (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = $1 AND transaction_type = 'expense' AND COALESCE(is_deleted, false) = false) as our_payments,
+                (SELECT COALESCE(SUM(amount), 0) FROM inventory_movements WHERE supplier_id = $1 AND movement_type = 'purchase') as their_shipments,
+                (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = $1 AND transaction_type = 'income' AND COALESCE(is_deleted, false) = false) as their_payments,
+                (SELECT COALESCE(SUM(paid_amount), 0) FROM client_orders WHERE counterparty_id = $1 AND status IN ('pending', 'processing')) as pending_allocated
+        `, [cpId]);
+        const b = balRes.rows[0];
+        const realBalance = new Big(b.our_shipments).plus(b.our_payments).minus(b.their_shipments).minus(b.their_payments);
+        const totalAdvance = realBalance.lt(0) ? realBalance.abs() : new Big(0);
+        const allocated = new Big(b.pending_allocated);
+        const freeAdvanceBig = totalAdvance.minus(allocated);
+        const freeAdvance = freeAdvanceBig.lt(0) ? new Big(0) : freeAdvanceBig;
+        return { realBalance, totalAdvance, freeAdvance, raw: b };
+    }
+
     // ------------------------------------------------------------------
     // 1. Взаимозачет с защитой от минусов и хардкода
     // ------------------------------------------------------------------
@@ -286,19 +311,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 // 💰 АВТО-ЗАЧЁТ АВАНСА: Валидация против реального баланса клиента
                 let validatedOffset = 0;
                 
-                const balRes = await client.query(`
-                    SELECT
-                        (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders WHERE counterparty_id = $1 AND status = 'completed') as our_shipments,
-                        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = $1 AND transaction_type = 'expense' AND COALESCE(is_deleted, false) = false) as our_payments,
-                        (SELECT COALESCE(SUM(amount), 0) FROM inventory_movements WHERE supplier_id = $1 AND movement_type = 'purchase') as their_shipments,
-                        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = $1 AND transaction_type = 'income' AND COALESCE(is_deleted, false) = false) as their_payments,
-                        (SELECT COALESCE(SUM(paid_amount), 0) FROM client_orders WHERE counterparty_id = $1 AND status IN ('pending', 'processing')) as pending_allocated
-                `, [counterparty_id]);
-
-                const b = balRes.rows[0];
-                const realBalance = new Big(b.our_shipments).plus(b.our_payments).minus(b.their_shipments).minus(b.their_payments);
-                const totalAdvance = realBalance.lt(0) ? realBalance.abs() : new Big(0);
-                const availableAdvance = totalAdvance.minus(b.pending_allocated).lt(0) ? new Big(0) : totalAdvance.minus(b.pending_allocated);
+                const { realBalance, freeAdvance: availableAdvanceBig } = await getCounterpartyBalance(client, counterparty_id);
+                const availableAdvance = availableAdvanceBig;
 
                 const requestedOffset = new Big(Number(offset_amount) || 0).lt(0) ? new Big(0) : new Big(Number(offset_amount) || 0);
                 const _finalAmountBig = new Big(finalAmount);
@@ -522,21 +536,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 const counterpartyId = order.counterparty_id;
 
                 // 2. Вычисляем Свободный Аванс
-                const balRes = await client.query(`
-                    SELECT
-                        (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders WHERE counterparty_id = $1 AND status = 'completed') as our_shipments,
-                        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = $1 AND transaction_type = 'expense' AND COALESCE(is_deleted, false) = false) as our_payments,
-                        (SELECT COALESCE(SUM(amount), 0) FROM inventory_movements WHERE supplier_id = $1 AND movement_type = 'purchase') as their_shipments,
-                        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = $1 AND transaction_type = 'income' AND COALESCE(is_deleted, false) = false) as their_payments,
-                        (SELECT COALESCE(SUM(paid_amount), 0) FROM client_orders WHERE counterparty_id = $1 AND status IN ('pending', 'processing')) as pending_allocated
-                `, [counterpartyId]);
-
-                const b = balRes.rows[0];
-                const realBalance = new Big(b.our_shipments).plus(b.our_payments).minus(b.their_shipments).minus(b.their_payments);
-                const totalAdvance = realBalance.lt(0) ? realBalance.abs() : new Big(0);
-                const allocated = new Big(b.pending_allocated);
-                const freeAdvanceBig = totalAdvance.minus(allocated);
-                const freeAdvance = freeAdvanceBig.lt(0) ? new Big(0) : freeAdvanceBig;
+                const { freeAdvance } = await getCounterpartyBalance(client, counterpartyId);
 
                 if (freeAdvance.lte(0)) {
                     throw new Error('У клиента нет свободного аванса для зачета (возможно, он уже зарезервирован под другие заказы)');
@@ -1318,44 +1318,71 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
         const { start, end, search } = req.query;
 
         try {
+            // 🚀 EPIC-4 P1: CTE-оптимизация — 13 correlated subqueries → 7 CTE + LEFT JOIN
             let query = `
-                SELECT 
-                    o.*, 
+                WITH cp_completed AS (
+                    SELECT counterparty_id, COALESCE(SUM(total_amount), 0) as total
+                    FROM client_orders WHERE status = 'completed'
+                    GROUP BY counterparty_id
+                ),
+                cp_tx_expense AS (
+                    SELECT counterparty_id, COALESCE(SUM(amount), 0) as total
+                    FROM transactions WHERE transaction_type = 'expense' AND COALESCE(is_deleted, false) = false
+                    GROUP BY counterparty_id
+                ),
+                cp_tx_income AS (
+                    SELECT counterparty_id, COALESCE(SUM(amount), 0) as total
+                    FROM transactions WHERE transaction_type = 'income' AND COALESCE(is_deleted, false) = false
+                    GROUP BY counterparty_id
+                ),
+                cp_purchases AS (
+                    SELECT supplier_id as counterparty_id, COALESCE(SUM(amount), 0) as total
+                    FROM inventory_movements WHERE movement_type = 'purchase'
+                    GROUP BY supplier_id
+                ),
+                cp_pending_allocated AS (
+                    SELECT counterparty_id, COALESCE(SUM(paid_amount), 0) as total
+                    FROM client_orders WHERE status IN ('pending', 'processing')
+                    GROUP BY counterparty_id
+                ),
+                cp_pending_debt AS (
+                    SELECT counterparty_id, COALESCE(SUM(pending_debt), 0) as total
+                    FROM client_orders WHERE status != 'cancelled'
+                    GROUP BY counterparty_id
+                ),
+                order_items_agg AS (
+                    SELECT
+                        coi.order_id,
+                        COALESCE(SUM(coi.qty_ordered), 0) as total_ordered,
+                        COALESCE(SUM(coi.qty_shipped), 0) as total_shipped,
+                        STRING_AGG(i.name || ' (' || coi.qty_ordered || ' ' || i.unit || ')', ', ') as items_list
+                    FROM client_order_items coi
+                    JOIN items i ON coi.item_id = i.id
+                    GROUP BY coi.order_id
+                )
+                SELECT
+                    o.*,
                     c.name as client_name,
                     TO_CHAR(o.created_at, 'DD.MM.YYYY HH24:MI') as date_formatted,
                     TO_CHAR(o.planned_shipment_date, 'DD.MM.YYYY') as deadline,
-                    -- Склеиваем список товаров
-                    COALESCE(
-                        (SELECT STRING_AGG(i.name || ' (' || coi.qty_ordered || ' ' || i.unit || ')', ', ')
-                         FROM client_order_items coi
-                         JOIN items i ON coi.item_id = i.id
-                         WHERE coi.order_id = o.id), 
-                    'Пусто') as items_list,
-                    
-                    (SELECT COALESCE(SUM(qty_ordered), 0) FROM client_order_items WHERE order_id = o.id) as total_ordered,
-                    (SELECT COALESCE(SUM(qty_shipped), 0) FROM client_order_items WHERE order_id = o.id) as total_shipped,
-                    
-                    -- 💰 Реальный баланс контрагента через транзакции
-                    (
-                        (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders WHERE counterparty_id = o.counterparty_id AND status = 'completed') +
-                        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = o.counterparty_id AND transaction_type = 'expense' AND COALESCE(is_deleted, false) = false) -
-                        (SELECT COALESCE(SUM(amount), 0) FROM inventory_movements WHERE supplier_id = o.counterparty_id AND movement_type = 'purchase') -
-                        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = o.counterparty_id AND transaction_type = 'income' AND COALESCE(is_deleted, false) = false)
-                    ) as client_balance,
-                    
-                    -- Свободный аванс
-                    GREATEST(0, ABS(LEAST(0, (
-                        (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders WHERE counterparty_id = o.counterparty_id AND status = 'completed') +
-                        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = o.counterparty_id AND transaction_type = 'expense' AND COALESCE(is_deleted, false) = false) -
-                        (SELECT COALESCE(SUM(amount), 0) FROM inventory_movements WHERE supplier_id = o.counterparty_id AND movement_type = 'purchase') -
-                        (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = o.counterparty_id AND transaction_type = 'income' AND COALESCE(is_deleted, false) = false)
-                    ))) - (SELECT COALESCE(SUM(paid_amount), 0) FROM client_orders WHERE counterparty_id = o.counterparty_id AND status IN ('pending', 'processing'))) as free_advance,
-
-                    -- Прогноз: сумма всех незакрытых долгов
-                    (SELECT COALESCE(SUM(pending_debt), 0) * -1 FROM client_orders WHERE counterparty_id = c.id AND status != 'cancelled') as projected_balance
-
+                    COALESCE(oia.items_list, 'Пусто') as items_list,
+                    COALESCE(oia.total_ordered, 0) as total_ordered,
+                    COALESCE(oia.total_shipped, 0) as total_shipped,
+                    -- 💰 Реальный баланс контрагента (CTE)
+                    (COALESCE(cpc.total, 0) + COALESCE(cpe.total, 0) - COALESCE(cpp.total, 0) - COALESCE(cpi.total, 0)) as client_balance,
+                    -- Свободный аванс (CTE)
+                    GREATEST(0, ABS(LEAST(0, (COALESCE(cpc.total, 0) + COALESCE(cpe.total, 0) - COALESCE(cpp.total, 0) - COALESCE(cpi.total, 0)))) - COALESCE(cpa.total, 0)) as free_advance,
+                    -- Прогноз
+                    COALESCE(cpd.total, 0) * -1 as projected_balance
                 FROM client_orders o
                 LEFT JOIN counterparties c ON o.counterparty_id = c.id
+                LEFT JOIN order_items_agg oia ON oia.order_id = o.id
+                LEFT JOIN cp_completed cpc ON cpc.counterparty_id = o.counterparty_id
+                LEFT JOIN cp_tx_expense cpe ON cpe.counterparty_id = o.counterparty_id
+                LEFT JOIN cp_tx_income cpi ON cpi.counterparty_id = o.counterparty_id
+                LEFT JOIN cp_purchases cpp ON cpp.counterparty_id = o.counterparty_id
+                LEFT JOIN cp_pending_allocated cpa ON cpa.counterparty_id = o.counterparty_id
+                LEFT JOIN cp_pending_debt cpd ON cpd.counterparty_id = c.id
                 WHERE o.status IN ('pending', 'processing')
             `;
             const params = [];
@@ -1749,18 +1776,9 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
     router.get('/api/counterparties/:id/balance', async (req, res) => {
         try {
             const cpId = req.params.id;
-            const balRes = await pool.query(`
-                SELECT
-                    (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders WHERE counterparty_id = $1 AND status = 'completed') as our_shipments,
-                    (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = $1 AND transaction_type = 'expense' AND COALESCE(is_deleted, false) = false) as our_payments,
-                    (SELECT COALESCE(SUM(amount), 0) FROM inventory_movements WHERE supplier_id = $1 AND movement_type = 'purchase') as their_shipments,
-                    (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = $1 AND transaction_type = 'income' AND COALESCE(is_deleted, false) = false) as their_payments
-            `, [cpId]);
-
-            const b = balRes.rows[0];
-            const realBalanceBig = new Big(b.our_shipments).plus(b.our_payments).minus(b.their_shipments).minus(b.their_payments);
+            const { realBalance: realBalanceBig, totalAdvance } = await getCounterpartyBalance(pool, cpId);
             const realBalance = Number(realBalanceBig.toFixed(2));
-            const availableAdvance = realBalanceBig.lt(0) ? Number(realBalanceBig.abs().toFixed(2)) : 0;
+            const availableAdvance = Number(totalAdvance.toFixed(2));
             const cpMeta = await pool.query('SELECT employee_id FROM counterparties WHERE id = $1 LIMIT 1', [cpId]);
             const isEmployee = Boolean(cpMeta.rows[0]?.employee_id);
             const preferredAccRes = await pool.query(
