@@ -10,6 +10,214 @@ let isAuditMode = false; // Флаг режима инвентаризации
 let currentSearch = '';
 let currentPage = 1;
 let itemsPerPage = 50;
+let demoldPackagingCheckSupported = true;
+let demoldKitMaterialsCache = null;
+let inventoryDensity = 'compact';
+let reserveFilters = {
+    status: 'active',
+    view: 'orders',
+    product: '',
+    order: '',
+    preset: 'none'
+};
+
+function applyInventoryDensity() {
+    const mod = document.getElementById('stock-mod');
+    const btn = document.getElementById('inventory-density-btn');
+    const density = inventoryDensity === 'standard' ? 'standard' : 'compact';
+    if (mod) {
+        mod.classList.toggle('inv-density-compact', density === 'compact');
+        mod.classList.toggle('inv-density-standard', density === 'standard');
+    }
+    if (btn) {
+        btn.textContent = density === 'compact' ? 'Плотность: компактно' : 'Плотность: стандарт';
+    }
+    try { localStorage.setItem('inventoryDensity', density); } catch (_) {}
+}
+
+window.toggleInventoryDensity = function() {
+    inventoryDensity = inventoryDensity === 'compact' ? 'standard' : 'compact';
+    applyInventoryDensity();
+}
+
+window.openInventoryOrder = function(orderId) {
+    if (!orderId) return;
+    try {
+        if (window.app && typeof window.app.openEntity === 'function') {
+            window.app.openEntity('document_order', Number(orderId));
+            return;
+        }
+    } catch (_) {}
+    UI.toast('Откройте модуль "Продажи" для просмотра заказа', 'info');
+};
+
+function formatReserveOrderStatus(statusRaw) {
+    const s = String(statusRaw || '').toLowerCase();
+    if (s === 'pending') return 'Ожидает';
+    if (s === 'processing') return 'В работе';
+    if (s === 'completed') return 'Завершен';
+    if (s === 'cancelled') return 'Отменен';
+    return statusRaw || '—';
+}
+
+window.onReserveFilterChange = function() {
+    reserveFilters.status = String(document.getElementById('inv-reserve-status')?.value || 'active');
+    reserveFilters.view = String(document.getElementById('inv-reserve-view')?.value || 'orders');
+    reserveFilters.product = String(document.getElementById('inv-reserve-product')?.value || '');
+    reserveFilters.order = String(document.getElementById('inv-reserve-order')?.value || '');
+    reserveFilters.preset = 'none';
+    syncReservePresetButtons();
+    renderInventoryTable();
+};
+
+function syncReservePresetButtons() {
+    const map = {
+        deficit: 'inv-reserve-preset-deficit',
+        completed_only: 'inv-reserve-preset-completed',
+        unlinked_only: 'inv-reserve-preset-unlinked'
+    };
+    Object.values(map).forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.remove('active');
+    });
+    const activeId = map[reserveFilters.preset];
+    if (activeId) {
+        const activeEl = document.getElementById(activeId);
+        if (activeEl) activeEl.classList.add('active');
+    }
+}
+
+window.applyReservePreset = function(preset) {
+    const statusSel = document.getElementById('inv-reserve-status');
+    const viewSel = document.getElementById('inv-reserve-view');
+    const productSel = document.getElementById('inv-reserve-product');
+    const orderSel = document.getElementById('inv-reserve-order');
+    if (preset === 'reset') {
+        reserveFilters = { status: 'active', view: 'orders', product: '', order: '', preset: 'none' };
+        if (statusSel) statusSel.value = reserveFilters.status;
+        if (viewSel) viewSel.value = reserveFilters.view;
+        if (productSel) productSel.value = '';
+        if (orderSel) orderSel.value = '';
+        syncReservePresetButtons();
+        renderInventoryTable();
+        return;
+    }
+    reserveFilters.preset = preset;
+    if (preset === 'deficit') {
+        reserveFilters.status = 'active';
+        reserveFilters.view = 'orders';
+        reserveFilters.product = '';
+        reserveFilters.order = '';
+    } else if (preset === 'completed_only') {
+        reserveFilters.status = 'completed';
+        reserveFilters.view = 'orders';
+    } else if (preset === 'unlinked_only') {
+        reserveFilters.status = 'all';
+        reserveFilters.view = 'orders';
+        reserveFilters.order = '';
+    }
+    if (statusSel) statusSel.value = reserveFilters.status;
+    if (viewSel) viewSel.value = reserveFilters.view;
+    if (productSel && !reserveFilters.product) productSel.value = '';
+    if (orderSel && !reserveFilters.order) orderSel.value = '';
+    syncReservePresetButtons();
+    renderInventoryTable();
+};
+
+function syncReserveControlsVisibility() {
+    const panel = document.getElementById('inv-reserve-controls');
+    const summary = document.getElementById('inv-reserve-summary');
+    if (!panel) return;
+    panel.classList.toggle('inv-hidden', currentWarehouseFilter !== '7');
+    if (summary) summary.classList.toggle('inv-hidden', currentWarehouseFilter !== '7');
+}
+
+function syncReserveSelectors(rows) {
+    const productSel = document.getElementById('inv-reserve-product');
+    const orderSel = document.getElementById('inv-reserve-order');
+    if (!productSel || !orderSel) return;
+
+    const prevProduct = reserveFilters.product;
+    const prevOrder = reserveFilters.order;
+    const products = [];
+    const orders = [];
+    const seenProduct = new Set();
+    const seenOrder = new Set();
+    rows.forEach((r) => {
+        const pKey = String(r.item_id || '');
+        if (pKey && !seenProduct.has(pKey)) {
+            seenProduct.add(pKey);
+            products.push({ id: pKey, name: String(r.item_name || '') });
+        }
+        const oKey = String(r.order_id || '');
+        if (oKey && !seenOrder.has(oKey)) {
+            seenOrder.add(oKey);
+            orders.push({
+                id: oKey,
+                doc: String(r.order_doc_number || ''),
+                client: String(r.order_client_name || '')
+            });
+        }
+    });
+    products.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+    orders.sort((a, b) => a.doc.localeCompare(b.doc, 'ru'));
+
+    productSel.innerHTML = '<option value="">Все виды</option>' + products.map((p) =>
+        `<option value="${p.id}">${Utils.escapeHtml(p.name)}</option>`
+    ).join('');
+    orderSel.innerHTML = '<option value="">Все заказы</option>' + orders.map((o) =>
+        `<option value="${o.id}">${Utils.escapeHtml(o.doc)}${o.client ? ` | ${Utils.escapeHtml(o.client)}` : ''}</option>`
+    ).join('');
+
+    productSel.value = products.some((p) => p.id === prevProduct) ? prevProduct : '';
+    orderSel.value = orders.some((o) => o.id === prevOrder) ? prevOrder : '';
+    reserveFilters.product = productSel.value;
+    reserveFilters.order = orderSel.value;
+}
+
+function renderReserveSummary(rows, finishedByItem, reservedByItem) {
+    const box = document.getElementById('inv-reserve-summary');
+    if (!box) return;
+    if (currentWarehouseFilter !== '7') {
+        box.classList.add('inv-hidden');
+        box.innerHTML = '';
+        return;
+    }
+    const list = Array.isArray(rows) ? rows : [];
+    const uniqOrders = new Set();
+    const uniqItems = new Set();
+    let totalReserveRows = 0;
+    let totalNeedReserve = 0;
+    let deficitOrders = 0;
+    list.forEach((r) => {
+        const rowQty = Number(r.total || 0);
+        const qtyOrdered = Number(r.order_qty_ordered || 0);
+        const qtyShipped = Number(r.order_qty_shipped || 0);
+        const qtyReserved = Number(r.order_qty_reserved || 0);
+        const qtyNeedReserve = Math.max(Math.max(qtyOrdered - qtyShipped, 0) - qtyReserved, 0);
+        totalReserveRows += rowQty;
+        totalNeedReserve += qtyNeedReserve;
+        if (qtyNeedReserve > 0.0001) deficitOrders += 1;
+        if (r.order_id) uniqOrders.add(String(r.order_id));
+        if (r.item_id) uniqItems.add(String(r.item_id));
+    });
+    let totalFreeWh4 = 0;
+    let totalReserveWh7ByItem = 0;
+    uniqItems.forEach((itemId) => {
+        totalFreeWh4 += Number(finishedByItem[itemId] || 0);
+        totalReserveWh7ByItem += Number(reservedByItem[itemId] || 0);
+    });
+    const fmt = (v) => Number(v || 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 });
+    box.innerHTML = `
+        <div class="inv-reserve-summary-chip"><span class="text-muted">Позиций:</span> <b>${list.length}</b></div>
+        <div class="inv-reserve-summary-chip"><span class="text-muted">Заказов:</span> <b>${uniqOrders.size}</b></div>
+        <div class="inv-reserve-summary-chip"><span class="text-muted">Резерв (строки):</span> <b>${fmt(totalReserveRows)}</b></div>
+        <div class="inv-reserve-summary-chip"><span class="text-muted">Нужно дозарезервировать:</span> <b class="${totalNeedReserve > 0 ? 'text-danger' : 'text-success'}">${fmt(totalNeedReserve)}</b></div>
+        <div class="inv-reserve-summary-chip"><span class="text-muted">Склад №4 свободно (по товарам выборки):</span> <b>${fmt(totalFreeWh4)}</b></div>
+        <div class="inv-reserve-summary-chip"><span class="text-muted">Склад №7 в резерве (по товарам выборки):</span> <b>${fmt(totalReserveWh7ByItem)}</b></div>
+        <div class="inv-reserve-summary-chip"><span class="text-muted">Заказов с дефицитом:</span> <b class="${deficitOrders > 0 ? 'text-danger' : 'text-success'}">${deficitOrders}</b></div>
+    `;
+}
 
 window.handleInventorySearch = function() {
     currentSearch = (document.getElementById('inventory-search') ? document.getElementById('inventory-search').value.toLowerCase().trim() : '');
@@ -43,6 +251,7 @@ window.updateInventoryCalendarMarks = async function () {
 };
 
 function loadTable() {
+    applyInventoryDensity();
     // Инициализация календаря если еще нет
     const dateEl = document.getElementById('inventory-date-filter');
     if (dateEl && !inventoryDatePicker && typeof flatpickr !== 'undefined') {
@@ -89,6 +298,13 @@ function loadTable() {
     API.get('/api/inventory' + queryString)
         .then(data => {
             allInventory = data;
+            // Строим карту WAREHOUSE_IDS из загруженных данных (аналог sales.js)
+            if (!window.WAREHOUSE_IDS) window.WAREHOUSE_IDS = {};
+            (data || []).forEach(row => {
+                if (row.warehouse_type && !window.WAREHOUSE_IDS[row.warehouse_type]) {
+                    window.WAREHOUSE_IDS[row.warehouse_type] = row.warehouse_id;
+                }
+            });
             renderInventoryTable();
         })
         .catch(err => {
@@ -157,6 +373,7 @@ function applyWarehouseFilter(id, btn) {
     if (isAuditMode) toggleAuditMode();
 
     currentWarehouseFilter = id;
+    syncReserveControlsVisibility();
     document.querySelectorAll('#stock-mod .filter-btn').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');
     renderInventoryTable();
@@ -217,6 +434,7 @@ window.toggleAuditMode = function () {
 window.saveAudit = async function () {
     const inputs = document.querySelectorAll('.audit-qty-input');
     let adjustments = [];
+    let zeroedItems = [];
     let hasError = false;
 
     for (const input of inputs) {
@@ -231,11 +449,9 @@ window.saveAudit = async function () {
 
         // Если цифра изменилась (введенный факт не равен тому, что было на экране)
         if (newQty !== oldQty && !isNaN(newQty)) {
-            // Защита от случайного обнуления
+            // Маркируем рискованные полные обнуления для явного подтверждения в модалке
             if (newQty === 0 && oldQty > 0) {
-                if (!confirm(`Вы уверены, что хотите полностью списать позицию (остаток: ${oldQty} ед.)?`)) {
-                    continue;
-                }
+                zeroedItems.push({ oldQty });
             }
 
             adjustments.push({
@@ -255,20 +471,37 @@ window.saveAudit = async function () {
     }
 
     const auditDateStr = document.getElementById('inventory-date-filter')?.value || '';
+    const warningHtml = zeroedItems.length
+        ? `<div class="text-danger mb-10">Внимание: полных обнулений позиций: <b>${zeroedItems.length}</b>. Проверьте внимательно.</div>`
+        : '';
+    UI.showModal('Подтверждение ревизии', `
+        ${warningHtml}
+        <div class="mb-10">Будет изменено позиций: <b>${adjustments.length}</b></div>
+        <div class="form-group m-0">
+            <label>Причина ревизии (обязательно)</label>
+            <textarea id="inventory-audit-reason" class="input-modern" rows="3" placeholder="Например: плановая ревизия склада"></textarea>
+        </div>
+    `, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-blue" onclick="confirmSaveAudit()">Применить</button>
+    `);
+    window.__pendingAuditPayload = { warehouseId: currentWarehouseFilter, adjustments, auditDate: auditDateStr };
+};
 
+window.confirmSaveAudit = async function() {
+    const pending = window.__pendingAuditPayload;
+    if (!pending) return;
+    const reason = (document.getElementById('inventory-audit-reason')?.value || '').trim();
+    if (!reason) return UI.toast('Укажите причину ревизии', 'warning');
     try {
-        await API.post('/api/inventory/audit', {
-            warehouseId: currentWarehouseFilter,
-            adjustments: adjustments,
-            auditDate: auditDateStr
-        });
-
+        await API.post('/api/inventory/audit', { ...pending, reason });
+        UI.closeModal();
+        window.__pendingAuditPayload = null;
         UI.toast('✅ Ревизия успешно проведена!', 'success');
         toggleAuditMode();
         loadTable();
     } catch (e) {
         console.error(e);
-        // API.post automatically triggers UI.toast on error
     }
 };
 
@@ -279,6 +512,7 @@ function renderInventoryTable() {
     tbody.innerHTML = '';
 
     const isReserveView = currentWarehouseFilter === '7';
+    syncReserveControlsVisibility();
 
     // Динамический заголовок: Склад №7 показывает колонку "Заказ"
     if (thead) {
@@ -338,35 +572,116 @@ function renderInventoryTable() {
         return true;
     });
 
-    const totalItems = filtered.length;
-    const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
-    if (currentPage > totalPages) currentPage = totalPages;
+    if (isReserveView) {
+        syncReserveSelectors(filtered);
+    }
 
+    const totalItems = filtered.length;
+    let reserveRows = filtered;
+    if (isReserveView) {
+        reserveRows = filtered.filter((r) => {
+            const status = String(r.order_status || '').toLowerCase();
+            const qtyOrdered = Number(r.order_qty_ordered || 0);
+            const qtyShipped = Number(r.order_qty_shipped || 0);
+            const qtyReserved = Number(r.order_qty_reserved || 0);
+            const qtyRemaining = Math.max(qtyOrdered - qtyShipped, 0);
+            const qtyNeedReserve = Math.max(qtyRemaining - qtyReserved, 0);
+            if (reserveFilters.status === 'completed' && status !== 'completed') return false;
+            if (reserveFilters.status === 'active' && status === 'completed') return false;
+            if (reserveFilters.product && String(r.item_id) !== String(reserveFilters.product)) return false;
+            if (reserveFilters.order && String(r.order_id || '') !== String(reserveFilters.order)) return false;
+            if (reserveFilters.preset === 'deficit' && !(qtyNeedReserve > 0.0001)) return false;
+            if (reserveFilters.preset === 'unlinked_only' && r.order_id) return false;
+            return true;
+        });
+    }
+    const sourceRows = isReserveView ? reserveRows : filtered;
+    const pagesBy = Math.ceil(sourceRows.length / itemsPerPage) || 1;
+    if (currentPage > pagesBy) currentPage = pagesBy;
     const startIdx = (currentPage - 1) * itemsPerPage;
-    const paginated = filtered.slice(startIdx, startIdx + itemsPerPage);
+    const paginated = sourceRows.slice(startIdx, startIdx + itemsPerPage);
 
     const summaryText = document.getElementById('inventory-summary-text');
-    if (summaryText) summaryText.innerText = totalItems > 0 ? `Показано ${startIdx + 1} - ${Math.min(startIdx + itemsPerPage, totalItems)} из ${totalItems}` : '0 записей';
+    const summaryTotal = sourceRows.length;
+    if (summaryText) summaryText.innerText = summaryTotal > 0 ? `Показано ${startIdx + 1} - ${Math.min(startIdx + itemsPerPage, summaryTotal)} из ${summaryTotal}` : '0 записей';
 
     const paginationContainer = document.getElementById('inventory-pagination');
     if (paginationContainer) {
         let pagesHtml = '';
-        if (totalPages > 1) {
+        if (pagesBy > 1) {
             pagesHtml += `<button class="btn btn-sm btn-outline" ${currentPage === 1 ? 'disabled' : ''} onclick="goToPage(${currentPage - 1})">Пред</button>`;
             let startPage = Math.max(1, currentPage - 2);
-            let endPage = Math.min(totalPages, currentPage + 2);
+            let endPage = Math.min(pagesBy, currentPage + 2);
             if (startPage > 1) pagesHtml += `<button class="btn btn-sm btn-outline" onclick="goToPage(1)">1</button>${startPage > 2 ? '<span class="text-muted">...</span>' : ''}`;
             for (let i = startPage; i <= endPage; i++) {
                 pagesHtml += `<button class="btn btn-sm ${i === currentPage ? 'btn-blue' : 'btn-outline'}" onclick="goToPage(${i})">${i}</button>`;
             }
-            if (endPage < totalPages) pagesHtml += `${endPage < totalPages - 1 ? '<span class="text-muted">...</span>' : ''}<button class="btn btn-sm btn-outline" onclick="goToPage(${totalPages})">${totalPages}</button>`;
-            pagesHtml += `<button class="btn btn-sm btn-outline" ${currentPage === totalPages ? 'disabled' : ''} onclick="goToPage(${currentPage + 1})">След</button>`;
+            if (endPage < pagesBy) pagesHtml += `${endPage < pagesBy - 1 ? '<span class="text-muted">...</span>' : ''}<button class="btn btn-sm btn-outline" onclick="goToPage(${pagesBy})">${pagesBy}</button>`;
+            pagesHtml += `<button class="btn btn-sm btn-outline" ${currentPage === pagesBy ? 'disabled' : ''} onclick="goToPage(${currentPage + 1})">След</button>`;
         }
         paginationContainer.innerHTML = pagesHtml;
     }
 
     if (paginated.length === 0) {
         tbody.innerHTML = `<tr><td colspan="${colSpan}" class="inv-empty-row">По вашему запросу ничего не найдено</td></tr>`;
+        return;
+    }
+
+    const finishedByItem = {};
+    const reservedByItem = {};
+    (allInventory || []).forEach((r) => {
+        const itemId = String(r.item_id || '');
+        if (!itemId) return;
+        const qty = Number(r.total || 0);
+        if (String(r.warehouse_id) === '4') finishedByItem[itemId] = (finishedByItem[itemId] || 0) + qty;
+        if (String(r.warehouse_id) === '7') reservedByItem[itemId] = (reservedByItem[itemId] || 0) + qty;
+    });
+    if (isReserveView) renderReserveSummary(sourceRows, finishedByItem, reservedByItem);
+
+    if (isReserveView && reserveFilters.view === 'products') {
+        const grouped = new Map();
+        paginated.forEach((r) => {
+            const key = String(r.item_id || '');
+            if (!grouped.has(key)) {
+                grouped.set(key, {
+                    item_id: r.item_id,
+                    item_name: r.item_name,
+                    unit: r.unit,
+                    reserve_qty: 0,
+                    rows: []
+                });
+            }
+            const g = grouped.get(key);
+            g.reserve_qty += Number(r.total || 0);
+            g.rows.push(r);
+        });
+        [...grouped.values()].forEach((g) => {
+            const itemKey = String(g.item_id || '');
+            const freeQty = Number(finishedByItem[itemKey] || 0);
+            const reserveTotal = Number(reservedByItem[itemKey] || 0);
+            const orderList = g.rows.slice(0, 4).map((o) => {
+                const doc = Utils.escapeHtml(o.order_doc_number || 'Без заказа');
+                const client = Utils.escapeHtml(o.order_client_name || '—');
+                const qty = Number(o.total || 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 });
+                if (o.order_id) {
+                    return `<a href="javascript:void(0)" class="inv-reserve-order-link" onclick="openInventoryOrder(${o.order_id})">${doc}</a> (${client}) — ${qty}`;
+                }
+                return `${doc} (${client}) — ${qty}`;
+            }).join('<br>');
+            tbody.innerHTML += `
+            <tr>
+                <td class="inv-batch-cell"><span class="text-muted">—</span></td>
+                <td class="inv-name-cell"><strong>${Utils.escapeHtml(g.item_name || '')}</strong></td>
+                <td class="inv-reserve-order-cell">
+                    <div class="inv-reserve-order-metrics">Склад №4 свободно: <b>${freeQty.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}</b></div>
+                    <div class="inv-reserve-order-metrics">Склад №7 в резерве: <b>${reserveTotal.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}</b></div>
+                    <div class="inv-reserve-order-metrics mt-5">${orderList}${g.rows.length > 4 ? '<br><span class="text-muted">...и еще заказы</span>' : ''}</div>
+                </td>
+                <td class="inv-qty-cell">${g.reserve_qty.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}</td>
+                <td class="inv-unit-cell">${Utils.escapeHtml(g.unit || '')}</td>
+                <td class="inv-actions-cell"><span class="text-muted">Групповой режим</span></td>
+            </tr>`;
+        });
         return;
     }
 
@@ -394,20 +709,27 @@ function renderInventoryTable() {
             if (isReserveView) {
                 // Склад №7: кнопка управления резервом
                 actionHtml = `<button class="btn btn-outline inv-btn-reserve" 
-                    onclick="openReserveManagerModal(${item.item_id}, '${escapeHTML(item.item_name)}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.linked_order_item_id || 'null'}, '${item.order_doc_number || ''}', ${item.order_id || 'null'}, ${item.total})">
+                    onclick="openReserveManagerModal(${item.item_id}, ${item.batch_id || 'null'}, ${item.linked_order_item_id || 'null'}, ${item.total})">
                     🔄 Управление
                 </button>`;
             } else if (item.warehouse_id === 3) {
                 if (item.batch_status === 'completed') {
-                    actionHtml = `<span class="badge bg-success-light text-success font-bold" style="padding: 8px 12px; font-size: 13px;">✅ Упаковано</span>`;
+                    actionHtml = `<span class="inv-demold-done-badge">✅ Упаковано</span>`;
                 } else {
-                    actionHtml = `<button class="btn btn-blue inv-btn-demold" onclick="openDemoldingModal(${item.batch_id}, '${item.batch_number || 'Б/Н'}', ${item.item_id}, '${item.item_name}', ${item.total})">🧱 Распалубить</button>`;
+                    const btnId = `demold-btn-${item.batch_id}`;
+                    actionHtml = `<button id="${btnId}" class="btn inv-btn-demold-enterprise" onclick="openDemoldingModal(${item.batch_id}, '${item.batch_number || 'Б/Н'}', ${item.item_id}, '${item.item_name}', ${item.total})">🧱 Распалубить</button>`;
                 }
             } else if (item.warehouse_id === 5 || item.warehouse_id === 6) {
-                actionHtml = `<button class="btn btn-outline inv-btn-dispose" 
-                            onclick="openDisposeModal(${item.item_id}, '${item.item_name}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
-                            🗑️ Утилизировать
-                          </button>`;
+                const packBtn = item.warehouse_id === 5
+                    ? `<button class="btn btn-outline inv-btn-grade2-kit" onclick="openGrade2PalletKitModal(${item.item_id}, '${Utils.escapeHtml(item.item_name)}', ${item.batch_id || 'null'}, '${item.batch_number || ''}')">📦 Поддон 2 сорта</button>`
+                    : '';
+                actionHtml = `<div class="flex-row gap-5">
+                            ${packBtn}
+                            <button class="btn btn-outline inv-btn-dispose" 
+                                onclick="openDisposeModal(${item.item_id}, '${item.item_name}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
+                                🗑️ Утилизировать
+                            </button>
+                          </div>`;
             } else {
                 actionHtml = `<div class="flex-row gap-5">
                     <button class="btn btn-outline" onclick="openScrapModal(${item.item_id}, '${Utils.escapeHtml(item.item_name)}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
@@ -422,18 +744,33 @@ function renderInventoryTable() {
 
         if (isReserveView) {
             // Спец-разметка для Склада №7: с колонкой "Заказ"
-            const orderBadge = item.order_doc_number 
-                ? `<span class="badge inv-order-badge">${escapeHTML(item.order_doc_number)}</span>` 
-                : '<span class="badge inv-wh-badge">Без привязки</span>';
+            const orderQty = Number(item.order_qty_ordered || 0);
+            const orderShipped = Number(item.order_qty_shipped || 0);
+            const orderReserved = Number(item.order_qty_reserved || 0);
+            const orderRemaining = Math.max(orderQty - orderShipped, 0);
+            const orderNeedReserve = Math.max(orderRemaining - orderReserved, 0);
+            const itemKey = String(item.item_id || '');
+            const freeQty = Number(finishedByItem[itemKey] || 0);
+            const reserveTotal = Number(reservedByItem[itemKey] || 0);
+            const orderInfo = item.order_doc_number
+                ? `<div class="inv-reserve-order-main">
+                    <a href="javascript:void(0)" class="inv-reserve-order-link" onclick="openInventoryOrder(${item.order_id || 'null'})">${Utils.escapeHtml(item.order_doc_number)}</a>
+                    <span class="badge inv-order-badge">${Utils.escapeHtml(formatReserveOrderStatus(item.order_status))}</span>
+                    <span class="inv-reserve-order-client" title="${Utils.escapeHtml(item.order_client_name || 'Клиент не указан')}">${Utils.escapeHtml(item.order_client_name || 'Клиент не указан')}</span>
+                </div>
+                <div class="inv-reserve-order-metrics" title="Заказ: ${orderQty.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} | Отгружено: ${orderShipped.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} | В резерве по заказу: ${orderReserved.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} | Нужно: ${orderNeedReserve.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}">Заказ: ${orderQty.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} | Отгружено: ${orderShipped.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} | В резерве по заказу: ${orderReserved.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} | Нужно: ${orderNeedReserve.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}</div>
+                <div class="inv-reserve-order-metrics" title="Склад №4 свободно: ${freeQty.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} | Склад №7 в резерве: ${reserveTotal.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}">Склад №4 свободно: ${freeQty.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} | Склад №7 в резерве: ${reserveTotal.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}</div>`
+                : '<span class="badge inv-wh-badge">Без привязки к заказу</span>';
+            const rowClass = orderNeedReserve > 0.0001 ? 'inv-reserve-row inv-reserve-row--deficit' : 'inv-reserve-row';
             tbody.innerHTML += `
-            <tr>
+            <tr class="${rowClass}">
                 <td class="inv-batch-cell">${batchCell}</td>
                 <td class="inv-name-cell" title="${Utils.escapeHtml(item.item_name)}">
                     <a href="javascript:void(0)" onclick="openItemHistory(${item.item_id}, ${item.warehouse_id})" class="text-primary text-decoration-none">
                         <strong>${Utils.escapeHtml(item.item_name)}</strong>
                     </a>
                 </td>
-                <td>${orderBadge}</td>
+                <td class="inv-reserve-order-cell">${orderNeedReserve > 0.0001 ? '<span class="inv-reserve-deficit-chip">Дефицит</span>' : ''}${orderInfo}</td>
                 ${qtyHtml}
                 <td class="inv-unit-cell">${item.unit}</td>
                 <td class="inv-actions-cell">${actionHtml}</td>
@@ -454,7 +791,40 @@ function renderInventoryTable() {
             </tr>`;
         }
     });
+
+    if (!isAuditMode && currentWarehouseFilter === '3') {
+        setTimeout(() => { refreshDemoldButtonsRisk(); }, 0);
+    }
 }
+
+window.refreshDemoldButtonsRisk = async function () {
+    const btns = Array.from(document.querySelectorAll('#inventory-table .inv-btn-demold-enterprise[id^="demold-btn-"]'));
+    if (!btns.length) return;
+    await Promise.all(btns.map(async (btn) => {
+        const idStr = String(btn.id || '').replace('demold-btn-', '');
+        const batchId = Number(idStr);
+        if (!batchId) return;
+        try {
+            const row = btn.closest('tr');
+            const qtyCell = row ? row.querySelector('.inv-qty-cell') : null;
+            const rowQty = qtyCell ? Number(String(qtyCell.textContent || '0').replace(/\s/g, '').replace(',', '.')) : 0;
+            const outputQty = Number.isFinite(rowQty) && rowQty > 0 ? rowQty : 0;
+            if (outputQty <= 0) return;
+            const data = await API.get(`/api/inventory/demold-packaging-check?batchId=${encodeURIComponent(batchId)}&outputQty=${encodeURIComponent(outputQty)}`);
+            if (data && data.hasDeficit) {
+                btn.classList.add('has-deficit');
+                btn.innerHTML = '🧱 Распалубить <span class="inv-demold-deficit-dot"></span>';
+                btn.title = 'Есть дефицит упаковки для полного выхода';
+            } else {
+                btn.classList.remove('has-deficit');
+                btn.textContent = '🧱 Распалубить';
+                btn.title = '';
+            }
+        } catch (_) {
+            // молча пропускаем, основной поток должен работать даже без этой подсказки
+        }
+    }));
+};
 
 // === ПРЯМОЕ СПИСАНИЕ БОЯ И БРАКА ===
 window.openDirectScrapModal = function (itemId, itemName, batchId, batchNum, warehouseId, currentQty) {
@@ -494,15 +864,17 @@ window.executeDirectScrap = async function () {
     const desc = document.getElementById('scrap-direct-desc').value;
 
     if (!scrapQty || scrapQty <= 0) return UI.toast('Введите корректное количество', 'warning');
+    if (!String(desc || '').trim()) return UI.toast('Укажите причину списания', 'warning');
 
     try {
         await API.post('/api/inventory/scrap', {
             itemId: itemId,
             batchId: batchId || null,
             warehouseId: warehouseId,
-            targetWarehouseId: 6, // 🚨 ДОБАВЛЕНО: Явно указываем склад утиля (№6), чтобы бэкенд не сломался
+            targetWarehouseId: (window.WAREHOUSE_IDS && window.WAREHOUSE_IDS['defect']) || 6, // Склад утиля/брака — динамически из WAREHOUSE_IDS
             scrapQty: scrapQty,
-            description: desc
+            description: desc,
+            reason: desc
         });
 
         UI.closeModal();
@@ -513,6 +885,14 @@ window.executeDirectScrap = async function () {
 
 // === ОКНО РАСПАЛУБКИ ===
 window.openDemoldingModal = function (batchId, batchNum, tileId, productName, plannedQty) {
+    window.currentDemoldKitExtras = [];
+    const selectedDate = inventoryDatePicker && inventoryDatePicker.selectedDates && inventoryDatePicker.selectedDates[0]
+        ? inventoryDatePicker.selectedDates[0]
+        : new Date();
+    const defaultDemoldDate = new Date(selectedDate);
+    const now = new Date();
+    defaultDemoldDate.setHours(now.getHours(), now.getMinutes(), 0, 0);
+
     const html = `
         <div class="inv-modal-info">
             <h4 class="inv-modal-batch">Партия: ${escapeHTML(batchNum)}</h4>
@@ -536,15 +916,56 @@ window.openDemoldingModal = function (batchId, batchNum, tileId, productName, pl
         </div>
         
         <div class="form-group mt-15">
-            <label>Дата распалубки (По-умолчанию Сейчас):</label>
+            <label>Дата распалубки (по выбранной дате календаря):</label>
             <input type="text" id="demolding-date" class="input-modern" placeholder="ДД.ММ.ГГГГ ЧЧ:ММ">
         </div>
 
-        <div class="form-group">
+        <div class="form-group mt-10 mb-5">
             <label class="d-flex align-items-center gap-2">
                 <input type="checkbox" id="demold-complete">
                 Полностью закрыть партию
             </label>
+        </div>
+
+        <div class="form-group mt-10">
+            <label class="d-flex align-items-center gap-2">
+                <input type="checkbox" id="demold-enable-grade2-kit" onchange="toggleDemoldGrade2Kit()">
+                Выделить поддон под 2 сорт (ручная упаковка)
+            </label>
+        </div>
+
+        <div id="demold-grade2-kit-box" class="inv-grade2-kit-box d-none">
+            <div class="form-grid inv-grid-2">
+                <div class="form-group">
+                    <label>Транспортный поддон:</label>
+                    <select id="demold-kit-pallet-item" class="input-modern"></select>
+                </div>
+                <div class="form-group">
+                    <label>Кол-во поддонов (целое):</label>
+                    <input type="number" id="demold-kit-pallet-qty" class="input-modern" min="1" step="1" value="1">
+                </div>
+            </div>
+            <div class="form-grid inv-grid-3">
+                <div class="form-group">
+                    <label>Доп. упаковка:</label>
+                    <select id="demold-kit-extra-item" class="input-modern"></select>
+                </div>
+                <div class="form-group">
+                    <label>Кол-во:</label>
+                    <input type="number" id="demold-kit-extra-qty" class="input-modern" min="0" step="0.001" value="0">
+                </div>
+                <div class="form-group">
+                    <label>&nbsp;</label>
+                    <button type="button" class="btn btn-outline w-100" onclick="addDemoldKitExtra()">+ Добавить</button>
+                </div>
+            </div>
+            <div id="demold-kit-extra-list" class="inv-grade2-kit-list text-muted font-12">Доп. упаковка не добавлена.</div>
+        </div>
+
+        <div class="form-group mt-10">
+            <div id="demold-packaging-check" class="inv-demold-packaging-check text-muted font-12">
+                Проверка упаковки...
+            </div>
         </div>
     `;
 
@@ -560,9 +981,195 @@ window.openDemoldingModal = function (batchId, batchNum, tileId, productName, pl
         flatpickr("#demolding-date", {
             enableTime: true,
             dateFormat: "Y-m-d H:i",
-            defaultDate: new Date(),
+            defaultDate: defaultDemoldDate,
             time_24hr: true
         });
+    } else {
+        const dateInput = document.getElementById('demolding-date');
+        if (dateInput) {
+            const pad = (n) => String(n).padStart(2, '0');
+            const y = defaultDemoldDate.getFullYear();
+            const m = pad(defaultDemoldDate.getMonth() + 1);
+            const d = pad(defaultDemoldDate.getDate());
+            const hh = pad(defaultDemoldDate.getHours());
+            const mm = pad(defaultDemoldDate.getMinutes());
+            dateInput.value = `${y}-${m}-${d} ${hh}:${mm}`;
+        }
+    }
+
+    const bindInputCheck = (id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('input', () => {
+            if (typeof window.refreshDemoldingPackagingCheck === 'function') {
+                window.refreshDemoldingPackagingCheck(batchId);
+            }
+        });
+    };
+    bindInputCheck('demold-good');
+    bindInputCheck('demold-grade2');
+    initDemoldKitMaterials();
+    window.refreshDemoldingPackagingCheck(batchId);
+};
+
+async function ensureDemoldKitMaterials() {
+    if (Array.isArray(demoldKitMaterialsCache) && demoldKitMaterialsCache.length > 0) return demoldKitMaterialsCache;
+    const data = await API.get('/api/items?item_type=material&limit=600');
+    const rows = Array.isArray(data && data.data) ? data.data : [];
+    const packRows = rows.filter((m) => /(упаков|поддон|паллета|паллет|лента|скоб|стретч|стрейч|пленк)/i.test(String(m.name || '') + ' ' + String(m.category || '')));
+    demoldKitMaterialsCache = packRows;
+    return demoldKitMaterialsCache;
+}
+
+window.initDemoldKitMaterials = async function () {
+    const palletSel = document.getElementById('demold-kit-pallet-item');
+    const extraSel = document.getElementById('demold-kit-extra-item');
+    if (!palletSel || !extraSel) return;
+    try {
+        const rows = await ensureDemoldKitMaterials();
+        const palletRows = rows.filter((m) => /(поддон|паллета|паллет)/i.test(String(m.name || '') + ' ' + String(m.category || '')));
+        palletSel.innerHTML = `<option value="">-- Выберите поддон --</option>` + palletRows.map((m) => `<option value="${m.id}">${escapeHTML(m.name)}</option>`).join('');
+        extraSel.innerHTML = `<option value="">-- Выберите доп. упаковку --</option>` + rows.map((m) => `<option value="${m.id}" data-name="${escapeHTML(m.name)}">${escapeHTML(m.name)}</option>`).join('');
+    } catch (_) {
+        palletSel.innerHTML = `<option value="">Не удалось загрузить материалы</option>`;
+        extraSel.innerHTML = `<option value="">Не удалось загрузить материалы</option>`;
+    }
+};
+
+window.toggleDemoldGrade2Kit = function () {
+    const box = document.getElementById('demold-grade2-kit-box');
+    const enabled = document.getElementById('demold-enable-grade2-kit')?.checked;
+    if (!box) return;
+    box.classList.toggle('d-none', !enabled);
+};
+
+window.currentDemoldKitExtras = [];
+window.addDemoldKitExtra = function () {
+    const sel = document.getElementById('demold-kit-extra-item');
+    const qtyEl = document.getElementById('demold-kit-extra-qty');
+    if (!sel || !qtyEl || !sel.value) return;
+    const qty = Number(qtyEl.value || 0);
+    if (!Number.isFinite(qty) || qty <= 0) return UI.toast('Укажите количество доп. упаковки больше нуля', 'warning');
+    const itemId = Number(sel.value);
+    const itemName = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : 'Материал';
+    const ex = window.currentDemoldKitExtras.find((x) => Number(x.itemId) === itemId);
+    if (ex) ex.qty += qty;
+    else window.currentDemoldKitExtras.push({ itemId, name: itemName, qty });
+    qtyEl.value = '0';
+    renderDemoldKitExtras();
+};
+
+window.removeDemoldKitExtra = function (idx) {
+    window.currentDemoldKitExtras.splice(idx, 1);
+    renderDemoldKitExtras();
+};
+
+window.renderDemoldKitExtras = function () {
+    const box = document.getElementById('demold-kit-extra-list');
+    if (!box) return;
+    if (!window.currentDemoldKitExtras.length) {
+        box.innerHTML = 'Доп. упаковка не добавлена.';
+        return;
+    }
+    box.innerHTML = window.currentDemoldKitExtras.map((x, idx) =>
+        `<div class="inv-grade2-kit-row"><span>${escapeHTML(x.name)}: <b>${Number(x.qty).toLocaleString('ru-RU', { maximumFractionDigits: 3 })}</b></span><button type="button" class="btn btn-outline btn-xs" onclick="removeDemoldKitExtra(${idx})">Удалить</button></div>`
+    ).join('');
+};
+
+window.refreshDemoldingPackagingCheck = async function (batchId) {
+    const box = document.getElementById('demold-packaging-check');
+    if (!box) return;
+    const goodQty = parseFloat(document.getElementById('demold-good')?.value) || 0;
+    const grade2Qty = parseFloat(document.getElementById('demold-grade2')?.value) || 0;
+    const outputQty = Math.max(0, goodQty + grade2Qty);
+
+    if (outputQty <= 0) {
+        box.className = 'inv-demold-packaging-check text-muted font-12';
+        box.innerHTML = 'Упаковка не требуется (нет выхода 1/2 сорта).';
+        return;
+    }
+
+    if (!demoldPackagingCheckSupported) {
+        box.className = 'inv-demold-packaging-check text-warning font-12';
+        box.innerHTML = 'Проверка упаковки недоступна на текущей версии сервера. Обновите/перезапустите сервер.';
+        return;
+    }
+
+    box.className = 'inv-demold-packaging-check text-muted font-12';
+    box.innerHTML = 'Проверка упаковки...';
+    try {
+        const data = await API.get(`/api/inventory/demold-packaging-check?batchId=${encodeURIComponent(batchId)}&outputQty=${encodeURIComponent(outputQty)}`);
+        const items = Array.isArray(data.items) ? data.items : [];
+        if (items.length === 0) {
+            box.className = 'inv-demold-packaging-check text-muted font-12';
+            box.innerHTML = 'Для этой партии упаковка по рецепту не требуется.';
+            return;
+        }
+
+        const deficit = items.filter((x) => Number(x.shortage || 0) > 0.0001);
+        if (deficit.length === 0) {
+            box.className = 'inv-demold-packaging-check text-success font-12';
+            box.innerHTML = '✅ Упаковки достаточно для текущего выхода.';
+            return;
+        }
+
+        const rows = items.map((d) => {
+            const rawNeed = Number(d.need || 0);
+            const rawAvail = Number(d.available || 0);
+            const rawShort = Number(d.shortage || 0);
+            const needNum = d && d.isPallet ? Math.ceil(rawNeed) : rawNeed;
+            const avNum = d && d.isPallet ? Math.floor(rawAvail) : rawAvail;
+            const shNum = d && d.isPallet ? Math.ceil(rawShort) : rawShort;
+            const need = needNum.toLocaleString('ru-RU', { maximumFractionDigits: d && d.isPallet ? 0 : 3 });
+            const av = avNum.toLocaleString('ru-RU', { maximumFractionDigits: d && d.isPallet ? 0 : 3 });
+            const sh = shNum.toLocaleString('ru-RU', { maximumFractionDigits: d && d.isPallet ? 0 : 3 });
+            const statusClass = Number(d.shortage || 0) > 0.0001 ? 'inv-pack-status-bad' : 'inv-pack-status-ok';
+            const statusText = Number(d.shortage || 0) > 0.0001 ? `Не хватает ${sh}` : 'Хватает';
+            const needLabel = d && d.isPallet
+                ? `${need} подд.`
+                : need;
+            const palletHint = d && d.isPallet
+                ? `<div class="text-muted font-11">Поддон: перенос добора ${Number(d.carryInUnits || 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} -> ${Number(d.carryOutUnits || 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ед.</div>`
+                : '';
+            return `
+                <tr>
+                    <td>${escapeHTML(d.name || 'Материал')}${palletHint}</td>
+                    <td class="inv-pack-col-num">${needLabel}</td>
+                    <td class="inv-pack-col-num">${av}</td>
+                    <td class="inv-pack-col-num ${statusClass}">${statusText}</td>
+                </tr>
+            `;
+        }).join('');
+        box.className = 'inv-demold-packaging-check text-danger font-12';
+        const topDeficit = deficit.map((d) => {
+            const shortNum = d && d.isPallet ? Math.ceil(Number(d.shortage || 0)) : Number(d.shortage || 0);
+            const shortTxt = shortNum.toLocaleString('ru-RU', { maximumFractionDigits: d && d.isPallet ? 0 : 3 });
+            return `<span class="inv-pack-deficit-chip">${escapeHTML(d.name || 'Материал')}: -${shortTxt}${d && d.isPallet ? ' подд.' : ''}</span>`;
+        }).join('');
+        box.innerHTML = `
+            <div class="inv-pack-check-title">⚠️ Контроль упаковки: есть дефицит по ${deficit.length} позициям</div>
+            <div class="inv-pack-deficit-top">${topDeficit}</div>
+            <table class="inv-pack-check-table">
+                <thead>
+                    <tr>
+                        <th>Материал</th>
+                        <th class="inv-pack-col-num">Нужно</th>
+                        <th class="inv-pack-col-num">В наличии</th>
+                        <th class="inv-pack-col-num">Статус</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        `;
+    } catch (e) {
+        if (e && e.message && String(e.message).includes('HTTP 404')) {
+            demoldPackagingCheckSupported = false;
+            box.className = 'inv-demold-packaging-check text-warning font-12';
+            box.innerHTML = 'Проверка упаковки недоступна на текущей версии сервера. Обновите/перезапустите сервер.';
+            return;
+        }
+        box.className = 'inv-demold-packaging-check text-warning font-12';
+        box.innerHTML = 'Не удалось проверить упаковку. Проверка будет выполнена при сохранении.';
     }
 };
 
@@ -640,16 +1247,30 @@ window.saveMovementEdit = async function() {
 };
 
 window.deleteMovement = function(id) {
-    UI.confirm('Вы уверены, что хотите удалить запись? Все связанные операции (например, приходы на склады) будут автоматически отменены, баланс вернется в исходное состояние.', async () => {
-        try {
-            await API.delete(`/api/inventory/movement/${id}`);
-            UI.toast('Транзакция успешно отменена', 'success');
-            loadDryingHistory();
-            if (typeof loadTable === 'function') loadTable();
-        } catch (e) {
-            console.error(e);
-        }
-    });
+    UI.showModal('Подтверждение удаления движения', `
+        <div class="mb-10">Вы уверены, что хотите удалить запись? Связанные операции будут автоматически отменены, а баланс пересчитан.</div>
+        <div class="form-group m-0">
+            <label>Причина удаления (обязательно)</label>
+            <textarea id="delete-movement-reason" class="input-modern" rows="3" placeholder="Например: ошибочная проводка"></textarea>
+        </div>
+    `, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-red" onclick="confirmDeleteMovement(${id})">Удалить</button>
+    `);
+};
+
+window.confirmDeleteMovement = async function(id) {
+    const reason = (document.getElementById('delete-movement-reason')?.value || '').trim();
+    if (!reason) return UI.toast('Укажите причину удаления', 'warning');
+    try {
+        await API.delete(`/api/inventory/movement/${id}?reason=${encodeURIComponent(reason)}`);
+        UI.closeModal();
+        UI.toast('Транзакция успешно отменена', 'success');
+        loadDryingHistory();
+        if (typeof loadTable === 'function') loadTable();
+    } catch (e) {
+        console.error(e);
+    }
 };
 
 // === ВЫПОЛНЕНИЕ РАСПАЛУБКИ ===
@@ -659,6 +1280,20 @@ window.executeDemolding = async function (batchId, tileId, currentWipQty) {
     const scrapQty = parseFloat(document.getElementById('demold-scrap').value) || 0;
     const isComplete = document.getElementById('demold-complete').checked;
     const demoldingDate = document.getElementById('demolding-date').value;
+    const useGrade2Kit = !!document.getElementById('demold-enable-grade2-kit')?.checked;
+    let grade2PalletKit = null;
+    if (useGrade2Kit) {
+        const palletItemId = Number(document.getElementById('demold-kit-pallet-item')?.value || 0);
+        const palletQty = Number(document.getElementById('demold-kit-pallet-qty')?.value || 0);
+        if (!palletItemId || !Number.isFinite(palletQty) || palletQty <= 0 || Math.floor(palletQty) !== palletQty) {
+            return UI.toast('Для поддона 2 сорта выберите поддон и целое количество', 'warning');
+        }
+        grade2PalletKit = {
+            palletItemId,
+            palletQty,
+            extras: (window.currentDemoldKitExtras || []).map((x) => ({ itemId: Number(x.itemId), qty: Number(x.qty || 0) })).filter((x) => x.itemId && x.qty > 0)
+        };
+    }
 
     if (goodQty < 0 || grade2Qty < 0 || scrapQty < 0) return UI.toast('Количество не может быть отрицательным!', 'error');
     if (goodQty + grade2Qty + scrapQty === 0) return UI.toast('Укажите хотя бы одну позицию выхода!', 'error');
@@ -676,18 +1311,102 @@ window.executeDemolding = async function (batchId, tileId, currentWipQty) {
             grade2Qty, 
             scrapQty, 
             isComplete,
-            movementDate: demoldingDate 
+            movementDate: demoldingDate,
+            grade2PalletKit
         });
 
         UI.closeModal();
         UI.toast('Партия успешно распределена по складам!', 'success');
         loadTable();
+        if (typeof updateInventoryCalendarMarks === 'function') {
+            updateInventoryCalendarMarks();
+        }
         if (typeof loadDryingHistory === 'function' && document.getElementById('drying-history-block') && !document.getElementById('drying-history-block').classList.contains('d-none')) {
             loadDryingHistory();
         }
     } catch (e) {
         console.error(e);
+        const deficit = e && e.body && Array.isArray(e.body.packagingDeficit) ? e.body.packagingDeficit : [];
+        if (deficit.length > 0) {
+            const lines = deficit.map((d) => {
+                const need = Number(d.need || 0).toLocaleString('ru-RU', { maximumFractionDigits: 3 });
+                const av = Number(d.available || 0).toLocaleString('ru-RU', { maximumFractionDigits: 3 });
+                const sh = Number(d.shortage || 0).toLocaleString('ru-RU', { maximumFractionDigits: 3 });
+                return `<li><b>${escapeHTML(d.name || 'Материал')}</b>: нужно ${need}, есть ${av}, не хватает <b>${sh}</b></li>`;
+            }).join('');
+            UI.showModal('Недостаточно упаковки', `
+                <div class="mb-8">Не удалось провести распалубку: для партии не хватает упаковочных материалов.</div>
+                <ul class="m-0 pl-20">${lines}</ul>
+            `, `<button class="btn btn-outline" onclick="UI.closeModal()">Понятно</button>`);
+        }
         if (btn) { btn.disabled = false; btn.textContent = '💾 Сохранить выход'; }
+    }
+};
+
+window.openGrade2PalletKitModal = async function (itemId, itemName, batchId, batchNum) {
+    window.currentDemoldKitExtras = [];
+    const html = `
+        <div class="inv-modal-info">
+            <div class="inv-modal-product">Продукция 2 сорта: <b>${escapeHTML(itemName || '')}</b></div>
+            <div class="inv-modal-batch">Партия: <b>${escapeHTML(batchNum || 'без номера')}</b></div>
+        </div>
+        <div class="inv-grade2-kit-box">
+            <div class="form-grid inv-grid-2">
+                <div class="form-group">
+                    <label>Транспортный поддон:</label>
+                    <select id="demold-kit-pallet-item" class="input-modern"></select>
+                </div>
+                <div class="form-group">
+                    <label>Кол-во поддонов (целое):</label>
+                    <input type="number" id="demold-kit-pallet-qty" class="input-modern" min="1" step="1" value="1">
+                </div>
+            </div>
+            <div class="form-grid inv-grid-3">
+                <div class="form-group">
+                    <label>Доп. упаковка:</label>
+                    <select id="demold-kit-extra-item" class="input-modern"></select>
+                </div>
+                <div class="form-group">
+                    <label>Кол-во:</label>
+                    <input type="number" id="demold-kit-extra-qty" class="input-modern" min="0" step="0.001" value="0">
+                </div>
+                <div class="form-group">
+                    <label>&nbsp;</label>
+                    <button type="button" class="btn btn-outline w-100" onclick="addDemoldKitExtra()">+ Добавить</button>
+                </div>
+            </div>
+            <div id="demold-kit-extra-list" class="inv-grade2-kit-list text-muted font-12">Доп. упаковка не добавлена.</div>
+        </div>
+    `;
+    const buttons = `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-blue" onclick="submitGrade2PalletKit(${itemId}, ${batchId || 'null'})">📦 Списать упаковку</button>
+    `;
+    UI.showModal('📦 Комплектация поддона 2 сорта', html, buttons);
+    await initDemoldKitMaterials();
+};
+
+window.submitGrade2PalletKit = async function (itemId, batchId) {
+    const palletItemId = Number(document.getElementById('demold-kit-pallet-item')?.value || 0);
+    const palletQty = Number(document.getElementById('demold-kit-pallet-qty')?.value || 0);
+    if (!palletItemId || !Number.isFinite(palletQty) || palletQty <= 0 || Math.floor(palletQty) !== palletQty) {
+        return UI.toast('Выберите поддон и укажите целое количество', 'warning');
+    }
+    try {
+        await API.post('/api/inventory/grade2-pallet-kit', {
+            itemId,
+            batchId: batchId || null,
+            palletItemId,
+            palletQty,
+            extras: (window.currentDemoldKitExtras || []).map((x) => ({ itemId: Number(x.itemId), qty: Number(x.qty || 0) })).filter((x) => x.itemId && x.qty > 0),
+            movementDate: new Date().toISOString().slice(0, 16).replace('T', ' ')
+        });
+        UI.closeModal();
+        UI.toast('Комплектация поддона 2 сорта сохранена', 'success');
+        loadTable();
+        if (typeof updateInventoryCalendarMarks === 'function') updateInventoryCalendarMarks();
+    } catch (e) {
+        console.error(e);
     }
 };
 
@@ -749,9 +1468,10 @@ window.executeScrap = async function () {
     const desc = document.getElementById('scrap-desc').value;
 
     if (!scrapQty || scrapQty <= 0) return UI.toast('Введите количество', 'warning');
+    if (!String(desc || '').trim()) return UI.toast('Укажите причину перемещения', 'warning');
 
     try {
-        await API.post('/api/inventory/scrap', { itemId, batchId: batchId || null, warehouseId, targetWarehouseId: targetWh, scrapQty, description: desc });
+        await API.post('/api/inventory/scrap', { itemId, batchId: batchId || null, warehouseId, targetWarehouseId: targetWh, scrapQty, description: desc, reason: desc });
         UI.closeModal();
         UI.toast('Успешно перемещено!', 'success');
         loadTable();
@@ -795,6 +1515,7 @@ window.executeDispose = async function () {
     const desc = document.getElementById('dispose-desc').value;
 
     if (!disposeQty || disposeQty <= 0) return UI.toast('Введите количество больше нуля!', 'warning');
+    if (!String(desc || '').trim()) return UI.toast('Укажите причину утилизации', 'warning');
 
     UI.toast('⏳ Выполняется списание...', 'info');
 
@@ -804,7 +1525,8 @@ window.executeDispose = async function () {
             batchId: batchId || null,
             warehouseId: warehouseId,
             disposeQty: disposeQty,
-            description: desc
+            description: desc,
+            reason: desc
         });
 
         UI.closeModal();
@@ -817,18 +1539,43 @@ window.executeDispose = async function () {
 };
 
 // === УПРАВЛЕНИЕ РЕЗЕРВАМИ (Склад №7) ===
-window.openReserveManagerModal = function (itemId, itemName, batchId, batchNum, linkedOrderItemId, orderDocNum, orderId, maxQty) {
+window.openReserveManagerModal = function (itemId, batchId, linkedOrderItemId, maxQty) {
+    const row = (allInventory || []).find((x) =>
+        String(x.warehouse_id) === '7'
+        && String(x.item_id) === String(itemId)
+        && String(x.linked_order_item_id || '') === String(linkedOrderItemId || '')
+        && String(x.batch_id || '') === String(batchId || '')
+    ) || {};
+    const itemName = row.item_name || '';
+    const batchNum = row.batch_number || '';
+    const orderDocNum = row.order_doc_number || '';
+    const orderId = row.order_id || null;
+    const clientName = row.order_client_name || '';
+    const orderStatusLabel = formatReserveOrderStatus(row.order_status);
+    const orderQty = Number(row.order_qty_ordered || 0);
+    const orderShipped = Number(row.order_qty_shipped || 0);
+    const orderReserved = Number(row.order_qty_reserved || 0);
+    const orderRemaining = Math.max(orderQty - orderShipped, 0);
+    const orderNeedReserve = Math.max(orderRemaining - orderReserved, 0);
     const html = `
         <div class="inv-modal-info">
-            <div class="inv-modal-product">Продукция: <b>${escapeHTML(itemName)}</b></div>
-            ${batchNum ? `<div class="inv-modal-batch">Партия: ${escapeHTML(batchNum)}</div>` : ''}
-            <div class="inv-modal-stock">Привязка: <b class="inv-modal-stock-value">${orderDocNum || 'Без заказа'}</b></div>
+            <div class="inv-modal-product">Продукция: <b>${Utils.escapeHtml(itemName)}</b></div>
+            ${batchNum ? `<div class="inv-modal-batch">Партия: ${Utils.escapeHtml(batchNum)}</div>` : ''}
+            <div class="inv-modal-stock">
+                Привязка:
+                ${orderDocNum
+                    ? `<a href="javascript:void(0)" class="inv-reserve-order-link" onclick="openInventoryOrder(${orderId || 'null'})">${Utils.escapeHtml(orderDocNum)}</a>`
+                    : '<b class="inv-modal-stock-value">Без заказа</b>'}
+            </div>
+            ${orderDocNum ? `<div class="inv-modal-stock">Клиент: <b class="inv-modal-stock-value">${Utils.escapeHtml(clientName || '—')}</b> | Статус: <b class="inv-modal-stock-value">${Utils.escapeHtml(orderStatusLabel)}</b></div>` : ''}
+            ${orderDocNum ? `<div class="inv-modal-stock">По заказу: <b class="inv-modal-stock-value">${orderQty}</b> | Отгружено: <b class="inv-modal-stock-value">${orderShipped}</b> | Нужно: <b class="inv-modal-stock-value">${orderNeedReserve}</b></div>` : ''}
             <div class="inv-modal-stock">В резерве: <b class="inv-modal-stock-value">${maxQty}</b> ед.</div>
         </div>
 
         <input type="hidden" id="reserve-item-id" value="${itemId}">
         <input type="hidden" id="reserve-batch-id" value="${batchId || ''}">
         <input type="hidden" id="reserve-linked-coi" value="${linkedOrderItemId || ''}">
+        <input type="hidden" id="reserve-max-qty" value="${maxQty}">
 
         <div class="form-group">
             <label>Действие:</label>
@@ -844,6 +1591,14 @@ window.openReserveManagerModal = function (itemId, itemName, batchId, batchNum, 
         </div>
 
         <div class="form-group inv-hidden" id="reserve-transfer-target">
+            <label>Фильтр по клиенту:</label>
+            <select id="reserve-target-client" class="input-modern" onchange="renderReserveTargetOrders()">
+                <option value="">Все клиенты</option>
+            </select>
+            <div class="mt-8"></div>
+            <label>Поиск заказа (№ / клиент):</label>
+            <input type="text" id="reserve-target-search" class="input-modern" placeholder="Например: ЗК-123 или Иванов" oninput="renderReserveTargetOrders()">
+            <div class="mt-8"></div>
             <label>Целевой заказ:</label>
             <select id="reserve-target-coi" class="input-modern">
                 <option value="">Загрузка...</option>
@@ -861,14 +1616,43 @@ window.openReserveManagerModal = function (itemId, itemName, batchId, batchNum, 
     // Предзагрузка списка заказов для переброски
     API.get(`/api/inventory/active-order-items?itemId=${itemId}`)
         .then(orders => {
-            const sel = document.getElementById('reserve-target-coi');
-            if (!sel) return;
-            sel.innerHTML = '<option value="">Выберите заказ...</option>';
-            orders.forEach(o => {
-                if (String(o.id) === String(linkedOrderItemId)) return; // Скрываем текущий
-                sel.innerHTML += `<option value="${o.id}">${escapeHTML(o.doc_number)} | ${escapeHTML(o.client_name || '')} (Заказ: ${o.qty_ordered}, Рез: ${o.qty_reserved || 0})</option>`;
-            });
+            window.__reserveOrderTargets = Array.isArray(orders) ? orders : [];
+            const clientSel = document.getElementById('reserve-target-client');
+            if (clientSel) {
+                const uniqClients = [...new Set(window.__reserveOrderTargets.map(o => String(o.client_name || '').trim()).filter(Boolean))];
+                clientSel.innerHTML = '<option value="">Все клиенты</option>' + uniqClients.map(name => `<option value="${Utils.escapeHtml(name)}">${Utils.escapeHtml(name)}</option>`).join('');
+            }
+            renderReserveTargetOrders();
         }).catch(e => console.error(e));
+};
+
+window.renderReserveTargetOrders = function() {
+    const sel = document.getElementById('reserve-target-coi');
+    const currentLinked = document.getElementById('reserve-linked-coi')?.value || '';
+    if (!sel) return;
+    const all = Array.isArray(window.__reserveOrderTargets) ? window.__reserveOrderTargets : [];
+    const clientFilter = String(document.getElementById('reserve-target-client')?.value || '').trim().toLowerCase();
+    const search = String(document.getElementById('reserve-target-search')?.value || '').trim().toLowerCase();
+    const rows = all.filter((o) => {
+        if (String(o.id) === String(currentLinked)) return false;
+        if (clientFilter && String(o.client_name || '').trim().toLowerCase() !== clientFilter) return false;
+        if (search) {
+            const hay = `${o.doc_number || ''} ${o.client_name || ''}`.toLowerCase();
+            if (!hay.includes(search)) return false;
+        }
+        return true;
+    });
+    if (!rows.length) {
+        sel.innerHTML = '<option value="">Нет подходящих заказов</option>';
+        return;
+    }
+    sel.innerHTML = '<option value="">Выберите заказ...</option>' + rows.map((o) => {
+        const reserved = Number(o.qty_reserved || 0);
+        const need = Number(o.qty_need_reserve || 0);
+        const rem = Number(o.qty_remaining || 0);
+        const status = formatReserveOrderStatus(o.order_status);
+        return `<option value="${o.id}">${Utils.escapeHtml(o.doc_number || 'Заказ')} | ${Utils.escapeHtml(o.client_name || '—')} | ${Utils.escapeHtml(status)} | Осталось: ${rem} | Нужно в резерв: ${need} | В резерве: ${reserved}</option>`;
+    }).join('');
 };
 
 // Переключатель видимости селекта целевого заказа
@@ -885,9 +1669,11 @@ window.executeReserveAction = async function () {
     const batchId = document.getElementById('reserve-batch-id').value || null;
     const linkedOrderItemId = document.getElementById('reserve-linked-coi').value || null;
     const qty = parseFloat(document.getElementById('reserve-qty').value);
+    const maxQty = parseFloat(document.getElementById('reserve-max-qty').value || '0');
     const targetOrderItemId = action === 'transfer' ? document.getElementById('reserve-target-coi').value : null;
 
     if (!qty || qty <= 0) return UI.toast('Укажите количество!', 'warning');
+    if (Number.isFinite(maxQty) && qty > maxQty) return UI.toast(`Количество превышает доступный резерв (${maxQty})`, 'warning');
     if (action === 'transfer' && !targetOrderItemId) return UI.toast('Выберите целевой заказ!', 'warning');
 
     try {
@@ -991,7 +1777,7 @@ window.confirmExcelImport = async function() {
 
     UI.toast('⏳ Загрузка в базу...', 'info');
     try {
-        await API.post('/api/inventory/audit', { warehouseId: 0, adjustments: adjustments });
+        await API.post('/api/inventory/audit', { warehouseId: 0, adjustments: adjustments, reason: 'Импорт ревизии из Excel' }); // warehouseId: 0 = специальный флаг для системного импорта (каждая строка несёт свой wh_id)
         
         UI.closeModal();
         UI.toast('✅ Инвентаризация успешно импортирована!', 'success');
@@ -1578,7 +2364,7 @@ function renderItemHistoryTable(startBalance, history, searchQuery = '') {
     tbody.innerHTML = html;
     
     tfoot.innerHTML = `
-        <div class="d-flex justify-content-between align-items-center w-100 p-15 border-top bg-surface" style="border-radius: 0 0 8px 8px;">
+        <div class="inv-history-summary">
             <div class="font-15">Итоговый остаток на конец: <b>${currentBalance.toLocaleString('ru-RU', {minimumFractionDigits:2})} ${unitStrShared}</b></div>
             <div class="d-flex gap-20 font-14">
                 <span class="text-success font-weight-500">Приход: +${sumIn.toLocaleString('ru-RU', {minimumFractionDigits:2})}</span>
@@ -1772,7 +2558,9 @@ function renderBatchCard(data, titleEl, badgesEl, bodyEl) {
     // Состояние
     html += '<div class="batch-progress-card">';
     html += '<div class="batch-section-title">📊 Состояние</div>';
-    html += `<div class="batch-progress-bar"><div class="batch-progress-fill" style="width:${d.progress_pct}%"></div></div>`;
+    const progressPct = Math.max(0, Math.min(100, Number(d.progress_pct) || 0));
+    const progressStep = Math.round(progressPct / 5) * 5;
+    html += `<div class="batch-progress-bar"><div class="batch-progress-fill batch-progress-fill-pct-${progressStep}"></div></div>`;
     html += `<div class="flex-between font-13">`;
     html += `<span>Вход: <strong>${d.total_in.toLocaleString('ru-RU')} ${b.product_unit}</strong></span>`;
     html += `<span>Выход: <strong>${d.total_out.toLocaleString('ru-RU')} ${b.product_unit}</strong></span>`;
@@ -1903,7 +2691,8 @@ window.submitSurplus = async function() {
                 batchId: 'new', // 🚀 Триггерит генерацию новой системной партии излишка!
                 actualQty: qty 
             }],
-            auditDate: auditDateStr
+            auditDate: auditDateStr,
+            reason: 'Оприходование излишков'
         });
 
         const modal = document.getElementById('modal-surplus');
@@ -1918,3 +2707,11 @@ window.submitSurplus = async function() {
         console.error(e);
     }
 }
+
+try {
+    const savedDensity = localStorage.getItem('inventoryDensity') || 'compact';
+    inventoryDensity = savedDensity === 'standard' ? 'standard' : 'compact';
+} catch (_) {
+    inventoryDensity = 'compact';
+}
+applyInventoryDensity();

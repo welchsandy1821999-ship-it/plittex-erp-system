@@ -9,11 +9,211 @@ const ExcelJS = require('exceljs');
 const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage() });
 const { randomUUID } = require('crypto');
+const { auditLog } = require('../utils/db_init');
 
 // 👈 Добавили withTransaction третьим аргументом
 module.exports = function (pool, getWhId, withTransaction) {
     const { requireAdmin } = require('../middleware/auth');
     const { validatePurchase, validateSifting, validateScrap, validateAudit, validateReserveAction } = require('../middleware/validator');
+    const { buildSalesAnalyticsUnitCostData } = require('../utils/salesAnalyticsUnitCost');
+    const { isPackagingItem } = require('../utils/packagingMaterial');
+    const { calcPalletWriteoff } = require('../utils/palletCalc');
+    const PALLET_RX = /(поддон|паллет|паллета)/i;
+
+    function isPalletPackaging(name, category) {
+        if (!isPackagingItem(name, category)) return false;
+        return PALLET_RX.test(String(name || '')) || PALLET_RX.test(String(category || ''));
+    }
+
+    async function loadPalletCarryMapForUpdate(client) {
+        const key = 'demold_pallet_carry_map';
+        const res = await client.query('SELECT value FROM settings WHERE key = $1 FOR UPDATE', [key]);
+        if (!res.rows.length) return {};
+        const raw = res.rows[0].value;
+        if (!raw) return {};
+        if (typeof raw === 'object') return raw;
+        try {
+            return JSON.parse(raw);
+        } catch (_) {
+            return {};
+        }
+    }
+
+    async function savePalletCarryMap(client, mapObj) {
+        const key = 'demold_pallet_carry_map';
+        await client.query(`
+            INSERT INTO settings (key, value)
+            VALUES ($1, $2::jsonb)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        `, [key, JSON.stringify(mapObj || {})]);
+    }
+
+    async function applyPackagingKitWriteoff(client, params) {
+        const {
+            userId,
+            trId,
+            itemId,
+            batchId,
+            movementDate,
+            palletItemId,
+            palletQty,
+            extras,
+            contextTitle
+        } = params;
+        const materialsWh = await getWhId(client, 'materials');
+        const reqMap = new Map();
+        const addReq = (id, qty) => {
+            const key = String(id);
+            reqMap.set(key, new Big(reqMap.get(key) || 0).plus(new Big(qty || 0)));
+        };
+
+        const pQty = Number(palletQty || 0);
+        if (palletItemId && pQty > 0) addReq(palletItemId, pQty);
+        (Array.isArray(extras) ? extras : []).forEach((e) => {
+            const q = Number(e && e.qty || 0);
+            if (e && e.itemId && q > 0) addReq(e.itemId, q);
+        });
+
+        const itemIds = Array.from(reqMap.keys()).map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0);
+        if (!itemIds.length) return;
+
+        const metaRes = await client.query(`
+            SELECT id, name, current_price
+            FROM items
+            WHERE id = ANY($1::int[])
+        `, [itemIds]);
+        const metaById = new Map(metaRes.rows.map((r) => [Number(r.id), r]));
+
+        const deficits = [];
+        for (const itemIdNum of itemIds) {
+            const reqQty = new Big(reqMap.get(String(itemIdNum)) || 0);
+            if (reqQty.lte(0.0001)) continue;
+            const stRes = await client.query(`
+                SELECT COALESCE(SUM(quantity), 0) as total_qty
+                FROM inventory_movements
+                WHERE item_id = $1 AND warehouse_id = $2
+                  AND (movement_type IS DISTINCT FROM 'production_draft')
+            `, [itemIdNum, materialsWh]);
+            const available = new Big(stRes.rows[0].total_qty || 0);
+            if (reqQty.gt(available)) {
+                const meta = metaById.get(itemIdNum);
+                deficits.push({
+                    itemId: itemIdNum,
+                    name: (meta && meta.name) || `ID ${itemIdNum}`,
+                    need: Number(reqQty.round(4)),
+                    available: Number(available.round(4)),
+                    shortage: Number(reqQty.minus(available).round(4)),
+                });
+            }
+        }
+        if (deficits.length > 0) {
+            const err = new Error('Недостаточно упаковки для комплектации поддона 2 сорта.');
+            err.code = 'PACKAGING_DEFICIT';
+            err.packagingDeficit = deficits;
+            throw err;
+        }
+
+        for (const itemIdNum of itemIds) {
+            const reqQty = new Big(reqMap.get(String(itemIdNum)) || 0);
+            if (reqQty.lte(0.0001)) continue;
+            const meta = metaById.get(itemIdNum);
+            const price = meta && meta.current_price != null ? Number(meta.current_price) : 0;
+            const name = (meta && meta.name) || `ID ${itemIdNum}`;
+            await client.query(`
+                INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, unit_price, movement_date, transaction_id)
+                VALUES ($1, $2, 'production_expense', $3, $4, $5, $6, $7, COALESCE($8, NOW()), $9)
+            `, [
+                itemIdNum,
+                reqQty.times(-1).toFixed(4),
+                `${contextTitle}: ${name}`,
+                materialsWh,
+                batchId || null,
+                userId || null,
+                price,
+                movementDate || null,
+                trId
+            ]);
+        }
+    }
+
+    async function buildDemoldingPackagingCheck(client, batchId, outputQty, options = {}) {
+        const outB = new Big(outputQty || 0);
+        if (!batchId || outB.lte(0.0001)) {
+            return { batchNum: null, items: [] };
+        }
+        const applyCarry = !!options.applyCarry;
+
+        const batchInfo = await client.query(
+            'SELECT product_id, batch_number FROM production_batches WHERE id = $1',
+            [batchId]
+        );
+        const productIdForRecipe = batchInfo.rows[0] && batchInfo.rows[0].product_id;
+        const batchNum = (batchInfo.rows[0] && batchInfo.rows[0].batch_number) || `ID ${batchId}`;
+        if (!productIdForRecipe) {
+            return { batchNum, items: [] };
+        }
+
+        const materialsWh = await getWhId(client, 'materials');
+        const recipeRes = await client.query(`
+            SELECT r.quantity_per_unit, i.id, i.name, i.current_price, i.category
+            FROM recipes r
+            JOIN items i ON r.material_id = i.id
+            WHERE r.product_id = $1
+        `, [productIdForRecipe]);
+
+        const needRows = recipeRes.rows.filter((row) => isPackagingItem(row.name, row.category));
+        const carryMap = await loadPalletCarryMapForUpdate(client);
+        const nextCarryMap = { ...carryMap };
+        const items = [];
+        for (const row of needRows) {
+            const perUnitNeed = new Big(row.quantity_per_unit || 0);
+            let need = perUnitNeed.times(outB);
+            let carryInUnits = 0;
+            let carryOutUnits = 0;
+            let palletsWriteoff = null;
+            const isPallet = isPalletPackaging(row.name, row.category);
+            if (isPallet) {
+                const carryKey = `${productIdForRecipe}:${row.id}`;
+                carryInUnits = Number(carryMap[carryKey] || 0);
+                const palletCalc = calcPalletWriteoff(perUnitNeed, outB, carryInUnits);
+                need = palletCalc.needToWriteoff;
+                carryOutUnits = palletCalc.carryOutUnits;
+                palletsWriteoff = palletCalc.palletsWriteoff;
+                if (applyCarry) {
+                    if (carryOutUnits > 0.0001) nextCarryMap[carryKey] = carryOutUnits;
+                    else delete nextCarryMap[carryKey];
+                }
+            }
+            if (need.lte(0.0001)) continue;
+
+            const stRes = await client.query(`
+                SELECT COALESCE(SUM(quantity), 0) as total_qty
+                FROM inventory_movements
+                WHERE item_id = $1 AND warehouse_id = $2
+                  AND (movement_type IS DISTINCT FROM 'production_draft')
+            `, [row.id, materialsWh]);
+
+            const available = new Big(stRes.rows[0].total_qty || 0);
+            const shortage = need.gt(available) ? need.minus(available) : new Big(0);
+            items.push({
+                itemId: row.id,
+                name: row.name,
+                currentPrice: row.current_price != null ? Number(row.current_price) : 0,
+                need: need.toFixed(4),
+                available: available.toFixed(4),
+                shortage: shortage.toFixed(4),
+                isPallet,
+                carryInUnits: Number(new Big(carryInUnits || 0).round(4)),
+                carryOutUnits: Number(new Big(carryOutUnits || 0).round(4)),
+                palletsWriteoff,
+            });
+        }
+
+        if (applyCarry) {
+            await savePalletCarryMap(client, nextCarryMap);
+        }
+        return { batchNum, items };
+    }
 
     // ------------------------------------------------------------------
     // ИНВЕНТАРИЗАЦИЯ: ПЕЧАТЬ БЛАНКА (HTML)
@@ -617,7 +817,7 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     router.get('/api/inventory/valuation', async (req, res) => {
         try {
-            // Учитываем только нужные склады (1, 3, 4, 5)
+            // Динамически выбираем склады для оценки: все, кроме брака (defect) и резерва (reserve)
             // Исключаем отрицательное количество из подсчета стоимости через GREATEST(balance, 0)
             const result = await pool.query(`
                 WITH item_balances AS (
@@ -631,7 +831,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     FROM inventory_movements m
                     JOIN items i ON m.item_id = i.id
                     JOIN warehouses w ON m.warehouse_id = w.id
-                    WHERE m.warehouse_id IN (1, 3, 4, 5)
+                    WHERE w.type NOT IN ('defect', 'reserve')
                     GROUP BY m.warehouse_id, w.name, m.item_id, i.name, i.current_price
                     HAVING SUM(m.quantity) <> 0
                 )
@@ -707,6 +907,11 @@ module.exports = function (pool, getWhId, withTransaction) {
                     CASE WHEN w.type = 'reserve' THEN m.linked_order_item_id ELSE NULL END as linked_order_item_id,
                     CASE WHEN w.type = 'reserve' THEN co.doc_number ELSE NULL END as order_doc_number,
                     CASE WHEN w.type = 'reserve' THEN co.id ELSE NULL END as order_id,
+                    CASE WHEN w.type = 'reserve' THEN cp.name ELSE NULL END as order_client_name,
+                    CASE WHEN w.type = 'reserve' THEN co.status ELSE NULL END as order_status,
+                    CASE WHEN w.type = 'reserve' THEN coi.qty_ordered ELSE NULL END as order_qty_ordered,
+                    CASE WHEN w.type = 'reserve' THEN coi.qty_reserved ELSE NULL END as order_qty_reserved,
+                    CASE WHEN w.type = 'reserve' THEN coi.qty_shipped ELSE NULL END as order_qty_shipped,
                     CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE b.status END as batch_status,
                     SUM(m.quantity) as total
                 `;
@@ -718,6 +923,11 @@ module.exports = function (pool, getWhId, withTransaction) {
                     CASE WHEN w.type = 'reserve' THEN m.linked_order_item_id ELSE NULL END,
                     CASE WHEN w.type = 'reserve' THEN co.doc_number ELSE NULL END,
                     CASE WHEN w.type = 'reserve' THEN co.id ELSE NULL END,
+                    CASE WHEN w.type = 'reserve' THEN cp.name ELSE NULL END,
+                    CASE WHEN w.type = 'reserve' THEN co.status ELSE NULL END,
+                    CASE WHEN w.type = 'reserve' THEN coi.qty_ordered ELSE NULL END,
+                    CASE WHEN w.type = 'reserve' THEN coi.qty_reserved ELSE NULL END,
+                    CASE WHEN w.type = 'reserve' THEN coi.qty_shipped ELSE NULL END,
                     CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE b.status END
                 `;
             }
@@ -731,6 +941,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 LEFT JOIN production_batches b ON m.batch_id = b.id
                 LEFT JOIN client_order_items coi ON w.type = 'reserve' AND m.linked_order_item_id = coi.id
                 LEFT JOIN client_orders co ON coi.order_id = co.id
+                LEFT JOIN counterparties cp ON co.counterparty_id = cp.id
                 ${whereClause}
                 GROUP BY 
                     ${groupPart}
@@ -912,6 +1123,8 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     router.post('/api/inventory/scrap', requireAdmin, validateScrap, async (req, res) => {
         const { itemId, batchId, warehouseId, targetWarehouseId, scrapQty, description } = req.body;
+        const reason = String((req.body || {}).reason || description || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину списания/перемещения' });
 
         try {
             // 👈 Используем безопасную транзакцию
@@ -936,7 +1149,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 await client.query(`
                     INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, transaction_id)
                     VALUES ($1, $2, 'scrap_writeoff', $3, $4, $5, $6)
-                `, [itemId, -Math.abs(scrapQty), description, warehouseId, batchId || null, trId]);
+                `, [itemId, -Math.abs(scrapQty), reason, warehouseId, batchId || null, trId]);
 
                 // Трансформация в 2-й сорт, если летит на 5-й склад (Уценка)
                 let targetItemId = itemId;
@@ -971,11 +1184,12 @@ module.exports = function (pool, getWhId, withTransaction) {
                 await client.query(`
                     INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, transaction_id)
                     VALUES ($1, $2, $3, $4, $5, $6, $7)
-                `, [targetItemId, Math.abs(scrapQty), destType, description, targetWarehouseId, batchId || null, trId]);
+                `, [targetItemId, Math.abs(scrapQty), destType, reason, targetWarehouseId, batchId || null, trId]);
             });
             const io = req.app.get('io');
             if (io) io.emit('inventory_updated');
-            sendNotify(`⚠️ <b>Списание в брак</b>\nКоличество: ${scrapQty}\nПричина: ${description || 'Не указана'}`);
+            await auditLog(pool, req, 'inventory_scrap', 'inventory_movement', null, `item=${itemId}; qty=${scrapQty}; reason=${reason}`);
+            sendNotify(`⚠️ <b>Списание в брак</b>\nКоличество: ${scrapQty}\nПричина: ${reason || 'Не указана'}`);
 
             res.json({ success: true, message: 'Успешно перемещено' });
         } catch (err) {
@@ -989,6 +1203,8 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     router.post('/api/inventory/audit', requireAdmin, validateAudit, async (req, res) => {
         const { warehouseId, adjustments, auditDate } = req.body;
+        const reason = String((req.body || {}).reason || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину ревизии' });
         const userId = req.user ? req.user.id : null;
 
         try {
@@ -1170,6 +1386,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
             const io = req.app.get('io');
             if (io) io.emit('inventory_updated');
+            await auditLog(pool, req, 'inventory_audit', 'inventory_movement', null, `adjustments=${Array.isArray(adjustments) ? adjustments.length : 0}; date=${auditDate || ''}; reason=${reason}`);
 
             res.json({ success: true, message: 'Инвентаризация завершена успешно' });
         } catch (err) {
@@ -1181,8 +1398,36 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     // 4. МАРШРУТ: РАСПАЛУБКА И ПРИЕМКА (POST /api/move-wip)
     // ------------------------------------------------------------------
+    router.get('/api/inventory/demold-packaging-check', requireAdmin, async (req, res) => {
+        const batchId = Number(req.query.batchId);
+        const outputQty = Number(req.query.outputQty || 0);
+        if (!Number.isFinite(batchId) || batchId <= 0) {
+            return res.status(400).json({ error: 'Некорректный batchId' });
+        }
+        if (!Number.isFinite(outputQty) || outputQty < 0) {
+            return res.status(400).json({ error: 'Некорректный outputQty' });
+        }
+
+        try {
+            const check = await withTransaction(pool, async (client) => {
+                return await buildDemoldingPackagingCheck(client, batchId, outputQty);
+            });
+            const deficit = check.items.filter((x) => new Big(x.shortage || 0).gt(0.0001));
+            res.json({
+                batchNum: check.batchNum,
+                outputQty: Number(new Big(outputQty).round(4)),
+                items: check.items,
+                hasDeficit: deficit.length > 0,
+                deficitCount: deficit.length,
+            });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Не удалось проверить упаковку для распалубки.' });
+        }
+    });
+
     router.post('/api/move-wip', requireAdmin, async (req, res) => {
-        const { batchId, tileId, currentWipQty, goodQty, grade2Qty, scrapQty, isComplete, movementDate } = req.body;
+        const { batchId, tileId, currentWipQty, goodQty, grade2Qty, scrapQty, isComplete, movementDate, grade2PalletKit } = req.body;
 
         try {
             await withTransaction(pool, async (client) => {
@@ -1329,6 +1574,60 @@ module.exports = function (pool, getWhId, withTransaction) {
                     `, [tileId, safeScrap, defectWh, batchId, userId, movementDate || null, trId]);
                 }
 
+                if (grade2PalletKit && safeGrade2 > 0) {
+                    await applyPackagingKitWriteoff(client, {
+                        userId,
+                        trId,
+                        itemId: tileId,
+                        batchId,
+                        movementDate,
+                        palletItemId: grade2PalletKit.palletItemId,
+                        palletQty: grade2PalletKit.palletQty,
+                        extras: grade2PalletKit.extras,
+                        contextTitle: `Распалубка: комплектация поддона 2 сорта (партия ${batchId})`
+                    });
+                }
+
+                // Списание упаковки по рецепту: пропорционально (1-й сорт + 2-й сорт) при этой распалубке; на замесе не списывается
+                const outputForPack = Number(new Big(safeGood).plus(safeGrade2).round(2));
+                if (outputForPack > 0.0001 && batchId) {
+                    const check = await buildDemoldingPackagingCheck(client, batchId, outputForPack, { applyCarry: true });
+                    const insuff = check.items.filter((x) => new Big(x.shortage || 0).gt(0.0001));
+                    if (insuff.length > 0) {
+                        const err = new Error('Недостаточно упаковки для списания.');
+                        err.code = 'PACKAGING_DEFICIT';
+                        err.packagingDeficit = insuff.map((d) => ({
+                            itemId: d.itemId,
+                            name: d.name,
+                            need: Number(new Big(d.need || 0).round(4)),
+                            available: Number(new Big(d.available || 0).round(4)),
+                            shortage: Number(new Big(d.shortage || 0).round(4)),
+                        }));
+                        throw err;
+                    }
+
+                    const materialsWh = await getWhId(client, 'materials');
+                    const batchNum = check.batchNum || `ID ${batchId}`;
+                    for (const row of check.items) {
+                        const need = new Big(row.need || 0);
+                        if (need.lte(0.0001)) continue;
+                        await client.query(`
+                            INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, unit_price, movement_date, transaction_id)
+                            VALUES ($1, $2, 'production_expense', $3, $4, $5, $6, $7, COALESCE($8, NOW()), $9)
+                        `, [
+                            row.itemId,
+                            need.times(-1).toFixed(4),
+                            `Распалубка: упаковка (партия ${batchNum}) — ${row.name}`,
+                            materialsWh,
+                            batchId,
+                            userId,
+                            row.currentPrice || 0,
+                            movementDate || null,
+                            trId
+                        ]);
+                    }
+                }
+
                 // 🚀 НОВОЕ: Накапливаем 1-й сорт для сдельной зарплаты при каждой распалубке партии
                 if (batchId && safeGood > 0) {
                     await client.query(`
@@ -1351,9 +1650,51 @@ module.exports = function (pool, getWhId, withTransaction) {
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
-            const isBizError = err.message && (err.message.includes('Партия') || err.message.includes('Невозможно'));
+            const isPackagingDeficit = err && err.code === 'PACKAGING_DEFICIT';
+            const isBizError = isPackagingDeficit || (err.message && (err.message.includes('Партия') || err.message.includes('Невозможно') || err.message.includes('Недостаточно упаковки')));
             res.status(isBizError ? 400 : 500)
-               .json({ error: isBizError ? err.message : 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+               .json({
+                   error: isBizError ? err.message : 'Внутренняя ошибка сервера. Обратитесь к администратору.',
+                   code: isPackagingDeficit ? 'PACKAGING_DEFICIT' : undefined,
+                   packagingDeficit: isPackagingDeficit ? err.packagingDeficit : undefined,
+               });
+        }
+    });
+
+    router.post('/api/inventory/grade2-pallet-kit', requireAdmin, async (req, res) => {
+        const { itemId, batchId, movementDate, palletItemId, palletQty, extras } = req.body || {};
+        try {
+            await withTransaction(pool, async (client) => {
+                let userId = null;
+                if (req.user && req.user.id) {
+                    const userCheck = await client.query('SELECT id FROM users WHERE id = $1', [req.user.id]);
+                    if (userCheck.rows.length > 0) userId = req.user.id;
+                }
+
+                const trId = randomUUID();
+                await applyPackagingKitWriteoff(client, {
+                    userId,
+                    trId,
+                    itemId,
+                    batchId,
+                    movementDate,
+                    palletItemId,
+                    palletQty,
+                    extras,
+                    contextTitle: `Склад №5: комплектация поддона 2 сорта (партия ${batchId || 'без партии'})`
+                });
+            });
+            const io = req.app.get('io');
+            if (io) io.emit('inventory_updated');
+            res.json({ success: true });
+        } catch (err) {
+            logger.error(err);
+            const isPackagingDeficit = err && err.code === 'PACKAGING_DEFICIT';
+            res.status(isPackagingDeficit ? 400 : 500).json({
+                error: isPackagingDeficit ? err.message : 'Внутренняя ошибка сервера. Обратитесь к администратору.',
+                code: isPackagingDeficit ? 'PACKAGING_DEFICIT' : undefined,
+                packagingDeficit: isPackagingDeficit ? err.packagingDeficit : undefined,
+            });
         }
     });
 
@@ -1362,6 +1703,8 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     router.post('/api/inventory/dispose', requireAdmin, validateScrap, async (req, res) => {
         const { itemId, batchId, warehouseId, disposeQty, description } = req.body;
+        const reason = String((req.body || {}).reason || description || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину утилизации' });
 
         try {
             await withTransaction(pool, async (client) => {
@@ -1395,7 +1738,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             `, [
                     itemId,
                     -Math.abs(disposeQty),
-                    description || 'Безвозвратная утилизация (вывоз)',
+                    reason || 'Безвозвратная утилизация (вывоз)',
                     warehouseId,
                     batchId || null,
                     userId // Передаем полученный выше ID или null
@@ -1404,6 +1747,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
             const io = req.app.get('io');
             if (io) io.emit('inventory_updated');
+            await auditLog(pool, req, 'inventory_dispose', 'inventory_movement', null, `item=${itemId}; qty=${disposeQty}; reason=${reason}`);
             sendNotify(`🗑️ <b>Утилизация (Вывоз)</b>\nСписано: ${disposeQty} ед.`);
 
             res.json({ success: true, message: 'Успешно утилизировано' });
@@ -1439,6 +1783,8 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     router.delete('/api/inventory/purchase/:id', requireAdmin, async (req, res) => {
         const purchaseId = req.params.id;
+        const reason = String((req.query || {}).reason || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину отмены закупки' });
 
         try {
             await withTransaction(pool, async (client) => {
@@ -1492,6 +1838,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
             const io = req.app.get('io');
             if (io) io.emit('inventory_updated');
+            await auditLog(pool, req, 'inventory_purchase_delete', 'inventory_movement', Number(purchaseId), `reason=${reason}`);
             res.json({ success: true, message: 'Закупка успешно отменена' });
         } catch (err) {
             logger.error(err);
@@ -1784,154 +2131,62 @@ module.exports = function (pool, getWhId, withTransaction) {
     router.get('/api/sales/cost-analysis/:productId', async (req, res) => {
         const { productId } = req.params;
         try {
-            // 1. ТЕОРЕТИЧЕСКАЯ СЕБЕСТОИМОСТЬ СЫРЬЯ (ПО РЕЦЕПТУ)
-            const recipeRes = await pool.query(`
-                SELECT r.material_id, r.quantity_per_unit as qty, i.current_price, i.name, i.unit
-                FROM recipes r
-                JOIN items i ON r.material_id = i.id
-                WHERE r.product_id = $1
-            `, [productId]);
-
-            let theoreticalCost = new Big(0);
-            let materialsMap = {}; // Карта для слияния Теории и Факта
-
-            recipeRes.rows.forEach(r => {
-                theoreticalCost = theoreticalCost.plus(new Big(r.qty).times(r.current_price || 0));
-                materialsMap[r.material_id] = {
-                    id: r.material_id,
-                    name: r.name,
-                    unit: r.unit,
-                    theory_qty: Number(new Big(r.qty || 0)),
-                    theory_cost: Number(new Big(r.qty || 0).times(r.current_price || 0)),
-                    current_price: Number(new Big(r.current_price || 0)),
-                    fact_qty: 0,
-                    fact_cost: 0
-                };
-            });
-
-            // 2. БАЗОВЫЕ ДАННЫЕ ПРОДУКЦИИ (Нужны для поддонов и теории)
-            const itemRes = await pool.query(`SELECT mold_id, COALESCE(qty_per_cycle, 1) as qty_per_cycle FROM items WHERE id = $1`, [productId]);
-            let qtyPerCycle = 1;
-            let moldId = null;
-            if (itemRes.rows.length > 0) {
-                qtyPerCycle = Number(new Big(itemRes.rows[0].qty_per_cycle || 1));
-                moldId = itemRes.rows[0].mold_id;
+            const reqId = Number(productId);
+            if (!reqId || Number.isNaN(reqId)) {
+                return res.status(400).json({ error: 'Некорректный идентификатор номенклатуры' });
             }
+            const itemBaseRes = await pool.query(`SELECT name FROM items WHERE id = $1 AND is_deleted = false`, [
+                reqId
+            ]);
+            if (itemBaseRes.rows.length === 0) return res.status(404).json({ error: 'Товар не найден' });
 
-            // 🚀 НОВОЕ: ДОСТАЕМ ОВЕРХЕД И ДЕЛИМ НА КОЭФФИЦИЕНТ ПОДДОНА
+            const itemName = itemBaseRes.rows[0].name;
+            const nlow = itemName.toLowerCase();
+            const isSecondGrade =
+                nlow.includes('2 сорт') ||
+                nlow.includes('2-й сорт') ||
+                nlow.includes('экспериментальная') ||
+                nlow.includes('эксперементальная') ||
+                nlow.includes('2сорт');
+
             const overheadRes = await pool.query(`SELECT value FROM settings WHERE key = 'overhead_per_cycle'`);
-            const overheadPerCycle = overheadRes.rows.length > 0 ? Number(new Big(overheadRes.rows[0].value || 0)) : 0;
-            const overheadPerUnit = qtyPerCycle > 0 ? (overheadPerCycle / qtyPerCycle) : 0;
+            const overheadFromSettings = overheadRes.rows.length > 0 ? Number(new Big(overheadRes.rows[0].value || 0)) : 0;
+            const overheadParam = Number(req.query.overheadRate);
+            const overheadPerCycle =
+                Number.isFinite(overheadParam) && overheadParam >= 0 ? overheadParam : overheadFromSettings;
+            const includeOverhead = req.query.includeOverhead !== 'false';
 
-            // 3. АМОРТИЗАЦИЯ ПОДДОНОВ
-            let palletAmort = 0;
-            const palletsRes = await pool.query(`SELECT purchase_cost, planned_cycles FROM equipment WHERE equipment_type = 'pallets' AND status = 'active' ORDER BY id ASC LIMIT 1`);
-            if (palletsRes.rows.length > 0) {
-                const cost = Number(new Big(palletsRes.rows[0].purchase_cost || 0));
-                const cycles = Number(new Big(palletsRes.rows[0].planned_cycles || 1));
-                if (cycles > 0) palletAmort = cost / (cycles * qtyPerCycle);
+            const { unitCostMap, effectiveByRequestedId, detailsByEffectiveId } = await buildSalesAnalyticsUnitCostData(
+                pool,
+                [reqId],
+                { includeOverhead, overheadPerCycle }
+            );
+
+            const effId = Number(effectiveByRequestedId.get(reqId) ?? reqId);
+            const detail = detailsByEffectiveId.get(effId);
+            const uc = unitCostMap.get(reqId) || { unit_cost: 0, source: 'none' };
+
+            if (!detail) {
+                return res.status(404).json({ error: 'Нет данных для расчёта себестоимости' });
             }
 
-            // 4. ОПЫТНАЯ СЕБЕСТОИМОСТЬ И ДЕТАЛИЗАЦИЯ (ПО 10 ПОСЛЕДНИМ ПАРТИЯМ)
-            const historyRes = await pool.query(`
-                SELECT id, planned_quantity,
-                       ((machine_amort_cost + mold_amort_cost) / NULLIF(planned_quantity, 0)) as unit_amort
-                FROM production_batches
-                WHERE product_id = $1 AND status = 'completed'
-                ORDER BY production_date DESC LIMIT 10
-            `, [productId]);
-
-            let empiricalMatCost = new Big(0);
-            let avgAmort = new Big(palletAmort);
-
-            if (historyRes.rows.length > 0) {
-                let sumAmort = new Big(0);
-                let totalProduced = new Big(0);
-                const batchIds = [];
-
-                historyRes.rows.forEach(row => {
-                    sumAmort = sumAmort.plus(row.unit_amort || 0);
-                    totalProduced = totalProduced.plus(row.planned_quantity || 0);
-                    batchIds.push(row.id);
-                });
-
-                avgAmort = avgAmort.plus(sumAmort.div(historyRes.rows.length));
-
-                // ДОСТАЕМ ДЕТАЛЬНЫЙ ФАКТ РАСХОДА МАТЕРИАЛОВ
-                if (batchIds.length > 0 && totalProduced.gt(0)) {
-                    const factMatRes = await pool.query(`
-                        SELECT 
-                            m.item_id, 
-                            i.name, 
-                            i.unit, 
-                            SUM(ABS(m.quantity)) as total_fact_qty, 
-                            SUM(ABS(m.quantity) * COALESCE(NULLIF(m.unit_price, 0), i.current_price)) as total_fact_cost
-                        FROM inventory_movements m 
-                        JOIN items i ON m.item_id = i.id 
-                        WHERE m.batch_id = ANY($1::int[]) AND m.movement_type = 'production_expense'
-                        GROUP BY m.item_id, i.name, i.unit
-                    `, [batchIds]);
-
-                    factMatRes.rows.forEach(f => {
-                        const factQtyPerUnit = new Big(f.total_fact_qty).div(totalProduced).toNumber();
-                        const factCostPerUnit = new Big(f.total_fact_cost).div(totalProduced).toNumber();
-
-                        if (materialsMap[f.item_id]) {
-                            materialsMap[f.item_id].fact_qty = factQtyPerUnit;
-                            materialsMap[f.item_id].fact_cost = factCostPerUnit;
-                        } else {
-                            materialsMap[f.item_id] = {
-                                id: f.item_id, name: f.name, unit: f.unit,
-                                theory_qty: 0, theory_cost: 0,
-                                current_price: (Number(new Big(f.total_fact_qty || 0)) > 0) ? new Big(f.total_fact_cost).div(f.total_fact_qty).toNumber() : 0,
-                                fact_qty: factQtyPerUnit, fact_cost: factCostPerUnit
-                            };
-                        }
-                    });
-                }
-
-                // 🚀 ГИБРИДНЫЙ РАСЧЕТ: ПОДСТРАХОВКА ДЛЯ УПАКОВКИ И ПРОЧЕГО
-                let recalcEmpirical = new Big(0);
-                Object.values(materialsMap).forEach(m => {
-                    if (m.fact_qty === 0 && m.theory_qty > 0) {
-                        m.fact_qty = m.theory_qty;
-                        m.fact_cost = m.theory_cost;
-                        m.is_hybrid = true; // Метка для фронтенда
-                    }
-                    recalcEmpirical = recalcEmpirical.plus(m.fact_cost);
-                });
-                // Заменяем котловую сумму на точную, собранную по крупицам
-                empiricalMatCost = recalcEmpirical;
-
-            } else {
-                // Если нет опыта — считаем теорию амортизации
-                let theoryAmort = 0;
-                if (moldId) {
-                    const moldRes = await pool.query(`SELECT purchase_cost, planned_cycles FROM equipment WHERE id = $1`, [moldId]);
-                    if (moldRes.rows.length > 0) {
-                        const m = moldRes.rows[0];
-                        const cost = Number(new Big(m.purchase_cost || 0));
-                        const cycles = Number(new Big(m.planned_cycles || 1));
-                        if (cycles > 0) theoryAmort += cost / (cycles * qtyPerCycle);
-                    }
-                }
-                const machineRes = await pool.query(`SELECT purchase_cost, planned_cycles FROM equipment WHERE equipment_type = 'machine' AND status = 'active' ORDER BY id ASC LIMIT 1`);
-                if (machineRes.rows.length > 0) {
-                    const m = machineRes.rows[0];
-                    const cost = Number(new Big(m.purchase_cost || 0));
-                    const cycles = Number(new Big(m.planned_cycles || 1));
-                    if (cycles > 0) theoryAmort += cost / (cycles * qtyPerCycle);
-                }
-                avgAmort = avgAmort.plus(theoryAmort);
+            let baseItemName = null;
+            if (isSecondGrade && effId !== reqId) {
+                const bn = await pool.query(`SELECT name FROM items WHERE id = $1`, [effId]);
+                baseItemName = bn.rows[0]?.name || null;
             }
 
             res.json({
-                theoretical: theoreticalCost.toFixed(2),
-                empirical: empiricalMatCost.toFixed(2),
-                amortization: avgAmort.toFixed(2),
-                overhead: overheadPerUnit.toFixed(2),
-                materials: Object.values(materialsMap),
-                batchCount: historyRes.rows.length
+                theoretical: Number(detail.theoretical || 0).toFixed(2),
+                empirical: Number(detail.empirical || 0).toFixed(2),
+                amortization: Number(detail.amort || 0).toFixed(2),
+                overhead: Number(detail.overheadPerUnit || 0).toFixed(2),
+                report_unit_cost: Number(uc.unit_cost || 0).toFixed(4),
+                cost_source: uc.source,
+                materials: detail.materials,
+                batchCount: detail.batchCount,
+                isSecondGrade: Boolean(isSecondGrade && baseItemName),
+                baseItemName
             });
         } catch (err) {
             logger.error(err);
@@ -2087,13 +2342,16 @@ module.exports = function (pool, getWhId, withTransaction) {
         const { itemId } = req.query;
         try {
             const result = await pool.query(`
-                SELECT coi.id, coi.order_id, co.doc_number, coi.qty_ordered, coi.qty_reserved, coi.qty_shipped,
+                SELECT coi.id, coi.order_id, co.doc_number, co.status as order_status,
+                       coi.qty_ordered, coi.qty_reserved, coi.qty_shipped,
+                       GREATEST(COALESCE(coi.qty_ordered, 0) - COALESCE(coi.qty_shipped, 0), 0) as qty_remaining,
+                       GREATEST(GREATEST(COALESCE(coi.qty_ordered, 0) - COALESCE(coi.qty_shipped, 0), 0) - COALESCE(coi.qty_reserved, 0), 0) as qty_need_reserve,
                        c.name as client_name
                 FROM client_order_items coi
                 JOIN client_orders co ON coi.order_id = co.id
                 LEFT JOIN counterparties c ON co.counterparty_id = c.id
                 WHERE coi.item_id = $1 AND co.status IN ('pending', 'processing')
-                ORDER BY co.created_at DESC
+                ORDER BY c.name NULLS LAST, co.created_at DESC, coi.id DESC
             `, [itemId]);
             res.json(result.rows);
         } catch (err) {
@@ -2161,6 +2419,8 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     router.delete('/api/inventory/movement/:id', requireAdmin, async (req, res) => {
         const movementId = req.params.id;
+        const reason = String((req.query || {}).reason || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину удаления движения' });
         
         try {
             await withTransaction(pool, async (client) => {
@@ -2223,6 +2483,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             
             const io = req.app.get('io');
             if (io) io.emit('inventory_updated');
+            await auditLog(pool, req, 'inventory_movement_delete', 'inventory_movement', Number(movementId), `reason=${reason}`);
             
             res.json({ success: true, message: 'Записи успешно удалены' });
         } catch (err) {
