@@ -4,7 +4,7 @@ const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
 const Big = require('big.js');
-const { sendNotify } = require('../utils/telegram');
+const { sendNotify, escapeHtml } = require('../utils/telegram');
 const ExcelJS = require('exceljs');
 const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage() });
@@ -1189,7 +1189,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             const io = req.app.get('io');
             if (io) io.emit('inventory_updated');
             await auditLog(pool, req, 'inventory_scrap', 'inventory_movement', null, `item=${itemId}; qty=${scrapQty}; reason=${reason}`);
-            sendNotify(`⚠️ <b>Списание в брак</b>\nКоличество: ${scrapQty}\nПричина: ${reason || 'Не указана'}`);
+            sendNotify(`⚠️ <b>Списание в брак</b>\nКоличество: ${escapeHtml(scrapQty)}\nПричина: ${escapeHtml(reason || 'Не указана')}`);
 
             res.json({ success: true, message: 'Успешно перемещено' });
         } catch (err) {
@@ -1748,7 +1748,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             const io = req.app.get('io');
             if (io) io.emit('inventory_updated');
             await auditLog(pool, req, 'inventory_dispose', 'inventory_movement', null, `item=${itemId}; qty=${disposeQty}; reason=${reason}`);
-            sendNotify(`🗑️ <b>Утилизация (Вывоз)</b>\nСписано: ${disposeQty} ед.`);
+            sendNotify(`🗑️ <b>Утилизация (Вывоз)</b>\nСписано: ${escapeHtml(disposeQty)} ед.`);
 
             res.json({ success: true, message: 'Успешно утилизировано' });
         } catch (err) {

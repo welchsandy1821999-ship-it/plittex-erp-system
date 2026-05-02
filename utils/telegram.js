@@ -23,6 +23,15 @@ if (token) {
     });
 }
 
+/** Экранирование произвольного текста под Telegram HTML (parse_mode HTML). */
+function escapeHtml(value) {
+    if (value == null || value === '') return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
 // Функция отправки уведомлений
 const sendNotify = (message) => {
     if (!bot || !chatId) return;
@@ -31,4 +40,4 @@ const sendNotify = (message) => {
 };
 
 // Экспортируем и функцию, и самого бота, и твой ID
-module.exports = { sendNotify, bot, chatId };
+module.exports = { sendNotify, bot, chatId, escapeHtml };
