@@ -2007,8 +2007,8 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 // Отматываем текущий баланс назад: вычитаем то, что пришло позже, и возвращаем то, что ушло позже
                 accounts = accounts.map(acc => {
                     if (histMap[acc.id]) {
-                        const histBalance = parseFloat(acc.balance) - histMap[acc.id].inc + histMap[acc.id].exp;
-                        return { ...acc, balance: histBalance };
+                        const histBalance = new Big(acc.balance).minus(histMap[acc.id].inc).plus(histMap[acc.id].exp).toFixed(2);
+                        return { ...acc, balance: parseFloat(histBalance) };
                     }
                     return acc;
                 });
@@ -2302,7 +2302,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         try {
             await withTransaction(pool, async (client) => {
                 const transDate = date ? new Date(date).toISOString() : new Date().toISOString();
-                const transType = parseFloat(currentBalance) < 0 ? 'income' : 'expense';
+                const transType = new Big(currentBalance || 0).lt(0) ? 'income' : 'expense';
 
                 let totalAmount = new Big(0);
 
@@ -3376,7 +3376,8 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             `);
 
             const forecast = [];
-            let runningBalance = currentBalance;
+            let currentBalanceBig = new Big(currentBalance);
+            const runningBalanceRef = { val: currentBalanceBig };
             const today = new Date();
             today.setHours(0, 0, 0, 0);
 
@@ -3385,27 +3386,28 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 targetDate.setDate(today.getDate() + i);
                 const dateStr = targetDate.toISOString().split('T')[0];
 
-                let dailyIncome = 0;
-                let dailyExpense = 0;
+                let dailyIncome = new Big(0);
+                let dailyExpense = new Big(0);
 
                 invRes.rows.forEach(inv => {
                     const invDateObj = new Date(inv.expected_date);
                     const invDate = invDateObj < today ? today.toISOString().split('T')[0] : invDateObj.toISOString().split('T')[0];
-                    if (invDate === dateStr) dailyIncome += parseFloat(inv.amount);
+                    if (invDate === dateStr) dailyIncome = dailyIncome.plus(new Big(inv.amount || 0));
                 });
 
                 expRes.rows.forEach(exp => {
                     const expDateObj = new Date(exp.expected_date);
                     const expDate = expDateObj < today ? today.toISOString().split('T')[0] : expDateObj.toISOString().split('T')[0];
-                    if (expDate === dateStr) dailyExpense += parseFloat(exp.amount);
+                    if (expDate === dateStr) dailyExpense = dailyExpense.plus(new Big(exp.amount || 0));
                 });
 
-                runningBalance = runningBalance + dailyIncome - dailyExpense;
+                runningBalanceRef.val = runningBalanceRef.val.plus(dailyIncome).minus(dailyExpense);
+                const runningBalance = Number(runningBalanceRef.val.toFixed(2));
 
                 forecast.push({
                     date: dateStr,
-                    income: dailyIncome,
-                    expense: dailyExpense,
+                    income: Number(dailyIncome.toFixed(2)),
+                    expense: Number(dailyExpense.toFixed(2)),
                     projected_balance: runningBalance
                 });
             }
