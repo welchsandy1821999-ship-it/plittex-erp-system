@@ -1975,7 +1975,9 @@ window.__auditState = {
     pigmentIds: new Set(),
     loadingKeys: new Set(),
     /** Выбранный ключ матрицы в фильтре левой панели экрана 2 ('' = все) */
-    auditMatrixFilterKey: ''
+    auditMatrixFilterKey: '',
+    /** Выбранная категория в фильтре левой панели ('' = все) */
+    auditCategoryFilterKey: ''
 };
 
 /** id оборудования type=mold → отображаемое имя (заполняется лениво) */
@@ -2024,10 +2026,35 @@ function auditProductMatrixBucket(item) {
     return { key: '__none__', label: 'Без матрицы' };
 }
 
+function auditDecodeDataAttr(raw) {
+    try {
+        return decodeURIComponent(raw || '');
+    } catch (_) {
+        return raw || '';
+    }
+}
+
 function auditApplyLeftMatrixFilter() {
     const sel = document.getElementById('audit-left-matrix-filter');
-    const filterKey = sel && sel.value ? sel.value : '';
-    window.__auditState.auditMatrixFilterKey = filterKey;
+    if (sel) window.__auditState.auditMatrixFilterKey = sel.value || '';
+    auditApplyLeftPanelFilters();
+}
+
+function auditApplyLeftCategoryFilter() {
+    const sel = document.getElementById('audit-left-category-filter');
+    if (sel) window.__auditState.auditCategoryFilterKey = sel.value || '';
+    auditApplyLeftPanelFilters();
+}
+
+/** Совмещает фильтры «категория» и «матрица»; эталон всегда виден. */
+function auditApplyLeftPanelFilters() {
+    const mSel = document.getElementById('audit-left-matrix-filter');
+    const cSel = document.getElementById('audit-left-category-filter');
+    const filterMatrix = (mSel && mSel.value) || window.__auditState.auditMatrixFilterKey || '';
+    const filterCategory = (cSel && cSel.value) || window.__auditState.auditCategoryFilterKey || '';
+    window.__auditState.auditMatrixFilterKey = filterMatrix;
+    window.__auditState.auditCategoryFilterKey = filterCategory;
+
     const group = auditGetSelectedGroup();
     const refId = group && group.defaultReferenceId != null ? Number(group.defaultReferenceId) : null;
     const list = document.getElementById('audit-left-prow-list');
@@ -2035,16 +2062,21 @@ function auditApplyLeftMatrixFilter() {
     list.querySelectorAll('.rec-audit-prow').forEach((el) => {
         const pid = Number(el.getAttribute('data-audit-product-id'));
         const isRef = Number.isFinite(refId) && pid === refId;
-        const rawKey = el.getAttribute('data-audit-matrix-key') || '';
-        let mk = '';
-        try {
-            mk = decodeURIComponent(rawKey);
-        } catch (_) {
-            mk = rawKey;
-        }
-        const show = filterKey === '' || isRef || mk === filterKey;
+        const mk = auditDecodeDataAttr(el.getAttribute('data-audit-matrix-key'));
+        const ck = auditDecodeDataAttr(el.getAttribute('data-audit-category-key'));
+        const matrixOk = filterMatrix === '' || mk === filterMatrix;
+        const categoryOk = filterCategory === '' || ck === filterCategory;
+        const show = isRef || (matrixOk && categoryOk);
         el.classList.toggle('d-none', !show);
     });
+}
+
+/** Уникальный ключ категории товара в группе (из items.category). */
+function auditProductCategoryBucket(item) {
+    if (!item) return { key: '__none__', label: 'Без категории' };
+    const c = item.category != null && String(item.category).trim() ? String(item.category).trim() : '';
+    if (!c) return { key: '__none__', label: 'Без категории' };
+    return { key: `cat:${c}`, label: c };
 }
 
 /** Эвристика «это пигмент» по сырью (без Set): белый цемент явно не пигмент */
@@ -2555,6 +2587,7 @@ function auditBackToGroupList() {
     window.__auditState.selectedGroupKey = null;
     window.__auditState.focusedProductId = null;
     window.__auditState.auditMatrixFilterKey = '';
+    window.__auditState.auditCategoryFilterKey = '';
     const s1 = document.getElementById('audit-screen-1');
     const s2 = document.getElementById('audit-screen-2');
     if (s1) {
@@ -2604,9 +2637,12 @@ function auditRenderDetailLeft() {
     auditComputeGroupSummary(k);
     const refId = group.defaultReferenceId != null ? Number(group.defaultReferenceId) : null;
 
+    const categoryOptionsMap = new Map();
     const matrixOptionsMap = new Map();
     (group.products || []).forEach((p) => {
         const item = auditGetFullRecipeProduct(p.id);
+        const catB = auditProductCategoryBucket(item);
+        if (!categoryOptionsMap.has(catB.key)) categoryOptionsMap.set(catB.key, catB.label);
         const b = auditProductMatrixBucket(item);
         if (!matrixOptionsMap.has(b.key)) matrixOptionsMap.set(b.key, b.label);
     });
@@ -2623,16 +2659,35 @@ function auditRenderDetailLeft() {
         })
         .join('');
 
+    const categoryRows = [...categoryOptionsMap.entries()]
+        .sort((a, b) => {
+            if (a[0] === '__none__') return 1;
+            if (b[0] === '__none__') return -1;
+            return String(a[1]).localeCompare(String(b[1]), 'ru');
+        })
+        .map(([key, label]) => {
+            const esc = Utils.escapeHtml(label);
+            const keyEsc = Utils.escapeHtml(key);
+            return `<option value="${keyEsc}">${esc}</option>`;
+        })
+        .join('');
+
     let savedFilter = window.__auditState.auditMatrixFilterKey || '';
     if (savedFilter && !matrixOptionsMap.has(savedFilter)) savedFilter = '';
     window.__auditState.auditMatrixFilterKey = savedFilter;
+
+    let savedCatFilter = window.__auditState.auditCategoryFilterKey || '';
+    if (savedCatFilter && !categoryOptionsMap.has(savedCatFilter)) savedCatFilter = '';
+    window.__auditState.auditCategoryFilterKey = savedCatFilter;
 
     const rows = (group.products || [])
         .map((p) => {
             const id = Number(p.id);
             const item = auditGetFullRecipeProduct(id);
             const bucket = auditProductMatrixBucket(item);
+            const catBucket = auditProductCategoryBucket(item);
             const mkAttr = encodeURIComponent(bucket.key);
+            const ckAttr = encodeURIComponent(catBucket.key);
             const isRef = Number.isFinite(refId) && id === refId;
             const st = auditProductRowStatus(refId, id);
             const name = Utils.escapeHtml(p.name || '');
@@ -2652,13 +2707,14 @@ function auditRenderDetailLeft() {
               role="button" tabindex="0"
               data-audit-product-id="${id}"
               data-audit-matrix-key="${mkAttr}"
+              data-audit-category-key="${ckAttr}"
               data-audit-is-ref="${isRef ? '1' : '0'}"
               onclick="auditFocusProduct(${id})"
               onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); auditFocusProduct(${id}); }">
               <div class="flex-row gap-8 align-center" style="min-width:0;flex:1;">
                 <span class="flex-shrink-0" aria-hidden="true">${st.emoji}</span>
                 <div class="font-13" style="min-width:0;">
-                  <div class="rec-audit-prow-name" title="${titleFull}">${name}</div>
+                  <div class="rec-audit-prow-name text-ellipsis-single" title="${titleFull}">${name}</div>
                   ${badge}
                 </div>
               </div>
@@ -2667,6 +2723,13 @@ function auditRenderDetailLeft() {
         .join('');
 
     container.innerHTML = `
+      <div class="rec-audit-category-filter-wrap mb-10">
+        <label class="rec-filter-label" for="audit-left-category-filter">Категория</label>
+        <select id="audit-left-category-filter" class="input-modern w-100 rec-audit-matrix-select font-13" onchange="auditApplyLeftCategoryFilter()">
+          <option value="">Все</option>
+          ${categoryRows}
+        </select>
+      </div>
       <div class="rec-audit-matrix-filter-wrap mb-10">
         <label class="rec-filter-label" for="audit-left-matrix-filter">Фильтр по матрице</label>
         <select id="audit-left-matrix-filter" class="input-modern w-100 rec-audit-matrix-select font-13" onchange="auditApplyLeftMatrixFilter()">
@@ -2676,9 +2739,11 @@ function auditRenderDetailLeft() {
       </div>
       <div class="rec-audit-prow-list" id="audit-left-prow-list">${rows}</div>`;
 
+    const cSelRestore = document.getElementById('audit-left-category-filter');
+    if (cSelRestore) cSelRestore.value = savedCatFilter;
     const sel = document.getElementById('audit-left-matrix-filter');
     if (sel) sel.value = savedFilter;
-    auditApplyLeftMatrixFilter();
+    auditApplyLeftPanelFilters();
 }
 
 function auditLayerCardHtml(title, agg) {
@@ -2827,10 +2892,12 @@ function auditShowSyncModal(targetIds) {
             const pr = (group.products || []).find((p) => Number(p.id) === id);
             const nm = Utils.escapeHtml(pr ? pr.name : `ID ${id}`);
             return `
-            <label class="rec-audit-sync-row rec-inline-label m-0 mb-8">
-              <input type="checkbox" class="rec-checkbox-md audit-sync-pid" value="${id}" checked />
-              <span class="font-13">${nm}</span>
-            </label>`;
+            <div class="rec-audit-sync-product-row mb-8">
+              <label class="rec-inline-label font-13 m-0 w-100">
+                <input type="checkbox" class="audit-sync-pid rec-checkbox-md" value="${Number(id)}" checked />
+                ${nm}
+              </label>
+            </div>`;
         })
         .join('');
 
@@ -2838,10 +2905,27 @@ function auditShowSyncModal(targetIds) {
       <div class="font-15 font-600 mb-10">Синхронизация с эталоном</div>
       <p class="text-muted font-12 m-0 mb-12">Эталон ID <strong>${refId}</strong>. Отметьте блоки и товары. Для лица в целевых позициях сохраняются пигменты.</p>
       <div class="font-13 font-600 mb-6">Слои</div>
-      <label class="rec-inline-label m-0 mb-6"><input type="checkbox" class="rec-checkbox-md audit-sync-layer" value="main" checked /> Основной слой</label>
-      <label class="rec-inline-label m-0 mb-6"><input type="checkbox" class="rec-checkbox-md audit-sync-layer" value="face" checked /> Лицевой слой</label>
-      <div class="text-muted font-11 mb-8" style="padding-left:28px;line-height:1.4;">База будет скопирована, уникальные цвета/пигменты сохранятся</div>
-      <label class="rec-inline-label m-0 mb-12"><input type="checkbox" class="rec-checkbox-md audit-sync-layer" value="packaging" checked /> Упаковка</label>
+      <div class="rec-audit-sync-layers mb-10">
+        <div class="mb-6">
+          <label class="rec-inline-label font-13 m-0">
+            <input type="checkbox" class="audit-sync-layer rec-checkbox-md" value="main" checked />
+            Основной слой
+          </label>
+        </div>
+        <div class="mb-6">
+          <label class="rec-inline-label font-13 m-0">
+            <input type="checkbox" class="audit-sync-layer rec-checkbox-md" value="face" checked />
+            Лицевой слой
+          </label>
+          <div class="text-muted font-11 mt-4" style="padding-left:24px;line-height:1.45;">База будет скопирована, уникальные цвета/пигменты сохранятся</div>
+        </div>
+        <div class="mb-0">
+          <label class="rec-inline-label font-13 m-0">
+            <input type="checkbox" class="audit-sync-layer rec-checkbox-md" value="packaging" checked />
+            Упаковка
+          </label>
+        </div>
+      </div>
       <div class="font-13 font-600 mb-6">Товары</div>
       <div class="rec-audit-sync-products mb-12">${productChecks}</div>
       <div class="flex-row gap-10 flex-wrap justify-end">
@@ -2917,6 +3001,7 @@ async function auditOpenGroupDetail(groupKey) {
     window.__auditState.selectedGroupKey = groupKey;
     window.__auditState.focusedProductId = null;
     window.__auditState.auditMatrixFilterKey = '';
+    window.__auditState.auditCategoryFilterKey = '';
 
     const s1 = document.getElementById('audit-screen-1');
     const s2 = document.getElementById('audit-screen-2');
@@ -4192,4 +4277,6 @@ function updateRecipeDirtyState() {
     if (typeof auditExecuteSync === 'function') window.auditExecuteSync = auditExecuteSync;
     if (typeof auditCloseSyncOverlay === 'function') window.auditCloseSyncOverlay = auditCloseSyncOverlay;
     if (typeof auditApplyLeftMatrixFilter === 'function') window.auditApplyLeftMatrixFilter = auditApplyLeftMatrixFilter;
+    if (typeof auditApplyLeftCategoryFilter === 'function') window.auditApplyLeftCategoryFilter = auditApplyLeftCategoryFilter;
+    if (typeof auditApplyLeftPanelFilters === 'function') window.auditApplyLeftPanelFilters = auditApplyLeftPanelFilters;
 })();
