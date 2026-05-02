@@ -1,5 +1,6 @@
 // [Блок 1: Подключение модулей и конфигурация]
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const logger = require('./utils/logger');
 
 // [Блок 1.1: Sentry — Мониторинг ошибок (безопасная инициализация)]
@@ -21,7 +22,6 @@ const { Server } = require('socket.io');
 const { Pool } = require('pg');
 const multer = require('multer');
 const fs = require('fs');
-const path = require('path');
 const jwt = require('jsonwebtoken');
 const Big = require('big.js');
 const bcrypt = require('bcrypt');
@@ -53,7 +53,9 @@ function getAllowedCorsOrigins() {
 
 function corsAllowOriginCallback(origin, callback) {
     const allowlist = getAllowedCorsOrigins();
-    if (!origin) {
+    // Отсутствие Origin или строка «null» (бывает у браузера/расширений) — не отклоняем через CORS,
+    // иначе callback(Error) летит в global error handler и даёт ложный 500 JSON «Внутренняя ошибка сервера».
+    if (!origin || origin === 'null') {
         return callback(null, true);
     }
     if (allowlist.includes(origin)) {
@@ -147,9 +149,12 @@ const { initSystemTables, auditLog } = require('./utils/db_init');
 initSystemTables(pool);
 
 // [Блок 3: Система загрузки файлов (Multer)]
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const UPLOADS_DIR = path.join(__dirname, 'public', 'uploads');
+
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        const dir = './public/uploads';
+        const dir = UPLOADS_DIR;
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         cb(null, dir);
     },
@@ -171,7 +176,8 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({ storage: storage, fileFilter: fileFilter });
 
 app.set('view engine', 'ejs');
-app.set('views', './views');
+/** Абсолютный путь: иначе при другом process.cwd() (PM2/Docker) ломаются все res.render → 500 JSON «Внутренняя ошибка» */
+app.set('views', path.join(__dirname, 'views'));
 
 // [Блок 2.1: Security & Performance Middleware]
 app.use(helmet({
@@ -184,7 +190,7 @@ app.use(cors({
 }));
 app.use(compression());
 
-app.use(express.static('public'));
+app.use(express.static(PUBLIC_DIR));
 app.use(express.json({ limit: '50mb' }));
 
 // Защита API от спама и DDoS
@@ -231,7 +237,7 @@ async function withTransaction(pool, callback) {
 }
 
 // [Блок 5: Безопасность и Авторизация]
-const { authenticateToken } = require('./middleware/auth');
+const { authenticateToken, PLANNED_PLAN_ROLES } = require('./middleware/auth');
 
 app.get('/', (req, res) => res.render('index', { devMode: process.env.DEV_MODE === 'true' }));
 
@@ -280,9 +286,21 @@ app.post('/api/login', async (req, res) => {
             return res.status(500).json({ error: 'Ошибка конфигурации сервера' });
         }
 
-        const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '12h' });
+        const canPlanned =
+            user.role === 'admin' ||
+            user.can_manage_planned_payments === true ||
+            (user.role && PLANNED_PLAN_ROLES.has(String(user.role)));
+
+        const token = jwt.sign(
+            { id: user.id, username: user.username, role: user.role, can_planned: canPlanned },
+            JWT_SECRET,
+            { expiresIn: '12h' }
+        );
         logger.info(`✅ Успешный вход: ${username}`);
-        res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
+        res.json({
+            token,
+            user: { id: user.id, username: user.username, role: user.role, can_planned: canPlanned }
+        });
     } catch (err) {
         logger.error(`💥 Ошибка API входа: ${err.message}`);
         res.status(500).json({ error: 'Ошибка сервера: ' + err.message });
@@ -296,17 +314,32 @@ const ERP_CONFIG = {
     vatRate: 22,
     vatDivider: 1.22,
     vatRatio: 122,
-    noVatCategories: ['Зарплата', 'Налоги, штрафы и взносы', 'Услуги банка и РКО', 'Возврат займов', 'Получение займов', 'Взаимозачет']
+    noVatCategories: ['Зарплата', 'Зарплата и Авансы', 'Налоги, штрафы и взносы', 'Услуги банка и РКО', 'Возврат займов', 'Получение займов', 'Взаимозачет']
 };
 
 // [Блок 7: Подключение маршрутов модулей]
 const inventoryRoutes = require('./routes/inventory')(pool, getWhId, withTransaction);
 const productionRoutes = require('./routes/production')(pool, getWhId, withTransaction);
+
+const recipeBatchRegistered = productionRoutes.stack.some(
+    (layer) =>
+        layer.route &&
+        String(layer.route.path) === '/api/recipes/batch' &&
+        typeof layer.route.methods?.post === 'boolean' &&
+        layer.route.methods.post
+);
+logger.info(
+    `[Маршрутизация] POST /api/recipes/batch на стороне приложения ${recipeBatchRegistered ? 'ЗАРЕГИСТРИРОВАН' : 'ОТСУТСТВУЕТ (проверьте routes/production.js и перезапуск)'}`
+);
+
 const dictionariesRoutes = require('./routes/dictionaries')(pool, withTransaction);
 const hrRoutes = require('./routes/hr')(pool, withTransaction);
 const financeRoutes = require('./routes/finance')(pool, upload, withTransaction, ERP_CONFIG);
 const salesRoutes = require('./routes/sales')(pool, getWhId, getNextDocNumber, withTransaction, ERP_CONFIG);
-const docsRoutes = require('./routes/docs')(pool, ERP_CONFIG, withTransaction, getNextDocNumber);
+/* Реквизиты «нашей» стороны для шаблонов docs (раньше передавали getNextDocNumber — неверный тип) */
+const COMPANY_DOC = {};
+const docsRoutes = require('./routes/docs')(pool, ERP_CONFIG, withTransaction, COMPANY_DOC);
+const reportsRoutes = require('./routes/reports')(pool);
 const devRoutes = require('./routes/dev')(pool, withTransaction, logger);
 const adminRoutes = require('./routes/admin')(pool);
 
@@ -330,7 +363,7 @@ app.get('/api/health', async (req, res) => {
         });
     }
 });
-// Одноразовый print-токен (1 мин) для ?token= в ссылках печати; основной JWT — только в Authorization
+// Краткоживущий print-JWT (?token= в GET или print_token в POST); основное приложение шлёт обычный JWT в Authorization
 app.post('/api/generate-print-token', authenticateToken, (req, res) => {
     if (!process.env.JWT_SECRET) {
         return res.status(500).json({ error: 'Ошибка конфигурации сервера' });
@@ -344,7 +377,7 @@ app.post('/api/generate-print-token', authenticateToken, (req, res) => {
     const printToken = jwt.sign(
         { id: req.user.id, username: req.user.username, role: req.user.role, type: 'print' },
         process.env.JWT_SECRET,
-        { expiresIn: '1m' }
+        { expiresIn: '8m' }
     );
     return res.json({ printToken });
 });
@@ -359,6 +392,7 @@ app.use('/', dictionariesRoutes);
 app.use('/', hrRoutes);
 app.use('/', salesRoutes);
 app.use('/', docsRoutes);
+app.use('/', reportsRoutes);
 app.use('/api/dev', devRoutes);
 app.use('/api/admin', adminRoutes);
 
@@ -387,12 +421,13 @@ if (bot) {
         if (text === '💰 Баланс кассы' || text === '/balance') {
             try {
                 const res = await pool.query('SELECT name, balance FROM accounts ORDER BY id ASC');
-                let reply = '<b>🏦 Баланс:</b>\n\n'; let total = 0;
+                let reply = '<b>🏦 Баланс:</b>\n\n'; let total = new Big(0);
                 res.rows.forEach(acc => {
-                    reply += `🔹 ${acc.name}: ${parseFloat(acc.balance).toLocaleString()} ₽\n`;
-                    total += parseFloat(acc.balance);
+                    const b = new Big(acc.balance || 0);
+                    reply += `🔹 ${acc.name}: ${Number(b.toFixed(2)).toLocaleString()} ₽\n`;
+                    total = total.plus(b);
                 });
-                reply += `\n<b>💵 ИТОГО: ${total.toLocaleString()} ₽</b>`;
+                reply += `\n<b>💵 ИТОГО: ${Number(total.toFixed(2)).toLocaleString()} ₽</b>`;
                 bot.sendMessage(currentChatId, reply, { parse_mode: 'HTML' });
             } catch (e) { bot.sendMessage(currentChatId, '❌ Ошибка БД'); }
         }

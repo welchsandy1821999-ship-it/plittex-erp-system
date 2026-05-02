@@ -1350,7 +1350,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             `, [cpId]);
 
             const finances = finRes.rows[0];
-            const balance = parseFloat(finances.total_paid_to_us) - parseFloat(finances.total_paid_to_them);
+            const balance = new Big(finances.total_paid_to_us).minus(finances.total_paid_to_them).toFixed(2);
 
             res.json({ cp: cpRes.rows[0], finances: { ...finances, balance } });
         } catch (err) {
@@ -1408,13 +1408,14 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             // Положительное сальдо: должны НАМ. Отрицательное: должны МЫ.
             const balance = ourShipments.plus(ourPayments).minus(theirShipments).minus(theirPayments).toFixed(2);
 
-            const overpayment = parseFloat(balance) < 0 ? Math.abs(parseFloat(balance)).toFixed(2) : '0.00';
+            const balanceBig = new Big(balance);
+            const overpayment = balanceBig.lt(0) ? balanceBig.abs().toFixed(2) : '0.00';
             res.json({
                 info: cp,
                 transactions: timeline,
                 finances: { balance, totalPaid: theirPayments.toFixed(2), totalInvoiced: ourShipments.toFixed(2) },
-                overpayment: parseFloat(overpayment),
-                saldo: parseFloat(balance),
+                overpayment: Number(overpayment),
+                saldo: Number(balance),
                 invoices: [], contracts: []
             });
         } catch (err) {
@@ -1804,14 +1805,17 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     const orderRes = await client.query('SELECT * FROM client_orders WHERE id = $1', [docId]);
                     if (orderRes.rows.length === 0) throw new Error('Заказ не найден');
                     const order = orderRes.rows[0];
-                    const amountToPay = parseFloat(order.pending_debt);
-                    if (amountToPay <= 0) throw new Error('По этому заказу нет долга');
+                    const amountToPayBig = new Big(order.pending_debt);
+                    if (amountToPayBig.lte(0)) throw new Error('По этому заказу нет долга');
 
-                    const payAmt = parseFloat(req.body.amount) || amountToPay;
-                    const newPendingDebt = Math.max(0, parseFloat(order.pending_debt) - payAmt);
-                    const newPaidAmount = parseFloat(order.paid_amount) + payAmt;
+                    const payAmtBig = (req.body.amount != null && String(req.body.amount).trim() !== '')
+                        ? new Big(req.body.amount)
+                        : amountToPayBig;
+                    const newPendingDebt = amountToPayBig.minus(payAmtBig).lt(0) ? new Big(0) : amountToPayBig.minus(payAmtBig);
+                    const newPaidAmount = new Big(order.paid_amount).plus(payAmtBig);
+                    const payAmt = Number(payAmtBig.toFixed(2));
 
-                    await client.query('UPDATE client_orders SET pending_debt = $1, paid_amount = $2 WHERE id = $3', [newPendingDebt, newPaidAmount, order.id]);
+                    await client.query('UPDATE client_orders SET pending_debt = $1, paid_amount = $2 WHERE id = $3', [newPendingDebt.toFixed(2), newPaidAmount.toFixed(2), order.id]);
 
                     if (req.body.use_offset) {
                         // ✨ ЗАЧЕТ ИЗ ПЕРЕПЛАТЫ: Только корректирующая запись (без кассового поступления)
