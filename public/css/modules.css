@@ -5076,8 +5076,35 @@
 
 /* --- 24.1 Панель фильтров: сетка 2fr 1fr 1fr --- */
 .dict-filter-grid {
-    grid-template-columns: 2fr 1fr 1fr;
-    align-items: end;
+    display: flex;
+    gap: 16px;
+    align-items: flex-end;
+}
+
+.dict-filter-grid > .form-group {
+    margin-bottom: 0;
+    min-width: 0;
+}
+
+.dict-filter-grid > .form-group:first-child {
+    flex: 2 1 0;
+}
+
+.dict-filter-grid > .form-group:nth-child(2),
+.dict-filter-grid > .form-group:nth-child(3) {
+    flex: 1 1 0;
+}
+
+@media (max-width: 768px) {
+    .dict-filter-grid {
+        flex-direction: column;
+    }
+
+    .dict-filter-grid > .form-group:first-child,
+    .dict-filter-grid > .form-group:nth-child(2),
+    .dict-filter-grid > .form-group:nth-child(3) {
+        flex: 1 1 auto;
+    }
 }
 
 /* --- 24.2 Панель формы (карточка) с синей левой границей. Видимость: d-none в HTML + classList в references.js --- */
@@ -11037,11 +11064,7 @@ body.dark-theme #recipe-mod .rec-add-row .input-modern::placeholder {
    24. СПРАВОЧНИКИ (REFERENCES)
    ============================================================ */
 
-/* --- 24.1 Панель фильтров: сетка 2fr 1fr 1fr --- */
-.dict-filter-grid {
-    grid-template-columns: 2fr 1fr 1fr;
-    align-items: end;
-}
+/* --- 24.1 dict-filter-grid: см. основной блок выше (flex-row + responsive) --- */
 
 /* --- 24.2 Панель формы (карточка) с синей левой границей. Видимость: d-none в HTML + classList в references.js --- */
 .dict-form-panel {
