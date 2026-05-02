@@ -182,33 +182,45 @@
 
 
 
-    <div class="table-container">
-        <table>
-            <thead>
-                <tr>
-                    <th class="dict-col-id">ID</th>
-                    <th class="dict-col-type">Тип</th>
-                    <th class="dict-col-cat">Категория</th>
-                    <th class="dict-col-article text-primary">Артикул</th>
-                    <th class="dict-col-name">Наименование</th>
-                    <th class="dict-col-unit">Ед.</th>
-                    <th class="dict-col-price">Цена (₽)</th>
-                    <th class="dict-col-min text-center" title="Минимальный остаток">Порог</th>
-                    <th class="dict-col-actions text-right">Действия</th>
-                </tr>
-            </thead>
-            <tbody id="ref-table-body">
-                <tr>
-                    <td colspan="8" class="text-center">Загрузка...</td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-
-    <div class="pagination-bar">
-        <button class="btn btn-outline" onclick="changeRefPage(-1)">⬅ Назад</button>
-        <span id="ref-page-info" class="text-muted font-14 font-600"></span>
-        <button class="btn btn-outline" onclick="changeRefPage(1)">Вперед ➡</button>
+    <div class="card p-0">
+        <div class="table-container">
+            <table class="table-modern w-100">
+                <thead class="bg-surface-alt">
+                    <tr>
+                        <th class="dict-col-id p-10 text-left text-muted font-12 text-uppercase">ID</th>
+                        <th class="dict-col-type p-10 text-left text-muted font-12 text-uppercase">Тип</th>
+                        <th class="dict-col-cat p-10 text-left text-muted font-12 text-uppercase">Категория</th>
+                        <th class="dict-col-article p-10 text-left text-primary font-12 text-uppercase">Артикул</th>
+                        <th class="dict-col-name p-10 text-left text-muted font-12 text-uppercase">Наименование</th>
+                        <th class="dict-col-unit p-10 text-center text-muted font-12 text-uppercase">Ед.</th>
+                        <th class="dict-col-price p-10 text-right text-muted font-12 text-uppercase">Цена (₽)</th>
+                        <th class="dict-col-min p-10 text-center text-muted font-12 text-uppercase" title="Минимальный остаток">Порог</th>
+                        <th class="dict-col-actions p-10 text-right text-muted font-12 text-uppercase">Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="ref-table-body">
+                    <tr>
+                        <td colspan="9" class="text-center p-20 text-muted font-italic">Загрузка номенклатуры...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="flex-between p-10 bg-surface-alt align-center border-top">
+            <div class="flex-row gap-10 align-center">
+                <span class="text-muted font-13">Показывать по:</span>
+                <select id="ref-page-size" class="input-modern p-5 font-13 w-70" onchange="changeRefPageSize(this.value)">
+                    <option value="20">20</option>
+                    <option value="50" selected>50</option>
+                    <option value="100">100</option>
+                </select>
+                <span class="text-muted font-13 ml-10" id="ref-summary-text"></span>
+            </div>
+            <div class="flex-row gap-5" id="ref-pagination">
+                <button class="btn btn-outline btn-sm" onclick="changeRefPage(-1)">⬅</button>
+                <span id="ref-page-info" class="text-muted font-13 font-600 flex-row align-center"></span>
+                <button class="btn btn-outline btn-sm" onclick="changeRefPage(1)">➡</button>
+            </div>
+        </div>
     </div>
 
     <datalist id="dl-categories"></datalist>

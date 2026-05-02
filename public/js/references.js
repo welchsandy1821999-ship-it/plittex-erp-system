@@ -2,6 +2,7 @@
     // === public/js/references.js ===
 
     let currentRefPage = 1;
+    let refPageSize = 50;
     let refSearchTimeout = null;
 
     // Инициализация при открытии приложения
@@ -19,11 +20,17 @@
 
         try {
             await updateCategoryFilters();
-            const url = `/api/items?page=${page}&limit=50&search=${encodeURIComponent(search)}&item_type=${itemType}&category=${encodeURIComponent(category)}`;
+            const url = `/api/items?page=${page}&limit=${refPageSize}&search=${encodeURIComponent(search)}&item_type=${itemType}&category=${encodeURIComponent(category)}`;
             const data = await API.get(url);
 
             renderRefTable(data.data);
-            document.getElementById('ref-page-info').innerText = `Страница ${data.currentPage} из ${data.totalPages} (Всего позиций: ${data.total})`;
+            document.getElementById('ref-page-info').innerText = `${data.currentPage} / ${data.totalPages}`;
+            const summaryEl = document.getElementById('ref-summary-text');
+            if (summaryEl) {
+                const start = (data.currentPage - 1) * refPageSize + 1;
+                const end = Math.min(data.currentPage * refPageSize, data.total);
+                summaryEl.innerText = data.total > 0 ? `${start}–${end} из ${data.total}` : '0 позиций';
+            }
         } catch (e) { console.error("Ошибка загрузки справочников:", e); }
     }
 
@@ -275,6 +282,11 @@
         if (newPage > 0) loadReferences(newPage);
     }
 
+    function changeRefPageSize(val) {
+        refPageSize = parseInt(val) || 50;
+        loadReferences(1);
+    }
+
     // Загрузка списка матриц с сервера
     async function loadMoldsForRefs() {
         try {
@@ -333,6 +345,7 @@
     if (typeof editReference === 'function') window.editReference = editReference;
     if (typeof saveReference === 'function') window.saveReference = saveReference;
     if (typeof changeRefPage === 'function') window.changeRefPage = changeRefPage;
+    if (typeof changeRefPageSize === 'function') window.changeRefPageSize = changeRefPageSize;
     if (typeof loadMoldsForRefs === 'function') window.loadMoldsForRefs = loadMoldsForRefs;
     if (typeof initStaticRefSelects === 'function') window.initStaticRefSelects = initStaticRefSelects;
 })();
