@@ -247,20 +247,16 @@ window.getPrintToken = getPrintToken;
 
     const t = (typeof _getAuthToken === 'function' && _getAuthToken()) || '';
     if (!t) {
-        console.warn('WebSocket: нет JWT — real-time обновления отключены');
         return;
     }
     const socket = io({ auth: { token: t } });
-    socket.on('connect_error', (e) => {
-        console.warn('WebSocket connect_error:', e && e.message);
-    });
+    socket.on('connect_error', () => { });
     let debounceTimers = {};
 
     // Дебаунс: предотвращает множественные перезагрузки при пачке событий
     function debouncedRefresh(eventName, callback, delay) {
         if (debounceTimers[eventName]) clearTimeout(debounceTimers[eventName]);
         debounceTimers[eventName] = setTimeout(() => {
-            console.log(`🔄 [WS] ${eventName} → обновление данных`);
             callback();
         }, delay || 500);
     }
@@ -301,8 +297,8 @@ window.getPrintToken = getPrintToken;
         });
     });
 
-    socket.on('connect', () => console.log('🔌 WebSocket подключен'));
-    socket.on('disconnect', () => console.log('⚡ WebSocket отключен'));
+    socket.on('connect', () => { });
+    socket.on('disconnect', () => { });
 
-    window._erpSocket = socket; // Экспорт для отладки
+    window._erpSocket = socket;
 })();

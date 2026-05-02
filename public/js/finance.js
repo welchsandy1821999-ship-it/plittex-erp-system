@@ -20,7 +20,7 @@
     async function loadFinanceCategories() {
         try {
             window.erpCategories = await API.get('/api/finance/categories?_t=' + Date.now());
-        } catch (e) { console.warn('Не удалось загрузить справочник категорий', e); }
+        } catch (e) { }
     }
 
     // === ГЛОБАЛЬНОЕ СОСТОЯНИЕ КАЛЕНДАРЯ ===
@@ -994,8 +994,6 @@
 
     window.selectEmployeeMode = function (mode) {
         try {
-            console.log('Вызван selectEmployeeMode. Режим:', mode);
-
             // 1. Безопасное переключение кнопок
             const lblSettlement = document.getElementById('label-emp-mode-settlement');
             const lblImprest = document.getElementById('label-emp-mode-imprest');
@@ -1025,8 +1023,6 @@
             if (!catWrapper) console.error('[DEBUG] Не найден category-wrapper!');
             if (!categoryInput) console.error('[DEBUG] Не найден trans-category!');
             if (!accountLabel) console.error('[DEBUG] Не найден trans-account-label!');
-
-            console.log('[DEBUG] DOM элементы:', { typeSelect, catWrapper, categoryInput, accountLabel });
 
             if (mode === 'imprest') {
                 if (typeSelect) {
@@ -4161,8 +4157,6 @@
 
             window.financeLockDate = settings.finance_lock_date || null;
 
-            console.log("✅ Глобальные настройки загружены:", { taxUsnRate, taxBankCorrection, taxCashCorrection });
-
         } catch (e) {
             // 🛡️ Защита 2: Если сервер упал, система должна продолжить работать на стандартных цифрах
             window.taxUsnRate = 3;
@@ -4384,8 +4378,6 @@
             // Теперь функции отрисовки (renderTaxModalContent) увидят ставку НДС и делитель.
             if (data.config) {
                 window.ERP_CONFIG = data.config;
-            } else {
-                console.warn("Предупреждение: Бэкенд не прислал настройки ERP_CONFIG.");
             }
 
             // 6. Запуск отрисовки виджета на главной странице

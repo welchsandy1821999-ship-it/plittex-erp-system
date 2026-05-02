@@ -1715,7 +1715,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     if (userCheck.rows.length > 0) {
                         userId = req.user.id;
                     } else {
-                        console.warn(`Предупреждение: Пользователь ${req.user.id} не найден.`);
+                        logger.warn(`Предупреждение: Пользователь ${req.user.id} не найден.`);
                     }
                 }
 

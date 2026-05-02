@@ -893,7 +893,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 ? netProfit.div(revenue).times(100).toFixed(1)
                 : "0.0";
 
-            console.log("P&L API -> revenue:", revenue.toString(), "cogs:", cogs.toString(), "opex:", opex.toString(), "capex:", capex.toString(), "netProfit:", netProfit.toString());
+            logger.info(`P&L API -> revenue: ${revenue.toString()} cogs: ${cogs.toString()} opex: ${opex.toString()} capex: ${capex.toString()} netProfit: ${netProfit.toString()}`);
 
             res.json({
                 revenue: revenue.toFixed(2),

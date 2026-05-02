@@ -1,4 +1,5 @@
 const TelegramBot = require('node-telegram-bot-api');
+const logger = require('./logger');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -8,15 +9,12 @@ let bot = null;
 // Инициализируем бота только если есть токен
 if (token) {
     bot = new TelegramBot(token, { polling: true });
-    console.log('🤖 Telegram-бот запущен в интерактивном режиме');
+    logger.info('Telegram-бот запущен в интерактивном режиме');
 
     // === БЛОК ПЕРЕХВАТА СЕТЕВЫХ ОШИБОК ===
-    // Перехватываем ошибки поллинга (те самые EFATAL), чтобы они не спамили в лог
-    bot.on('polling_error', (error) => {
-        // Telegram-бот сам умеет восстанавливать соединение. 
-        // Мы просто "глотаем" ошибку, чтобы она не засоряла консоль Docker.
-        // Если хочешь видеть, когда сеть моргает, раскомментируй строку ниже:
-        // console.log(`[TG] Сетевая задержка: ${error.code}`);
+    // Перехватываем ошибки поллинга (EFATAL и т.д.), чтобы они не засоряли лог поллинга
+    bot.on('polling_error', () => {
+        // Восстановление соединения бот выполняет сам; при нужде — временно включить logger.debug здесь.
     });
 
     // Перехват общих критических ошибок бота

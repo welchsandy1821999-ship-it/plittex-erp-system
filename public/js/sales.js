@@ -822,11 +822,6 @@ async function loadSalesData(fullLoad = true) {
         const inventory = await API.get('/api/inventory');
         stockMap = {};
 
-        // DEBUG: показать какие типы складов пришли из API
-        const uniqueTypes = [...new Set(inventory.map(r => r.warehouse_type))];
-        console.log('[Sales] Типы складов из API:', uniqueTypes);
-        console.log('[Sales] Первые 5 строк inventory:', inventory.slice(0, 5));
-
         const inventoryMap = {};
         inventory.forEach(row => {
             if (!inventoryMap[row.item_name]) inventoryMap[row.item_name] = { finished: 0, markdown: 0, reserve: 0 };

@@ -304,7 +304,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 const _finalAmountBig = new Big(finalAmount);
                 validatedOffset = Number(requestedOffset.lt(availableAdvance) ? requestedOffset : availableAdvance) > Number(_finalAmountBig) ? Number(_finalAmountBig) : Math.min(Number(requestedOffset.lt(availableAdvance) ? requestedOffset : availableAdvance), Number(_finalAmountBig));
                 if (requestedOffset > 0 && validatedOffset + 0.01 < requestedOffset) {
-                    console.warn(`Запрошен зачет ${requestedOffset}, применено ${validatedOffset} (лимит свободного аванса/суммы заказа).`);
+                    logger.warn(`Запрошен зачет ${requestedOffset}, применено ${validatedOffset} (лимит свободного аванса/суммы заказа).`);
                 }
 
                 let advanceAmt = 0;

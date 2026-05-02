@@ -11,6 +11,15 @@
     let currentProdSearchResults = [];
     let currentProdSort = { field: 'production_date', asc: false };
 
+    /** Синхронно с utils/packagingMaterial.js: упаковка в замес не списывается, при распалубке — на сервере */
+    function isPackagingMaterial(name, category) {
+        const c = (category && String(category).toLowerCase()) || '';
+        if (c.includes('упаков')) return true;
+        const n = (name && String(name).toLowerCase()) || '';
+        if (/(скоб|лент|стрейч|стреч|стретч|плён|плен|поддон|паллет|короб|скотч|пакет)/i.test(n)) return true;
+        return false;
+    }
+
     window.activeProductionDates = []; // Глобальный массив рабочих дат
 
     // Функция, которая запрашивает свежие даты и заставляет календарь перерисоваться
@@ -383,9 +392,10 @@
 
         document.getElementById('prod-volume-preview').innerText = volume.toFixed(2);
 
-        // Считаем расчетное количество замесов на основе веса рецепта
+        // Считаем расчетное количество замесов на основе веса рецепта (без упаковки — она не в замесе)
         if (currentSelectedProductRecipe.length > 0 && cycles > 0) {
-            let totalRecipeWeight = currentSelectedProductRecipe.reduce((sum, r) => sum + (parseFloat(r.quantity_per_unit) * volume), 0);
+            const recipeNoPack = currentSelectedProductRecipe.filter((r) => !isPackagingMaterial(r.material_name, r.category));
+            let totalRecipeWeight = recipeNoPack.reduce((sum, r) => sum + (parseFloat(r.quantity_per_unit) * volume), 0);
 
             const mainKey = document.getElementById('main-template-select').value;
             const faceKey = document.getElementById('face-template-select').value;
@@ -399,7 +409,7 @@
             // --- АЛГОРИТМ ПО МАРКЕРНОМУ СЫРЬЮ ---
 
             // 1. Основной слой (Маркер: Мурасан 16)
-            const recipeMur16 = currentSelectedProductRecipe.find(r => (r.material_name || '').toLowerCase().includes('мурасан 16'));
+            const recipeMur16 = recipeNoPack.find(r => (r.material_name || '').toLowerCase().includes('мурасан 16'));
             const tplMur16 = mainTpl.find(m => (m.name || '').toLowerCase().includes('мурасан 16'));
             let suggestedMain;
 
@@ -415,7 +425,7 @@
             // 2. Лицевой слой (Маркер: Мурасан 17)
             let suggestedFace = '0';
             if (faceTplWeight > 0) {
-                const recipeMur17 = currentSelectedProductRecipe.find(r => (r.material_name || '').toLowerCase().includes('мурасан 17'));
+                const recipeMur17 = recipeNoPack.find(r => (r.material_name || '').toLowerCase().includes('мурасан 17'));
                 const tplMur17 = faceTpl.find(m => (m.name || '').toLowerCase().includes('мурасан 17'));
 
                 if (recipeMur17 && tplMur17 && parseFloat(tplMur17.qty) > 0) {
@@ -506,8 +516,27 @@
             }
         });
 
-        if (actualMaterials.length === 0) {
-            return UI.toast('Не списано ни грамма сырья! Укажите замесы или проверьте состав шаблона.', 'error');
+        // Упаковка из полного рецепта: для оценки себестоимости в смене; на складе — списание при распалубке, не в замесе
+        if (Array.isArray(currentSelectedProductRecipe) && currentSelectedProductRecipe.length > 0) {
+            currentSelectedProductRecipe.forEach((row) => {
+                if (!isPackagingMaterial(row.material_name, row.category)) return;
+                const matId = String(row.material_id);
+                if (actualMaterials.some((ex) => String(ex.id) === matId && ex.mixType !== 'packaging')) return;
+                const perUnit = parseFloat(row.quantity_per_unit) || 0;
+                const qty = perUnit * volume;
+                if (qty <= 0) return;
+                actualMaterials.push({
+                    id: matId,
+                    name: row.material_name,
+                    qty: qty,
+                    unit: row.unit || 'кг',
+                    mixType: 'packaging',
+                });
+            });
+        }
+
+        if (!actualMaterials.some((m) => m.mixType !== 'packaging')) {
+            return UI.toast('Не списано ни грамма сырья замеса! Укажите замесы или проверьте состав шаблона.', 'error');
         }
 
         // 🛡️ БЛОКИРОВКА КНОПКИ: защита от спам-кликов
@@ -526,10 +555,9 @@
                 date: shiftDateStr,
                 shiftName: shiftName,
                 products: [{ id: product.id, quantity: volume, cycles: cycles }],
-                materialsUsed: actualMaterials, // 👈 ТЕПЕРЬ ОТПРАВЛЯЕМ РЕАЛЬНОЕ СЫРЬЕ
+                materialsUsed: actualMaterials.filter((m) => m.mixType !== 'packaging'),
                 status: 'draft'
             };
-            console.log('[DRAFT] Отправка черновика, date =', shiftDateStr, 'payload:', JSON.stringify(draftPayload));
             await API.post('/api/production', draftPayload);
             if (true) {
                 // Сохраняем в память только после успешного ответа сервера
@@ -587,13 +615,15 @@
         }
 
         container.innerHTML = sessionProducts.map((p, i) => {
-            const mainMats = (p.exactMaterials || []).filter(m => m.mixType === 'main').map(m => `${Utils.escapeHtml(m.name)}: <b class="text-primary">${parseFloat(m.qty).toFixed(1)}${m.unit}</b>`).join(' | ');
-            const faceMats = (p.exactMaterials || []).filter(m => m.mixType === 'face').map(m => `${Utils.escapeHtml(m.name)}: <b class="text-primary">${parseFloat(m.qty).toFixed(1)}${m.unit}</b>`).join(' | ');
-            const oldMats = (p.exactMaterials || []).filter(m => !m.mixType).map(m => `${Utils.escapeHtml(m.name)}: <b class="text-primary">${parseFloat(m.qty).toFixed(1)}${m.unit}</b>`).join(' | ');
-            
+            const mainMats = (p.exactMaterials || []).filter(m => m.mixType === 'main').map(m => `${Utils.escapeHtml(m.name)}: <b class="text-primary">${parseFloat(m.qty).toFixed(1)}${m.unit || ''}</b>`).join(' | ');
+            const faceMats = (p.exactMaterials || []).filter(m => m.mixType === 'face').map(m => `${Utils.escapeHtml(m.name)}: <b class="text-primary">${parseFloat(m.qty).toFixed(1)}${m.unit || ''}</b>`).join(' | ');
+            const packMats = (p.exactMaterials || []).filter(m => m.mixType === 'packaging').map(m => `${Utils.escapeHtml(m.name)}: <b class="text-muted">${parseFloat(m.qty).toFixed(2)}${m.unit || ''}</b>`).join(' | ');
+            const oldMats = (p.exactMaterials || []).filter(m => !m.mixType).map(m => `${Utils.escapeHtml(m.name)}: <b class="text-primary">${parseFloat(m.qty).toFixed(1)}${m.unit || ''}</b>`).join(' | ');
+
             let matsHtml = '';
             if (mainMats) matsHtml += `<div class="mb-5"><b>🐘 Осн:</b> ${mainMats}</div>`;
             if (faceMats) matsHtml += `<div class="mb-5"><b>🐥 Лиц:</b> ${faceMats}</div>`;
+            if (packMats) matsHtml += `<div class="mb-5 font-11"><b>📦 Упаковка (план по рецепту, списание при распалубке):</b> ${packMats}</div>`;
             if (oldMats) matsHtml += `<div>${oldMats}</div>`;
 
             return `
@@ -675,6 +705,7 @@
             // 🛡️ Пропускаем записи без exactMaterials (восстановленные с сервера)
             if (!prod.exactMaterials || !Array.isArray(prod.exactMaterials)) return;
             prod.exactMaterials.forEach(mat => {
+                if (mat.mixType === 'packaging') return;
                 if (!mat.id || mat.id === 'undefined') return;
                 const existing = aggregatedMaterials.find(m => m.id == mat.id && m.mixType === mat.mixType);
                 if (existing) {
@@ -696,7 +727,6 @@
         if (errBox) { errBox.classList.add('hidden'); errBox.innerHTML = ''; }
 
         UI.toast('⏳ Фиксация смены: проверка остатков и списание...', 'info');
-        console.log('[FIXATE] Payload:', JSON.stringify(payload));
 
         try {
             // 🆕 Вызываем роут фиксации вместо создания партий (они уже есть как черновики)
@@ -710,7 +740,6 @@
             updateCalendarMarks();
         } catch (e) {
             console.error('[FIXATE ERROR]', e);
-            console.log('[DEBUG CATCH] e.details =', e.details, '| e.body =', e.body, '| e.message =', e.message);
 
             // Берём details из ТРЁХ возможных мест (по приоритету)
             const details = e.details || (e.body && e.body.details) || null;
@@ -892,9 +921,6 @@
 
         // Перезаписываем глобальный массив полностью очищенным и свежим
         window.currentMixTemplates[templateKey] = newTemplateArray;
-
-        console.log(`[DEBUG] Отправляем сохранение JSON шаблона:`, templateKey);
-        console.log(`[DEBUG] PAYLOAD:`, newTemplateArray);
 
         try {
             await API.post('/api/mix-templates', window.currentMixTemplates);
@@ -1175,7 +1201,12 @@
     // === ОТМЕНА ФОРМОВКИ (КРАСИВОЕ ОКНО) ===
     window.deleteBatch = function (id, batchNumber) {
         // 🛡️ escapeHTML для номера партии
-        const html = `<div class="text-center p-15 font-15">Точно отменить формовку <b>${Utils.escapeHtml(batchNumber)}</b> и вернуть списанное сырье на склад?</div>`;
+        const html = `
+        <div class="text-center p-15 font-15">Точно отменить формовку <b>${Utils.escapeHtml(batchNumber)}</b> и вернуть списанное сырье на склад?</div>
+        <div class="form-group m-0">
+            <label>Причина отмены (обязательно)</label>
+            <textarea id="production-delete-batch-reason" class="input-modern" rows="3" placeholder="Например: формовка внесена ошибочно"></textarea>
+        </div>`;
 
         UI.showModal('⚠️ Отмена формовки', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>
@@ -1184,9 +1215,11 @@
     };
 
     window.executeDeleteBatch = async function (id) {
+        const reason = (document.getElementById('production-delete-batch-reason')?.value || '').trim();
+        if (!reason) return UI.toast('Укажите причину отмены формовки', 'warning');
         UI.closeModal();
         try {
-            await API.delete(`/api/production/batch/${id}`);
+            await API.delete(`/api/production/batch/${id}?reason=${encodeURIComponent(reason)}`);
             if (true) {
                 UI.toast('🗑️ Формовка отменена, сырье возвращено', 'success');
 

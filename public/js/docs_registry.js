@@ -31,9 +31,6 @@ async function loadDocsRegistry() {
 }
 
 function renderRegistryTable(data) {
-    console.log('=> СТАРТ ФУНКЦИИ renderRegistryTable');
-    console.log('=> INCOMING DATA:', data);
-
     const tbody = document.getElementById('unique-registry-tbody');
 
     if (!tbody) {
@@ -42,10 +39,7 @@ function renderRegistryTable(data) {
         return;
     }
 
-    console.log('=> ТАБЛИЦА НАЙДЕНА УСПЕШНО. Элемент:', tbody);
-
     if (!Array.isArray(data) || data.length === 0) {
-        console.log('=> ДАННЫЕ ПУСТЫ ИЛИ НЕ МАССИВ');
         tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">Счета еще не выписывались или ошибка API</td></tr>';
         return;
     }
@@ -58,12 +52,8 @@ function renderRegistryTable(data) {
         return;
     }
 
-    console.log('=> НАЧИНАЮ РЕНДЕР (Кол-во элементов:', docsToRender.length, ')');
-
     try {
         const htmlRows = docsToRender.map((doc, idx) => {
-            console.log(`=> Отрисовка строки ${idx + 1}, ID документа: ${doc?.id}`);
-
             const createdAt = doc.created_at || doc.createdAt || doc.date || new Date();
             const docNumber = doc.doc_number || doc.number || doc.docNum || 'БЕЗ НОМЕРА';
             const totalAmount = doc.total_amount || doc.amount || doc.totalAmount || 0;
@@ -218,7 +208,6 @@ async function initRegistry() {
         const counterparties = await API.get('/api/counterparties');
         
         if (!Array.isArray(counterparties)) {
-            console.warn('=> ДАННЫЕ ПУСТЫ ИЛИ НЕ МАССИВ (контрагенты)');
             return;
         }
 
@@ -243,8 +232,6 @@ async function initRegistry() {
                     clientSelect.appendChild(option);
                 });
             }
-        } else {
-            console.warn('Не удалось получить список контрагентов');
         }
     } catch (err) {
         console.error('Ошибка при обращении к API контрагентов:', err);
@@ -286,20 +273,30 @@ function initStaticRegistrySelects() {
 document.addEventListener('DOMContentLoaded', initRegistry);
 
 window.deleteRegistryInvoice = async function(id) {
-    UI.confirm('Вы уверены? Если это последний счет, он будет удален физически с откатом номера. Если нет — он будет аннулирован.', async () => {
-        try {
-            const data = await API.delete(`/api/invoices/${id}`);
-            if (true) {
-                UI.toast(data.action === 'deleted' ? 'Счет удален, номер откатан' : 'Счет аннулирован');
-                // Вызываем обновление данных реестра
-                if (typeof loadDocsRegistry === 'function') loadDocsRegistry();
-            } else {
-                UI.toast(data.error || 'Ошибка удаления', 'error');
-            }
-        } catch (e) {
-            
-        }
-    });
+    UI.showModal('⚠️ Удаление счета', `
+        <div class="p-10">
+            <p>Если это последний счет, он будет удален физически с откатом номера. Иначе — аннулирован.</p>
+            <div class="form-group m-0">
+                <label>Причина удаления (обязательно)</label>
+                <textarea id="docs-delete-invoice-reason" class="input-modern" rows="3" placeholder="Например: счет создан ошибочно"></textarea>
+            </div>
+        </div>
+    `, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-red" onclick="executeDeleteRegistryInvoice(${id})">Удалить</button>
+    `);
+};
+
+window.executeDeleteRegistryInvoice = async function(id) {
+    const reason = (document.getElementById('docs-delete-invoice-reason')?.value || '').trim();
+    if (!reason) return UI.toast('Укажите причину удаления счета', 'warning');
+    try {
+        const data = await API.delete(`/api/invoices/${id}?reason=${encodeURIComponent(reason)}`);
+        UI.closeModal();
+        UI.toast(data.action === 'deleted' ? 'Счет удален, номер откатан' : 'Счет аннулирован', 'success');
+        if (typeof loadDocsRegistry === 'function') loadDocsRegistry();
+    } catch (e) {
+    }
 };
 
 
