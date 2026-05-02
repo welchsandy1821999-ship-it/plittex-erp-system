@@ -494,7 +494,3 @@ module.exports = function registerTelegramMessageHandlers(bot, pool, authorizedC
         }
     });
 };
- /* ignore */ }
-        }
-    });
-};
