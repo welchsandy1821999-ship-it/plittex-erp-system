@@ -667,9 +667,9 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
                     // ✅ Всё проверено — выполняем списание и обновление
                     await client.query(
-                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id, movement_date)
-                         VALUES ($1, $2, 'sales_shipment', $3, $4, $5, $6, $7)`,
-                        [item.item_id, -item.qty, desc, reserveWhId, user_id || null, item.coi_id, finalShipDate]
+                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id, movement_date, shipment_doc_number)
+                         VALUES ($1, $2, 'sales_shipment', $3, $4, $5, $6, $7, $8)`,
+                        [item.item_id, -item.qty, desc, reserveWhId, user_id || null, item.coi_id, finalShipDate, docNum]
                     );
                     await client.query(
                         `UPDATE client_order_items SET qty_shipped = COALESCE(qty_shipped, 0) + $1 WHERE id = $2`,
@@ -1591,7 +1591,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
         try {
             const result = await pool.query(`
                 SELECT 
-                    COALESCE(SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) as doc_num, 
+                    COALESCE(m.shipment_doc_number, SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) as doc_num, 
                     TO_CHAR(MAX(m.movement_date), 'DD.MM.YYYY HH24:MI') as date_formatted, 
                     SUM(ABS(m.quantity)) as total_qty, 
                     (SELECT c.name FROM client_order_items coi JOIN client_orders co ON coi.order_id = co.id JOIN counterparties c ON co.counterparty_id = c.id WHERE coi.id = MAX(m.linked_order_item_id)) as client_name,
@@ -1602,8 +1602,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     true as cancellable
                 FROM inventory_movements m 
                 WHERE m.movement_type = 'sales_shipment' 
-                GROUP BY COALESCE(SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) 
-                HAVING COALESCE(SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) IS NOT NULL 
+                GROUP BY COALESCE(m.shipment_doc_number, SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) 
+                HAVING COALESCE(m.shipment_doc_number, SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) IS NOT NULL 
                 ORDER BY MAX(m.movement_date) DESC 
                 LIMIT 100
             `);

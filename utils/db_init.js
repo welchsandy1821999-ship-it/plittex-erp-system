@@ -84,6 +84,20 @@ async function initSystemTables(pool) {
         await pool.query(`CREATE INDEX IF NOT EXISTS idx_timesheet_date ON timesheet_records(record_date)`);
         await pool.query(`CREATE INDEX IF NOT EXISTS idx_txcat_name ON transaction_categories(name)`);
 
+        // === EPIC-4 P5: Денормализация shipment_doc_number (migration 008) ===
+        await pool.query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS shipment_doc_number VARCHAR(50)`);
+        await pool.query(`
+            UPDATE inventory_movements
+            SET shipment_doc_number = COALESCE(
+                SUBSTRING(description FROM 'УТ-[0-9]+'),
+                SUBSTRING(description FROM 'PH-[0-9]+'),
+                SUBSTRING(description FROM 'РН-[0-9]+')
+            )
+            WHERE movement_type = 'sales_shipment'
+              AND shipment_doc_number IS NULL
+              AND (description ~ 'УТ-[0-9]+' OR description ~ 'PH-[0-9]+' OR description ~ 'РН-[0-9]+')
+        `);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_inv_mov_doc_num ON inventory_movements(shipment_doc_number) WHERE shipment_doc_number IS NOT NULL`);
         // Миграция: поле default_layer в items — единая точка истины для авто-суггестии слоя при добавлении сырья
         await pool.query(`ALTER TABLE items ADD COLUMN IF NOT EXISTS default_layer VARCHAR(20) DEFAULT 'main'`);
         // Предзаполнение: упаковочные материалы
