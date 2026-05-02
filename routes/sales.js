@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
 const Big = require('big.js');
-const { sendNotify, escapeHtml, NOTIFY_CB } = require('../utils/telegram');
+const { sendNotify, escapeHtml, formatMoney, NOTIFY_CB } = require('../utils/telegram');
 const { auditLog } = require('../utils/db_init');
 const {
     SETTLEMENT_MODES,
@@ -240,7 +240,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             });
             const io = req.app.get('io');
             if (io) { io.emit('inventory_updated'); io.emit('sales_updated'); }
-            sendNotify(`♻️ <b>Возврат товара: ${escapeHtml(docNum)}</b>\nСумма: ${escapeHtml(refund_amount || 0)} ₽\nПричина: ${escapeHtml(reason || 'Не указана')}`);
+            sendNotify(`♻️ <b>Возврат товара: ${escapeHtml(docNum)}</b>\nСумма: ${formatMoney(refund_amount || 0)} ₽\nПричина: ${escapeHtml(reason || 'Не указана')}`);
 
             res.json({ success: true, docNum, message: 'Возврат оформлен' });
         } catch (err) {

@@ -3,7 +3,7 @@
  */
 const Big = require('big.js');
 const logger = require('../utils/logger');
-const { escapeHtml, NOTIFY_CB, getNotifySnapshot } = require('../utils/telegram');
+const { escapeHtml, formatMoney, NOTIFY_CB, getNotifySnapshot } = require('../utils/telegram');
 
 const KB = {
     REPORTS: '📊 Отчеты',
@@ -90,15 +90,32 @@ function notifyBackRow() {
 }
 
 async function buildBalanceMessage(pool) {
-    const res = await pool.query('SELECT name, balance FROM accounts ORDER BY id ASC');
-    let reply = '<b>🏦 Баланс:</b>\n\n';
+    const res = await pool.query(
+        `SELECT name, balance
+         FROM accounts
+         WHERE (
+             type IN ('cash', 'bank')
+             OR (
+                 (type IS NULL OR TRIM(COALESCE(type::text, '')) = '')
+                 AND (name ILIKE '%касса%' OR name ILIKE '%банк%')
+             )
+         )
+           AND COALESCE(type::text, '') NOT IN ('imprest', 'accountable')
+           AND name NOT ILIKE '%подотчет%'
+         ORDER BY CASE WHEN type = 'cash' THEN 0 WHEN type = 'bank' THEN 1 ELSE 2 END, id ASC
+         LIMIT 3`
+    );
+    if (res.rows.length === 0) {
+        return '<b>🏦 Баланс (касса и банки)</b>\n\n<i>Нет подходящих счетов по фильтру.</i>';
+    }
+    let reply = '<b>🏦 Касса и банковские счета</b>\n<i>(до 3 строк)</i>\n\n';
     let total = new Big(0);
     res.rows.forEach((acc) => {
         const b = new Big(acc.balance || 0);
-        reply += `🔹 ${escapeHtml(acc.name)}: ${Number(b.toFixed(2)).toLocaleString()} ₽\n`;
+        reply += `🔹 ${escapeHtml(acc.name)}: <b>${formatMoney(Number(b.toFixed(2)))} ₽</b>\n`;
         total = total.plus(b);
     });
-    reply += `\n<b>💵 ИТОГО: ${Number(total.toFixed(2)).toLocaleString()} ₽</b>`;
+    reply += `\n<b>💵 ИТОГО: ${formatMoney(Number(total.toFixed(2)))} ₽</b>`;
     return reply;
 }
 
@@ -135,7 +152,7 @@ async function buildOrdersInWorkMessage(pool) {
     let reply = '📋 <b>Заказы в работе</b> (до 25 строк):\n\n';
     res.rows.forEach((row) => {
         reply += `• <b>${escapeHtml(row.doc_number)}</b> — ${escapeHtml(row.status)}\n`;
-        reply += `  сумма ${Number(row.total_amount || 0).toLocaleString()} ₽, долг ${Number(row.pending_debt || 0).toLocaleString()} ₽\n`;
+        reply += `  сумма ${formatMoney(row.total_amount || 0)} ₽, долг ${formatMoney(row.pending_debt || 0)} ₽\n`;
     });
     return reply;
 }
@@ -356,8 +373,9 @@ module.exports = function registerTelegramMessageHandlers(bot, pool, authorizedC
 
     bot.on('callback_query', async (cq) => {
         const chatId = cq.message?.chat?.id;
+        if (chatId == null || !authorizedChat(chatId)) return;
         const messageId = cq.message?.message_id;
-        if (chatId == null || messageId == null || !authorizedChat(chatId)) return;
+        if (messageId == null) return;
 
         const data = cq.data || '';
         const qid = cq.id;
@@ -473,6 +491,10 @@ module.exports = function registerTelegramMessageHandlers(bot, pool, authorizedC
             try {
                 await bot.sendMessage(chatId, '❌ Ошибка при действии.');
             } catch (_) { /* ignore */ }
+        }
+    });
+};
+ /* ignore */ }
         }
     });
 };

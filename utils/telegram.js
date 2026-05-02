@@ -61,6 +61,13 @@ function escapeHtml(value) {
         .replace(/>/g, '&gt;');
 }
 
+/** Денежные суммы в Telegram: «1 250 000,50» (ru-RU). */
+function formatMoney(val) {
+    const n = typeof val === 'number' ? val : parseFloat(String(val).replace(/\s/g, '').replace(',', '.'));
+    if (Number.isNaN(n)) return new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(0);
+    return new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+}
+
 /**
  * Уведомление в единственный авторизованный чат ERP.
  * @param {string} message HTML-сообщение
@@ -90,6 +97,7 @@ module.exports = {
     bot,
     chatId,
     escapeHtml,
+    formatMoney,
     NOTIFY_CB,
     getNotifySnapshot
 };
