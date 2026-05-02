@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
 const { auditLog } = require('../utils/db_init');
+const cache = require('../utils/cache');
 const fs = require('fs');
 const path = require('path');
 const Big = require('big.js');
@@ -528,26 +529,28 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             await ensureIncomeCategories(pool);
             await ensureExpenseCategories(pool);
             await ensureCategoryAliasesTable(pool);
-            // Выдаем полный плоский список (дерево соберет фронтенд)
-            // Но мы все еще объединяем "дикие" категории, которых нет в справочнике
-            const result = await pool.query(`
-                SELECT id, name, type, cost_group, parent_id, is_archived, monthly_limit, false as is_wild
-                FROM transaction_categories
-                UNION
-                SELECT NULL as id, COALESCE(NULLIF(TRIM(category_override), ''), category) as name, MAX(transaction_type) as type, NULL as cost_group, NULL as parent_id, false as is_archived, 0 as monthly_limit, true as is_wild
-                  FROM transactions
-                 WHERE COALESCE(NULLIF(TRIM(category_override), ''), category) IS NOT NULL
-                   AND COALESCE(NULLIF(TRIM(category_override), ''), category) != ''
-                   AND (is_deleted IS NULL OR is_deleted = false)
-                   AND LOWER(TRIM(COALESCE(NULLIF(TRIM(category_override), ''), category))) NOT IN (
-                       SELECT LOWER(TRIM(tc.name))
-                       FROM transaction_categories tc
-                       WHERE tc.name IS NOT NULL AND TRIM(tc.name) != ''
-                   )
-                 GROUP BY COALESCE(NULLIF(TRIM(category_override), ''), category)
-                ORDER BY name
-            `);
-            res.json(result.rows);
+            // Кэш 5 мин — категории меняются редко
+            const rows = await cache.getOrSet('finance:categories', async () => {
+                const result = await pool.query(`
+                    SELECT id, name, type, cost_group, parent_id, is_archived, monthly_limit, false as is_wild
+                    FROM transaction_categories
+                    UNION
+                    SELECT NULL as id, COALESCE(NULLIF(TRIM(category_override), ''), category) as name, MAX(transaction_type) as type, NULL as cost_group, NULL as parent_id, false as is_archived, 0 as monthly_limit, true as is_wild
+                      FROM transactions
+                     WHERE COALESCE(NULLIF(TRIM(category_override), ''), category) IS NOT NULL
+                       AND COALESCE(NULLIF(TRIM(category_override), ''), category) != ''
+                       AND (is_deleted IS NULL OR is_deleted = false)
+                       AND LOWER(TRIM(COALESCE(NULLIF(TRIM(category_override), ''), category))) NOT IN (
+                           SELECT LOWER(TRIM(tc.name))
+                           FROM transaction_categories tc
+                           WHERE tc.name IS NOT NULL AND TRIM(tc.name) != ''
+                       )
+                     GROUP BY COALESCE(NULLIF(TRIM(category_override), ''), category)
+                    ORDER BY name
+                `);
+                return result.rows;
+            }, 300000);
+            res.json(rows);
         } catch (err) {
             logger.error('[API] Error in GET /api/finance/categories:', err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера' });
@@ -1180,6 +1183,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     router.post('/api/finance/categories', requireAdmin, validateCategory, async (req, res) => {
         try {
             await pool.query('INSERT INTO transaction_categories (name, type) VALUES ($1, $2)', [req.body.name, req.body.type]);
+            cache.invalidate('finance:categories');
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
@@ -1192,6 +1196,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         if (!reason) return res.status(400).json({ error: 'Укажите причину удаления категории' });
         try {
             await pool.query('DELETE FROM transaction_categories WHERE id = $1', [req.params.id]);
+            cache.invalidate('finance:categories');
             await auditLog(pool, req, 'finance_category_delete', 'transaction_category', Number(req.params.id), `reason=${reason}`);
             res.json({ success: true });
         } catch (err) {
@@ -1206,6 +1211,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             const { cost_group } = req.body;
             const safeGroup = ensureCanonicalCostGroup(cost_group, 'opex');
             await pool.query('UPDATE transaction_categories SET cost_group = $1 WHERE id = $2', [safeGroup, req.params.id]);
+            cache.invalidate('finance:categories');
             await auditLog(pool, req, 'finance_category_group_update', 'transaction_category', Number(req.params.id), `Смена группы категории -> ${safeGroup}`);
             res.json({ success: true });
         } catch (err) {
@@ -1981,8 +1987,10 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     router.get(['/api/accounts', '/api/finance/accounts'], async (req, res) => {
         const { end } = req.query; // Ловим дату конца периода
         try {
-            const result = await pool.query('SELECT * FROM accounts ORDER BY type DESC, id ASC');
-            let accounts = result.rows;
+            let accounts = await cache.getOrSet('finance:accounts', async () => {
+                const result = await pool.query('SELECT * FROM accounts ORDER BY type DESC, id ASC');
+                return result.rows;
+            }, 60000);
 
             // 🚀 МАГИЯ: ВЫЧИСЛЕНИЕ ИСТОРИЧЕСКОГО ОСТАТКА
             if (end) {
@@ -2025,6 +2033,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         const { name, type, balance } = req.body;
         try {
             await pool.query('INSERT INTO accounts (name, type, balance) VALUES ($1, $2, $3)', [name, type, balance || 0]);
+            cache.invalidate('finance:accounts');
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
@@ -2037,6 +2046,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         const { name } = req.body;
         try {
             await pool.query('UPDATE accounts SET name = $1 WHERE id = $2', [name, req.params.id]);
+            cache.invalidate('finance:accounts');
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
