@@ -3705,6 +3705,389 @@
     z-index: 1200;
 }
 
+#stock-mod .inv-stock-card-compact table td,
+#stock-mod .inv-stock-card-compact table th {
+    padding: 6px 9px;
+    min-height: 34px;
+    vertical-align: middle;
+}
+
+/* Плотность таблиц склада (как в отчетах: компакт/стандарт с сохранением в localStorage) */
+#stock-mod.inv-density-compact .table-modern th,
+#stock-mod.inv-density-compact .table-modern td {
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+
+#stock-mod.inv-density-compact #inventory-table td,
+#stock-mod.inv-density-compact #drying-history-table td {
+    font-size: 12.5px;
+}
+
+#stock-mod.inv-density-standard .table-modern th,
+#stock-mod.inv-density-standard .table-modern td {
+    padding-top: 10px;
+    padding-bottom: 10px;
+}
+
+#stock-mod.inv-density-standard #inventory-table td,
+#stock-mod.inv-density-standard #drying-history-table td {
+    font-size: 13.5px;
+}
+
+#stock-mod .inv-name-cell {
+    max-width: 320px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#stock-mod .inv-actions-cell .btn {
+    min-height: 30px;
+    padding: 4px 10px;
+    font-size: 12px;
+}
+
+#stock-mod .inv-reserve-order-cell {
+    min-width: 360px;
+    line-height: 1.3;
+}
+
+#stock-mod #inventory-thead .inv-col-order {
+    width: 34%;
+    min-width: 360px;
+}
+
+#stock-mod .inv-reserve-order-main {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 2px;
+}
+
+#stock-mod .inv-reserve-order-link {
+    color: var(--primary);
+    font-weight: 700;
+    text-decoration: none;
+}
+
+#stock-mod .inv-reserve-order-link:hover {
+    text-decoration: underline;
+}
+
+#stock-mod .inv-reserve-order-client {
+    font-size: 12px;
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 220px;
+}
+
+#stock-mod .inv-reserve-order-metrics {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#stock-mod #inventory-table .inv-reserve-row td {
+    padding-top: 4px;
+    padding-bottom: 4px;
+    vertical-align: middle;
+}
+
+#stock-mod #inventory-table .inv-reserve-row--deficit td {
+    background: color-mix(in srgb, var(--danger) 5%, var(--surface) 95%);
+}
+
+#stock-mod .inv-reserve-deficit-chip {
+    display: inline-block;
+    margin: 0 6px 2px 0;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    color: color-mix(in srgb, var(--danger) 76%, var(--text-main) 24%);
+    background: color-mix(in srgb, var(--danger) 12%, var(--surface) 88%);
+    border: 1px solid color-mix(in srgb, var(--danger) 38%, var(--border) 62%);
+}
+
+#stock-mod .inv-reserve-controls {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(170px, 1fr));
+    gap: 10px;
+    align-items: end;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+}
+
+#stock-mod .inv-reserve-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+#stock-mod .inv-reserve-summary-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-alt);
+    font-size: 12px;
+}
+
+#stock-mod .inv-reserve-presets {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+#stock-mod .inv-reserve-presets .btn.active {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 14%, var(--surface) 86%);
+}
+
+#stock-mod .inv-filter-panel .filter-btn {
+    border-color: color-mix(in srgb, var(--border) 78%, var(--primary) 22%);
+    color: color-mix(in srgb, var(--text-main) 80%, var(--primary) 20%);
+    background: var(--surface);
+}
+
+#stock-mod .inv-filter-panel .filter-btn.active {
+    background: color-mix(in srgb, var(--primary) 16%, var(--surface) 84%);
+    border-color: color-mix(in srgb, var(--primary) 58%, var(--border) 42%);
+    color: var(--primary);
+    font-weight: 600;
+}
+
+#stock-mod .inv-toolbar-btn {
+    border-color: color-mix(in srgb, var(--border) 82%, var(--primary) 18%);
+}
+
+#stock-mod .inv-demold-done-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 11px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--success) 38%, var(--border) 62%);
+    background: color-mix(in srgb, var(--success) 11%, var(--surface) 89%);
+    color: color-mix(in srgb, var(--success) 70%, var(--text-main) 30%);
+    font-weight: 700;
+    font-size: 12px;
+}
+
+#stock-mod .inv-demold-packaging-check {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    padding: 10px 12px;
+    line-height: 1.45;
+}
+
+#stock-mod .inv-pack-deficit-top {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 2px 0 9px;
+}
+
+#stock-mod .inv-pack-deficit-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border) 65%);
+    background: color-mix(in srgb, var(--danger) 8%, var(--surface) 92%);
+    color: color-mix(in srgb, var(--danger) 72%, var(--text-main) 28%);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+#stock-mod .inv-pack-check-title {
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+#stock-mod .inv-pack-check-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+#stock-mod .inv-pack-check-table th,
+#stock-mod .inv-pack-check-table td {
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 88%, transparent 12%);
+    padding: 6px 4px;
+}
+
+#stock-mod .inv-pack-check-table th {
+    color: var(--text-muted);
+    font-weight: 600;
+    text-align: left;
+}
+
+#stock-mod .inv-pack-check-table td.inv-pack-col-num {
+    text-align: right;
+    white-space: nowrap;
+}
+
+#stock-mod .inv-pack-status-ok {
+    color: var(--success);
+    font-weight: 600;
+}
+
+#stock-mod .inv-pack-status-bad {
+    color: var(--danger);
+    font-weight: 700;
+}
+
+#stock-mod .inv-history-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    padding: 15px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    border-radius: 0 0 8px 8px;
+}
+
+#stock-mod #drying-history-table tr td {
+    padding-top: 9px;
+    padding-bottom: 9px;
+    line-height: 1.32;
+}
+
+#stock-mod #drying-history-table tr {
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 88%, transparent 12%);
+}
+
+#stock-mod .inv-btn-demold-enterprise {
+    min-height: 34px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--border) 45%, var(--primary) 55%);
+    background: color-mix(in srgb, var(--surface) 70%, var(--primary) 30%);
+    color: var(--primary-contrast, #fff);
+    font-weight: 600;
+    transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.14s ease;
+}
+
+#stock-mod .inv-btn-demold-enterprise:hover {
+    background: color-mix(in srgb, var(--surface) 55%, var(--primary) 45%);
+    border-color: color-mix(in srgb, var(--border) 35%, var(--primary) 65%);
+}
+
+#stock-mod .inv-btn-demold-enterprise:active {
+    transform: translateY(0.5px);
+}
+
+#stock-mod .inv-btn-demold-enterprise.has-deficit {
+    border-color: color-mix(in srgb, var(--danger) 65%, var(--border) 35%);
+    background: color-mix(in srgb, var(--danger) 18%, var(--surface) 82%);
+    color: color-mix(in srgb, var(--danger) 78%, var(--text-main) 22%);
+}
+
+#stock-mod .inv-demold-deficit-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--danger);
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+#stock-mod .inv-btn-grade2-kit {
+    border-color: color-mix(in srgb, var(--warning) 55%, var(--border) 45%);
+    color: color-mix(in srgb, var(--warning-text) 70%, var(--text-main) 30%);
+    background: color-mix(in srgb, var(--warning-bg) 65%, var(--surface) 35%);
+}
+
+#stock-mod .inv-btn-grade2-kit:hover {
+    border-color: color-mix(in srgb, var(--warning) 70%, var(--border) 30%);
+}
+
+#stock-mod .inv-grade2-kit-box {
+    margin-top: 8px;
+    padding: 10px;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    background: var(--surface-alt);
+}
+
+#stock-mod .inv-grade2-kit-list {
+    margin-top: 8px;
+}
+
+#stock-mod .inv-grade2-kit-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 85%, transparent 15%);
+}
+
+@media (max-width: 820px) {
+    #stock-mod .inv-reserve-controls {
+        grid-template-columns: repeat(2, minmax(140px, 1fr));
+    }
+    #stock-mod .inv-history-summary {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+}
+
+@media print {
+    body {
+        background: #fff !important;
+    }
+    .sidebar,
+    .top-header,
+    #stock-mod .inv-filter-panel,
+    #stock-mod #inventory-search,
+    #stock-mod .card-header .btn,
+    #stock-mod .inv-actions-cell,
+    #stock-mod .table-container .flex-between {
+        display: none !important;
+    }
+    #stock-mod.module {
+        padding: 0 !important;
+        margin: 0 !important;
+        position: absolute !important;
+        top: 0;
+        left: 0;
+        width: 100%;
+        box-shadow: none !important;
+        border: none !important;
+    }
+    #stock-mod .inv-stock-card {
+        box-shadow: none !important;
+        border: none !important;
+    }
+    #stock-mod table,
+    #stock-mod th,
+    #stock-mod td {
+        border: 1px solid #ccc !important;
+    }
+    #stock-mod * {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+}
+
 @media (max-width: 1200px) {
     .inv-toolbar {
         align-items: flex-start;
@@ -5113,17 +5496,174 @@
 .prod-print-col-hidden { display: none; width: 12%; } 
 
 /* Recipes Specific */
-.rec-filter-container { display: flex; gap: 15px; border-bottom: 2px solid var(--border); padding-bottom: 30px; margin-bottom: 30px; }
+.rec-filter-container { display: flex; gap: 12px; border-bottom: 1px solid var(--border); padding-bottom: 18px; margin-bottom: 18px; }
 .rec-primary-outline { border-color: var(--primary); color: var(--primary); }
-.rec-action-btn { font-weight: bold; border-radius: 8px; padding: 12px 24px; }
-.rec-grid-header { grid-template-columns: 1fr 2fr; align-items: start; gap: 24px; }
-.rec-section-title { border-left: 4px solid var(--primary); font-size: 16px; }
+.rec-action-btn { font-weight: 600; border-radius: 8px; padding: 10px 20px; }
+.rec-grid-header { grid-template-columns: minmax(300px, 1fr) minmax(600px, 2fr); align-items: start; gap: 20px; }
+.rec-section-title { border-left: 3px solid color-mix(in srgb, var(--primary) 70%, var(--border) 30%); font-size: 16px; }
 .rec-dash-box { background: var(--surface); padding: 12px; border-radius: 8px; border: 1px dashed var(--border); margin-top: 15px; }
 .rec-step-header { font-size: 15px; font-weight: bold; padding-top: 10px; border-top: 1px dashed var(--border); }
 .rec-step-footer { align-items: center; padding-bottom: 20px; border-bottom: 1px dashed var(--border); }
 .rec-badge { padding: 6px 12px; font-size: 13px; font-weight: bold; border-radius: 6px; }
 .rec-cost-panel { margin-top: 15px; margin-bottom: 25px; background: var(--surface-alt); padding: 20px; border-radius: 8px; }
 .rec-cost-param { display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap; }
+#recipe-mod .card > h3 {
+    line-height: 1.3;
+    margin-top: 0;
+    margin-bottom: 14px;
+}
+#recipe-mod #recipe-editor-area #recipe-editor-title {
+    margin-bottom: 0;
+    line-height: 1.25;
+}
+#recipe-mod .rec-page-head h2 {
+    margin-bottom: 8px;
+}
+#recipe-mod .rec-main-tabs {
+    max-width: min(100%, 800px);
+    margin-bottom: 0;
+}
+#recipe-mod .rec-main-tab {
+    flex: 1 1 220px;
+    min-height: 44px;
+    font-weight: 600;
+    border-radius: 10px;
+}
+#recipe-mod .recipe-mode-sheet {
+    padding: 14px 16px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--border) 86%, var(--primary) 14%);
+    background: color-mix(in srgb, var(--surface-alt) 92%, var(--primary) 8%);
+}
+body.dark-theme #recipe-mod .recipe-mode-sheet {
+    background: color-mix(in srgb, var(--surface-alt) 90%, var(--primary) 10%);
+}
+#recipe-mod .rec-sheet-toolbar {
+    gap: 10px;
+}
+#recipe-mod .rec-sheet-toolbar .btn {
+    font-weight: 600;
+}
+#recipe-mod .rec-sheet-lead {
+    max-width: 85ch;
+    line-height: 1.45;
+}
+#recipe-mod .rec-page-subtitle {
+    color: color-mix(in srgb, var(--text-muted) 88%, var(--text-main) 12%);
+    max-width: 72ch;
+}
+#recipe-mod .rec-top-mass-apply-btn {
+    padding: 7px 12px;
+    min-height: 34px;
+    font-size: 13px;
+    border-color: color-mix(in srgb, var(--border) 75%, var(--primary) 25%);
+    color: var(--text-muted);
+    background: var(--surface);
+}
+#recipe-mod .rec-top-mass-apply-btn:hover {
+    color: var(--primary);
+    border-color: color-mix(in srgb, var(--primary) 50%, var(--border) 50%);
+}
+#recipe-mod .rec-summary-card {
+    border: 1px solid color-mix(in srgb, var(--border) 85%, var(--primary) 15%);
+}
+#recipe-mod .rec-editor-toolbar {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 16px;
+}
+#recipe-mod .rec-editor-toolbar .btn {
+    min-height: 40px;
+    border-radius: 8px;
+    font-weight: 600;
+}
+#recipe-mod .rec-primary-action {
+    min-width: 132px;
+}
+#recipe-mod .rec-secondary-action {
+    color: color-mix(in srgb, var(--text-main) 75%, var(--primary) 25%);
+    border-color: color-mix(in srgb, var(--border) 55%, var(--primary) 45%);
+    background: var(--surface);
+}
+#recipe-mod .rec-secondary-action:hover {
+    border-color: color-mix(in srgb, var(--primary) 65%, var(--border) 35%);
+    background: color-mix(in srgb, var(--surface) 70%, var(--primary) 6%);
+}
+#recipe-mod .rec-add-toggle-btn {
+    width: 100%;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    border-color: color-mix(in srgb, var(--primary) 45%, var(--border) 55%);
+    color: var(--primary);
+    font-weight: 700;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--surface) 75%, var(--surface-alt) 25%);
+    transform: translateY(0);
+    transition: border-color 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+                background-color 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+                color 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+                transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+#recipe-mod .rec-add-toggle-btn:hover,
+#recipe-mod .rec-add-toggle-btn.is-open {
+    border-color: var(--primary);
+    background: color-mix(in srgb, var(--surface) 40%, var(--primary) 8%);
+}
+#recipe-mod .rec-add-toggle-btn:active {
+    transform: translateY(0.5px) scale(0.998);
+}
+#recipe-mod .rec-add-toggle-icon {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+#recipe-mod .rec-add-panel {
+    margin-top: 0;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transform: translateY(-4px);
+    pointer-events: none;
+    transition: max-height 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+                opacity 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+                transform 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+                margin-top 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+#recipe-mod .rec-add-panel.is-open {
+    margin-top: 15px;
+    max-height: 260px;
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+#recipe-mod .rec-add-row {
+    display: grid;
+    grid-template-columns: minmax(240px, 1.35fr) minmax(180px, 1fr) minmax(120px, 0.72fr) 96px;
+    gap: 12px;
+    align-items: end;
+}
+#recipe-mod .rec-add-row .form-group {
+    min-width: 0;
+}
+#recipe-mod .rec-add-row .input-modern {
+    width: 100%;
+}
+#recipe-mod .rec-add-submit-btn {
+    width: 96px;
+    min-width: 96px;
+    height: 42px;
+    white-space: nowrap;
+    justify-self: end;
+    align-self: end;
+    padding-left: 10px;
+    padding-right: 10px;
+}
+
+#recipe-mod .rec-add-col-material .ts-wrapper,
+#recipe-mod .rec-add-col-material .ts-wrapper .ts-control {
+    width: 100%;
+}
 .rec-table-input { width: 80px; text-align: right; padding: 6px 10px; font-weight: bold; color: var(--primary); }
 .rec-delete-btn { padding: 4px 8px; font-size: 13px; color: var(--danger); border-color: var(--danger); }
 .rec-modal-content { max-height: 480px; overflow-y: auto; padding-right: 10px; }
@@ -5134,6 +5674,297 @@
 .rec-guidance-box { font-size: 13px; margin-top: 15px; background: var(--surface-alt); padding: 15px 30px; border-radius: 6px; color: var(--text-main); max-height: 140px; overflow-y: auto; border: 1px dashed var(--border); }
 .rec-mini-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .rec-dropdown-list { max-height: 250px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 10px; background: var(--surface); display: flex; flex-direction: column; gap: 6px; }
+.rec-cell-padding { padding: 12px 15px; }
+.rec-cell-right { text-align: right; }
+.rec-cell-center { text-align: center; }
+.rec-layer-select { min-width: 150px; }
+.rec-layer-header-cell { padding: 10px 15px; background: var(--surface-alt); font-weight: 700; }
+.rec-inline-label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.rec-inline-label-strong { font-weight: 700; }
+.rec-inline-label-success { font-size: 13px; font-weight: 700; margin: 0; color: var(--success); }
+.rec-checkbox-md { width: 16px; height: 16px; }
+.rec-checkbox-sm { width: 15px; height: 15px; }
+.rec-btn-wide { padding: 0 20px; }
+.rec-btn-min-140 { min-width: 140px; }
+
+/* Умный аудит рецептур — карточки групп (Экран 1) */
+.rec-audit-group-card {
+    border-left: 4px solid var(--border);
+    box-shadow: var(--shadow-sm);
+}
+.rec-audit-card--red { border-left-color: var(--danger); }
+.rec-audit-card--yellow { border-left-color: color-mix(in srgb, var(--warning) 75%, var(--border) 25%); }
+.rec-audit-card--green { border-left-color: var(--success); }
+.rec-audit-screen-1 { padding-right: 6px; }
+
+.rec-audit-screen-2-wrap {
+    position: relative;
+}
+.rec-audit-screen-2-inner {
+    max-height: min(62vh, 560px);
+    overflow-y: auto;
+    padding-right: 6px;
+}
+.rec-audit-matrix-filter-wrap .rec-filter-label {
+    display: block;
+    margin-bottom: 4px;
+}
+.rec-audit-matrix-select {
+    padding: 6px 10px;
+    max-width: 100%;
+}
+.rec-audit-two-col {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.35fr);
+    gap: 16px;
+    align-items: start;
+}
+@media (max-width: 720px) {
+    .rec-audit-two-col {
+        grid-template-columns: 1fr;
+    }
+}
+.rec-audit-col-left .rec-audit-prow-list {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px;
+    background: color-mix(in srgb, var(--surface-alt) 55%, transparent 45%);
+    max-height: min(52vh, 480px);
+    overflow-y: auto;
+}
+.rec-audit-prow {
+    cursor: pointer;
+    border: 1px solid transparent;
+    background: var(--card-bg);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.rec-audit-prow:hover {
+    border-color: color-mix(in srgb, var(--primary) 25%, var(--border) 75%);
+}
+.rec-audit-prow--active {
+    border-color: color-mix(in srgb, var(--primary) 55%, var(--border) 45%);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 12%, transparent 88%);
+}
+.rec-audit-prow-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+}
+.rec-audit-prow-make-ref {
+    margin-top: 4px;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+.rec-audit-prow:hover .rec-audit-prow-make-ref,
+.rec-audit-prow:focus-within .rec-audit-prow-make-ref {
+    opacity: 1;
+}
+.rec-audit-badge {
+    display: inline-block;
+    margin-top: 4px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-weight: 700;
+}
+.rec-audit-badge--ref {
+    background: color-mix(in srgb, var(--primary) 14%, transparent 86%);
+    color: var(--primary);
+}
+
+.rec-audit-layer-card--ok {
+    border-left: 4px solid var(--success);
+}
+.rec-audit-layer-card--bad {
+    border-left: 4px solid var(--danger);
+}
+.rec-audit-layer-card--pig {
+    border-left: 4px solid color-mix(in srgb, var(--success) 70%, var(--warning) 30%);
+}
+
+.rec-audit-diff-list {
+    color: var(--text-main);
+    line-height: 1.45;
+}
+.rec-audit-pigment-note {
+    background: color-mix(in srgb, var(--success) 8%, transparent 92%);
+    border: 1px solid color-mix(in srgb, var(--success) 28%, var(--border) 72%);
+}
+
+.rec-audit-sync-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 12px;
+    background: color-mix(in srgb, var(--surface) 20%, rgba(0, 0, 0, 0.4) 80%);
+    backdrop-filter: blur(2px);
+}
+.rec-audit-sync-dialog {
+    width: min(440px, 100%);
+    max-height: calc(62vh + 40px);
+    overflow-y: auto;
+    box-shadow: var(--shadow-lg);
+}
+.rec-audit-sync-products {
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 8px 6px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.rec-panel { background: var(--surface-alt); padding: 15px; border-radius: 8px; }
+.rec-panel-compact { padding: 12px; }
+.rec-panel-title { margin-top: 0; margin-bottom: 10px; font-weight: 600; }
+.rec-help-text { font-size: 13px; color: var(--text-muted); }
+
+.rec-compare-workbench .rec-bom-workflow-details summary {
+    cursor: pointer;
+    user-select: none;
+    color: var(--primary);
+}
+.rec-compare-workbench .rec-bom-workflow-details[open] summary {
+    margin-bottom: 4px;
+}
+
+.rec-compare-workbench input.bomrc-mini-qty {
+    max-width: 110px;
+    text-align: right;
+}
+.rec-filter-label { font-size: 11px; font-weight: 700; }
+.rec-filter-select { padding: 6px; font-size: 14px; }
+.rec-grid-1 { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.rec-row-between { display: flex; justify-content: space-between; align-items: center; }
+.rec-col-6 { display: flex; flex-direction: column; gap: 6px; }
+.rec-layer-box { border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+.rec-progress-track { background: var(--border); border-radius: 8px; height: 12px; overflow: hidden; margin-bottom: 15px; }
+.rec-progress-bar { background: var(--primary); height: 100%; width: 0%; transition: width 0.3s ease; border-radius: 8px; }
+.rec-progress-log { max-height: 200px; overflow-y: auto; font-size: 13px; line-height: 1.8; }
+#recipe-mod .rec-compare-workbench.rec-modal-content { max-height: min(72vh, 640px); }
+#recipe-mod .rec-compare-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+#recipe-mod .rec-compare-panel { margin-top: 8px; }
+#recipe-mod .rec-compare-summary { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+#recipe-mod .rec-compare-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; border: 1px solid var(--border); background: var(--surface-alt); }
+#recipe-mod .rec-compare-chip.ok { border-color: color-mix(in srgb, var(--success) 45%, var(--border) 55%); color: var(--success); }
+#recipe-mod .rec-compare-chip.warn { border-color: color-mix(in srgb, var(--warning) 50%, var(--border) 50%); color: color-mix(in srgb, var(--warning) 85%, var(--text-main) 15%); }
+#recipe-mod .rec-compare-chip.bad { border-color: color-mix(in srgb, var(--danger) 45%, var(--border) 55%); color: var(--danger); }
+#recipe-mod .rec-compare-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; margin-top: 8px; max-height: 280px; overflow-y: auto; }
+#recipe-mod .rec-compare-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+#recipe-mod .rec-compare-table th { position: sticky; top: 0; background: var(--surface-alt); z-index: 1; padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+#recipe-mod .rec-compare-table td { padding: 6px 10px; border-bottom: 1px solid color-mix(in srgb, var(--border) 88%, transparent 12%); vertical-align: top; }
+#recipe-mod .rec-compare-row-onlya { background: color-mix(in srgb, var(--danger) 7%, transparent 93%); }
+#recipe-mod .rec-compare-row-onlyb { background: color-mix(in srgb, var(--primary) 7%, transparent 93%); }
+#recipe-mod .rec-compare-row-qty { background: color-mix(in srgb, var(--warning) 9%, transparent 91%); }
+#recipe-mod .rec-compare-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; align-items: end; margin-bottom: 10px; }
+#recipe-mod .rec-compare-filters .form-group { margin-bottom: 0; }
+#recipe-mod .rec-compare-subtitle { font-size: 12px; font-weight: 700; margin: 12px 0 6px; color: var(--text-muted); }
+#recipe-mod .rec-mtx-wrap { overflow: auto; max-height: min(52vh, 420px); border: 1px solid var(--border); border-radius: 8px; margin-top: 8px; }
+#recipe-mod .rec-mtx-table { border-collapse: separate; border-spacing: 0; font-size: 11px; min-width: 100%; }
+#recipe-mod .rec-mtx-table th,
+#recipe-mod .rec-mtx-table td { border-bottom: 1px solid color-mix(in srgb, var(--border) 85%, transparent 15%); border-right: 1px solid color-mix(in srgb, var(--border) 85%, transparent 15%); padding: 4px 6px; text-align: center; white-space: nowrap; max-width: 72px; overflow: hidden; text-overflow: ellipsis; }
+#recipe-mod .rec-mtx-corner { position: sticky; left: 0; z-index: 3; background: var(--surface-alt); min-width: 120px; text-align: left !important; }
+#recipe-mod .rec-mtx-rowhead { position: sticky; left: 0; z-index: 2; background: var(--surface); text-align: left !important; font-weight: 600; max-width: 140px !important; }
+#recipe-mod .rec-mtx-colhead { position: sticky; top: 0; z-index: 2; background: var(--surface-alt); font-weight: 600; }
+#recipe-mod .rec-mtx-colhead:first-of-type { z-index: 4; }
+#recipe-mod .rec-mtx-diag { background: color-mix(in srgb, var(--border) 35%, var(--surface) 65%); color: var(--text-muted); }
+#recipe-mod .rec-mtx-eq { background: color-mix(in srgb, var(--success) 12%, transparent 88%); font-weight: 700; }
+#recipe-mod .rec-mtx-yld { background: color-mix(in srgb, var(--warning) 14%, transparent 86%); font-weight: 700; }
+#recipe-mod .rec-mtx-diff { background: color-mix(in srgb, var(--danger) 10%, transparent 90%); font-weight: 700; }
+#recipe-mod .rec-mtx-legend { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+.rec-col-drag { width: 36px; text-align: center; }
+.rec-drag-cell { width: 36px; }
+.rec-drag-handle { cursor: grab; font-weight: 700; color: var(--text-muted); user-select: none; }
+.rec-row-draggable:hover .rec-drag-handle { color: var(--primary); }
+.rec-row-dragging { opacity: 0.6; }
+.rec-row-drop-target { outline: 2px dashed color-mix(in srgb, var(--primary) 60%, var(--border) 40%); outline-offset: -2px; }
+#recipe-mod .table-container thead th {
+    font-size: 12px;
+    letter-spacing: 0.2px;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--text-muted) 80%, var(--text-main) 20%);
+    border-bottom: 1px solid var(--border);
+}
+#recipe-mod .table-container tbody td {
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 88%, transparent 12%);
+    vertical-align: middle;
+}
+#recipe-mod .rec-delete-btn {
+    color: color-mix(in srgb, var(--danger) 80%, var(--text-main) 20%);
+    border-color: color-mix(in srgb, var(--danger) 45%, var(--border) 55%);
+    background: transparent;
+}
+#recipe-mod .rec-delete-btn:hover {
+    color: var(--danger);
+    border-color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 7%, transparent 93%);
+}
+#recipe-mod .rec-drag-handle {
+    opacity: 0.62;
+    transition: opacity 0.16s ease, color 0.2s ease;
+}
+#recipe-mod .rec-row-draggable:hover .rec-drag-handle {
+    opacity: 1;
+}
+
+@media (max-width: 1280px) {
+    #recipe-mod .rec-add-row {
+        grid-template-columns: minmax(210px, 1.2fr) minmax(165px, 0.95fr) minmax(110px, 0.7fr) 92px;
+    }
+    #recipe-mod .rec-add-submit-btn {
+        width: 92px;
+        min-width: 92px;
+    }
+}
+
+@media (max-width: 1024px) {
+    .rec-grid-header {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+    #recipe-mod .rec-add-row {
+        grid-template-columns: 1fr 1fr;
+    }
+    #recipe-mod .rec-add-col-material {
+        grid-column: 1 / -1;
+    }
+    #recipe-mod .rec-add-submit-btn {
+        width: 100%;
+    }
+}
+
+@media (max-width: 640px) {
+    #recipe-mod .rec-add-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Recipes module UI polish (strictly scoped) */
+#recipe-mod .rec-add-row .input-modern,
+#recipe-mod .rec-add-row .ts-control {
+    min-height: 42px;
+}
+
+#recipe-mod .rec-add-row .ts-wrapper.single .ts-control {
+    padding-top: 8px;
+    padding-bottom: 8px;
+}
+
+#recipe-mod .rec-add-row .input-modern::placeholder {
+    color: color-mix(in srgb, var(--text-muted) 85%, var(--text-main) 15%);
+    opacity: 1;
+}
+
+#recipe-mod #recipe-material-layer.rec-select-placeholder {
+    color: var(--text-muted);
+}
+
+body.dark-theme #recipe-mod .rec-add-row .input-modern::placeholder {
+    color: color-mix(in srgb, var(--text-muted) 55%, var(--text-main) 45%);
+}
 
 /* Forms */
 .input-left-rounded { border-radius: 8px 0 0 8px; }
@@ -5160,6 +5991,34 @@
 .text-main { color: var(--text-main); }
 .bg-warning { background: var(--warning); }
 .text-warning { color: var(--warning-text); }
+
+/* --- Утилиты для компонентов рецептур (замена inline-стилей) --- */
+/* Скролл-контейнер: список эталонного сравнения (specificity > #recipe-mod .rec-compare-table-wrap) */
+#recipe-mod .rec-compare-table-wrap.rec-compare-body-scroll { max-height: 320px; }
+/* Скролл-контейнер: мини-редактор пары */
+#recipe-mod .rec-compare-table-wrap.rec-mini-editor-scroll { max-height: 240px; }
+/* Кнопка экспорта в строке вкладок — прижата к правому краю */
+.rec-ml-auto { margin-left: auto; }
+/* Ячейка-чекбокс в заголовке таблицы эталона */
+.rec-chk-col { width: 42px; }
+/* Элемент, занимающий всю ширину сетки (grid full-span) */
+.rec-grid-full { grid-column: 1 / -1; }
+
+/* --- Dirty-state бейдж редактора рецептов (BOM-режим) --- */
+#recipe-mod #recipe-editor-badge.rec-badge-dirty {
+    background: color-mix(in srgb, var(--warning) 14%, var(--surface-alt) 86%);
+    border: 1px solid color-mix(in srgb, var(--warning) 42%, var(--border) 58%);
+    color: color-mix(in srgb, var(--warning-text) 90%, var(--text-main) 10%);
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+    animation: rec-dirty-pulse 2.4s ease-in-out infinite;
+}
+@keyframes rec-dirty-pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.7; }
+}
 
 .hidden-print-frame { position:absolute; width:0; height:0; border:none; }
 
@@ -5455,7 +6314,30 @@
     border-radius: 5px;
     background: linear-gradient(90deg, var(--success), var(--primary));
     transition: width 0.5s ease;
+    width: 0;
 }
+
+.batch-progress-fill-pct-0 { width: 0%; }
+.batch-progress-fill-pct-5 { width: 5%; }
+.batch-progress-fill-pct-10 { width: 10%; }
+.batch-progress-fill-pct-15 { width: 15%; }
+.batch-progress-fill-pct-20 { width: 20%; }
+.batch-progress-fill-pct-25 { width: 25%; }
+.batch-progress-fill-pct-30 { width: 30%; }
+.batch-progress-fill-pct-35 { width: 35%; }
+.batch-progress-fill-pct-40 { width: 40%; }
+.batch-progress-fill-pct-45 { width: 45%; }
+.batch-progress-fill-pct-50 { width: 50%; }
+.batch-progress-fill-pct-55 { width: 55%; }
+.batch-progress-fill-pct-60 { width: 60%; }
+.batch-progress-fill-pct-65 { width: 65%; }
+.batch-progress-fill-pct-70 { width: 70%; }
+.batch-progress-fill-pct-75 { width: 75%; }
+.batch-progress-fill-pct-80 { width: 80%; }
+.batch-progress-fill-pct-85 { width: 85%; }
+.batch-progress-fill-pct-90 { width: 90%; }
+.batch-progress-fill-pct-95 { width: 95%; }
+.batch-progress-fill-pct-100 { width: 100%; }
 
 .batch-section-card {
     margin-top: 15px;
@@ -11406,6 +12288,10 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
 /* Reports module */
 #reports-mod {
     --reports-panel-top: 0px;
+    --reports-filter-gap-y: 10px;
+    --reports-filter-gap-x: 12px;
+    --reports-extra-field-basis: 168px;
+    --reports-actions-min: 260px;
 }
 
 .reports-actions {
@@ -11431,6 +12317,38 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     gap: 10px 12px;
 }
 
+.reports-filters-grid-main {
+    grid-template-columns: minmax(220px, 1.2fr) minmax(220px, 1.2fr) minmax(210px, 1fr) minmax(360px, 1.6fr);
+}
+
+#reports-mod .reports-filter-row--primary {
+    min-width: 0;
+}
+
+/* Вторая полоса фильтров: одинаковая для всех отчётов — flex с переносами (2 ряда на широком экране, 3+ при сужении) */
+#reports-mod #reports-extra-filters.reports-filter-row--extra {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--reports-filter-gap-y) var(--reports-filter-gap-x);
+}
+
+#reports-mod #reports-extra-filters.reports-filter-row--extra > .form-group {
+    flex: 1 1 var(--reports-extra-field-basis);
+    min-width: 0;
+    max-width: 100%;
+}
+
+#reports-mod #reports-extra-filters.reports-filter-row--extra > .reports-actions-slot {
+    flex: 5 1 var(--reports-actions-min);
+    min-width: min(100%, var(--reports-actions-min));
+    max-width: 100%;
+}
+
+#reports-mod.reports-type-sales_analytics #reports-extra-filters.reports-filter-row--extra > .form-group:not(.reports-actions-slot) {
+    flex: 1 1 140px;
+}
+
 .reports-filters-grid .form-group {
     gap: 4px;
 }
@@ -11442,8 +12360,16 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     margin-bottom: 0;
 }
 
+#reports-mod .reports-filter-row--extra .form-group > label {
+    font-size: 11px;
+    line-height: 1.2;
+    color: var(--text-muted);
+    margin-bottom: 0;
+}
+
 .reports-filters-grid .input-modern,
-.reports-filter-actions .input-modern {
+.reports-filter-actions .input-modern,
+#reports-mod .reports-filter-row--extra .input-modern {
     height: 34px;
     min-height: 34px;
     padding-top: 6px;
@@ -11511,11 +12437,26 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     min-width: 62px;
 }
 
+/* Период: на промежуточных ширинах держим навигацию и «День/месяц» в одной линии (сжимаем поле даты); перенос только на очень узких экранах */
 .reports-period-row {
     display: flex;
-    align-items: center;
     flex-wrap: nowrap;
+    align-items: center;
     gap: 6px;
+    min-width: 0;
+}
+
+#reports-mod #reports-fg-period {
+    min-width: 0;
+}
+
+.reports-period-nav {
+    display: grid;
+    grid-template-columns: 34px minmax(72px, 1fr) 34px;
+    align-items: center;
+    gap: 6px;
+    flex: 1 1 0;
+    min-width: 0;
 }
 
 .reports-period-row .btn {
@@ -11527,8 +12468,7 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
 
 .reports-period-display-wrap {
     position: relative;
-    flex: 1 1 auto;
-    min-width: 120px;
+    min-width: 0;
 }
 
 .reports-period-display-wrap #reports-period-display {
@@ -11554,10 +12494,76 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     color: var(--text-main);
 }
 
+.reports-period-icon-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+#reports-mod .reports-period-mode-select {
+    width: auto;
+    min-width: 104px;
+    max-width: 140px;
+    flex: 0 0 auto;
+}
+
 .reports-totals {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+}
+
+.reports-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 6px 0 10px;
+}
+
+.reports-tab-btn {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-main);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.reports-tab-btn:hover {
+    background: color-mix(in srgb, var(--surface-alt) 70%, var(--surface) 30%);
+}
+
+.reports-tab-btn.active {
+    border-color: color-mix(in srgb, var(--primary) 70%, var(--border) 30%);
+    background: color-mix(in srgb, var(--primary) 16%, var(--surface) 84%);
+    color: var(--text-main);
+}
+
+.reports-analytics-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.reports-kpi-card {
+    border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+    border-radius: 10px;
+    padding: 8px 10px;
+    background: color-mix(in srgb, var(--surface-alt) 55%, var(--surface) 45%);
+}
+
+.reports-kpi-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 3px;
+}
+
+.reports-kpi-value {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-main);
 }
 
 .reports-total-chip {
@@ -11601,7 +12607,6 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
 }
 
 .reports-actions-slot {
-    grid-column: 3 / span 2;
     display: block;
 }
 
@@ -11616,27 +12621,51 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
 
 .reports-actions-slot .reports-filter-actions {
     width: 100%;
+    max-width: 100%;
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     min-height: 34px;
-    margin-top: -4px;
+    margin-top: 0;
     padding-top: 0;
     border-top: none;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
+    row-gap: 8px;
+    box-sizing: border-box;
+    overflow-x: auto;
+    overflow-y: visible;
+    -webkit-overflow-scrolling: touch;
+}
+
+.reports-actions-slot .reports-actions-label {
+    display: none;
 }
 
 .reports-filter-actions-main,
 .reports-filter-actions-presets {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
     flex-wrap: nowrap;
 }
 
+.reports-filter-actions-main {
+    flex: 0 1 auto;
+    min-width: min-content;
+}
+
 .reports-filter-actions-presets {
+    margin-left: 0;
+    justify-content: flex-end;
+    flex: 0 1 auto;
     margin-left: auto;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.reports-actions-slot .reports-filter-actions-presets {
+    flex-shrink: 1;
 }
 
 .reports-actions-slot .reports-filter-actions .btn {
@@ -11644,23 +12673,31 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     min-height: 34px;
     padding: 0 10px;
     white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .reports-actions-slot .reports-preset-select {
-    min-width: 120px;
-    max-width: 190px;
-    width: clamp(120px, 14vw, 180px);
+    min-width: 0;
+    width: auto;
+    max-width: min(100%, 200px);
+    flex: 1 1 120px;
+    box-sizing: border-box;
 }
 
-@media (max-width: 1280px) {
-    .reports-actions-slot {
-        grid-column: 1 / -1;
-    }
+#reports-mod.reports-type-osv_products #reports-filter-stock-balance {
+    width: min(100%, 300px);
+}
+
+#reports-mod.reports-type-osv_products #reports-filter-stock-valuation {
+    width: min(100%, 320px);
 }
 
 @media (max-width: 1360px) {
     .reports-filters-grid {
         grid-template-columns: repeat(3, minmax(180px, 1fr));
+    }
+    .reports-filters-grid-main {
+        grid-template-columns: repeat(3, minmax(210px, 1fr));
     }
 }
 
@@ -11770,38 +12807,131 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
 }
 
 .reports-actions-slot .reports-inline-check-pill {
-    height: 34px;
+    min-height: 34px;
+    height: auto;
     margin-right: 0;
 }
 
-@media (max-width: 1480px) {
-    .reports-actions-slot {
-        grid-column: 1 / -1;
-    }
-    .reports-actions-slot .reports-filter-actions {
-        justify-content: flex-start;
-        gap: 6px;
-    }
-    .reports-filter-actions-presets {
-        margin-left: 0;
-    }
-    .reports-actions-slot .reports-preset-select {
-        width: clamp(120px, 24vw, 180px);
-    }
+/* Аналитика продаж: компактнее поля (flex-basis задан выше); чекбоксы с переносом текста */
+
+#reports-mod.reports-type-sales_analytics #reports-fg-include-returns {
+    min-width: min(100%, 168px);
+    flex: 1 1 168px;
 }
 
-@media (max-width: 1180px) {
-    .reports-actions-slot .reports-filter-actions {
-        flex-wrap: wrap;
-    }
-    .reports-filter-actions-main,
-    .reports-filter-actions-presets {
-        width: 100%;
-        flex-wrap: wrap;
-    }
-    .reports-filter-actions-presets {
-        justify-content: flex-start;
-    }
+#reports-mod.reports-type-sales_analytics #reports-fg-include-returns .reports-fg-include-returns-pill {
+    white-space: normal;
+    line-height: 1.25;
+    min-height: 34px;
+    padding: 4px 8px;
+    align-items: flex-start;
+}
+
+/* Минимальная ширина — меньше риска наезда на чекбокс возвратов при узком контейнере */
+#reports-mod.reports-type-sales_analytics #reports-fg-sa-overhead {
+    flex: 1 1 200px;
+    min-width: min(100%, 180px);
+}
+
+#reports-mod .reports-sa-overhead-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 34px;
+    flex-wrap: nowrap;
+}
+
+#reports-mod .reports-sa-overhead-toggle {
+    flex: 0 0 auto;
+    height: 34px !important;
+    padding: 0 12px;
+    align-items: center;
+    margin: 0;
+}
+
+#reports-mod .reports-sa-overhead-rate-input {
+    min-width: 88px;
+    flex: 0 1 108px;
+    max-width: 120px;
+    width: 100%;
+}
+
+#reports-mod .reports-sa-overhead-unit {
+    flex: 0 0 auto;
+    font-weight: 600;
+}
+
+#reports-mod.reports-type-sales_analytics #reports-fg-sa-include-taxes {
+    max-width: min(188px, 100%);
+}
+
+#reports-mod.reports-type-sales_analytics #reports-fg-sa-include-taxes .reports-inline-check-pill {
+    white-space: normal;
+    line-height: 1.25;
+    min-height: 34px;
+    padding: 4px 8px;
+}
+
+/* Не даём flex-строке растягивать поле ставки на всю ширину экрана */
+#reports-mod.reports-type-sales_analytics #reports-fg-sa-tax-rate {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 0;
+    max-width: 88px;
+    align-self: flex-end;
+}
+
+#reports-mod .reports-sa-tax-check {
+    width: 100%;
+}
+
+#reports-mod .reports-sa-tax-rate-input {
+    width: 100%;
+    max-width: 72px;
+    box-sizing: border-box;
+}
+
+#reports-mod .reports-sales-analytics-topn-toolbar,
+#reports-mod .reports-sa-forecast-horizon-bar {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin: 0 0 12px;
+    background: color-mix(in srgb, var(--surface-alt) 35%, var(--surface) 65%);
+}
+
+#reports-mod .reports-sales-analytics-topn-toolbar:not(.reports-hidden),
+#reports-mod .reports-sa-forecast-horizon-bar:not(.reports-hidden) {
+    display: flex !important;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#reports-mod .reports-sa-topn-main {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+}
+
+#reports-mod .reports-sa-topn-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-main);
+    margin: 0;
+    line-height: 1.2;
+}
+
+#reports-mod .reports-sa-topn-select {
+    width: auto;
+    min-width: 120px;
+    max-width: 200px;
+}
+
+#reports-mod .reports-pagination-bar:not(.reports-hidden) {
+    display: flex !important;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border);
 }
 
 /* Reports: бухгалтерская таблица с фиксированной шапкой и "первой колонкой" */
@@ -11830,12 +12960,84 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     table-layout: fixed;
 }
 
+#reports-table[data-report-type='osv_materials'],
+#reports-table[data-report-type='osv_products'] {
+    table-layout: fixed;
+}
+
+#reports-table[data-report-type='turnover_finance'] {
+    table-layout: fixed;
+}
+
+#reports-table[data-report-type='inventory_register'] {
+    table-layout: fixed;
+}
+
 #reports-table[data-report-type='osv_counterparties'] col.reports-col-cpty-main {
     width: 30%;
 }
 
 #reports-table[data-report-type='osv_counterparties'] col.reports-col-cpty-num {
     width: 8.75%;
+}
+
+#reports-table[data-report-type='osv_materials'] col.reports-col-stock-main,
+#reports-table[data-report-type='osv_products'] col.reports-col-stock-main {
+    width: 24%;
+}
+
+#reports-table[data-report-type='osv_materials'] col.reports-col-stock-warehouse,
+#reports-table[data-report-type='osv_products'] col.reports-col-stock-warehouse {
+    width: 20%;
+}
+
+#reports-table[data-report-type='osv_materials'] col.reports-col-stock-unit,
+#reports-table[data-report-type='osv_products'] col.reports-col-stock-unit {
+    width: 6%;
+}
+
+#reports-table[data-report-type='osv_materials'] col.reports-col-stock-num,
+#reports-table[data-report-type='osv_products'] col.reports-col-stock-num {
+    width: 6.25%;
+}
+
+#reports-table[data-report-type='turnover_finance'] col.reports-col-turnover-type { width: 14%; }
+#reports-table[data-report-type='turnover_finance'] col.reports-col-turnover-category { width: 46%; }
+#reports-table[data-report-type='turnover_finance'] col.reports-col-turnover-count { width: 14%; }
+#reports-table[data-report-type='turnover_finance'] col.reports-col-turnover-amount { width: 26%; }
+
+#reports-table[data-report-type='inventory_register'] col.reports-col-register-date { width: 8%; }
+#reports-table[data-report-type='inventory_register'] col.reports-col-register-warehouse { width: 16%; }
+#reports-table[data-report-type='inventory_register'] col.reports-col-register-item { width: 24%; }
+#reports-table[data-report-type='inventory_register'] col.reports-col-register-unit { width: 5%; }
+#reports-table[data-report-type='inventory_register'] col.reports-col-register-type { width: 17%; }
+#reports-table[data-report-type='inventory_register'] col.reports-col-register-qty { width: 10%; }
+#reports-table[data-report-type='inventory_register'] col.reports-col-register-batch { width: 12%; }
+#reports-table[data-report-type='inventory_register'] col.reports-col-register-note { width: 8%; }
+
+#reports-table[data-report-type='inventory_register'] tbody td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#reports-table[data-report-type='inventory_register'] tbody td:nth-child(2),
+#reports-table[data-report-type='inventory_register'] tbody td:nth-child(7) {
+    white-space: nowrap;
+}
+
+#reports-table[data-report-type='inventory_register'] tbody td:nth-child(7) .reports-cell-link {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: top;
+}
+
+.reports-register-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 6px;
+    align-items: center;
 }
 
 #reports-table th,
@@ -11879,6 +13081,38 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     will-change: transform;
 }
 
+#reports-table thead th .reports-sort-head-btn {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: inherit;
+    cursor: pointer;
+    text-align: inherit;
+}
+
+#reports-table thead th .reports-sort-head-btn:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+#reports-table thead th .reports-sort-head-btn.active {
+    color: color-mix(in srgb, var(--text) 85%, var(--accent) 15%);
+}
+
+#reports-table thead th .reports-sort-arrow {
+    font-size: .75rem;
+    line-height: 1;
+    opacity: .9;
+}
+
 #reports-table thead tr.reports-head-summary th {
     padding-top: 8px;
     padding-bottom: 8px;
@@ -11910,6 +13144,18 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
 
 .reports-head-summary-item strong {
     font-weight: 700;
+}
+
+.reports-head-summary-item-positive strong {
+    color: var(--ok, #22c55e);
+}
+
+.reports-head-summary-item-negative strong {
+    color: var(--danger, #ef4444);
+}
+
+.reports-head-summary-item-neutral strong {
+    color: var(--text-muted);
 }
 
 #reports-table thead tr.reports-head-groups th {
@@ -11985,6 +13231,14 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     background: color-mix(in srgb, var(--surface) 96%, #ef4444 4%);
 }
 
+#reports-table tbody tr.reports-row-income td:not(.reports-col-main) {
+    background: color-mix(in srgb, var(--surface) 94%, #3b82f6 6%);
+}
+
+#reports-table tbody tr.reports-row-expense td:not(.reports-col-main) {
+    background: color-mix(in srgb, var(--surface) 95%, #ef4444 5%);
+}
+
 #reports-table.reports-table-osv td.reports-col-main {
     position: sticky;
     left: 0;
@@ -12023,6 +13277,14 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     width: 30%;
 }
 
+#reports-table[data-report-type='osv_materials'] td.reports-col-main,
+#reports-table[data-report-type='osv_materials'] th.reports-col-main,
+#reports-table[data-report-type='osv_products'] td.reports-col-main,
+#reports-table[data-report-type='osv_products'] th.reports-col-main {
+    min-width: 0;
+    max-width: none;
+}
+
 .reports-cell-link {
     padding: 0;
     margin: 0;
@@ -12037,6 +13299,17 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
 
 .reports-cell-link:hover {
     color: var(--primary-hover);
+}
+
+.reports-cell-link:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--primary) 55%, transparent);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+.reports-num-link:hover,
+.reports-cell-link-main:hover {
+    background: color-mix(in srgb, var(--surface-alt) 72%, transparent);
 }
 
 .reports-num-link {
@@ -12145,6 +13418,13 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
         min-width: 220px;
         max-width: 320px;
     }
+    #reports-table[data-report-type='osv_materials'] td.reports-col-main,
+    #reports-table[data-report-type='osv_materials'] th.reports-col-main,
+    #reports-table[data-report-type='osv_products'] td.reports-col-main,
+    #reports-table[data-report-type='osv_products'] th.reports-col-main {
+        min-width: 0;
+        max-width: none;
+    }
 }
 
 @media (max-width: 980px) {
@@ -12155,19 +13435,44 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
         position: static;
         top: auto;
     }
-    .reports-actions-slot {
-        grid-column: 1 / -1;
+    #reports-mod .reports-filter-row--primary > .form-group {
+        min-width: 0;
+    }
+    /* Слот действий — отдельная полоса: не сжимать кнопки с фильтрами в одну линию */
+    #reports-mod #reports-extra-filters.reports-filter-row--extra > .reports-actions-slot {
+        flex: 1 1 100%;
+        min-width: 0;
     }
     .reports-actions-slot .reports-filter-actions {
+        display: flex;
         flex-wrap: wrap;
         justify-content: flex-start;
+        align-items: center;
+        gap: 8px;
+    }
+    .reports-filter-actions-main,
+    .reports-filter-actions-presets {
+        flex-wrap: wrap;
     }
     .reports-filter-actions-presets {
         margin-left: 0;
+        justify-content: flex-start;
     }
-    #reports-period-mode {
-        width: 132px;
-        min-width: 132px;
+}
+
+/* Период: перенос «День/месяц» под блок даты только на очень узком экране */
+@media (max-width: 520px) {
+    #reports-mod .reports-period-row {
+        flex-wrap: wrap;
+    }
+    #reports-mod .reports-period-nav {
+        flex: 1 1 100%;
+    }
+    #reports-mod .reports-period-mode-select {
+        flex: 1 1 100%;
+        max-width: none;
+        width: 100%;
+        min-width: 0;
     }
 }
 
@@ -12193,15 +13498,746 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
         grid-template-columns: 1fr;
         gap: 6px;
     }
-    .reports-period-row {
-        flex-wrap: wrap;
+}
+
+/* Production module safeguard:
+   keep 3 step cards in one row on desktop, regardless of generic .form-grid rules. */
+#prod-mod .prod-steps-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: stretch;
+}
+
+/* ============================================================
+   Purchase Form Layout Normalization
+   ============================================================ */
+#purchase-mod .pur-form-grid {
+    grid-template-columns: repeat(6, minmax(120px, 1fr));
+    gap: 12px 14px;
+    align-items: start;
+}
+
+#purchase-mod .pur-form-grid .form-group {
+    min-width: 0;
+}
+
+#purchase-mod .pur-price-qty-group {
+    align-self: start;
+}
+
+#purchase-mod .pur-price-qty-title {
+    margin-bottom: 2px;
+}
+
+#purchase-mod .pur-price-qty-grid {
+    display: grid;
+    grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr);
+    gap: 10px;
+}
+
+/* Визуальный ритм: ключевые параметры читаются первым взглядом */
+#purchase-mod .pur-main-panel .form-group > label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+#purchase-mod .pur-main-panel .input-modern {
+    min-height: 36px;
+}
+
+#purchase-mod .pur-price-qty-group {
+    padding: 8px 10px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-alt);
+}
+
+#purchase-mod .pur-price-qty-group .form-group > label {
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+#purchase-mod .pur-material-group .ts-wrapper.focus .ts-control,
+#purchase-mod .pur-material-group .ts-wrapper.focus .ts-control input {
+    border-color: var(--primary);
+    background: var(--surface);
+}
+
+#purchase-mod #purchase-price,
+#purchase-mod #purchase-qty {
+    font-size: 15px;
+    font-weight: 700;
+}
+
+#purchase-mod .pur-price-source-hint {
+    margin-top: 5px;
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.3;
+}
+
+#purchase-mod .pur-delivery-label {
+    font-size: 13px;
+}
+
+#purchase-mod .pur-delivery-fields-grid .form-group > label {
+    font-size: 11.5px;
+}
+
+#purchase-mod .pur-summary-box .font-16 {
+    font-size: 17px;
+}
+
+#purchase-mod .pur-total-input {
+    min-height: 40px;
+    font-size: 20px;
+    letter-spacing: 0.2px;
+}
+
+/* Чекбокс доставки всегда на собственной строке, чтобы не спорить с ценой/количеством */
+#purchase-mod .pur-delivery-toggle-wrap {
+    grid-column: span 2;
+}
+
+/* Поля доставки занимают всю ширину текущей сетки */
+#purchase-mod .pur-delivery-fields-grid {
+    grid-column: 1 / -1;
+}
+
+@media (max-width: 1280px) {
+    #purchase-mod .pur-form-grid {
+        grid-template-columns: repeat(4, minmax(140px, 1fr));
     }
-    #reports-period-mode {
+    #purchase-mod .col-span-3,
+    #purchase-mod .col-span-2 {
+        grid-column: span 2;
+    }
+    #purchase-mod .pur-delivery-toggle-wrap {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (max-width: 900px) {
+    #purchase-mod .pur-form-grid {
+        grid-template-columns: repeat(2, minmax(140px, 1fr));
+    }
+    #purchase-mod .col-span-3,
+    #purchase-mod .col-span-2 {
+        grid-column: span 2;
+    }
+    #purchase-mod .pur-delivery-fields-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 640px) {
+    #purchase-mod .pur-form-grid {
+        grid-template-columns: 1fr;
+    }
+    #purchase-mod .col-span-3,
+    #purchase-mod .col-span-2 {
+        grid-column: span 1;
+    }
+    #purchase-mod .pur-price-qty-grid {
+        grid-template-columns: 1fr;
+    }
+    #purchase-mod .pur-history-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+    #purchase-mod .pur-search-wrap {
         width: 100%;
-        min-width: 0;
     }
-    .reports-period-display-wrap {
-        min-width: 0;
-        flex: 1 1 calc(100% - 68px);
+    #purchase-mod .pur-summary-box {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+    #purchase-mod .pur-total-input {
+        width: 100%;
+        text-align: left;
+    }
+}
+
+/* ============================================================
+   Модуль продаж — вкладка «Новый заказ» (композиция и ритм UI)
+   ============================================================ */
+#sales-mod.sales-module-root {
+    --sales-section-gap: 16px;
+    --sales-card-radius: 12px;
+    --sales-control-min-h: 40px;
+}
+
+#sales-mod .sales-page-header {
+    align-items: flex-start;
+    gap: 14px;
+}
+
+#sales-mod .sales-page-subtitle {
+    max-width: 40rem;
+    line-height: 1.35;
+}
+
+#sales-mod .sales-toolbar-btn {
+    min-height: 38px;
+    padding-left: 14px;
+    padding-right: 14px;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+#sales-mod .sales-tabs-modern {
+    gap: 8px;
+    margin-bottom: var(--sales-section-gap);
+    padding-bottom: 12px;
+    border-bottom-width: 1px;
+}
+
+#sales-mod .sales-tabs-modern .sales-tab-btn {
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+}
+
+/* Flex только у активной вкладки иначе #id перебивает .sales-tab-content { display:none } */
+#sales-mod .sales-tab-content.active.sales-checkout-column {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sales-section-gap);
+}
+
+#sales-mod .sales-checkout-card {
+    border-radius: var(--sales-card-radius);
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+#sales-mod .sales-checkout-card-client {
+    padding: 18px 20px;
+}
+
+#sales-mod .sales-order-date-input {
+    min-height: var(--sales-control-min-h);
+    min-width: 152px;
+}
+
+#sales-mod .sales-order-date-label {
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+
+#sales-mod .sales-new-order-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px 22px;
+    align-items: stretch;
+}
+
+#sales-mod .sales-new-order-col-main,
+#sales-mod .sales-new-order-col-side {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+}
+
+#sales-mod .sales-new-order-col-main {
+    min-width: 0;
+}
+
+#sales-mod .sales-new-order-col-side {
+    padding: 14px 16px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--surface-alt) 88%, var(--surface) 12%);
+    border: 1px dashed color-mix(in srgb, var(--border) 90%, var(--primary) 10%);
+    justify-content: flex-start;
+}
+
+#sales-mod .sales-side-date {
+    margin-bottom: 12px;
+    flex-shrink: 0;
+}
+
+#sales-mod .sales-side-date .sales-order-date-input {
+    max-width: 100%;
+}
+
+#sales-mod .sales-label-strong {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+#sales-mod .sales-label-accent {
+    display: block;
+    font-weight: 700;
+    color: color-mix(in srgb, var(--warning-text) 82%, var(--text-main) 18%);
+    margin-bottom: 6px;
+}
+
+#sales-mod .min-h-control {
+    min-height: var(--sales-control-min-h);
+}
+
+#sales-mod .sales-contract-select-wrap {
+    min-width: 180px;
+}
+
+#sales-mod .sales-icon-btn {
+    width: 42px;
+    min-width: 42px;
+    padding-left: 0;
+    padding-right: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#sales-mod .sales-contract-actions {
+    gap: 8px;
+}
+
+#sales-mod .sales-client-row .ts-wrapper,
+#sales-mod .sales-new-order-col .ts-wrapper,
+#sales-mod .sales-contract-select-wrap .ts-wrapper {
+    width: 100%;
+    min-width: 0;
+}
+
+#sales-mod .sales-spec-actions-wrap {
+    border-top-color: color-mix(in srgb, var(--border) 75%, transparent);
+}
+
+#sales-mod .sales-cart-shell {
+    overflow: hidden;
+}
+
+#sales-mod .sales-cart-table thead th {
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+#sales-mod .sales-cart-table tbody td {
+    vertical-align: middle;
+}
+
+#sales-mod .sales-cart-num-cell-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 4px;
+    width: 100%;
+}
+
+#sales-mod .sales-cart-num-cell-input-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--sales-control-min-h, 40px);
+    width: 100%;
+}
+
+#sales-mod .sales-cart-num-cell-sub {
+    min-height: 1.35em;
+    line-height: 1.35;
+    width: 100%;
+    text-align: center;
+}
+
+#sales-mod .sales-cart-inline-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex-wrap: nowrap;
+}
+
+#sales-mod .sales-cart-inline-num .sales-cart-qty-input {
+    width: 5.25rem;
+    min-width: 4.25rem;
+    min-height: var(--sales-control-min-h, 40px);
+    flex: 0 0 auto;
+}
+
+#sales-mod .sales-cart-unit-inline {
+    white-space: nowrap;
+    line-height: 1.2;
+}
+
+#sales-mod .sales-cart-td-num .sales-cart-price-input,
+#sales-mod .sales-cart-td-num .sales-cart-discount-input {
+    min-height: var(--sales-control-min-h, 40px);
+}
+
+#sales-mod .sales-cart-hint {
+    padding: 10px 12px;
+    border-radius: 8px;
+    border-left: 3px solid color-mix(in srgb, var(--primary) 42%, var(--border) 58%);
+    background: color-mix(in srgb, var(--surface) 86%, var(--surface-alt) 14%);
+}
+
+#sales-mod .sales-cart-summary-panel {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    align-items: stretch;
+}
+
+#sales-mod .sales-cart-summary-card {
+    background: color-mix(in srgb, var(--surface) 90%, var(--surface-alt) 10%);
+    border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    min-width: 0;
+}
+
+#sales-mod .sales-cart-summary-card--pay {
+    background: linear-gradient(
+        160deg,
+        color-mix(in srgb, var(--primary) 9%, var(--surface) 91%) 0%,
+        color-mix(in srgb, var(--surface-alt) 50%, var(--surface) 50%) 100%
+    );
+    border-color: color-mix(in srgb, var(--primary) 42%, var(--border) 58%);
+    box-shadow: 0 2px 14px color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
+#sales-mod .sales-cart-summary-card-label {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    line-height: 1.3;
+}
+
+#sales-mod .sales-cart-summary-card-value {
+    font-weight: 800;
+    line-height: 1.15;
+    color: var(--text-main);
+}
+
+#sales-mod .sales-cart-summary-card-hint {
+    margin-top: auto;
+    line-height: 1.35;
+    max-width: 16rem;
+}
+
+#sales-mod .sales-cart-summary-finance-toggle {
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--surface) 65%, var(--surface-alt) 35%);
+}
+
+#sales-mod .sales-cart-summary-pay-nums {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px;
+}
+
+#sales-mod .sales-cart-summary-pay-nums strong {
+    font-weight: 800;
+    letter-spacing: -0.02em;
+}
+
+#sales-mod .sales-cart-details-after-summary {
+    border-top-color: color-mix(in srgb, var(--border) 75%, transparent);
+}
+
+/* Детализация рентабельности по позициям (корзина продаж) */
+#sales-mod .sales-profit-section {
+    margin-top: 4px;
+}
+
+#sales-mod .sales-profit-section-head {
+    margin-bottom: 14px;
+}
+
+#sales-mod .sales-profit-section-title {
+    margin: 0 0 6px 0;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--text-main);
+    line-height: 1.2;
+}
+
+#sales-mod .sales-profit-section-desc {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-muted);
+    max-width: 42rem;
+}
+
+#sales-mod .sales-profit-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+#sales-mod .sales-profit-card {
+    background: color-mix(in srgb, var(--surface-alt) 70%, var(--surface) 30%);
+    border: 1px solid color-mix(in srgb, var(--border) 88%, var(--primary) 12%);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+#sales-mod .sales-profit-card-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+#sales-mod .sales-profit-card-name {
+    display: block;
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--primary);
+    letter-spacing: -0.015em;
+    line-height: 1.35;
+}
+
+#sales-mod .sales-profit-card-meta {
+    display: inline-block;
+    margin-top: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+}
+
+#sales-mod .sales-profit-card-revenue-block {
+    flex-shrink: 0;
+}
+
+#sales-mod .sales-profit-card-revenue-label {
+    display: block;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+#sales-mod .sales-profit-card-revenue-value {
+    font-size: 17px;
+    font-weight: 800;
+    color: var(--text-main);
+    letter-spacing: -0.02em;
+}
+
+#sales-mod .sales-profit-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+}
+
+#sales-mod .sales-profit-metric {
+    background: color-mix(in srgb, var(--surface) 88%, var(--surface-alt) 12%);
+    border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+    border-radius: 10px;
+    padding: 10px 8px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+#sales-mod .sales-profit-metric-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    line-height: 1.25;
+}
+
+#sales-mod .sales-profit-metric-value {
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--text-main);
+    line-height: 1.2;
+    word-break: break-word;
+}
+
+#sales-mod .sales-profit-metric--accent {
+    border-color: color-mix(in srgb, var(--warning-text) 28%, var(--border) 72%);
+    background: color-mix(in srgb, var(--warning-text) 6%, var(--surface) 94%);
+}
+
+#sales-mod .sales-profit-metric--accent .sales-profit-metric-value {
+    color: color-mix(in srgb, var(--warning-text) 92%, var(--text-main) 8%);
+}
+
+#sales-mod .sales-profit-card-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding-top: 4px;
+}
+
+#sales-mod .sales-profit-foot-cost {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+#sales-mod .sales-profit-foot-cost strong {
+    color: var(--text-main);
+    font-weight: 800;
+}
+
+#sales-mod .sales-profit-foot-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+#sales-mod .sales-profit-foot-badge--ok {
+    background: color-mix(in srgb, var(--success) 14%, var(--surface) 86%);
+    color: color-mix(in srgb, var(--success-text) 90%, var(--text-main) 10%);
+}
+
+#sales-mod .sales-profit-foot-badge--bad {
+    background: color-mix(in srgb, var(--danger) 14%, var(--surface) 86%);
+    color: color-mix(in srgb, var(--danger-text) 92%, var(--text-main) 8%);
+}
+
+#sales-mod .sales-profit-foot-badge--flat {
+    background: var(--surface-alt);
+    color: var(--text-muted);
+}
+
+#sales-mod .sales-profit-total-strip {
+    margin-top: 14px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    border: 1px solid var(--border);
+}
+
+#sales-mod .sales-profit-total-strip--gain {
+    background: color-mix(in srgb, var(--success) 8%, var(--surface-alt) 92%);
+    border-color: color-mix(in srgb, var(--success) 35%, var(--border) 65%);
+}
+
+#sales-mod .sales-profit-total-strip--loss {
+    background: color-mix(in srgb, var(--danger) 8%, var(--surface-alt) 92%);
+    border-color: color-mix(in srgb, var(--danger) 35%, var(--border) 65%);
+}
+
+#sales-mod .sales-profit-total-strip--flat {
+    background: var(--surface-alt);
+}
+
+#sales-mod .sales-profit-total-label {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    max-width: 22rem;
+    line-height: 1.35;
+}
+
+#sales-mod .sales-profit-total-strip--gain .sales-profit-total-value {
+    color: color-mix(in srgb, var(--success-text) 94%, var(--text-main) 6%);
+}
+
+#sales-mod .sales-profit-total-strip--loss .sales-profit-total-value {
+    color: color-mix(in srgb, var(--danger-text) 94%, var(--text-main) 6%);
+}
+
+#sales-mod .sales-profit-total-strip--flat .sales-profit-total-value {
+    color: var(--text-main);
+}
+
+#sales-mod .sales-profit-total-value {
+    font-size: 20px;
+    font-weight: 900;
+    letter-spacing: -0.03em;
+}
+
+@media (max-width: 900px) {
+    #sales-mod .sales-profit-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+#sales-mod .sales-checkout-primary-btn {
+    min-height: 48px;
+    border-radius: 10px;
+}
+
+#sales-mod .sales-section-body .form-group > label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+@media (max-width: 1024px) {
+    #sales-mod .sales-new-order-grid {
+        grid-template-columns: 1fr;
+    }
+
+    #sales-mod .sales-new-order-col-main,
+    #sales-mod .sales-new-order-col-side {
+        min-height: 0;
+    }
+
+    #sales-mod .sales-page-actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    #sales-mod .sales-page-header {
+        flex-direction: column;
+    }
+}
+
+@media (max-width: 880px) {
+    #sales-mod .sales-cart-summary-panel {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 640px) {
+    #sales-mod .sales-order-date-slot {
+        align-self: stretch;
+    }
+
+    #sales-mod .sales-order-date-input {
+        width: 100%;
     }
 }
