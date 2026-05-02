@@ -61,6 +61,54 @@
                 </div>
             </div>
         </div>
+
+        <div class="admin-section">
+            <div class="admin-section-header">
+                <h3>🧩 Сервисные инструменты данных</h3>
+            </div>
+            <div class="admin-card-row">
+                <div class="admin-card">
+                    <div class="admin-card-icon">🧭</div>
+                    <div class="admin-card-title">Переклассификация переводов</div>
+                    <div class="admin-card-desc">Разбор "Перевод ⚠️ (Дикая)" в системные подкатегории без изменения исходной статьи.</div>
+                    <button class="btn btn-outline" id="btn-reclassify-transfer" onclick="adminReclassifyTransferWild()">Запустить</button>
+                </div>
+                <div class="admin-card">
+                    <div class="admin-card-icon">🧰</div>
+                    <div class="admin-card-title">Переклассификация техопераций</div>
+                    <div class="admin-card-desc">Разбор "Технические операции ⚠️ (Дикая)" в технические категории по правилам.</div>
+                    <button class="btn btn-outline" id="btn-reclassify-technical" onclick="adminReclassifyTechnicalWild()">Запустить</button>
+                </div>
+                <div class="admin-card">
+                    <div class="admin-card-icon">➕</div>
+                    <div class="admin-card-title">Будущие сервисные операции</div>
+                    <div class="admin-card-desc">Резерв под массовые исправления и миграции данных, чтобы не перегружать рабочие модули.</div>
+                    <button class="btn btn-outline" disabled>Зарезервировано</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="admin-section">
+            <div class="admin-section-header">
+                <h3>🟢 Доходы — аудит стабильности</h3>
+            </div>
+            <div class="admin-actions mb-10">
+                <button class="btn btn-outline" id="btn-audit-income" onclick="adminAuditIncomeCategories()">🔎 Проверить аудит доходных статей</button>
+                <button class="btn btn-outline" id="btn-fix-income" onclick="adminReclassifyIncomeSuspicious()">🛠️ Нормализовать проблемные доходные статьи</button>
+            </div>
+            <div id="admin-income-audit-result" class="text-muted">Аудит доходных статей еще не запускался.</div>
+        </div>
+
+        <div class="admin-section">
+            <div class="admin-section-header">
+                <h3>🔴 Расходы — аудит стабильности</h3>
+            </div>
+            <div class="admin-actions mb-10">
+                <button class="btn btn-outline" id="btn-audit-expense" onclick="adminAuditExpenseCategories()">🔎 Проверить аудит расходных статей</button>
+                <button class="btn btn-outline" id="btn-fix-expense" onclick="adminReclassifyExpenseSuspicious()">🛠️ Нормализовать проблемные расходные статьи</button>
+            </div>
+            <div id="admin-expense-audit-result" class="text-muted">Аудит расходных статей еще не запускался.</div>
+        </div>
     </div>
 
     <!-- ═══════════════════════════════════════════════ -->

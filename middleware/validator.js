@@ -586,9 +586,9 @@ module.exports = {
         next();
     },
 
-    /** POST /api/recipes/sync-category — синхронизация рецепта на категорию */
+    /** POST /api/recipes/sync-category — синхронизация рецепта на категорию (опционально только выбранные слои) */
     validateRecipeSync: (req, res, next) => {
-        const { targetProductIds, materials } = req.body;
+        const { targetProductIds, materials, mode, layers } = req.body;
         const errors = [];
 
         if (!targetProductIds || !Array.isArray(targetProductIds) || targetProductIds.length === 0) {
@@ -606,6 +606,57 @@ module.exports = {
                 const qty = parseFloat(mat.qty);
                 if (isNaN(qty) || qty <= 0) {
                     errors.push(`Материал #${i + 1}: количество должно быть больше нуля.`);
+                }
+                if (mat.layer && !['face', 'main', 'packaging'].includes(String(mat.layer))) {
+                    errors.push(`Материал #${i + 1}: недопустимый блок рецепта.`);
+                }
+            }
+        }
+
+        if (layers !== undefined && layers !== null) {
+            if (!Array.isArray(layers)) {
+                errors.push('Поле layers должно быть массивом.');
+            } else if (layers.length > 0) {
+                const allow = new Set();
+                for (let i = 0; i < layers.length; i++) {
+                    const ly = String(layers[i] || '').toLowerCase();
+                    if (!['face', 'main', 'packaging'].includes(ly)) {
+                        errors.push(`layers[${i}]: допустимо face | main | packaging.`);
+                    } else allow.add(ly);
+                }
+                const normLayer = (m) => String(m.layer || 'main').toLowerCase();
+                const anyMatch = Array.isArray(materials) && materials.some((mat) => allow.has(normLayer(mat)));
+                if (allow.size > 0 && !anyMatch) {
+                    errors.push('Нет материалов в переданном составе, относящихся к выбранным блокам синхронизации.');
+                }
+            }
+        }
+
+        if (mode && !['upsert', 'replace_all'].includes(String(mode))) {
+            errors.push('Некорректный режим синхронизации рецепта.');
+        }
+
+        if (errors.length > 0) return _validationError(res, errors);
+        next();
+    },
+
+    /** POST /api/recipes/batch — пакетная загрузка рецептов продукции */
+    validateRecipeBatch: (req, res, next) => {
+        const { productIds } = req.body;
+        const errors = [];
+
+        if (!productIds || !Array.isArray(productIds)) {
+            errors.push('Передайте productIds (массив чисел).');
+        } else if (productIds.length === 0) {
+            errors.push('Массив productIds не должен быть пустым.');
+        } else if (productIds.length > 250) {
+            errors.push('Не более 250 товаров за один запрос.');
+        } else {
+            for (let i = 0; i < productIds.length; i++) {
+                const id = parseInt(productIds[i], 10);
+                if (!Number.isFinite(id) || id <= 0) {
+                    errors.push(`productIds[${i}]: некорректный ID товара.`);
+                    break;
                 }
             }
         }
@@ -923,7 +974,8 @@ module.exports = {
             'osv_materials',
             'osv_products',
             'turnover_finance',
-            'inventory_register'
+            'inventory_register',
+            'sales_analytics'
         ];
 
         if (!reportType || !allowedTypes.includes(reportType)) {
@@ -981,6 +1033,64 @@ module.exports = {
                 const allowedBalanceModes = ['nonzero', 'movement', 'credit', 'debit', 'all'];
                 if (!allowedBalanceModes.includes(String(filters.counterpartyBalanceMode))) {
                     errors.push(`filters.counterpartyBalanceMode должен быть одним из: ${allowedBalanceModes.join(', ')}.`);
+                }
+            }
+            if (filters.accountMovementMode !== undefined) {
+                const allowedAccountModes = ['all', 'movement'];
+                if (!allowedAccountModes.includes(String(filters.accountMovementMode))) {
+                    errors.push(`filters.accountMovementMode должен быть одним из: ${allowedAccountModes.join(', ')}.`);
+                }
+            }
+            if (filters.stockBalanceMode !== undefined) {
+                const allowedStockModes = ['nonzero', 'movement', 'shipment_only', 'all'];
+                if (!allowedStockModes.includes(String(filters.stockBalanceMode))) {
+                    errors.push(`filters.stockBalanceMode должен быть одним из: ${allowedStockModes.join(', ')}.`);
+                }
+            }
+            if (filters.stockValuationMode !== undefined) {
+                const allowedValuationModes = ['movement_actual', 'legacy_current_price'];
+                if (!allowedValuationModes.includes(String(filters.stockValuationMode))) {
+                    errors.push(`filters.stockValuationMode должен быть одним из: ${allowedValuationModes.join(', ')}.`);
+                }
+            }
+            if (filters.groupBy !== undefined) {
+                const allowedGroupBy = ['day', 'week', 'month'];
+                if (!allowedGroupBy.includes(String(filters.groupBy))) {
+                    errors.push(`filters.groupBy должен быть одним из: ${allowedGroupBy.join(', ')}.`);
+                }
+            }
+            if (filters.analyticsTab !== undefined) {
+                const allowedTabs = ['summary', 'products', 'profitability', 'forecast'];
+                if (!allowedTabs.includes(String(filters.analyticsTab))) {
+                    errors.push(`filters.analyticsTab должен быть одним из: ${allowedTabs.join(', ')}.`);
+                }
+            }
+            if (filters.topN !== undefined) {
+                const topN = Number(filters.topN);
+                if (!Number.isInteger(topN) || topN < 5 || topN > 100) {
+                    errors.push('filters.topN должен быть целым числом от 5 до 100.');
+                }
+            }
+            if (filters.forecastHorizon !== undefined) {
+                const allowedHorizons = [14, 30, 60, 90];
+                const horizon = Number(filters.forecastHorizon);
+                if (!allowedHorizons.includes(horizon)) {
+                    errors.push(`filters.forecastHorizon должен быть одним из: ${allowedHorizons.join(', ')}.`);
+                }
+            }
+            if (filters.includeReturns !== undefined && typeof filters.includeReturns !== 'boolean') {
+                errors.push('filters.includeReturns должен быть boolean.');
+            }
+            if (filters.includeOverhead !== undefined && typeof filters.includeOverhead !== 'boolean') {
+                errors.push('filters.includeOverhead должен быть boolean.');
+            }
+            if (filters.includeTaxes !== undefined && typeof filters.includeTaxes !== 'boolean') {
+                errors.push('filters.includeTaxes должен быть boolean.');
+            }
+            if (filters.taxRate !== undefined) {
+                const taxRate = Number(filters.taxRate);
+                if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
+                    errors.push('filters.taxRate должен быть числом от 0 до 100.');
                 }
             }
             ['regExcludeReserve', 'regExcludeAdjustments', 'regExcludeOffset', 'regExcludeTechnical'].forEach((k) => {

@@ -15,7 +15,7 @@
     </div>
 
     <div class="card p-15 mb-15 reports-filter-card">
-        <div class="reports-filters-grid">
+        <div class="reports-filters-grid reports-filters-grid-main reports-filter-row reports-filter-row--primary">
             <div class="form-group m-0">
                 <label>Документ</label>
                 <select id="reports-type" class="input-modern" onchange="reportsOnReportTypeChange()">
@@ -25,6 +25,7 @@
                     <option value="osv_products">ОСВ по продукции (Склад №4/№5)</option>
                     <option value="turnover_finance">Обороты по финстатьям</option>
                     <option value="inventory_register">Реестр движений запасов</option>
+                    <option value="sales_analytics">Аналитика продаж</option>
                 </select>
             </div>
             <div class="form-group m-0">
@@ -54,20 +55,23 @@
                     <option value="v2">Официальная форма v2 (расширенная)</option>
                 </select>
             </div>
-            <div class="form-group m-0">
+            <div class="form-group m-0" id="reports-fg-period">
                 <label>Период</label>
                 <div class="reports-period-row">
-                    <button id="reports-period-prev-btn" class="btn btn-outline btn-sm" type="button" onclick="window.reportsShiftPeriod(-1)" title="Назад">◀</button>
-                    <div class="reports-period-display-wrap">
-                        <input id="reports-period-display" type="text" class="input-modern" readonly onclick="reportsOpenPeriodPicker()">
-                        <button class="reports-period-icon-btn" type="button" onclick="reportsOpenPeriodPicker()" title="Выбрать дату" aria-label="Выбрать дату">📅</button>
+                    <div class="reports-period-nav" aria-label="Навигация по периоду">
+                        <button id="reports-period-prev-btn" class="btn btn-outline btn-sm" type="button" onclick="window.reportsShiftPeriod(-1)" title="Назад">◀</button>
+                        <div class="reports-period-display-wrap">
+                            <input id="reports-period-display" type="text" class="input-modern" readonly onclick="reportsOpenPeriodPicker()">
+                            <button class="reports-period-icon-btn" type="button" onclick="reportsOpenPeriodPicker()" title="Выбрать дату" aria-label="Выбрать дату">📅</button>
+                        </div>
+                        <button id="reports-period-next-btn" class="btn btn-outline btn-sm" type="button" onclick="window.reportsShiftPeriod(1)" title="Вперед">▶</button>
                     </div>
-                    <button id="reports-period-next-btn" class="btn btn-outline btn-sm" type="button" onclick="window.reportsShiftPeriod(1)" title="Вперед">▶</button>
-                    <select id="reports-period-mode" class="input-modern" onchange="reportsOnPeriodModeChange()">
+                    <select id="reports-period-mode" class="input-modern reports-period-mode-select" onchange="reportsOnPeriodModeChange()">
                         <option value="day">День</option>
                         <option value="month">Месяц</option>
                         <option value="quarter">Квартал</option>
                         <option value="year">Год</option>
+                        <option value="all_time">Все время</option>
                     </select>
                 </div>
                 <input id="reports-date-anchor" type="text" class="d-none" onchange="reportsOnPeriodAnchorChange()">
@@ -75,7 +79,7 @@
                 <input id="reports-date-to" type="hidden">
             </div>
         </div>
-        <div id="reports-extra-filters" class="reports-filters-grid mt-10">
+        <div id="reports-extra-filters" class="reports-filter-row reports-filter-row--extra mt-10">
             <div class="form-group m-0">
                 <label>Контрагент</label>
                 <select id="reports-filter-counterparty" class="input-modern" onchange="reportsLoadPreview()">
@@ -100,6 +104,13 @@
                 </select>
             </div>
             <div class="form-group m-0">
+                <label>Фильтр по счету</label>
+                <select id="reports-filter-account-movement" class="input-modern" onchange="reportsLoadPreview()">
+                    <option value="all">Все</option>
+                    <option value="movement">С движением по счету</option>
+                </select>
+            </div>
+            <div class="form-group m-0">
                 <label>Номенклатура</label>
                 <select id="reports-filter-item" class="input-modern" onchange="reportsLoadPreview()">
                     <option value="">Все</option>
@@ -116,6 +127,22 @@
                 </select>
             </div>
             <div class="form-group m-0">
+                <label>Остатки/движение</label>
+                <select id="reports-filter-stock-balance" class="input-modern" onchange="reportsLoadPreview()">
+                    <option value="nonzero">С остатком</option>
+                    <option value="movement">С движением</option>
+                    <option value="shipment_only">Только отгрузки</option>
+                    <option value="all">Все</option>
+                </select>
+            </div>
+            <div class="form-group m-0">
+                <label>Оценка суммы</label>
+                <select id="reports-filter-stock-valuation" class="input-modern" onchange="reportsLoadPreview()">
+                    <option value="movement_actual">Фактическая (по движениям)</option>
+                    <option value="legacy_current_price">Legacy (по текущей цене)</option>
+                </select>
+            </div>
+            <div class="form-group m-0">
                 <label>Тип движения</label>
                 <select id="reports-filter-movement-type" class="input-modern" onchange="reportsLoadPreview()">
                     <option value="">Все</option>
@@ -129,11 +156,41 @@
                     <option value="expense">Расход</option>
                 </select>
             </div>
+            <div class="form-group m-0" id="reports-fg-include-returns">
+                <label>Учет возвратов</label>
+                <label class="reports-inline-check reports-inline-check-pill reports-fg-include-returns-pill">
+                    <input id="reports-filter-include-returns" type="checkbox" checked onchange="reportsLoadPreview()">
+                    Включать возвраты/отмены
+                </label>
+            </div>
+            <div class="form-group m-0" id="reports-fg-sa-overhead">
+                <label for="reports-filter-overhead-rate">Оверхед (за цикл)</label>
+                <div class="reports-sa-overhead-controls">
+                    <label class="reports-inline-check reports-inline-check-pill m-0 reports-sa-overhead-toggle">
+                        <input id="reports-filter-include-overhead" type="checkbox" checked onchange="reportsLoadPreview()">
+                        Вкл.
+                    </label>
+                    <input id="reports-filter-overhead-rate" type="number" class="input-modern reports-sa-overhead-rate-input" min="0" step="0.01" inputmode="decimal" onchange="reportsLoadPreview()" onblur="reportsNormalizeOverheadInput()">
+                    <span class="text-muted reports-sa-overhead-unit">₽</span>
+                </div>
+            </div>
+            <div class="form-group m-0" id="reports-fg-sa-include-taxes">
+                <label>Налог в марже</label>
+                <label class="reports-inline-check reports-inline-check-pill reports-sa-tax-check">
+                    <input id="reports-filter-include-taxes" type="checkbox" onchange="reportsLoadPreview()">
+                    Учитывать в затратах
+                </label>
+            </div>
+            <div class="form-group m-0" id="reports-fg-sa-tax-rate">
+                <label for="reports-filter-tax-rate">Ставка, %</label>
+                <input id="reports-filter-tax-rate" type="number" class="input-modern reports-sa-tax-rate-input" min="0" max="100" step="0.1" value="20" onchange="reportsLoadPreview()">
+            </div>
+            <input id="reports-filter-analytics-tab" type="hidden" value="summary">
             <div class="form-group m-0 reports-actions-slot">
                 <label class="reports-actions-label" aria-hidden="true">Действия</label>
                 <div class="reports-filter-actions">
                     <div class="reports-filter-actions-main">
-                        <label class="reports-inline-check reports-inline-check-pill">
+                        <label id="reports-filter-exclude-employees-wrap" class="reports-inline-check reports-inline-check-pill">
                             <input id="reports-filter-exclude-employees" type="checkbox" checked onchange="reportsLoadPreview()">
                             Не учитывать сотрудников
                         </label>
@@ -157,6 +214,32 @@
             <h3 id="reports-title" class="m-0 font-16">Отчет</h3>
             <span id="reports-meta" class="text-muted font-12"></span>
         </div>
+        <div id="reports-analytics-kpis" class="reports-analytics-kpis d-none"></div>
+        <div id="reports-tabs" class="reports-tabs d-none"></div>
+        <div id="reports-sales-analytics-topn-toolbar" class="reports-sales-analytics-topn-toolbar reports-hidden" role="region" aria-label="Ограничение длины таблиц аналитики">
+            <div class="reports-sa-topn-main">
+                <label for="reports-filter-topn" class="reports-sa-topn-label">Длина списков в таблицах</label>
+                <select id="reports-filter-topn" class="input-modern reports-sa-topn-select" onchange="reportsLoadPreview()">
+                    <option value="10">Топ&nbsp;10</option>
+                    <option value="20" selected>Топ&nbsp;20</option>
+                    <option value="30">Топ&nbsp;30</option>
+                    <option value="50">Топ&nbsp;50</option>
+                </select>
+            </div>
+            <p class="reports-sa-topn-explainer text-muted font-11 m-0">Ограничивает число строк на вкладках «По продукции», «Рентабельность» и «Прогноз» (сортировка по метрикам отчёта). Не связано со страницами реестров и не заменяет листание внизу, если документ поддерживает пагинацию.</p>
+        </div>
+        <div id="reports-sa-forecast-horizon-bar" class="reports-sa-forecast-horizon-bar reports-hidden" role="region" aria-label="Горизонт прогноза выпуска">
+            <div class="reports-sa-topn-main">
+                <label for="reports-filter-forecast-horizon" class="reports-sa-topn-label">Горизонт прогноза</label>
+                <select id="reports-filter-forecast-horizon" class="input-modern reports-sa-topn-select" onchange="reportsLoadPreview()">
+                    <option value="14">14 дней</option>
+                    <option value="30" selected>30 дней</option>
+                    <option value="60">60 дней</option>
+                    <option value="90">90 дней</option>
+                </select>
+            </div>
+            <p class="reports-sa-topn-explainer text-muted font-11 m-0">Влияет только на вкладку «Прогноз выпуска»: колонку спроса, приоритеты и строки «необходимо произвести».</p>
+        </div>
         <div class="table-responsive reports-preview-scroll">
             <table class="data-table" id="reports-table">
                 <colgroup id="reports-colgroup"></colgroup>
@@ -167,9 +250,9 @@
                 <tfoot id="reports-foot"></tfoot>
             </table>
         </div>
-        <div class="reports-actions mt-10">
-            <button class="btn btn-outline btn-sm" onclick="reportsChangePage(-1)">Предыдущая</button>
-            <button class="btn btn-outline btn-sm" onclick="reportsChangePage(1)">Следующая</button>
+        <div id="reports-pagination-bar" class="reports-pagination-bar reports-hidden mt-10 flex gap-8 flex-wrap align-center">
+            <button type="button" class="btn btn-outline btn-sm" onclick="reportsChangePage(-1)">Предыдущая страница</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="reportsChangePage(1)">Следующая страница</button>
         </div>
         <div id="reports-totals" class="reports-totals mt-10"></div>
     </div>
@@ -198,6 +281,7 @@
                         <option value="osv_products">ОСВ продукции</option>
                         <option value="turnover_finance">Обороты финстатей</option>
                         <option value="inventory_register">Реестр движений</option>
+                        <option value="sales_analytics">Аналитика продаж</option>
                     </select>
                     <select id="reports-runs-format" class="input-modern" onchange="reportsLoadRuns()">
                         <option value="">Все форматы</option>

@@ -27,15 +27,85 @@ async function initSystemTables(pool) {
             )
         `);
 
-        // Индексы для audit_logs
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS report_presets (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER,
+                name VARCHAR(150) NOT NULL,
+                report_type VARCHAR(100) NOT NULL,
+                payload JSONB NOT NULL,
+                is_shared BOOLEAN DEFAULT false,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        `);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS report_runs (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER,
+                username VARCHAR(100),
+                report_type VARCHAR(100) NOT NULL,
+                date_from DATE,
+                date_to DATE,
+                accounting_mode VARCHAR(20),
+                format VARCHAR(20),
+                rows_count INTEGER,
+                payload JSONB,
+                payload_hash VARCHAR(64),
+                preflight_status VARCHAR(20),
+                preflight_reason TEXT,
+                generated_at TIMESTAMP DEFAULT NOW()
+            )
+        `);
+
+        await pool.query(`ALTER TABLE report_runs ADD COLUMN IF NOT EXISTS payload JSONB`);
+        await pool.query(`ALTER TABLE report_runs ADD COLUMN IF NOT EXISTS payload_hash VARCHAR(64)`);
+        await pool.query(`ALTER TABLE report_runs ADD COLUMN IF NOT EXISTS preflight_status VARCHAR(20)`);
+        await pool.query(`ALTER TABLE report_runs ADD COLUMN IF NOT EXISTS preflight_reason TEXT`);
+
         await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC)`);
         await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id)`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_report_presets_user ON report_presets(user_id)`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_report_runs_type ON report_runs(report_type, generated_at DESC)`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_report_runs_preflight ON report_runs(preflight_status, generated_at DESC)`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_report_runs_payload_hash ON report_runs(payload_hash)`);
+
+        // Миграция: поле default_layer в items — единая точка истины для авто-суггестии слоя при добавлении сырья
+        await pool.query(`ALTER TABLE items ADD COLUMN IF NOT EXISTS default_layer VARCHAR(20) DEFAULT 'main'`);
+        // Предзаполнение: упаковочные материалы
+        await pool.query(`
+            UPDATE items SET default_layer = 'packaging'
+            WHERE item_type = 'material'
+              AND default_layer = 'main'
+              AND (
+                name ILIKE '%упаков%' OR name ILIKE '%паллет%' OR name ILIKE '%поддон%'
+                OR name ILIKE '%пленк%' OR name ILIKE '%стреп%' OR name ILIKE '%этикет%'
+                OR name ILIKE '%мешок%' OR category ILIKE '%упаков%'
+              )
+        `);
+        // Предзаполнение: лицевые материалы
+        await pool.query(`
+            UPDATE items SET default_layer = 'face'
+            WHERE item_type = 'material'
+              AND default_layer = 'main'
+              AND (
+                name ILIKE '%пигмент%' OR name ILIKE '%красит%'
+                OR name ILIKE '%белый цемент%' OR name ILIKE '%диоксид%'
+                OR name ILIKE '%пластификатор лиц%'
+              )
+        `);
 
         // Настройки по умолчанию (если пусты)
         await pool.query(`
             INSERT INTO system_settings (key, value, description)
             VALUES 
                 ('company_name', 'ПЛИТТЕКС', 'Название компании'),
+                ('company_inn', '', 'ИНН компании'),
+                ('company_kpp', '', 'КПП компании'),
+                ('company_address', '', 'Юридический адрес компании'),
+                ('company_director', '', 'ФИО руководителя'),
+                ('company_accountant', '', 'ФИО главного бухгалтера'),
+                ('reports_preflight_mode', 'warning', 'Режим preflight для отчетов: warning | hard_fail'),
                 ('backup_retention_days', '30', 'Срок хранения бэкапов (дней)'),
                 ('vat_rate', '22', 'Ставка НДС (%)'),
                 ('lock_finance_date', '', 'Дата блокировки редактирования финансов')

@@ -8,6 +8,23 @@ const fsPromises = require('fs').promises;
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
 
 module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
+    /** Форма печати (КП, бланк): корзина с себестоимостью легко превышает лимит 100kb у urlencoded по умолчанию */
+    const printFormParser = express.urlencoded({ extended: true, limit: '10mb' });
+
+    function numToBig(v) {
+        if (v == null || v === '') return new Big(0);
+        if (typeof v === 'number' && Number.isFinite(v)) return new Big(v);
+        const n = parseFloat(String(v).replace(/\s/g, '').replace(',', '.'));
+        if (!Number.isFinite(n)) return new Big(0);
+        return new Big(n);
+    }
+
+    function clampPctBig(b) {
+        if (b.lt(0)) return new Big(0);
+        if (b.gt(100)) return new Big(100);
+        return b;
+    }
+
     async function rotateDocs(directory, maxFiles = 500) {
         try {
             const files = await fsPromises.readdir(directory);
@@ -417,15 +434,37 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     });
 
     // 8.1 БЛАНК ЗАКАЗА (Черновик из корзины до сохранения)
-    router.post('/print/blank_order_draft', authenticateToken, express.urlencoded({ extended: true }), async (req, res) => {
+    router.get('/print/blank_order_draft', (req, res) => {
+        res.status(405).type('html').send('<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>Бланк-заказ</title></head><body style="font-family:sans-serif;max-width:560px;margin:40px auto;padding:0 16px;">'
+            + '<h1>Черновик бланка заказа</h1><p>Печать возможна <strong>только POST</strong> из «Продаж» (кнопка печати черновика); токен в теле формы.</p></body></html>');
+    });
+
+    router.post('/print/blank_order_draft', printFormParser, authenticateToken, async (req, res) => {
         try {
             if (!req.body || !req.body.data) return res.status(400).send('Нет данных');
-            const data = JSON.parse(req.body.data);
+            let data;
+            try {
+                data = JSON.parse(req.body.data);
+            } catch (pe) {
+                return res.status(400).send('Некорректный JSON данных');
+            }
+            const cid = data.client_id;
+            const clientIdNum = typeof cid === 'number' ? cid : parseInt(String(cid), 10);
+            if (!Number.isFinite(clientIdNum) || clientIdNum <= 0) {
+                return res.status(400).send('Не указан контрагент');
+            }
 
-            const clientRes = await pool.query('SELECT name, inn, phone, legal_address, director_name FROM counterparties WHERE id = $1', [data.client_id]);
+            const clientRes = await pool.query('SELECT name, inn, phone, legal_address, director_name FROM counterparties WHERE id = $1', [clientIdNum]);
             const c = clientRes.rows[0] || { name: 'Неизвестный клиент' };
 
-            const items = data.items.map(item => ({ name: item.name, unit: item.unit, qty: parseFloat(item.qty || 0), price: parseFloat(item.price || 0), discount: parseFloat(item.discount || 0) }));
+            const rawItems = Array.isArray(data.items) ? data.items : [];
+            const items = rawItems.map(item => ({
+                name: item.name,
+                unit: item.unit,
+                qty: parseFloat(item.qty || 0) || 0,
+                price: parseFloat(item.price || 0) || 0,
+                discount: parseFloat(item.discount || 0) || 0
+            }));
 
             if (parseInt(data.pallets) > 0) {
                 items.push({ name: 'Поддон деревянный (возвратная тара)', unit: 'шт', qty: data.pallets, price: 0, discount: 0 });
@@ -440,7 +479,7 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
                 paymentMethod: data.paymentMethod, advanceAmount: data.advanceAmount,
                 vatRate: ERP_CONFIG.vatRate || 20
             });
-        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) { logger.error('blank_order_draft:', err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
     // 9. ПАСПОРТ ПАРТИИ (Passport)
@@ -471,8 +510,10 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
 
             rotateDocs(dir, 500);
             res.json({ success: true, filename: finalFilename });
-        logger.error(err);
-        } catch (err) { res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+        } catch (err) {
+            logger.error('save-pdf:', err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+        }
     });
 
     // 11. КАРТОЧКА ПРЕДПРИЯТИЯ (Реквизиты)
@@ -490,33 +531,52 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     });
 
     // 12. КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ (KP)
-    router.post('/print/kp', authenticateToken, express.urlencoded({ extended: true }), async (req, res) => {
+    // GET только для подсказки: печать идёт POST из продаж с print_token и data в теле (в URL токена нет и не нужен).
+    router.get('/print/kp', (req, res) => {
+        res.status(405).type('html').send('<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>Печать КП</title></head><body style="font-family:sans-serif;max-width:560px;margin:40px auto;padding:0 16px;">'
+            + '<h1>Печать КП</h1><p>Документ отправляется <strong>только методом POST</strong> из модуля «Продажи» (кнопка «Печать КП»).</p>'
+            + '<p>Токен печати — поле <code>print_token</code> в теле запроса; при переходе сюда вручную из адресной строки контекста авторизации нет.</p>'
+            + '</body></html>');
+    });
+
+    router.post('/print/kp', printFormParser, authenticateToken, async (req, res) => {
         try {
             if (!req.body || !req.body.data) return res.status(400).send('Нет данных для КП');
-            const data = JSON.parse(req.body.data);
+            let data;
+            try {
+                data = JSON.parse(req.body.data);
+            } catch (pe) {
+                return res.status(400).send('Некорректный JSON данных');
+            }
+            const cid = data.client_id;
+            const clientIdNum = typeof cid === 'number' ? cid : parseInt(String(cid), 10);
+            if (!Number.isFinite(clientIdNum) || clientIdNum <= 0) {
+                return res.status(400).send('Не указан контрагент');
+            }
 
-            const clientRes = await pool.query('SELECT name, inn, phone, email FROM counterparties WHERE id = $1', [data.client_id]);
+            const clientRes = await pool.query('SELECT name, inn, phone, email FROM counterparties WHERE id = $1', [clientIdNum]);
             const clientInfo = clientRes.rows[0] || { name: 'Неизвестный клиент' };
 
             let totalSum = new Big(0);
             let totalWeight = new Big(0);
 
-            const items = data.items.map(item => {
-                const price = new Big(item.price);
-                const qty = new Big(item.qty);
-                const discount = new Big(item.discount || 0);
+            const rawItems = Array.isArray(data.items) ? data.items : [];
+            const items = rawItems.map(item => {
+                const price = numToBig(item.price);
+                const qty = numToBig(item.qty);
+                const discount = clampPctBig(numToBig(item.discount));
 
                 const finalPrice = price.times(new Big(1).minus(discount.div(100)));
                 const sum = qty.times(finalPrice);
 
                 totalSum = totalSum.plus(sum);
-                totalWeight = totalWeight.plus(item.weight || 0);
+                totalWeight = totalWeight.plus(numToBig(item.weight));
 
                 return { ...item, finalPrice: finalPrice.toFixed(2), sum: sum.toFixed(2) };
             });
 
-            const globalDiscount = new Big(data.discount || 0);
-            const logistics = new Big(data.logistics || 0);
+            const globalDiscount = clampPctBig(numToBig(data.discount));
+            const logistics = numToBig(data.logistics);
 
             const finalTotal = totalSum.times(new Big(1).minus(globalDiscount.div(100))).plus(logistics);
 

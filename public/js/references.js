@@ -242,6 +242,10 @@
         <p class="font-12 text-danger mt-10">
             ⚠️ База данных запретит удаление, если этот товар используется в рецептах или уже есть на складе.
         </p>
+        <div class="form-group m-0">
+            <label>Причина удаления (обязательно)</label>
+            <textarea id="ref-delete-reason" class="input-modern" rows="3" placeholder="Например: дубликат позиции"></textarea>
+        </div>
     `;
         const buttons = `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
@@ -251,8 +255,10 @@
     };
 
     window.confirmDeleteRef = async function (id) {
+        const reason = (document.getElementById('ref-delete-reason')?.value || '').trim();
+        if (!reason) return UI.toast('Укажите причину удаления позиции', 'warning');
         try {
-            await API.delete(`/api/items/${id}`);
+            await API.delete(`/api/items/${id}?reason=${encodeURIComponent(reason)}`);
             if (true) {
                 UI.closeModal();
                 UI.toast('Позиция удалена', 'success');

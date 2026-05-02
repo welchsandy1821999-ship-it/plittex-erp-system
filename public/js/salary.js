@@ -334,6 +334,10 @@
         <div class="p-15 text-center font-15">
             Вы уверены, что хотите <b>НАВСЕГДА</b> удалить карточку <br><b class="text-danger font-18">${Utils.escapeHtml(name)}</b>?<br><br>
             <small class="text-muted">Удаляйте только в том случае, если сотрудник был добавлен по ошибке и по нему еще нет табелей. Иначе старые расчеты могут сломаться.</small>
+        </div>
+        <div class="form-group m-0">
+            <label>Причина удаления (обязательно)</label>
+            <textarea id="salary-delete-employee-reason" class="input-modern" rows="3" placeholder="Например: сотрудник создан по ошибке"></textarea>
         </div>`;
 
         UI.showModal('⚠️ Полное удаление из базы', html, `
@@ -343,9 +347,11 @@
     };
 
     window.executeHardDelete = async function (id) {
+        const reason = (document.getElementById('salary-delete-employee-reason')?.value || '').trim();
+        if (!reason) return UI.toast('Укажите причину удаления сотрудника', 'warning');
         UI.toast('⏳ Удаление...', 'info');
         try {
-            await API.delete(`/api/employees/${id}`);
+            await API.delete(`/api/employees/${id}?reason=${encodeURIComponent(reason)}`);
             UI.closeModal();
             UI.toast('✅ Сотрудник полностью удален из базы', 'success');
             loadEmployees(); // Обновляем таблицы
@@ -1010,6 +1016,10 @@
                 <li>Налог (<b class="text-main">${Utils.formatMoney(totalTaxes).replace(" ₽", "")} ₽</b>) будет зафиксирован.</li>
                 <li>Текущие балансы "К ВЫДАЧЕ" станут начальным долгом/переплатой на следующий месяц.</li>
             </ul>
+            <div class="form-group mt-10 mb-0">
+                <label>Причина закрытия (обязательно)</label>
+                <textarea id="salary-close-month-reason" class="input-modern" rows="3" placeholder="Например: период полностью проверен и согласован"></textarea>
+            </div>
         </div>
     `;
 
@@ -1024,11 +1034,13 @@
 
     // ВЫПОЛНЕНИЕ
     window.executeCloseSalaryMonth = async function (monthStr, totalTaxes) {
+        const reason = (document.getElementById('salary-close-month-reason')?.value || '').trim();
+        if (!reason) return UI.toast('Укажите причину закрытия месяца', 'warning');
         UI.closeModal();
         UI.toast(`⏳ Закрытие периода ${monthStr}...`, 'info');
 
         try {
-            await API.post('/api/salary/close-month', { monthStr, balances: currentMonthBalances, totalTaxes }); UI.toast('✅ Месяц успешно закрыт! Балансы зафиксированы.', 'success'); setTimeout(() => location.reload(), 1500);
+            await API.post('/api/salary/close-month', { monthStr, balances: currentMonthBalances, totalTaxes, reason }); UI.toast('✅ Месяц успешно закрыт! Балансы зафиксированы.', 'success'); setTimeout(() => location.reload(), 1500);
         } catch (e) { console.error(e); }
     };
 
@@ -1051,6 +1063,10 @@
                 <li>Автоматические транзакции "Начисление ЗП" за этот месяц будут <b>УДАЛЕНЫ</b>.</li>
                 <li>После отмены вы обязаны проверить данные и закрыть месяц снова!</li>
             </ul>
+            <div class="form-group mt-10 mb-0">
+                <label>Причина отмены закрытия (обязательно)</label>
+                <textarea id="salary-reopen-month-reason" class="input-modern" rows="3" placeholder="Например: выявлены ошибки в табеле/выплатах"></textarea>
+            </div>
         </div>
     `;
 
@@ -1064,12 +1080,14 @@
     };
 
     window.executeReopenSalaryMonth = async function (monthStr) {
+        const reason = (document.getElementById('salary-reopen-month-reason')?.value || '').trim();
+        if (!reason) return UI.toast('Укажите причину отмены закрытия месяца', 'warning');
         UI.closeModal();
         UI.toast(`⏳ Математический откат балансов периода ${monthStr}...`, 'info');
 
         try {
             // Отправляем текущие посчитанные балансы (diff_to_subtract)
-            await API.post('/api/salary/reopen-month', { monthStr, balances: currentMonthBalances }); UI.toast('✅ Месяц успешно открыт! Балансы и транзакции откачены.', 'success'); setTimeout(() => location.reload(), 2000);
+            await API.post('/api/salary/reopen-month', { monthStr, balances: currentMonthBalances, reason }); UI.toast('✅ Месяц успешно открыт! Балансы и транзакции откачены.', 'success'); setTimeout(() => location.reload(), 2000);
         } catch (e) { console.error(e); }
     };
 
@@ -1114,17 +1132,38 @@
         } catch (e) { }
     };
     window.deleteAdjustment = async function (id) {
-        try { await API.delete(`/api/salary/adjustments/${id}`); UI.closeModal(); loadMonthlyTimesheet(); } catch (e) { }
+        UI.showModal('Удаление корректировки', `
+            <div class="form-group m-0">
+                <label>Причина удаления (обязательно)</label>
+                <textarea id="salary-delete-adjustment-reason" class="input-modern" rows="3" placeholder="Например: ошибочная корректировка"></textarea>
+            </div>
+        `, `
+            <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+            <button class="btn btn-red" onclick="executeDeleteAdjustment(${id})">Удалить</button>
+        `);
+    };
+    window.executeDeleteAdjustment = async function (id) {
+        const reason = (document.getElementById('salary-delete-adjustment-reason')?.value || '').trim();
+        if (!reason) return UI.toast('Укажите причину удаления корректировки', 'warning');
+        try { await API.delete(`/api/salary/adjustments/${id}?reason=${encodeURIComponent(reason)}`); UI.closeModal(); loadMonthlyTimesheet(); } catch (e) { }
     };
     window.deleteSalaryPayment = function (paymentId) {
-        UI.showModal('⚠️ Подтверждение удаления', '<div class="text-center"><p class="font-16 mb-10">Аннулировать эту выплату?</p></div>', `
+        UI.showModal('⚠️ Подтверждение удаления', `
+        <div class="text-center"><p class="font-16 mb-10">Аннулировать эту выплату?</p></div>
+        <div class="form-group m-0">
+            <label>Причина удаления (обязательно)</label>
+            <textarea id="salary-delete-payment-reason" class="input-modern" rows="3" placeholder="Например: ошибочная выплата"></textarea>
+        </div>
+        `, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
         <button class="btn btn-outline border-danger text-danger" onclick="executeDeleteSalaryPayment(${paymentId})">🗑️ Да, удалить</button>
     `);
     };
     window.executeDeleteSalaryPayment = async function (paymentId) {
+        const reason = (document.getElementById('salary-delete-payment-reason')?.value || '').trim();
+        if (!reason) return UI.toast('Укажите причину удаления выплаты', 'warning');
         try {
-            await API.delete(`/api/salary/payment/${paymentId}`);
+            await API.delete(`/api/salary/payment/${paymentId}?reason=${encodeURIComponent(reason)}`);
             if (true) {
                 UI.closeModal(); UI.toast('✅ Выплата аннулирована', 'success'); loadMonthlyTimesheet(); if (typeof loadFinanceData === 'function') loadFinanceData();
             }

@@ -1,11 +1,7 @@
 <div id="fin-mod" class="module">
-    <div class="flex-between align-end mb-20">
-        <div>
-            <h2 class="mt-0 mb-0">💰 Финансы и Касса</h2>
-            <div class="flex-row gap-10 mt-10">
-                <button id="fin-tab-ops" class="btn btn-blue" onclick="switchFinanceTab('ops')">📊 Операции</button>
-                <button id="fin-tab-dict" class="btn btn-outline" onclick="switchFinanceTab('dict')">⚙️ Справочник ДДС</button>
-            </div>
+    <div class="finance-header-row mb-20">
+        <div class="finance-header-title-wrap">
+            <h2 class="mt-0 mb-0 finance-page-title">💰 Финансы и Касса</h2>
         </div>
 
         <div class="finance-toolbar flex-row align-center">
@@ -15,13 +11,14 @@
         </div>
     </div>
 
-    <div id="fin-view-ops">
+    <h3 class="finance-section-title">📌 Обзор периода</h3>
     <div class="account-grid" id="accounts-container"></div>
     <div class="summary-grid mb-20" id="finance-summary-boxes"></div>
 
     <div id="cashflow-widget" class="mb-20"></div>
     <div id="tax-widget-container" class="mb-20"></div>
 
+    <h3 class="finance-section-title">📈 Аналитика</h3>
     <div class="card mb-20 p-0 overflow-hidden">
         <div class="p-15 cursor-pointer flex-between align-center bg-surface-hover"
             onclick="const profitContainer=document.getElementById('profit-analysis-container'); const profitIcon=this.querySelector('.acc-icon'); profitContainer.classList.toggle('d-none'); profitIcon.innerText=profitContainer.classList.contains('d-none')?'▼ РАСКРЫТЬ':'▲ СВЕРНУТЬ';">
@@ -35,18 +32,31 @@
     </div>
 
     <div class="form-grid finance-charts-grid">
-        <div class="card mb-0">
-            <h4 class="mt-0 mb-15 text-muted font-14">Динамика денежных потоков</h4>
-            <div class="finance-chart-container"><canvas id="chart-finance-flow"></canvas></div>
+        <div class="card mb-0 p-0 overflow-hidden">
+            <div class="p-15 cursor-pointer flex-between align-center bg-surface-hover"
+                onclick="toggleFinanceAccordion('finance-flow-card-body', this.querySelector('.acc-icon'));">
+                <h4 class="m-0 text-muted font-14">Динамика денежных потоков</h4>
+                <div class="text-muted font-11 font-bold acc-icon user-select-none">▼ РАСКРЫТЬ</div>
+            </div>
+            <div id="finance-flow-card-body" class="d-none border-top p-15">
+                <div class="finance-chart-container"><canvas id="chart-finance-flow"></canvas></div>
+            </div>
         </div>
-        <div class="card mb-0">
-            <h4 class="mt-0 mb-15 text-muted font-14">Статьи расходов</h4>
-            <div class="finance-chart-container"><canvas id="chart-finance-categories"></canvas></div>
+        <div class="card mb-0 p-0 overflow-hidden">
+            <div class="p-15 cursor-pointer flex-between align-center bg-surface-hover"
+                onclick="toggleFinanceAccordion('finance-categories-card-body', this.querySelector('.acc-icon'));">
+                <h4 class="m-0 text-muted font-14">Статьи расходов</h4>
+                <div class="text-muted font-11 font-bold acc-icon user-select-none">▼ РАСКРЫТЬ</div>
+            </div>
+            <div id="finance-categories-card-body" class="d-none border-top p-15">
+                <div class="finance-chart-container"><canvas id="chart-finance-categories"></canvas></div>
+            </div>
         </div>
     </div>
 
-    <div class="flex-between mb-20">
-        <div class="toolbar-group">
+    <h3 class="finance-section-title">⚡ Быстрые действия</h3>
+    <div class="finance-actions-row mb-20">
+        <div class="toolbar-group finance-actions-primary">
             <button class="btn btn-blue" onclick="openTransactionModal()">➕ Добавить операцию</button>
             <button class="btn btn-outline btn-outline-primary" onclick="openTransferModal()">🔄 Перевод</button>
             <button class="btn btn-gray" onclick="openBankImportModal()">🏦 Выписка (1С)</button>
@@ -56,12 +66,13 @@
                 платежей</button>
             <button class="btn btn-outline text-muted" onclick="openLockModal()">🔒 Закрыть период</button>
         </div>
-        <div class="toolbar-group">
+        <div class="toolbar-group finance-actions-secondary">
+            <button class="btn btn-outline" onclick="openFinanceDictionaryModal()">⚙️ Справочник ДДС</button>
             <button class="btn btn-outline" onclick="openCounterpartiesModal()">👥 Контрагенты</button>
-            
         </div>
     </div>
 
+    <h3 class="finance-section-title">🧾 Ожидаемые оплаты</h3>
     <div id="invoices-container" class="finance-invoices-wrap card mb-20 p-0 d-none overflow-hidden">
         <div class="p-15 cursor-pointer flex-between align-center bg-surface-hover"
             onclick="const invBody=document.getElementById('invoices-body'); const invIcon=this.querySelector('.acc-icon'); invBody.classList.toggle('d-none'); invIcon.innerText=invBody.classList.contains('d-none')?'▼ РАСКРЫТЬ':'▲ СВЕРНУТЬ';">
@@ -96,8 +107,9 @@
         <button class="btn btn-red" onclick="executeBulkDelete()">🗑️ Удалить выбранные</button>
     </div>
 
+    <h3 class="finance-section-title">📋 Операции</h3>
     <div class="flex-between mb-15">
-        <h3 class="mt-0 mb-0 text-main font-16">📋 История операций</h3>
+        <div class="font-bold text-main font-16">История операций</div>
         <input type="text" id="finance-search" class="input-modern finance-search-input" placeholder="🔍 Поиск..."
             oninput="triggerFinanceSearch()">
     </div>
@@ -159,42 +171,4 @@
         <button id="finance-btn-next" class="btn btn-outline btn-sm" onclick="changeFinancePage(1)">Вперед ➡</button>
     </div>
 
-    </div> <!-- end of fin-view-ops -->
-
-    <!-- СПРАВОЧНИК ДДС ВИД (DICTIONARY VIEW) -->
-    <div id="fin-view-dict" class="d-none">
-        <div class="flex-between mb-20">
-            <h3 class="m-0">Управление статьями доходов и расходов</h3>
-            <div class="toolbar-group">
-                <button class="btn btn-outline text-warning" onclick="openCategoryMergeModal()">🖇️ Объединить дубликаты</button>
-                <button class="btn btn-outline border-warning text-warning" onclick="openOrphansModal()">⚠️ Обезличенные</button>
-                <button class="btn btn-blue" onclick="openCategoryEditModal()">➕ Добавить статью</button>
-            </div>
-        </div>
-
-        <div class="toolbar-group mb-15 card-alt p-10">
-            <button id="dict-tab-type-all" class="btn btn-blue dict-type-btn" onclick="setDictTypeFilter('all')">📋 Все статьи</button>
-            <button id="dict-tab-type-income" class="btn btn-outline btn-outline-success dict-type-btn" onclick="setDictTypeFilter('income')">🟢 Доходы</button>
-            <button id="dict-tab-type-expense" class="btn btn-outline btn-outline-danger dict-type-btn" onclick="setDictTypeFilter('expense')">🔴 Расходы</button>
-        </div>
-
-        <div class="card p-0 overflow-hidden">
-            <table class="finance-table w-100" id="fin-dict-table">
-                <thead class="bg-surface-alt">
-                    <tr>
-                        <th class="w-5 text-center"><input type="checkbox" id="finCatSelectAll" onchange="toggleSelectAllCategories(this)"></th>
-                        <th class="text-left w-30">Название статьи</th>
-                        <th class="text-center w-15">Направление</th>
-                        <th class="text-center w-15">Тип затрат</th>
-                        <th class="text-right w-15">Лимит (мес)</th>
-                        <th class="text-center w-10">Статус</th>
-                        <th class="text-center w-10">⚙️</th>
-                    </tr>
-                </thead>
-                <tbody id="fin-dict-tbody">
-                    <!-- Загружается через JS -->
-                </tbody>
-            </table>
-        </div>
-    </div> <!-- end of fin-view-dict -->
 </div>

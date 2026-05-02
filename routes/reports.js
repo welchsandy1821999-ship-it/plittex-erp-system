@@ -3,6 +3,7 @@ const ExcelJS = require('exceljs');
 const crypto = require('crypto');
 const { validateReportRequest } = require('../middleware/validator');
 const { auditLog } = require('../utils/db_init');
+const { buildSalesAnalyticsUnitCostMap } = require('../utils/salesAnalyticsUnitCost');
 const { requireAdmin, requireReportAccess, hasReportPermission } = require('../middleware/auth');
 
 const REPORT_TYPES = new Set([
@@ -11,7 +12,8 @@ const REPORT_TYPES = new Set([
     'osv_materials',
     'osv_products',
     'turnover_finance',
-    'inventory_register'
+    'inventory_register',
+    'sales_analytics'
 ]);
 
 function toIsoDateStart(s) {
@@ -52,6 +54,15 @@ function normalizeDrilldownAccountName(v) {
     out = out.replace(/[\/,.-]\s*$/g, '');
     out = out.replace(/\s{2,}/g, ' ').trim();
     return out || src;
+}
+
+function getCashAccountOrderWeight(name) {
+    const n = String(name || '').toLowerCase();
+    if (n.includes('касса')) return 0;
+    if (n.includes('точка')) return 1;
+    if (n.includes('альфа') || n.includes('alpha')) return 2;
+    if (n.includes('подотч')) return 4;
+    return 3;
 }
 
 function buildRunsCsv(rows = []) {
@@ -108,6 +119,7 @@ async function initReportsInfra(pool) {
     await pool.query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS reg_document_no VARCHAR(120)`);
     await pool.query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS reg_document_date DATE`);
     await pool.query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS reg_source_tag VARCHAR(40)`);
+    await pool.query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS unit_price NUMERIC(14,4)`);
     await pool.query(`UPDATE inventory_movements SET reg_is_posted = true WHERE reg_is_posted IS NULL`);
     await pool.query(`UPDATE inventory_movements SET reg_is_primary_doc = false WHERE reg_is_primary_doc IS NULL`);
     await pool.query(`UPDATE inventory_movements SET reg_source_tag = 'legacy' WHERE reg_source_tag IS NULL OR TRIM(reg_source_tag) = ''`);
@@ -157,6 +169,109 @@ function reportTotalLabel(k = '') {
         rows_total: 'Строк (всего)'
     };
     return map[k] || k;
+}
+
+async function buildInventoryValuationCoverage(pool, period = null, warehouseTypes = null) {
+    const params = [];
+    let where = 'WHERE 1=1';
+    if (period && period.fromTs && period.toTs) {
+        params.push(period.fromTs, period.toTs);
+        where += ` AND ${reportDateExpr('m')} >= $${params.length - 1}::timestamp AND ${reportDateExpr('m')} <= $${params.length}::timestamp `;
+    }
+    if (Array.isArray(warehouseTypes) && warehouseTypes.length) {
+        params.push(warehouseTypes);
+        where += ` AND w.type = ANY($${params.length}::text[]) `;
+    }
+    const sql = `
+        SELECT
+            m.movement_type,
+            COUNT(*)::int AS total_rows,
+            SUM(CASE WHEN NULLIF(m.unit_price, 0) IS NOT NULL THEN 1 ELSE 0 END)::int AS unit_price_rows,
+            SUM(CASE WHEN NULLIF(m.unit_price, 0) IS NULL AND m.movement_type IN ('sales_shipment', 'shipment_reversal') AND coi.price IS NOT NULL THEN 1 ELSE 0 END)::int AS shipment_price_rows,
+            SUM(CASE WHEN NULLIF(m.unit_price, 0) IS NULL AND NOT (m.movement_type IN ('sales_shipment', 'shipment_reversal') AND coi.price IS NOT NULL) THEN 1 ELSE 0 END)::int AS fallback_rows
+        FROM inventory_movements m
+        JOIN warehouses w ON w.id = m.warehouse_id
+        LEFT JOIN client_order_items coi ON coi.id = m.linked_order_item_id
+        ${where}
+        GROUP BY m.movement_type
+        ORDER BY total_rows DESC, m.movement_type ASC
+    `;
+    const res = await pool.query(sql, params);
+    const rows = (res.rows || []).map((r) => ({
+        movement_type: r.movement_type,
+        total_rows: Number(r.total_rows || 0),
+        unit_price_rows: Number(r.unit_price_rows || 0),
+        shipment_price_rows: Number(r.shipment_price_rows || 0),
+        fallback_rows: Number(r.fallback_rows || 0),
+        coverage_pct: Number((Number(r.total_rows || 0) > 0
+            ? ((Number(r.unit_price_rows || 0) + Number(r.shipment_price_rows || 0)) * 100 / Number(r.total_rows || 1))
+            : 100).toFixed(2))
+    }));
+    const totals = {
+        total_rows: rows.reduce((s, r) => s + r.total_rows, 0),
+        unit_price_rows: rows.reduce((s, r) => s + r.unit_price_rows, 0),
+        shipment_price_rows: rows.reduce((s, r) => s + r.shipment_price_rows, 0),
+        fallback_rows: rows.reduce((s, r) => s + r.fallback_rows, 0)
+    };
+    totals.coverage_pct = Number((totals.total_rows > 0
+        ? ((totals.unit_price_rows + totals.shipment_price_rows) * 100 / totals.total_rows)
+        : 100).toFixed(2));
+    return { rows, totals };
+}
+
+async function backfillInventoryUnitPrice(pool, period, apply = false, warehouseTypes = null) {
+    const params = [period.fromTs, period.toTs];
+    let where = `WHERE ${reportDateExpr('m')} >= $1::timestamp AND ${reportDateExpr('m')} <= $2::timestamp AND NULLIF(m.unit_price, 0) IS NULL`;
+    if (Array.isArray(warehouseTypes) && warehouseTypes.length) {
+        params.push(warehouseTypes);
+        where += ` AND w.type = ANY($${params.length}::text[])`;
+    }
+    const previewSql = `
+        SELECT
+            m.id,
+            m.movement_type,
+            COALESCE(
+                CASE WHEN m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN coi.price ELSE NULL END,
+                i.current_price,
+                0
+            )::numeric(14,4) AS resolved_price
+        FROM inventory_movements m
+        JOIN items i ON i.id = m.item_id
+        JOIN warehouses w ON w.id = m.warehouse_id
+        LEFT JOIN client_order_items coi ON coi.id = m.linked_order_item_id
+        ${where}
+    `;
+    const previewRes = await pool.query(previewSql, params);
+    const rows = previewRes.rows || [];
+    if (!apply) {
+        return {
+            mode: 'dry_run',
+            rows_to_update: rows.length,
+            sample: rows.slice(0, 20).map((r) => ({
+                id: Number(r.id || 0),
+                movement_type: r.movement_type,
+                resolved_price: Number(r.resolved_price || 0)
+            }))
+        };
+    }
+    const updateSql = `
+        UPDATE inventory_movements m
+        SET unit_price = COALESCE(
+            CASE WHEN m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN coi.price ELSE NULL END,
+            i.current_price,
+            0
+        )::numeric(14,4)
+        FROM items i
+        JOIN warehouses w ON w.id = m.warehouse_id
+        LEFT JOIN client_order_items coi ON coi.id = m.linked_order_item_id
+        WHERE i.id = m.item_id
+          AND ${reportDateExpr('m')} >= $1::timestamp
+          AND ${reportDateExpr('m')} <= $2::timestamp
+          AND NULLIF(m.unit_price, 0) IS NULL
+          ${Array.isArray(warehouseTypes) && warehouseTypes.length ? `AND w.type = ANY($3::text[])` : ''}
+    `;
+    const upd = await pool.query(updateSql, params);
+    return { mode: 'apply', updated_rows: upd.rowCount || 0 };
 }
 
 async function buildCounterpartyDrilldown(pool, params = {}) {
@@ -318,6 +433,169 @@ async function buildCounterpartyDrilldown(pool, params = {}) {
         counterpartyName: cp.rows[0]?.name || `#${counterpartyId}`,
         rangeMode,
         rows: mergedRows
+    };
+}
+
+async function buildAccountDrilldown(pool, params = {}) {
+    const accountId = Number(params.accountId || 0);
+    if (!accountId) throw new Error('Некорректный счет');
+    const dateFrom = String(params.dateFrom || '');
+    const dateTo = String(params.dateTo || '');
+    const metric = String(params.metric || '');
+    const metricLc = metric.toLowerCase();
+    const isBalanceMetric = metricLc.startsWith('opening_')
+        || metricLc.startsWith('closing_')
+        || metricLc.includes('balance');
+    const fromTs = toIsoDateStart(dateFrom);
+    const toTs = toIsoDateEnd(dateTo);
+    if (!fromTs || !toTs) throw new Error('Некорректный период');
+
+    let rangeMode = 'all_time';
+    let whereDate = `1=1`;
+    let values = [accountId];
+    if (metric.startsWith('opening_')) {
+        rangeMode = 'opening';
+        whereDate = `t.transaction_date < $2::timestamp`;
+        values = [accountId, fromTs];
+    } else if (metric.startsWith('closing_')) {
+        rangeMode = 'closing';
+        whereDate = `t.transaction_date <= $2::timestamp`;
+        values = [accountId, toTs];
+    }
+
+    const mapTxType = {
+        debit_turnover: 'income',
+        credit_turnover: 'expense'
+    };
+    let whereType = '';
+    const txType = mapTxType[metricLc];
+    if (!isBalanceMetric && txType) {
+        whereType = ` AND t.transaction_type = '${txType}' `;
+    }
+
+    const sql = `
+        SELECT
+            t.id,
+            t.transaction_date,
+            t.transaction_type,
+            t.amount,
+            t.payment_method,
+            t.source_module,
+            t.linked_order_id,
+            t.linked_purchase_id,
+            COALESCE(NULLIF(TRIM(t.category_override), ''), t.category, 'Без статьи') AS category_effective,
+            COALESCE(t.description, '') AS note
+        FROM transactions t
+        WHERE COALESCE(t.is_deleted, false) = false
+          AND t.account_id = $1::int
+          AND ${whereDate}
+          ${whereType}
+        ORDER BY t.transaction_date DESC, t.id DESC
+        LIMIT 300
+    `;
+    const rowsRes = await pool.query(sql, values);
+    const acc = await pool.query(`SELECT name FROM accounts WHERE id = $1::int`, [accountId]);
+    return {
+        accountId,
+        accountName: acc.rows[0]?.name || `#${accountId}`,
+        rangeMode,
+        rows: rowsRes.rows.map((r) => ({
+            id: Number(r.id),
+            date: new Date(r.transaction_date).toLocaleDateString('ru-RU'),
+            typeCode: r.transaction_type === 'income' ? 'income' : 'expense',
+            type: r.transaction_type === 'income' ? 'Доход' : 'Расход',
+            amount: Number(r.amount || 0),
+            paymentMethod: r.payment_method || '',
+            sourceModule: r.source_module || '',
+            linkedOrderId: Number(r.linked_order_id || 0),
+            linkedPurchaseId: Number(r.linked_purchase_id || 0),
+            account: normalizeDrilldownAccountName(acc.rows[0]?.name || ''),
+            category: r.category_effective,
+            note: r.note || ''
+        }))
+    };
+}
+
+async function buildStockDrilldown(pool, params = {}) {
+    const itemId = Number(params.itemId || 0);
+    const warehouseId = Number(params.warehouseId || 0);
+    if (!itemId || !warehouseId) throw new Error('Некорректная номенклатура или склад');
+    const dateFrom = String(params.dateFrom || '');
+    const dateTo = String(params.dateTo || '');
+    const metric = String(params.metric || '').toLowerCase();
+    const fromTs = toIsoDateStart(dateFrom);
+    const toTs = toIsoDateEnd(dateTo);
+    if (!fromTs || !toTs) throw new Error('Некорректный период');
+
+    let rangeMode = 'all_time';
+    let whereDate = `1=1`;
+    let whereQty = '';
+    const values = [itemId, warehouseId];
+    if (metric.startsWith('opening_')) {
+        rangeMode = 'opening';
+        whereDate = `COALESCE(m.movement_date, m.created_at) < $3::timestamp`;
+        values.push(fromTs);
+    } else if (metric.startsWith('closing_')) {
+        rangeMode = 'closing';
+        whereDate = `COALESCE(m.movement_date, m.created_at) <= $3::timestamp`;
+        values.push(toTs);
+    } else {
+        rangeMode = 'period';
+        whereDate = `COALESCE(m.movement_date, m.created_at) >= $3::timestamp AND COALESCE(m.movement_date, m.created_at) <= $4::timestamp`;
+        values.push(fromTs, toTs);
+    }
+
+    if (metric === 'inflow_qty' || metric === 'inflow_sum') whereQty = ` AND m.quantity > 0 `;
+    if (metric === 'outflow_qty' || metric === 'outflow_sum') whereQty = ` AND m.quantity < 0 `;
+
+    const sql = `
+        SELECT
+            m.id,
+            COALESCE(m.movement_date, m.created_at) AS event_ts,
+            m.movement_type,
+            m.quantity,
+            COALESCE(m.description, '') AS note,
+            m.batch_id,
+            COALESCE(b.batch_number, '') AS batch_number,
+            m.linked_order_item_id,
+            o.id AS linked_order_id,
+            COALESCE(o.doc_number, '') AS linked_order_doc,
+            i.name AS item_name,
+            w.name AS warehouse_name
+        FROM inventory_movements m
+        JOIN items i ON i.id = m.item_id
+        JOIN warehouses w ON w.id = m.warehouse_id
+        LEFT JOIN production_batches b ON b.id = m.batch_id
+        LEFT JOIN client_order_items coi ON coi.id = m.linked_order_item_id
+        LEFT JOIN client_orders o ON o.id = coi.order_id
+        WHERE m.item_id = $1::int
+          AND m.warehouse_id = $2::int
+          AND ${whereDate}
+          ${whereQty}
+        ORDER BY event_ts DESC, m.id DESC
+        LIMIT 400
+    `;
+    const res = await pool.query(sql, values);
+    return {
+        itemId,
+        warehouseId,
+        itemName: res.rows[0]?.item_name || `#${itemId}`,
+        warehouseName: res.rows[0]?.warehouse_name || `#${warehouseId}`,
+        rangeMode,
+        rows: res.rows.map((r) => ({
+            id: Number(r.id || 0),
+            date: new Date(r.event_ts).toLocaleDateString('ru-RU'),
+            type: String(r.movement_type || ''),
+            quantity: Number(r.quantity || 0),
+            warehouse: r.warehouse_name || '',
+            batchId: Number(r.batch_id || 0),
+            batch: r.batch_number || '',
+            linkedOrderItemId: Number(r.linked_order_item_id || 0),
+            linkedOrderId: Number(r.linked_order_id || 0),
+            linkedOrderDoc: r.linked_order_doc || '',
+            source: r.movement_type || '',
+            note: r.note || ''
+        }))
     };
 }
 
@@ -493,6 +771,10 @@ async function buildOsvCounterparties(pool, period, filters, accountingMode = 'm
 }
 
 async function buildOsvCashAccounts(pool, period, filters, accountingMode = 'managerial') {
+    const accountMovementModeRaw = String(filters.accountMovementMode || 'all');
+    const accountMovementMode = ['all', 'movement'].includes(accountMovementModeRaw)
+        ? accountMovementModeRaw
+        : 'all';
     const params = [period.fromTs, period.toTs];
     let where = '';
     if (filters.accountId) {
@@ -544,18 +826,27 @@ async function buildOsvCashAccounts(pool, period, filters, accountingMode = 'man
         const debit = Number(r.debit_turnover || 0);
         const credit = Number(r.credit_turnover || 0);
         return {
+            account_id: Number(r.account_id || 0),
             account: r.account_name,
             opening_balance: opening,
             debit_turnover: debit,
             credit_turnover: credit,
             closing_balance: Number((opening + debit - credit).toFixed(2))
         };
+    }).sort((a, b) => {
+        const wa = getCashAccountOrderWeight(a.account);
+        const wb = getCashAccountOrderWeight(b.account);
+        if (wa !== wb) return wa - wb;
+        return String(a.account || '').localeCompare(String(b.account || ''), 'ru');
     });
+    const filteredRows = accountMovementMode === 'movement'
+        ? rows.filter((r) => Math.abs(Number(r.debit_turnover || 0)) > 0.000001 || Math.abs(Number(r.credit_turnover || 0)) > 0.000001)
+        : rows;
     const totals = {
-        opening_balance: Number(rows.reduce((s, r) => s + r.opening_balance, 0).toFixed(2)),
-        debit_turnover: Number(rows.reduce((s, r) => s + r.debit_turnover, 0).toFixed(2)),
-        credit_turnover: Number(rows.reduce((s, r) => s + r.credit_turnover, 0).toFixed(2)),
-        closing_balance: Number(rows.reduce((s, r) => s + r.closing_balance, 0).toFixed(2))
+        opening_balance: Number(filteredRows.reduce((s, r) => s + r.opening_balance, 0).toFixed(2)),
+        debit_turnover: Number(filteredRows.reduce((s, r) => s + r.debit_turnover, 0).toFixed(2)),
+        credit_turnover: Number(filteredRows.reduce((s, r) => s + r.credit_turnover, 0).toFixed(2)),
+        closing_balance: Number(filteredRows.reduce((s, r) => s + r.closing_balance, 0).toFixed(2))
     };
     return {
         title: 'ОСВ по кассам и счетам',
@@ -566,12 +857,20 @@ async function buildOsvCashAccounts(pool, period, filters, accountingMode = 'man
             { key: 'credit_turnover', label: 'Оборот Кт (расход)' },
             { key: 'closing_balance', label: 'Сальдо конечное' }
         ],
-        rows,
+        rows: filteredRows,
         totals
     };
 }
 
 async function buildStockOsv(pool, period, warehouseTypes, title, filters = {}, accountingMode = 'managerial') {
+    const stockBalanceModeRaw = String(filters.stockBalanceMode || 'nonzero');
+    const stockBalanceMode = ['nonzero', 'movement', 'shipment_only', 'all'].includes(stockBalanceModeRaw)
+        ? stockBalanceModeRaw
+        : 'nonzero';
+    const stockValuationModeRaw = String(filters.stockValuationMode || 'movement_actual');
+    const stockValuationMode = ['movement_actual', 'legacy_current_price'].includes(stockValuationModeRaw)
+        ? stockValuationModeRaw
+        : 'movement_actual';
     const params = [period.fromTs, period.toTs, warehouseTypes];
     let extra = '';
     if (filters.warehouseType && warehouseTypes.includes(String(filters.warehouseType))) {
@@ -593,39 +892,321 @@ async function buildStockOsv(pool, period, warehouseTypes, title, filters = {}, 
             extra += ` AND COALESCE(NULLIF(TRIM(m.reg_source_tag), ''), 'legacy') = $${params.length} `;
         }
     }
+    if (stockBalanceMode === 'shipment_only') {
+        const balanceTypesSet = new Set((warehouseTypes || []).map((x) => String(x)));
+        if (!filters.warehouseType) balanceTypesSet.add('reserve');
+        const balanceTypes = Array.from(balanceTypesSet).filter(Boolean);
+        const shipParams = [period.fromTs, period.toTs, balanceTypes];
+        let shipFilter = '';
+        if (filters.itemId) {
+            shipParams.push(Number(filters.itemId));
+            shipFilter += ` AND m.item_id = $${shipParams.length} `;
+        }
+        if (filters.warehouseType) {
+            shipParams.push(String(filters.warehouseType));
+            shipFilter += ` AND w.type = $${shipParams.length} `;
+        }
+        if (accountingMode === 'regulatory') {
+            if (filters.regOnlyPosted !== false) shipFilter += ` AND COALESCE(m.reg_is_posted, true) = true `;
+            if (filters.regOnlyPrimaryDoc === true) shipFilter += ` AND COALESCE(m.reg_is_primary_doc, false) = true `;
+            if (filters.regRequireDocumentNo === true) shipFilter += ` AND COALESCE(NULLIF(TRIM(m.reg_document_no), ''), '') <> '' `;
+            if (filters.regSourceTag) {
+                shipParams.push(String(filters.regSourceTag));
+                shipFilter += ` AND COALESCE(NULLIF(TRIM(m.reg_source_tag), ''), 'legacy') = $${shipParams.length} `;
+            }
+        }
+        const shipSql = `
+            WITH shipped_items AS (
+                SELECT DISTINCT m.item_id
+                FROM inventory_movements m
+                JOIN warehouses w ON w.id = m.warehouse_id
+                WHERE m.movement_type IN ('sales_shipment', 'shipment_reversal')
+                ${shipFilter}
+            ),
+            turnover AS (
+                SELECT
+                    m.item_id,
+                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity > 0 THEN m.quantity ELSE 0 END),0)::numeric,4) AS inflow_qty,
+                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity > 0 THEN m.quantity * COALESCE(i.current_price, 0) ELSE 0 END),0)::numeric,2) AS inflow_sum_legacy,
+                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity > 0 THEN m.quantity * COALESCE(NULLIF(m.unit_price, 0), CASE WHEN m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN coi.price ELSE NULL END, i.current_price, 0) ELSE 0 END),0)::numeric,2) AS inflow_sum_actual,
+                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity < 0 THEN ABS(m.quantity) ELSE 0 END),0)::numeric,4) AS outflow_qty,
+                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity < 0 THEN ABS(m.quantity) * COALESCE(i.current_price, 0) ELSE 0 END),0)::numeric,2) AS outflow_sum_legacy,
+                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity < 0 THEN ABS(m.quantity) * COALESCE(NULLIF(m.unit_price, 0), CASE WHEN m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN coi.price ELSE NULL END, i.current_price, 0) ELSE 0 END),0)::numeric,2) AS outflow_sum_actual,
+                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN ABS(m.quantity) ELSE 0 END),0)::numeric,4) AS shipment_turnover_qty,
+                    SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp
+                              AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp
+                              AND NULLIF(m.unit_price, 0) IS NULL
+                              AND NOT (m.movement_type IN ('sales_shipment', 'shipment_reversal') AND coi.price IS NOT NULL) THEN 1 ELSE 0 END)::int AS fallback_rows_count
+                FROM inventory_movements m
+                JOIN shipped_items si ON si.item_id = m.item_id
+                JOIN items i ON i.id = m.item_id
+                JOIN warehouses w ON w.id = m.warehouse_id
+                LEFT JOIN client_order_items coi ON coi.id = m.linked_order_item_id
+                WHERE w.type = ANY($3::text[])
+                  AND COALESCE(m.movement_date, m.created_at) >= $1::timestamp
+                  AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp
+                GROUP BY m.item_id
+            ),
+            stock AS (
+                SELECT
+                    m.item_id,
+                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) < $1::timestamp THEN m.quantity ELSE 0 END),0)::numeric,4) AS opening_qty,
+                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) < $1::timestamp THEN m.quantity * COALESCE(i.current_price, 0) ELSE 0 END),0)::numeric,2) AS opening_sum_legacy,
+                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) < $1::timestamp THEN m.quantity * COALESCE(NULLIF(m.unit_price, 0), CASE WHEN m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN coi.price ELSE NULL END, i.current_price, 0) ELSE 0 END),0)::numeric,2) AS opening_sum_actual,
+                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) <= $2::timestamp THEN m.quantity ELSE 0 END),0)::numeric,4) AS closing_qty,
+                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) <= $2::timestamp THEN m.quantity * COALESCE(i.current_price, 0) ELSE 0 END),0)::numeric,2) AS closing_sum_legacy,
+                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) <= $2::timestamp THEN m.quantity * COALESCE(NULLIF(m.unit_price, 0), CASE WHEN m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN coi.price ELSE NULL END, i.current_price, 0) ELSE 0 END),0)::numeric,2) AS closing_sum_actual
+                FROM inventory_movements m
+                JOIN shipped_items si ON si.item_id = m.item_id
+                JOIN items i ON i.id = m.item_id
+                JOIN warehouses w ON w.id = m.warehouse_id
+                LEFT JOIN client_order_items coi ON coi.id = m.linked_order_item_id
+                WHERE w.type = ANY($3::text[])
+                GROUP BY m.item_id
+            )
+            SELECT
+                i.id AS item_id,
+                i.name AS item_name,
+                i.unit AS unit,
+                'Готовая продукция + Резерв'::text AS warehouse_name,
+                COALESCE(st.opening_qty, 0) AS opening_qty,
+                COALESCE(st.opening_sum_legacy, 0) AS opening_sum_legacy,
+                COALESCE(st.opening_sum_actual, 0) AS opening_sum_actual,
+                COALESCE(t.inflow_qty, 0) AS inflow_qty,
+                COALESCE(t.inflow_sum_legacy, 0) AS inflow_sum_legacy,
+                COALESCE(t.inflow_sum_actual, 0) AS inflow_sum_actual,
+                COALESCE(t.outflow_qty, 0) AS outflow_qty,
+                COALESCE(t.outflow_sum_legacy, 0) AS outflow_sum_legacy,
+                COALESCE(t.outflow_sum_actual, 0) AS outflow_sum_actual,
+                COALESCE(t.shipment_turnover_qty, 0) AS shipment_turnover_qty,
+                COALESCE(st.closing_qty, 0) AS closing_qty,
+                COALESCE(st.closing_sum_legacy, 0) AS closing_sum_legacy,
+                COALESCE(st.closing_sum_actual, 0) AS closing_sum_actual,
+                COALESCE(t.fallback_rows_count, 0)::int AS fallback_rows_count
+            FROM shipped_items si
+            JOIN items i ON i.id = si.item_id
+            LEFT JOIN turnover t ON t.item_id = si.item_id
+            LEFT JOIN stock st ON st.item_id = si.item_id
+            ORDER BY i.name ASC
+        `;
+        const shipRes = await pool.query(shipSql, shipParams);
+        const rows = shipRes.rows.map((r) => ({
+            item_id: Number(r.item_id || 0),
+            item: r.item_name,
+            warehouse_id: 0,
+            warehouse: r.warehouse_name,
+            unit: r.unit,
+            opening_qty: Number(r.opening_qty || 0),
+            opening_sum_legacy: Number(r.opening_sum_legacy || 0),
+            opening_sum_actual: Number(r.opening_sum_actual || 0),
+            opening_sum: Number(stockValuationMode === 'movement_actual' ? r.opening_sum_actual : r.opening_sum_legacy || 0),
+            inflow_qty: Number(r.inflow_qty || 0),
+            inflow_sum_legacy: Number(r.inflow_sum_legacy || 0),
+            inflow_sum_actual: Number(r.inflow_sum_actual || 0),
+            inflow_sum: Number(stockValuationMode === 'movement_actual' ? r.inflow_sum_actual : r.inflow_sum_legacy || 0),
+            outflow_qty: Number(r.outflow_qty || 0),
+            outflow_sum_legacy: Number(r.outflow_sum_legacy || 0),
+            outflow_sum_actual: Number(r.outflow_sum_actual || 0),
+            outflow_sum: Number(stockValuationMode === 'movement_actual' ? r.outflow_sum_actual : r.outflow_sum_legacy || 0),
+            shipment_turnover_qty: Number(r.shipment_turnover_qty || 0),
+            closing_qty: Number(r.closing_qty || 0),
+            closing_sum_legacy: Number(r.closing_sum_legacy || 0),
+            closing_sum_actual: Number(r.closing_sum_actual || 0),
+            closing_sum: Number(stockValuationMode === 'movement_actual' ? r.closing_sum_actual : r.closing_sum_legacy || 0),
+            valuation_fallback_rows: Number(r.fallback_rows_count || 0)
+        })).filter((r) => Math.abs(Number(r.shipment_turnover_qty || 0)) > 0.000001);
+        const totals = {
+            opening_qty: Number(rows.reduce((s, r) => s + r.opening_qty, 0).toFixed(4)),
+            opening_sum: Number(rows.reduce((s, r) => s + r.opening_sum, 0).toFixed(2)),
+            inflow_qty: Number(rows.reduce((s, r) => s + r.inflow_qty, 0).toFixed(4)),
+            inflow_sum: Number(rows.reduce((s, r) => s + r.inflow_sum, 0).toFixed(2)),
+            outflow_qty: Number(rows.reduce((s, r) => s + r.outflow_qty, 0).toFixed(4)),
+            outflow_sum: Number(rows.reduce((s, r) => s + r.outflow_sum, 0).toFixed(2)),
+            closing_qty: Number(rows.reduce((s, r) => s + r.closing_qty, 0).toFixed(4)),
+            closing_sum: Number(rows.reduce((s, r) => s + r.closing_sum, 0).toFixed(2)),
+            valuation_fallback_rows: rows.reduce((s, r) => s + Number(r.valuation_fallback_rows || 0), 0)
+        };
+        const legacyTotals = {
+            opening_sum: Number(rows.reduce((s, r) => s + Number(r.opening_sum_legacy || 0), 0).toFixed(2)),
+            inflow_sum: Number(rows.reduce((s, r) => s + Number(r.inflow_sum_legacy || 0), 0).toFixed(2)),
+            outflow_sum: Number(rows.reduce((s, r) => s + Number(r.outflow_sum_legacy || 0), 0).toFixed(2)),
+            closing_sum: Number(rows.reduce((s, r) => s + Number(r.closing_sum_legacy || 0), 0).toFixed(2))
+        };
+        const actualTotals = {
+            opening_sum: Number(rows.reduce((s, r) => s + Number(r.opening_sum_actual || 0), 0).toFixed(2)),
+            inflow_sum: Number(rows.reduce((s, r) => s + Number(r.inflow_sum_actual || 0), 0).toFixed(2)),
+            outflow_sum: Number(rows.reduce((s, r) => s + Number(r.outflow_sum_actual || 0), 0).toFixed(2)),
+            closing_sum: Number(rows.reduce((s, r) => s + Number(r.closing_sum_actual || 0), 0).toFixed(2))
+        };
+        return {
+            title,
+            columns: [
+                { key: 'item', label: 'Номенклатура' },
+                { key: 'warehouse', label: 'Склад' },
+                { key: 'unit', label: 'Ед. изм.' },
+                { key: 'opening_qty', label: 'Остаток начальный (кг)' },
+                { key: 'opening_sum', label: 'Остаток начальный (₽)' },
+                { key: 'inflow_qty', label: 'Приход (кг)' },
+                { key: 'inflow_sum', label: 'Приход (₽)' },
+                { key: 'outflow_qty', label: 'Расход (кг)' },
+                { key: 'outflow_sum', label: 'Расход (₽)' },
+                { key: 'closing_qty', label: 'Остаток конечный (кг)' },
+                { key: 'closing_sum', label: 'Остаток конечный (₽)' }
+            ],
+            rows,
+            totals,
+            valuationMode: stockValuationMode,
+            valuationComparison: {
+                legacy: legacyTotals,
+                actual: actualTotals,
+                delta: {
+                    opening_sum: Number((actualTotals.opening_sum - legacyTotals.opening_sum).toFixed(2)),
+                    inflow_sum: Number((actualTotals.inflow_sum - legacyTotals.inflow_sum).toFixed(2)),
+                    outflow_sum: Number((actualTotals.outflow_sum - legacyTotals.outflow_sum).toFixed(2)),
+                    closing_sum: Number((actualTotals.closing_sum - legacyTotals.closing_sum).toFixed(2))
+                }
+            },
+            warnings: stockValuationMode === 'movement_actual' && totals.valuation_fallback_rows > 0
+                ? [`Часть движений оценена по fallback-цене карточки: ${totals.valuation_fallback_rows} строк(и).`]
+                : []
+        };
+    }
     const sql = `
         SELECT
+            i.id AS item_id,
             i.name AS item_name,
             i.unit AS unit,
+            w.id AS warehouse_id,
             w.name AS warehouse_name,
             ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) < $1::timestamp THEN m.quantity ELSE 0 END),0)::numeric,4) AS opening_qty,
+            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) < $1::timestamp THEN m.quantity * COALESCE(i.current_price, 0) ELSE 0 END),0)::numeric,2) AS opening_sum,
+            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) < $1::timestamp THEN m.quantity * COALESCE(
+                NULLIF(m.unit_price, 0),
+                CASE WHEN m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN coi.price ELSE NULL END,
+                i.current_price,
+                0
+            ) ELSE 0 END),0)::numeric,2) AS opening_sum_actual,
             ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity > 0 THEN m.quantity ELSE 0 END),0)::numeric,4) AS inflow_qty,
+            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity > 0 THEN m.quantity * COALESCE(i.current_price, 0) ELSE 0 END),0)::numeric,2) AS inflow_sum,
+            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity > 0 THEN m.quantity * COALESCE(
+                NULLIF(m.unit_price, 0),
+                CASE WHEN m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN coi.price ELSE NULL END,
+                i.current_price,
+                0
+            ) ELSE 0 END),0)::numeric,2) AS inflow_sum_actual,
             ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity < 0 THEN ABS(m.quantity) ELSE 0 END),0)::numeric,4) AS outflow_qty,
-            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) <= $2::timestamp THEN m.quantity ELSE 0 END),0)::numeric,4) AS closing_qty
+            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity < 0 THEN ABS(m.quantity) * COALESCE(i.current_price, 0) ELSE 0 END),0)::numeric,2) AS outflow_sum,
+            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity < 0 THEN ABS(m.quantity) * COALESCE(
+                NULLIF(m.unit_price, 0),
+                CASE WHEN m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN coi.price ELSE NULL END,
+                i.current_price,
+                0
+            ) ELSE 0 END),0)::numeric,2) AS outflow_sum_actual,
+            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN ABS(m.quantity) ELSE 0 END),0)::numeric,4) AS shipment_turnover_qty,
+            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) <= $2::timestamp THEN m.quantity ELSE 0 END),0)::numeric,4) AS closing_qty,
+            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) <= $2::timestamp THEN m.quantity * COALESCE(i.current_price, 0) ELSE 0 END),0)::numeric,2) AS closing_sum,
+            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) <= $2::timestamp THEN m.quantity * COALESCE(
+                NULLIF(m.unit_price, 0),
+                CASE WHEN m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN coi.price ELSE NULL END,
+                i.current_price,
+                0
+            ) ELSE 0 END),0)::numeric,2) AS closing_sum_actual,
+            SUM(CASE WHEN NULLIF(m.unit_price, 0) IS NULL AND NOT (m.movement_type IN ('sales_shipment', 'shipment_reversal') AND coi.price IS NOT NULL) THEN 1 ELSE 0 END)::int AS fallback_rows_count
         FROM items i
         JOIN inventory_movements m ON m.item_id = i.id
         JOIN warehouses w ON w.id = m.warehouse_id
+        LEFT JOIN client_order_items coi ON coi.id = m.linked_order_item_id
         WHERE w.type = ANY($3::text[])
         ${extra}
-        GROUP BY i.name, i.unit, w.name
-        HAVING COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) <= $2::timestamp THEN m.quantity ELSE 0 END),0) <> 0
+        GROUP BY i.id, i.name, i.unit, w.id, w.name
         ORDER BY i.name, w.name
     `;
     const res = await pool.query(sql, params);
-    const rows = res.rows.map((r) => ({
+    const rowsAll = res.rows.map((r) => ({
+        item_id: Number(r.item_id || 0),
         item: r.item_name,
+        warehouse_id: Number(r.warehouse_id || 0),
         warehouse: r.warehouse_name,
         unit: r.unit,
         opening_qty: Number(r.opening_qty || 0),
+        opening_sum_legacy: Number(r.opening_sum || 0),
+        opening_sum_actual: Number(r.opening_sum_actual || 0),
+        opening_sum: Number(stockValuationMode === 'movement_actual' ? r.opening_sum_actual : r.opening_sum || 0),
         inflow_qty: Number(r.inflow_qty || 0),
+        inflow_sum_legacy: Number(r.inflow_sum || 0),
+        inflow_sum_actual: Number(r.inflow_sum_actual || 0),
+        inflow_sum: Number(stockValuationMode === 'movement_actual' ? r.inflow_sum_actual : r.inflow_sum || 0),
         outflow_qty: Number(r.outflow_qty || 0),
-        closing_qty: Number(r.closing_qty || 0)
+        outflow_sum_legacy: Number(r.outflow_sum || 0),
+        outflow_sum_actual: Number(r.outflow_sum_actual || 0),
+        outflow_sum: Number(stockValuationMode === 'movement_actual' ? r.outflow_sum_actual : r.outflow_sum || 0),
+        shipment_turnover_qty: Number(r.shipment_turnover_qty || 0),
+        closing_qty: Number(r.closing_qty || 0),
+        closing_sum_legacy: Number(r.closing_sum || 0),
+        closing_sum_actual: Number(r.closing_sum_actual || 0),
+        closing_sum: Number(stockValuationMode === 'movement_actual' ? r.closing_sum_actual : r.closing_sum || 0),
+        valuation_fallback_rows: Number(r.fallback_rows_count || 0)
     }));
+    let shippedItemIds = null;
+    if (stockBalanceMode === 'shipment_only') {
+        const shipParams = [period.fromTs, period.toTs];
+        let shipExtra = '';
+        if (filters.itemId) {
+            shipParams.push(Number(filters.itemId));
+            shipExtra += ` AND m.item_id = $${shipParams.length} `;
+        }
+        if (accountingMode === 'regulatory') {
+            if (filters.regOnlyPosted !== false) shipExtra += ` AND COALESCE(m.reg_is_posted, true) = true `;
+            if (filters.regOnlyPrimaryDoc === true) shipExtra += ` AND COALESCE(m.reg_is_primary_doc, false) = true `;
+            if (filters.regRequireDocumentNo === true) shipExtra += ` AND COALESCE(NULLIF(TRIM(m.reg_document_no), ''), '') <> '' `;
+            if (filters.regSourceTag) {
+                shipParams.push(String(filters.regSourceTag));
+                shipExtra += ` AND COALESCE(NULLIF(TRIM(m.reg_source_tag), ''), 'legacy') = $${shipParams.length} `;
+            }
+        }
+        const shipSql = `
+            SELECT DISTINCT m.item_id
+            FROM inventory_movements m
+            WHERE COALESCE(m.movement_date, m.created_at) >= $1::timestamp
+              AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp
+              AND m.movement_type IN ('sales_shipment', 'shipment_reversal')
+              ${shipExtra}
+        `;
+        const shipRes = await pool.query(shipSql, shipParams);
+        shippedItemIds = new Set((shipRes.rows || []).map((x) => Number(x.item_id || 0)).filter((x) => x > 0));
+    }
+    const rows = rowsAll.filter((r) => {
+        if (stockBalanceMode === 'all') return true;
+        if (stockBalanceMode === 'movement') {
+            return Math.abs(Number(r.inflow_qty || 0)) > 0.000001 || Math.abs(Number(r.outflow_qty || 0)) > 0.000001;
+        }
+        if (stockBalanceMode === 'shipment_only') {
+            return shippedItemIds ? shippedItemIds.has(Number(r.item_id || 0)) : Math.abs(Number(r.shipment_turnover_qty || 0)) > 0.000001;
+        }
+        return Math.abs(Number(r.closing_qty || 0)) > 0.000001;
+    });
     const totals = {
         opening_qty: Number(rows.reduce((s, r) => s + r.opening_qty, 0).toFixed(4)),
+        opening_sum: Number(rows.reduce((s, r) => s + r.opening_sum, 0).toFixed(2)),
         inflow_qty: Number(rows.reduce((s, r) => s + r.inflow_qty, 0).toFixed(4)),
+        inflow_sum: Number(rows.reduce((s, r) => s + r.inflow_sum, 0).toFixed(2)),
         outflow_qty: Number(rows.reduce((s, r) => s + r.outflow_qty, 0).toFixed(4)),
-        closing_qty: Number(rows.reduce((s, r) => s + r.closing_qty, 0).toFixed(4))
+        outflow_sum: Number(rows.reduce((s, r) => s + r.outflow_sum, 0).toFixed(2)),
+        closing_qty: Number(rows.reduce((s, r) => s + r.closing_qty, 0).toFixed(4)),
+        closing_sum: Number(rows.reduce((s, r) => s + r.closing_sum, 0).toFixed(2)),
+        valuation_fallback_rows: rows.reduce((s, r) => s + Number(r.valuation_fallback_rows || 0), 0)
+    };
+    const legacyTotals = {
+        opening_sum: Number(rows.reduce((s, r) => s + Number(r.opening_sum_legacy || 0), 0).toFixed(2)),
+        inflow_sum: Number(rows.reduce((s, r) => s + Number(r.inflow_sum_legacy || 0), 0).toFixed(2)),
+        outflow_sum: Number(rows.reduce((s, r) => s + Number(r.outflow_sum_legacy || 0), 0).toFixed(2)),
+        closing_sum: Number(rows.reduce((s, r) => s + Number(r.closing_sum_legacy || 0), 0).toFixed(2))
+    };
+    const actualTotals = {
+        opening_sum: Number(rows.reduce((s, r) => s + Number(r.opening_sum_actual || 0), 0).toFixed(2)),
+        inflow_sum: Number(rows.reduce((s, r) => s + Number(r.inflow_sum_actual || 0), 0).toFixed(2)),
+        outflow_sum: Number(rows.reduce((s, r) => s + Number(r.outflow_sum_actual || 0), 0).toFixed(2)),
+        closing_sum: Number(rows.reduce((s, r) => s + Number(r.closing_sum_actual || 0), 0).toFixed(2))
     };
     return {
         title,
@@ -633,13 +1214,31 @@ async function buildStockOsv(pool, period, warehouseTypes, title, filters = {}, 
             { key: 'item', label: 'Номенклатура' },
             { key: 'warehouse', label: 'Склад' },
             { key: 'unit', label: 'Ед. изм.' },
-            { key: 'opening_qty', label: 'Остаток начальный' },
-            { key: 'inflow_qty', label: 'Приход' },
-            { key: 'outflow_qty', label: 'Расход' },
-            { key: 'closing_qty', label: 'Остаток конечный' }
+            { key: 'opening_qty', label: 'Остаток начальный (кг)' },
+            { key: 'opening_sum', label: 'Остаток начальный (₽)' },
+            { key: 'inflow_qty', label: 'Приход (кг)' },
+            { key: 'inflow_sum', label: 'Приход (₽)' },
+            { key: 'outflow_qty', label: 'Расход (кг)' },
+            { key: 'outflow_sum', label: 'Расход (₽)' },
+            { key: 'closing_qty', label: 'Остаток конечный (кг)' },
+            { key: 'closing_sum', label: 'Остаток конечный (₽)' }
         ],
         rows,
-        totals
+        totals,
+        valuationMode: stockValuationMode,
+        valuationComparison: {
+            legacy: legacyTotals,
+            actual: actualTotals,
+            delta: {
+                opening_sum: Number((actualTotals.opening_sum - legacyTotals.opening_sum).toFixed(2)),
+                inflow_sum: Number((actualTotals.inflow_sum - legacyTotals.inflow_sum).toFixed(2)),
+                outflow_sum: Number((actualTotals.outflow_sum - legacyTotals.outflow_sum).toFixed(2)),
+                closing_sum: Number((actualTotals.closing_sum - legacyTotals.closing_sum).toFixed(2))
+            }
+        },
+        warnings: stockValuationMode === 'movement_actual' && totals.valuation_fallback_rows > 0
+            ? [`Часть движений оценена по fallback-цене карточки: ${totals.valuation_fallback_rows} строк(и).`]
+            : []
     };
 }
 
@@ -681,6 +1280,7 @@ async function buildTurnoverFinance(pool, period, filters = {}, accountingMode =
     `;
     const res = await pool.query(sql, params);
     const rows = res.rows.map((r) => ({
+        transaction_type_code: String(r.transaction_type || ''),
         transaction_type: r.transaction_type === 'income' ? 'Доход' : 'Расход',
         category: r.category_effective,
         operations_count: Number(r.rows_count || 0),
@@ -700,6 +1300,81 @@ async function buildTurnoverFinance(pool, period, filters = {}, accountingMode =
         ],
         rows,
         totals
+    };
+}
+
+async function buildTurnoverFinanceDrilldown(pool, params = {}) {
+    const dateFrom = String(params.dateFrom || '');
+    const dateTo = String(params.dateTo || '');
+    const typeCode = String(params.typeCode || '');
+    const category = String(params.category || '').trim();
+    const accountingMode = String(params.accountingMode || 'managerial');
+    const fromTs = toIsoDateStart(dateFrom);
+    const toTs = toIsoDateEnd(dateTo);
+    if (!fromTs || !toTs) throw new Error('Некорректный период');
+    if (!['income', 'expense', ''].includes(typeCode)) throw new Error('Некорректный тип');
+
+    const values = [fromTs, toTs];
+    let extra = '';
+    if (typeCode) {
+        values.push(typeCode);
+        extra += ` AND t.transaction_type = $${values.length} `;
+    }
+    if (category) {
+        values.push(category);
+        extra += ` AND COALESCE(NULLIF(TRIM(t.category_override), ''), t.category, 'Без статьи') = $${values.length} `;
+    }
+    if (accountingMode === 'regulatory') {
+        if (params.regOnlyPosted !== false) extra += ` AND COALESCE(t.reg_is_posted, true) = true `;
+        if (params.regOnlyPrimaryDoc === true) extra += ` AND COALESCE(t.reg_is_primary_doc, false) = true `;
+        if (params.regRequireDocumentNo === true) extra += ` AND COALESCE(NULLIF(TRIM(t.reg_document_no), ''), '') <> '' `;
+        if (params.regExcludeOffset !== false) extra += ` AND COALESCE(t.payment_method, '') <> 'Взаимозачет' `;
+        if (params.regExcludeTechnical !== false) extra += ` AND COALESCE(NULLIF(TRIM(t.category_override), ''), t.category, '') NOT ILIKE 'Техничес%' `;
+        if (params.regSourceTag) {
+            values.push(String(params.regSourceTag));
+            extra += ` AND COALESCE(NULLIF(TRIM(t.reg_source_tag), ''), 'legacy') = $${values.length} `;
+        }
+    }
+
+    const sql = `
+        SELECT
+            t.id,
+            t.transaction_date,
+            t.transaction_type,
+            t.amount,
+            a.name AS account_name,
+            COALESCE(NULLIF(TRIM(t.category_override), ''), t.category, 'Без статьи') AS category_effective,
+            t.source_module,
+            t.linked_order_id,
+            t.linked_purchase_id,
+            COALESCE(t.description, '') AS note
+        FROM transactions t
+        LEFT JOIN accounts a ON a.id = t.account_id
+        WHERE COALESCE(t.is_deleted, false) = false
+          AND t.transaction_date >= $1::timestamp
+          AND t.transaction_date <= $2::timestamp
+          ${extra}
+        ORDER BY t.transaction_date DESC, t.id DESC
+        LIMIT 500
+    `;
+    const res = await pool.query(sql, values);
+    return {
+        rangeMode: 'period',
+        category,
+        typeCode: typeCode || '',
+        rows: res.rows.map((r) => ({
+            id: Number(r.id || 0),
+            date: new Date(r.transaction_date).toLocaleDateString('ru-RU'),
+            typeCode: r.transaction_type === 'income' ? 'income' : 'expense',
+            type: r.transaction_type === 'income' ? 'Доход' : 'Расход',
+            amount: Number(r.amount || 0),
+            account: normalizeDrilldownAccountName(r.account_name || ''),
+            category: r.category_effective || '',
+            sourceModule: r.source_module || '',
+            linkedOrderId: Number(r.linked_order_id || 0),
+            linkedPurchaseId: Number(r.linked_purchase_id || 0),
+            note: r.note || ''
+        }))
     };
 }
 
@@ -762,17 +1437,25 @@ async function buildInventoryRegister(pool, period, filters = {}, pagination = {
         SELECT
             m.id,
             COALESCE(m.movement_date, m.created_at) AS event_ts,
+            m.warehouse_id,
+            m.item_id,
+            m.batch_id,
+            m.linked_order_item_id,
             w.name AS warehouse_name,
             i.name AS item_name,
             i.unit AS unit,
             m.movement_type,
             m.quantity,
             b.batch_number,
+            o.id AS linked_order_id,
+            COALESCE(o.doc_number, '') AS linked_order_doc,
             m.description
         FROM inventory_movements m
         JOIN warehouses w ON w.id = m.warehouse_id
         JOIN items i ON i.id = m.item_id
         LEFT JOIN production_batches b ON b.id = m.batch_id
+        LEFT JOIN client_order_items coi ON coi.id = m.linked_order_item_id
+        LEFT JOIN client_orders o ON o.id = coi.order_id
         ${whereSql}
         ORDER BY event_ts ASC, m.id ASC
         LIMIT $${params.length - 1}
@@ -780,7 +1463,13 @@ async function buildInventoryRegister(pool, period, filters = {}, pagination = {
     `;
     const res = await pool.query(sql, params);
     const rows = res.rows.map((r) => ({
-        date: new Date(r.event_ts).toLocaleString('ru-RU'),
+        date: new Date(r.event_ts).toLocaleDateString('ru-RU'),
+        warehouse_id: Number(r.warehouse_id || 0),
+        item_id: Number(r.item_id || 0),
+        batch_id: Number(r.batch_id || 0),
+        linked_order_id: Number(r.linked_order_id || 0),
+        linked_order_doc: r.linked_order_doc || '',
+        purchase_id: String(r.movement_type || '') === 'purchase' ? Number(r.id || 0) : 0,
         warehouse: r.warehouse_name,
         item: r.item_name,
         unit: r.unit,
@@ -818,6 +1507,535 @@ async function buildInventoryRegister(pool, period, filters = {}, pagination = {
     };
 }
 
+function salesAnalyticsGroupExpr(groupBy = 'month') {
+    const mode = String(groupBy || 'month');
+    if (mode === 'day') return `DATE_TRUNC('day', ${reportDateExpr('m')})`;
+    if (mode === 'week') return `DATE_TRUNC('week', ${reportDateExpr('m')})`;
+    return `DATE_TRUNC('month', ${reportDateExpr('m')})`;
+}
+
+function salesAnalyticsPriority(needToProduce, avgDaily, stock) {
+    const need = Number(needToProduce || 0);
+    if (need <= 0) return 'Низкий';
+    const daily = Number(avgDaily || 0);
+    const st = Number(stock || 0);
+    if (daily <= 0) return need >= 1 ? 'Средний' : 'Низкий';
+    const coverDays = st / daily;
+    if (coverDays < 7 || need > daily * 2) return 'Высокий';
+    if (coverDays < 14 || need > daily) return 'Средний';
+    return 'Низкий';
+}
+
+function salesAnalyticsPriorityWeight(priority = '') {
+    const p = String(priority || '').toLowerCase();
+    if (p === 'высокий') return 0;
+    if (p === 'средний') return 1;
+    return 2;
+}
+
+function salesAnalyticsCostSourceLabel(source = '') {
+    const s = String(source || '').toLowerCase();
+    if (s === 'real_batch') return 'Реальная (по партиям)';
+    if (s === 'recipe') return 'Плановая (по рецепту)';
+    if (s === 'real_batch_base') return 'Реальная (от 1 сорта)';
+    if (s === 'recipe_base') return 'Плановая (от 1 сорта)';
+    return 'Нет данных';
+}
+
+
+async function buildSalesAnalytics(pool, period, filters = {}, accountingMode = 'managerial') {
+    const groupByRaw = String(filters.groupBy || 'month').toLowerCase();
+    const groupBy = ['day', 'week', 'month'].includes(groupByRaw) ? groupByRaw : 'month';
+    const topNRaw = Number(filters.topN || 20);
+    const topN = Math.min(100, Math.max(5, Number.isFinite(topNRaw) ? topNRaw : 20));
+    const horizonRaw = Number(filters.forecastHorizon || 30);
+    const forecastHorizon = [14, 30, 60, 90].includes(horizonRaw) ? horizonRaw : 30;
+    const includeReturns = filters.includeReturns !== false;
+    const includeOverhead = filters.includeOverhead !== false;
+    const includeTaxes = filters.includeTaxes === true;
+    const financeDefaultsRes = await pool.query(`
+        SELECT key, value
+        FROM settings
+        WHERE key IN ('sales_tax', 'overhead_per_cycle')
+    `);
+    const financeDefaultsRaw = {};
+    for (const row of financeDefaultsRes.rows || []) {
+        financeDefaultsRaw[String(row.key || '')] = Number(row.value || 0);
+    }
+    const salesTaxDefault = Number.isFinite(financeDefaultsRaw.sales_tax) ? financeDefaultsRaw.sales_tax : 6;
+    const overheadPerCycleDefault = Number.isFinite(financeDefaultsRaw.overhead_per_cycle) ? financeDefaultsRaw.overhead_per_cycle : 0;
+    const taxRateRaw = Number(filters.taxRate);
+    const taxRate = Number.isFinite(taxRateRaw) ? Math.min(100, Math.max(0, taxRateRaw)) : Math.min(100, Math.max(0, salesTaxDefault));
+    const activeTab = ['summary', 'products', 'profitability', 'forecast'].includes(String(filters.analyticsTab || ''))
+        ? String(filters.analyticsTab)
+        : 'summary';
+
+    const overheadRateRaw = Number(filters.overheadRate);
+    const overheadRate = Number.isFinite(overheadRateRaw) ? Math.max(0, overheadRateRaw) : overheadPerCycleDefault;
+    const recipeOverheadPerCycle = includeOverhead ? overheadRate : 0;
+
+    const params = [period.fromTs, period.toTs];
+    let extra = '';
+    if (filters.itemId) {
+        params.push(Number(filters.itemId));
+        extra += ` AND i.id = $${params.length} `;
+    }
+    if (filters.warehouseType) {
+        params.push(String(filters.warehouseType));
+        extra += ` AND w.type = $${params.length} `;
+    }
+    if (accountingMode === 'regulatory') {
+        if (filters.regOnlyPosted !== false) extra += ` AND COALESCE(m.reg_is_posted, true) = true `;
+        if (filters.regOnlyPrimaryDoc === true) extra += ` AND COALESCE(m.reg_is_primary_doc, false) = true `;
+        if (filters.regRequireDocumentNo === true) extra += ` AND COALESCE(NULLIF(TRIM(m.reg_document_no), ''), '') <> '' `;
+        if (filters.regSourceTag) {
+            params.push(String(filters.regSourceTag));
+            extra += ` AND COALESCE(NULLIF(TRIM(m.reg_source_tag), ''), 'legacy') = $${params.length} `;
+        }
+    }
+
+    const whereSql = `
+        WHERE ${reportDateExpr('m')} >= $1::timestamp
+          AND ${reportDateExpr('m')} <= $2::timestamp
+          AND m.movement_type IN ('sales_shipment', 'shipment_reversal')
+          ${extra}
+    `;
+    const productSql = `
+        SELECT
+            i.id AS item_id,
+            i.name AS item_name,
+            COALESCE(NULLIF(TRIM(i.unit), ''), 'ед.') AS unit,
+            ROUND(COALESCE(SUM(CASE WHEN m.movement_type = 'sales_shipment' THEN ABS(m.quantity) ELSE 0 END), 0)::numeric, 4) AS shipped_qty,
+            ROUND(COALESCE(SUM(CASE WHEN m.movement_type = 'shipment_reversal' THEN ABS(m.quantity) ELSE 0 END), 0)::numeric, 4) AS reversed_qty,
+            ROUND(COALESCE(SUM(CASE WHEN m.movement_type = 'sales_shipment' THEN ABS(m.quantity) * COALESCE(coi.price, 0) ELSE 0 END), 0)::numeric, 2) AS shipped_revenue,
+            ROUND(COALESCE(SUM(CASE WHEN m.movement_type = 'shipment_reversal' THEN ABS(m.quantity) * COALESCE(coi.price, 0) ELSE 0 END), 0)::numeric, 2) AS reversed_revenue
+        FROM inventory_movements m
+        JOIN items i ON i.id = m.item_id
+        JOIN warehouses w ON w.id = m.warehouse_id
+        LEFT JOIN client_order_items coi ON coi.id = m.linked_order_item_id
+        ${whereSql}
+        GROUP BY i.id, i.name, i.unit
+    `;
+    const productRes = await pool.query(productSql, params);
+    const productRows = productRes.rows.map((r) => {
+        const shippedQty = Number(r.shipped_qty || 0);
+        const reversedQty = Number(r.reversed_qty || 0);
+        const shippedRevenue = Number(r.shipped_revenue || 0);
+        const reversedRevenue = Number(r.reversed_revenue || 0);
+        const soldQty = includeReturns ? (shippedQty - reversedQty) : shippedQty;
+        const revenueGross = includeReturns ? (shippedRevenue - reversedRevenue) : shippedRevenue;
+        return {
+            item_id: Number(r.item_id || 0),
+            item: r.item_name || '',
+            unit: r.unit || 'ед.',
+            shipped_qty: shippedQty,
+            reversed_qty: reversedQty,
+            sold_qty: Number(soldQty.toFixed(4)),
+            shipped_revenue: shippedRevenue,
+            reversed_revenue: reversedRevenue,
+            revenue_gross: Number(revenueGross.toFixed(2))
+        };
+    });
+
+    const itemIdsForCosts = productRows.map((r) => Number(r.item_id || 0)).filter((x) => x > 0);
+    const unitCostInfoMap = await buildSalesAnalyticsUnitCostMap(pool, itemIdsForCosts, {
+        includeOverhead,
+        overheadPerCycle: overheadRate
+    });
+
+    const stockParams = [period.toTs];
+    let stockExtra = '';
+    if (filters.itemId) {
+        stockParams.push(Number(filters.itemId));
+        stockExtra += ` AND i.id = $${stockParams.length} `;
+    }
+    const stockSql = `
+        SELECT
+            i.id AS item_id,
+            ROUND(COALESCE(SUM(m.quantity), 0)::numeric, 4) AS stock_qty
+        FROM inventory_movements m
+        JOIN items i ON i.id = m.item_id
+        JOIN warehouses w ON w.id = m.warehouse_id
+        WHERE ${reportDateExpr('m')} <= $1::timestamp
+          AND w.type IN ('finished', 'markdown')
+          ${stockExtra}
+        GROUP BY i.id
+    `;
+    const stockRes = await pool.query(stockSql, stockParams);
+    const stockMap = new Map(stockRes.rows.map((r) => [Number(r.item_id || 0), Number(r.stock_qty || 0)]));
+
+    const backlogSql = `
+        SELECT
+            coi.item_id,
+            ROUND(COALESCE(SUM(GREATEST(COALESCE(coi.qty_ordered, 0) - COALESCE(coi.qty_shipped, 0), 0)), 0)::numeric, 4) AS backlog_qty
+        FROM client_order_items coi
+        JOIN client_orders co ON co.id = coi.order_id
+        WHERE COALESCE(co.status, '') IN ('pending', 'processing')
+        GROUP BY coi.item_id
+    `;
+    const backlogRes = await pool.query(backlogSql);
+    const backlogMap = new Map(backlogRes.rows.map((r) => [Number(r.item_id || 0), Number(r.backlog_qty || 0)]));
+
+    const historyDays = 90;
+    const demandParams = [period.toTs, historyDays];
+    let demandExtra = '';
+    if (filters.itemId) {
+        demandParams.push(Number(filters.itemId));
+        demandExtra += ` AND i.id = $${demandParams.length} `;
+    }
+    if (filters.warehouseType) {
+        demandParams.push(String(filters.warehouseType));
+        demandExtra += ` AND w.type = $${demandParams.length} `;
+    }
+    const demandCaseSql = includeReturns
+        ? `CASE
+                WHEN m.movement_type = 'sales_shipment' THEN ABS(m.quantity)
+                WHEN m.movement_type = 'shipment_reversal' THEN -ABS(m.quantity)
+                ELSE 0
+            END`
+        : `CASE
+                WHEN m.movement_type = 'sales_shipment' THEN ABS(m.quantity)
+                ELSE 0
+            END`;
+    const demandSql = `
+        SELECT
+            i.id AS item_id,
+            ROUND(COALESCE(SUM(${demandCaseSql}), 0)::numeric, 4) AS demand_qty
+        FROM inventory_movements m
+        JOIN items i ON i.id = m.item_id
+        JOIN warehouses w ON w.id = m.warehouse_id
+        WHERE ${reportDateExpr('m')} > ($1::timestamp - ($2::int * INTERVAL '1 day'))
+          AND ${reportDateExpr('m')} <= $1::timestamp
+          AND m.movement_type IN ('sales_shipment', 'shipment_reversal')
+          ${demandExtra}
+        GROUP BY i.id
+    `;
+    const demandRes = await pool.query(demandSql, demandParams);
+    const demandMap = new Map(demandRes.rows.map((r) => [Number(r.item_id || 0), Number(r.demand_qty || 0)]));
+
+    const totals = {
+        sold_qty: Number(productRows.reduce((s, r) => s + Number(r.sold_qty || 0), 0).toFixed(4)),
+        revenue_gross: Number(productRows.reduce((s, r) => s + Number(r.revenue_gross || 0), 0).toFixed(2)),
+        shipped_qty: Number(productRows.reduce((s, r) => s + Number(r.shipped_qty || 0), 0).toFixed(4)),
+        returns_qty: Number(productRows.reduce((s, r) => s + Number(r.reversed_qty || 0), 0).toFixed(4)),
+        returns_revenue: Number(productRows.reduce((s, r) => s + Number(r.reversed_revenue || 0), 0).toFixed(2))
+    };
+
+    const productBase = productRows
+        .map((r) => {
+            const unitCostInfo = unitCostInfoMap.get(Number(r.item_id || 0)) || { unit_cost: 0, source: 'none' };
+            const unitCost = Number(unitCostInfo.unit_cost || 0);
+            const costSource = String(unitCostInfo.source || 'none');
+            const cogsBase = Number((Number(r.sold_qty || 0) * unitCost).toFixed(2));
+            const taxAmount = includeTaxes ? Number((Number(r.revenue_gross || 0) * (taxRate / 100)).toFixed(2)) : 0;
+            const revenueNet = Number((Number(r.revenue_gross || 0) - taxAmount).toFixed(2));
+            const cogsTotal = Number((cogsBase + taxAmount).toFixed(2));
+            const profit = Number((Number(r.revenue_gross || 0) - cogsTotal).toFixed(2));
+            const margin = Number(r.revenue_gross || 0) > 0 ? Number(((profit / Number(r.revenue_gross || 0)) * 100).toFixed(2)) : 0;
+            const stockQty = Number(stockMap.get(r.item_id) || 0);
+            const backlogQty = Number(backlogMap.get(r.item_id) || 0);
+            const historyQty = Number(demandMap.get(r.item_id) || 0);
+            const avgDaily = Number((historyQty / historyDays).toFixed(4));
+            const forecastQty = Number((avgDaily * forecastHorizon).toFixed(4));
+            const needToProduce = Number(Math.max(forecastQty + backlogQty - stockQty, 0).toFixed(4));
+            const priority = salesAnalyticsPriority(needToProduce, avgDaily, stockQty);
+            return {
+                ...r,
+                unit_cost_std: unitCost,
+                unit_cost_real: costSource.startsWith('real_batch') ? unitCost : 0,
+                unit_cost_recipe: costSource.startsWith('recipe') ? unitCost : 0,
+                cost_source: costSource,
+                cogs_std_base: cogsBase,
+                cogs_std: cogsTotal,
+                tax_amount: taxAmount,
+                revenue_net: revenueNet,
+                gross_profit: profit,
+                gross_margin: margin,
+                stock_qty: stockQty,
+                backlog_qty: backlogQty,
+                avg_daily_demand: avgDaily,
+                forecast_qty: forecastQty,
+                need_to_produce: needToProduce,
+                priority
+            };
+        })
+        .filter((r) => Math.abs(Number(r.sold_qty || 0)) > 0.000001 || Math.abs(Number(r.revenue_gross || 0)) > 0.000001 || Math.abs(Number(r.need_to_produce || 0)) > 0.000001);
+
+    const totalRevenue = Number(totals.revenue_gross || 0);
+    const totalQty = Number(totals.sold_qty || 0);
+    const productsTabRows = productBase
+        .slice()
+        .sort((a, b) => Number(b.revenue_gross || 0) - Number(a.revenue_gross || 0))
+        .slice(0, topN)
+        .map((r, idx) => ({
+            rank: idx + 1,
+            item_id: r.item_id,
+            item: r.item,
+            unit: r.unit,
+            sold_qty: r.sold_qty,
+            revenue_gross: r.revenue_gross,
+            revenue_share: totalRevenue > 0 ? Number(((Number(r.revenue_gross || 0) / totalRevenue) * 100).toFixed(2)) : 0,
+            qty_share: totalQty > 0 ? Number(((Number(r.sold_qty || 0) / totalQty) * 100).toFixed(2)) : 0,
+            abc_class: (() => {
+                const share = totalRevenue > 0 ? (Number(r.revenue_gross || 0) / totalRevenue) * 100 : 0;
+                if (share >= 10) return 'A';
+                if (share >= 4) return 'B';
+                return 'C';
+            })()
+        }));
+
+    const profitabilityRows = productBase
+        .slice()
+        .sort((a, b) => Number(b.gross_profit || 0) - Number(a.gross_profit || 0))
+        .slice(0, topN)
+        .map((r, idx) => ({
+            rank: idx + 1,
+            item_id: r.item_id,
+            item: r.item,
+            unit: r.unit,
+            sold_qty: r.sold_qty,
+            revenue_gross: r.revenue_gross,
+            tax_amount: r.tax_amount,
+            revenue_net: r.revenue_net,
+            unit_cost_std: r.unit_cost_std,
+            cost_source_label: salesAnalyticsCostSourceLabel(r.cost_source),
+            cogs_std: r.cogs_std,
+            gross_profit: r.gross_profit,
+            gross_margin: r.gross_margin
+        }));
+
+    const forecastRows = productBase
+        .slice()
+        .sort((a, b) => {
+            const pw = salesAnalyticsPriorityWeight(a.priority) - salesAnalyticsPriorityWeight(b.priority);
+            if (pw !== 0) return pw;
+            return Number(b.need_to_produce || 0) - Number(a.need_to_produce || 0);
+        })
+        .slice(0, topN)
+        .map((r, idx) => ({
+            rank: idx + 1,
+            item_id: r.item_id,
+            item: r.item,
+            unit: r.unit,
+            avg_daily_demand: r.avg_daily_demand,
+            forecast_qty: r.forecast_qty,
+            backlog_qty: r.backlog_qty,
+            stock_qty: r.stock_qty,
+            need_to_produce: r.need_to_produce,
+            priority: r.priority
+        }));
+
+    const groupExpr = salesAnalyticsGroupExpr(groupBy);
+    const trendSql = `
+        SELECT
+            TO_CHAR(${groupExpr}, 'YYYY-MM-DD') AS bucket,
+            ROUND(COALESCE(SUM(CASE WHEN m.movement_type = 'sales_shipment' THEN ABS(m.quantity) ELSE 0 END), 0)::numeric, 4) AS shipped_qty,
+            ROUND(COALESCE(SUM(CASE WHEN m.movement_type = 'shipment_reversal' THEN ABS(m.quantity) ELSE 0 END), 0)::numeric, 4) AS reversed_qty,
+            ROUND(COALESCE(SUM(CASE WHEN m.movement_type = 'sales_shipment' THEN ABS(m.quantity) * COALESCE(coi.price, 0) ELSE 0 END), 0)::numeric, 2) AS shipped_revenue,
+            ROUND(COALESCE(SUM(CASE WHEN m.movement_type = 'shipment_reversal' THEN ABS(m.quantity) * COALESCE(coi.price, 0) ELSE 0 END), 0)::numeric, 2) AS reversed_revenue
+        FROM inventory_movements m
+        JOIN items i ON i.id = m.item_id
+        JOIN warehouses w ON w.id = m.warehouse_id
+        LEFT JOIN client_order_items coi ON coi.id = m.linked_order_item_id
+        ${whereSql}
+        GROUP BY ${groupExpr}
+        ORDER BY ${groupExpr} ASC
+    `;
+    const trendRes = await pool.query(trendSql, params);
+    const trendRows = trendRes.rows.map((r) => {
+        const shippedQty = Number(r.shipped_qty || 0);
+        const reversedQty = Number(r.reversed_qty || 0);
+        const shippedRevenue = Number(r.shipped_revenue || 0);
+        const reversedRevenue = Number(r.reversed_revenue || 0);
+        return {
+            bucket: r.bucket,
+            sold_qty: Number((includeReturns ? shippedQty - reversedQty : shippedQty).toFixed(4)),
+            revenue_gross: Number((includeReturns ? shippedRevenue - reversedRevenue : shippedRevenue).toFixed(2))
+        };
+    });
+
+    const totalTax = Number(profitabilityRows.reduce((s, r) => s + Number(r.tax_amount || 0), 0).toFixed(2));
+    const totalRevenueNet = Number(profitabilityRows.reduce((s, r) => s + Number(r.revenue_net || 0), 0).toFixed(2));
+    const totalProfit = Number(profitabilityRows.reduce((s, r) => s + Number(r.gross_profit || 0), 0).toFixed(2));
+    const marginPct = totalRevenueNet > 0 ? Number(((totalProfit / totalRevenueNet) * 100).toFixed(2)) : 0;
+    const topByVolume = productBase.slice().sort((a, b) => Number(b.sold_qty || 0) - Number(a.sold_qty || 0))[0] || null;
+    const topByRevenue = productBase.slice().sort((a, b) => Number(b.revenue_gross || 0) - Number(a.revenue_gross || 0))[0] || null;
+    const worstByMargin = productBase.slice().sort((a, b) => Number(a.gross_margin || 0) - Number(b.gross_margin || 0))[0] || null;
+    const bestByMargin = productBase.slice().sort((a, b) => Number(b.gross_margin || 0) - Number(a.gross_margin || 0))[0] || null;
+
+    const summaryRows = [
+        { metric: 'Объем продаж (нетто)', value: totals.sold_qty, unit: 'ед.' },
+        { metric: 'Выручка (брутто)', value: totals.revenue_gross, unit: '₽' },
+        { metric: 'Возвраты (объем)', value: totals.returns_qty, unit: 'ед.' },
+        { metric: 'Возвраты (выручка)', value: totals.returns_revenue, unit: '₽' },
+        { metric: `Налог (оценка ${taxRate}%)`, value: totalTax, unit: '₽' },
+        { metric: `Валовая прибыль (себестоимость${includeOverhead ? ', с оверхедом' : ', без оверхеда'}${includeTaxes ? ', налог в затратах' : ', без налога в затратах'})`, value: totalProfit, unit: '₽' },
+        { metric: `Маржинальность (себестоимость${includeOverhead ? ', с оверхедом' : ', без оверхеда'}${includeTaxes ? ', налог в затратах' : ', без налога в затратах'})`, value: marginPct, unit: '%' },
+        { metric: 'Лидер по объему', value: topByVolume ? `${topByVolume.item} (${formatNumber(topByVolume.sold_qty)} ${topByVolume.unit})` : '—', unit: '' },
+        { metric: 'Лидер по выручке', value: topByRevenue ? `${topByRevenue.item} (${formatNumber(topByRevenue.revenue_gross)} ₽)` : '—', unit: '' },
+        { metric: 'Лучшая маржа', value: bestByMargin ? `${bestByMargin.item} (${formatNumber(bestByMargin.gross_margin)}%)` : '—', unit: '' },
+        { metric: 'Худшая маржа', value: worstByMargin ? `${worstByMargin.item} (${formatNumber(worstByMargin.gross_margin)}%)` : '—', unit: '' }
+    ];
+
+    const tabs = [
+        {
+            id: 'summary',
+            title: 'Сводка',
+            columns: [
+                { key: 'metric', label: 'Показатель' },
+                { key: 'value', label: 'Значение' },
+                { key: 'unit', label: 'Ед.' }
+            ],
+            rows: summaryRows,
+            totals: {}
+        },
+        {
+            id: 'products',
+            title: 'По продукции',
+            columns: [
+                { key: 'rank', label: '#' },
+                { key: 'item', label: 'Номенклатура' },
+                { key: 'unit', label: 'Ед.' },
+                { key: 'sold_qty', label: 'Объем (нетто)' },
+                { key: 'revenue_gross', label: 'Выручка' },
+                { key: 'revenue_share', label: 'Доля выручки, %' },
+                { key: 'qty_share', label: 'Доля объема, %' },
+                { key: 'abc_class', label: 'ABC' }
+            ],
+            rows: productsTabRows,
+            totals: {
+                sold_qty: totals.sold_qty,
+                revenue_gross: totals.revenue_gross
+            }
+        },
+        {
+            id: 'profitability',
+            title: 'Рентабельность',
+            columns: [
+                { key: 'rank', label: '#' },
+                { key: 'item', label: 'Номенклатура' },
+                { key: 'unit', label: 'Ед.' },
+                { key: 'sold_qty', label: 'Объем' },
+                { key: 'revenue_gross', label: 'Выручка' },
+                { key: 'tax_amount', label: `Налог ${taxRate}%` },
+                { key: 'revenue_net', label: 'Выручка (чистая)' },
+                { key: 'unit_cost_std', label: 'Себестоимость ед.' },
+                { key: 'cost_source_label', label: 'Тип себестоимости' },
+                { key: 'cogs_std', label: includeTaxes ? 'Себестоимость продаж (с налогом)' : 'Себестоимость продаж' },
+                { key: 'gross_profit', label: 'Валовая прибыль' },
+                { key: 'gross_margin', label: 'Маржа, %' }
+            ],
+            rows: profitabilityRows,
+            totals: {
+                gross_profit: totalProfit,
+                gross_margin: marginPct,
+                tax_amount: totalTax,
+                revenue_net: totalRevenueNet
+            }
+        },
+        {
+            id: 'forecast',
+            title: 'Прогноз выпуска',
+            columns: [
+                { key: 'rank', label: '#' },
+                { key: 'item', label: 'Номенклатура' },
+                { key: 'unit', label: 'Ед.' },
+                { key: 'avg_daily_demand', label: 'Ср. спрос/день' },
+                { key: 'forecast_qty', label: `Прогноз ${forecastHorizon} дн.` },
+                { key: 'backlog_qty', label: 'Заказы к отгрузке' },
+                { key: 'stock_qty', label: 'Остаток' },
+                { key: 'need_to_produce', label: 'Нужно произвести' },
+                { key: 'priority', label: 'Приоритет' }
+            ],
+            rows: forecastRows,
+            totals: {
+                need_to_produce: Number(forecastRows.reduce((s, r) => s + Number(r.need_to_produce || 0), 0).toFixed(4)),
+                forecast_qty: Number(forecastRows.reduce((s, r) => s + Number(r.forecast_qty || 0), 0).toFixed(4))
+            }
+        }
+    ];
+
+    const tabMap = new Map(tabs.map((t) => [t.id, t]));
+    const selectedTab = tabMap.get(activeTab) || tabs[0];
+    return {
+        title: 'Аналитика продаж',
+        activeTab: selectedTab.id,
+        tabs,
+        kpis: [
+            { key: 'sold_qty', label: 'Объем продаж', value: totals.sold_qty, unit: 'ед.' },
+            { key: 'revenue_gross', label: 'Выручка', value: totals.revenue_gross, unit: '₽' },
+            { key: 'tax_amount', label: includeTaxes ? `Налог (${taxRate}%)` : `Налог не в марже (ставка ${taxRate}%)`, value: totalTax, unit: '₽' },
+            { key: 'gross_profit', label: 'Валовая прибыль (по себестоимости)', value: totalProfit, unit: '₽' },
+            { key: 'gross_margin', label: 'Маржинальность (по себестоимости)', value: marginPct, unit: '%' },
+            { key: 'returns_qty', label: 'Возвраты', value: totals.returns_qty, unit: 'ед.' }
+        ],
+        trend: trendRows,
+        columns: selectedTab.columns,
+        rows: selectedTab.rows,
+        totals: selectedTab.totals
+    };
+}
+
+async function buildSalesAnalyticsDrilldown(pool, params = {}) {
+    const itemId = Number(params.itemId || 0);
+    const metric = String(params.metric || 'sold_qty');
+    const dateFrom = String(params.dateFrom || '');
+    const dateTo = String(params.dateTo || '');
+    const fromTs = toIsoDateStart(dateFrom);
+    const toTs = toIsoDateEnd(dateTo);
+    if (!itemId) throw new Error('Некорректная номенклатура');
+    if (!fromTs || !toTs) throw new Error('Некорректный период');
+    const allowedMetrics = new Set(['sold_qty', 'revenue_gross', 'gross_profit', 'need_to_produce', 'forecast_qty']);
+    if (!allowedMetrics.has(metric)) throw new Error('Некорректная метрика');
+
+    const sql = `
+        SELECT
+            m.id,
+            ${reportDateExpr('m')} AS event_ts,
+            m.movement_type,
+            ABS(m.quantity) AS qty_abs,
+            COALESCE(coi.price, 0) AS unit_price,
+            COALESCE(o.id, 0) AS order_id,
+            COALESCE(o.doc_number, '') AS order_doc,
+            COALESCE(c.name, '') AS counterparty_name,
+            COALESCE(m.description, '') AS note
+        FROM inventory_movements m
+        JOIN items i ON i.id = m.item_id
+        LEFT JOIN client_order_items coi ON coi.id = m.linked_order_item_id
+        LEFT JOIN client_orders o ON o.id = coi.order_id
+        LEFT JOIN counterparties c ON c.id = o.counterparty_id
+        WHERE m.item_id = $1::int
+          AND ${reportDateExpr('m')} >= $2::timestamp
+          AND ${reportDateExpr('m')} <= $3::timestamp
+          AND m.movement_type IN ('sales_shipment', 'shipment_reversal')
+        ORDER BY event_ts DESC, m.id DESC
+        LIMIT 500
+    `;
+    const res = await pool.query(sql, [itemId, fromTs, toTs]);
+    const itemNameRes = await pool.query(`SELECT name, COALESCE(NULLIF(TRIM(unit), ''), 'ед.') AS unit FROM items WHERE id = $1::int`, [itemId]);
+    const itemName = itemNameRes.rows[0]?.name || `#${itemId}`;
+    const unit = itemNameRes.rows[0]?.unit || 'ед.';
+    const rows = res.rows.map((r) => {
+        const isReturn = String(r.movement_type || '') === 'shipment_reversal';
+        const qty = Number(r.qty_abs || 0);
+        const amount = Number((qty * Number(r.unit_price || 0)).toFixed(2));
+        return {
+            id: Number(r.id || 0),
+            date: new Date(r.event_ts).toLocaleDateString('ru-RU'),
+            type: isReturn ? 'Возврат/отмена отгрузки' : 'Отгрузка',
+            typeCode: isReturn ? 'expense' : 'income',
+            qty: isReturn ? -qty : qty,
+            unit,
+            amount: isReturn ? -amount : amount,
+            orderId: Number(r.order_id || 0),
+            orderDoc: r.order_doc || '',
+            counterparty: r.counterparty_name || '',
+            note: r.note || ''
+        };
+    });
+    return { itemId, itemName, metric, rangeMode: 'period', rows };
+}
+
 async function buildReport(pool, payload) {
     const reportType = payload.reportType;
     if (!REPORT_TYPES.has(reportType)) {
@@ -840,10 +2058,20 @@ async function buildReport(pool, payload) {
     if (reportType === 'osv_products') data = await buildStockOsv(pool, period, ['finished', 'markdown'], 'ОСВ по продукции', filters, accountingMode);
     if (reportType === 'turnover_finance') data = await buildTurnoverFinance(pool, period, filters, accountingMode);
     if (reportType === 'inventory_register') data = await buildInventoryRegister(pool, period, filters, payload.pagination || {}, accountingMode);
+    if (reportType === 'sales_analytics') data = await buildSalesAnalytics(pool, period, filters, accountingMode);
+    if (data && Array.isArray(data.warnings) && data.warnings.length) {
+        warnings.push(...data.warnings);
+    }
 
     if (Array.isArray(payload.visibleColumns) && payload.visibleColumns.length) {
         const allow = new Set(payload.visibleColumns.map((x) => String(x)));
         data.columns = data.columns.filter((c) => allow.has(c.key));
+        if (reportType === 'sales_analytics' && Array.isArray(data.tabs)) {
+            data.tabs = data.tabs.map((tab) => ({
+                ...tab,
+                columns: (tab.columns || []).filter((c) => allow.has(c.key) || c.key === 'item' || c.key === 'metric' || c.key === 'rank')
+            }));
+        }
     }
 
     const consistency = {
@@ -878,7 +2106,7 @@ async function buildReport(pool, payload) {
 }
 
 async function buildReportOptions(pool, userId = null) {
-    const [counterparties, accounts, items, movementTypes, regSourcesTx, regSourcesInv, settingsRes, presetsRes] = await Promise.all([
+    const [counterparties, accounts, items, movementTypes, regSourcesTx, regSourcesInv, settingsRes, financeSettingsRes, presetsRes] = await Promise.all([
         pool.query(`SELECT id, name FROM counterparties ORDER BY name ASC LIMIT 1000`),
         pool.query(`SELECT id, name FROM accounts ORDER BY name ASC LIMIT 200`),
         pool.query(`SELECT id, name FROM items ORDER BY name ASC LIMIT 3000`),
@@ -886,6 +2114,7 @@ async function buildReportOptions(pool, userId = null) {
         pool.query(`SELECT DISTINCT COALESCE(NULLIF(TRIM(reg_source_tag), ''), 'legacy') AS source_tag FROM transactions ORDER BY source_tag ASC LIMIT 300`),
         pool.query(`SELECT DISTINCT COALESCE(NULLIF(TRIM(reg_source_tag), ''), 'legacy') AS source_tag FROM inventory_movements ORDER BY source_tag ASC LIMIT 300`),
         pool.query(`SELECT key, value FROM system_settings WHERE key IN ('company_name','company_inn','company_kpp','company_address','company_director','company_accountant')`),
+        pool.query(`SELECT key, value FROM settings WHERE key IN ('sales_tax', 'overhead_per_cycle')`),
         pool.query(
             `SELECT id, name, report_type, payload, is_shared
              FROM report_presets
@@ -899,9 +2128,26 @@ async function buildReportOptions(pool, userId = null) {
     settingsRes.rows.forEach((r) => {
         settings[r.key] = r.value;
     });
+    const financeDefaults = {
+        salesTax: 6,
+        overheadPerCycle: 0
+    };
+    financeSettingsRes.rows.forEach((r) => {
+        const key = String(r.key || '');
+        const n = Number(r.value || 0);
+        if (!Number.isFinite(n)) return;
+        if (key === 'sales_tax') financeDefaults.salesTax = n;
+        if (key === 'overhead_per_cycle') financeDefaults.overheadPerCycle = n;
+    });
+    const sortedAccounts = (accounts.rows || []).slice().sort((a, b) => {
+        const wa = getCashAccountOrderWeight(a.name);
+        const wb = getCashAccountOrderWeight(b.name);
+        if (wa !== wb) return wa - wb;
+        return String(a.name || '').localeCompare(String(b.name || ''), 'ru');
+    });
     return {
         counterparties: counterparties.rows,
-        accounts: accounts.rows,
+        accounts: sortedAccounts,
         items: items.rows,
         movementTypes: movementTypes.rows.map((r) => r.movement_type).filter(Boolean),
         regSourceTags: Array.from(new Set(
@@ -911,6 +2157,7 @@ async function buildReportOptions(pool, userId = null) {
                 .filter(Boolean)
         )).sort((a, b) => String(a).localeCompare(String(b), 'ru')),
         settings,
+        financeDefaults,
         printTemplateVersions: [
             { id: 'v1', label: 'Официальная форма v1' },
             { id: 'v2', label: 'Официальная форма v2 (расширенная)' }
@@ -1144,6 +2391,10 @@ module.exports = function reportsRoutes(pool) {
     router.get('/api/reports/options', requireReportAccess('view'), async (req, res) => {
         try {
             const options = await buildReportOptions(pool, req.user ? req.user.id : null);
+            options.stockValuationModes = [
+                { id: 'movement_actual', label: 'Фактическая (по движениям)' },
+                { id: 'legacy_current_price', label: 'Legacy (по текущей цене карточки)' }
+            ];
             options.canManageSettings = isAdmin(req.user);
             options.permissions = {
                 view: hasReportPermission(req.user, 'view'),
@@ -1345,6 +2596,108 @@ module.exports = function reportsRoutes(pool) {
             res.json(data);
         } catch (err) {
             res.status(400).json({ error: err.message || 'Ошибка расшифровки контрагента' });
+        }
+    });
+
+    router.get('/api/reports/account-drilldown', requireReportAccess('view'), async (req, res) => {
+        try {
+            const data = await buildAccountDrilldown(pool, {
+                accountId: req.query.accountId,
+                dateFrom: req.query.dateFrom,
+                dateTo: req.query.dateTo,
+                metric: req.query.metric
+            });
+            res.json(data);
+        } catch (err) {
+            res.status(400).json({ error: err.message || 'Ошибка расшифровки счета' });
+        }
+    });
+
+    router.get('/api/reports/stock-drilldown', requireReportAccess('view'), async (req, res) => {
+        try {
+            const data = await buildStockDrilldown(pool, {
+                itemId: req.query.itemId,
+                warehouseId: req.query.warehouseId,
+                dateFrom: req.query.dateFrom,
+                dateTo: req.query.dateTo,
+                metric: req.query.metric
+            });
+            res.json(data);
+        } catch (err) {
+            res.status(400).json({ error: err.message || 'Ошибка расшифровки движений по номенклатуре' });
+        }
+    });
+
+    router.get('/api/reports/finance-drilldown', requireReportAccess('view'), async (req, res) => {
+        try {
+            const data = await buildTurnoverFinanceDrilldown(pool, {
+                dateFrom: req.query.dateFrom,
+                dateTo: req.query.dateTo,
+                typeCode: req.query.typeCode,
+                category: req.query.category,
+                accountingMode: req.query.accountingMode,
+                regOnlyPosted: String(req.query.regOnlyPosted || '') !== '' ? String(req.query.regOnlyPosted) === 'true' : undefined,
+                regOnlyPrimaryDoc: String(req.query.regOnlyPrimaryDoc || '') !== '' ? String(req.query.regOnlyPrimaryDoc) === 'true' : undefined,
+                regRequireDocumentNo: String(req.query.regRequireDocumentNo || '') !== '' ? String(req.query.regRequireDocumentNo) === 'true' : undefined,
+                regExcludeOffset: String(req.query.regExcludeOffset || '') !== '' ? String(req.query.regExcludeOffset) === 'true' : undefined,
+                regExcludeTechnical: String(req.query.regExcludeTechnical || '') !== '' ? String(req.query.regExcludeTechnical) === 'true' : undefined,
+                regSourceTag: req.query.regSourceTag || ''
+            });
+            res.json(data);
+        } catch (err) {
+            res.status(400).json({ error: err.message || 'Ошибка расшифровки оборотов по финстатье' });
+        }
+    });
+
+    router.get('/api/reports/sales-analytics-drilldown', requireReportAccess('view'), async (req, res) => {
+        try {
+            const data = await buildSalesAnalyticsDrilldown(pool, {
+                itemId: req.query.itemId,
+                metric: req.query.metric,
+                dateFrom: req.query.dateFrom,
+                dateTo: req.query.dateTo
+            });
+            res.json(data);
+        } catch (err) {
+            res.status(400).json({ error: err.message || 'Ошибка расшифровки аналитики продаж' });
+        }
+    });
+
+    router.get('/api/reports/inventory-valuation-audit', requireReportAccess('view'), async (req, res) => {
+        try {
+            const dateFrom = String(req.query.dateFrom || '');
+            const dateTo = String(req.query.dateTo || '');
+            let period = null;
+            if (dateFrom && dateTo) {
+                period = { fromTs: toIsoDateStart(dateFrom), toTs: toIsoDateEnd(dateTo) };
+                if (!period.fromTs || !period.toTs) return res.status(400).json({ error: 'Некорректный период' });
+            }
+            const warehouseTypes = req.query.warehouseTypes
+                ? String(req.query.warehouseTypes).split(',').map((x) => x.trim()).filter(Boolean)
+                : null;
+            const data = await buildInventoryValuationCoverage(pool, period, warehouseTypes);
+            res.json(data);
+        } catch (err) {
+            res.status(500).json({ error: err.message || 'Ошибка аудита покрытия цен движений' });
+        }
+    });
+
+    router.post('/api/reports/inventory-valuation-backfill', requireReportAccess('manage_templates'), requireAdmin, async (req, res) => {
+        try {
+            const dateFrom = String(req.body?.dateFrom || '');
+            const dateTo = String(req.body?.dateTo || '');
+            const apply = Boolean(req.body?.apply);
+            const period = {
+                fromTs: toIsoDateStart(dateFrom),
+                toTs: toIsoDateEnd(dateTo)
+            };
+            if (!period.fromTs || !period.toTs) return res.status(400).json({ error: 'Некорректный период' });
+            const warehouseTypes = Array.isArray(req.body?.warehouseTypes) ? req.body.warehouseTypes.map((x) => String(x)) : null;
+            const data = await backfillInventoryUnitPrice(pool, period, apply, warehouseTypes);
+            await auditLog(pool, req, 'reports_inventory_valuation_backfill', 'inventory_movement', null, `apply=${apply}; from=${dateFrom}; to=${dateTo}`);
+            res.json(data);
+        } catch (err) {
+            res.status(500).json({ error: err.message || 'Ошибка backfill цен движений' });
         }
     });
 

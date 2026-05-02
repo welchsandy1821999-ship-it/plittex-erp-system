@@ -4,12 +4,89 @@ const router = express.Router();
 const logger = require('../utils/logger');
 const Big = require('big.js');
 const { sendNotify } = require('../utils/telegram');
+const { auditLog } = require('../utils/db_init');
 
 const { requireAdmin, authenticateToken } = require('../middleware/auth');
-const { validateProductionDraft, validateRecipeSave, validateRecipeSync } = require('../middleware/validator');
+const { validateProductionDraft, validateRecipeSave, validateRecipeSync, validateRecipeBatch } = require('../middleware/validator');
+const { isPackagingItem } = require('../utils/packagingMaterial');
 
 // 👈 Добавили withTransaction
 module.exports = function (pool, getWhId, withTransaction) {
+    async function getRecipeLayerMap(client) {
+        const res = await client.query(`SELECT value FROM settings WHERE key = 'recipe_layer_map'`);
+        return res.rows.length ? (res.rows[0].value || {}) : {};
+    }
+
+    async function saveRecipeLayerMap(client, mapObj) {
+        await client.query(
+            `
+            INSERT INTO settings (key, value) VALUES ('recipe_layer_map', $1)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        `,
+            [JSON.stringify(mapObj || {})]
+        );
+    }
+
+    function normalizeLayer(layer) {
+        return layer === 'face' || layer === 'main' || layer === 'packaging' ? layer : 'main';
+    }
+
+    async function getRecipeSplitMap(client) {
+        const res = await client.query(`SELECT value FROM settings WHERE key = 'recipe_split_map'`);
+        return res.rows.length ? (res.rows[0].value || {}) : {};
+    }
+
+    async function saveRecipeSplitMap(client, mapObj) {
+        await client.query(
+            `
+            INSERT INTO settings (key, value) VALUES ('recipe_split_map', $1)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        `,
+            [JSON.stringify(mapObj || {})]
+        );
+    }
+
+    /** Сборка строк рецепта в том же формате, что и GET /api/recipes/:productId */
+    function assembleRecipeRowsForProduct(productId, resultRows, layerMap, splitMap) {
+        const productIdStr = String(productId);
+        const productLayerMap = layerMap[String(productIdStr)] || {};
+        const productSplit = Array.isArray(splitMap[String(productIdStr)]) ? splitMap[String(productIdStr)] : [];
+
+        if (productSplit.length > 0) {
+            const infoByMat = new Map();
+            resultRows.forEach((r) => infoByMat.set(Number(r.material_id), r));
+            const splitRows = productSplit
+                .map((entry, idx) => {
+                    const materialId = Number(entry.materialId);
+                    const info = infoByMat.get(materialId);
+                    return {
+                        id: null,
+                        material_id: materialId,
+                        quantity_per_unit: Number(entry.qty || 0),
+                        material_name: info?.material_name || `Материал #${materialId}`,
+                        unit: info?.unit || 'кг',
+                        current_price: Number(info?.current_price || 0),
+                        category: info?.category || null,
+                        layer: normalizeLayer(entry.layer),
+                        order: Number.isFinite(Number(entry.order)) ? Number(entry.order) : idx
+                    };
+                })
+                .filter((r) => r.quantity_per_unit > 0);
+            splitRows.sort((a, b) => a.order - b.order);
+            return splitRows;
+        }
+
+        return resultRows
+            .map((row, idx) => ({
+                ...row,
+                layer: normalizeLayer(productLayerMap[String(row.material_id)] || 'main'),
+                order: idx
+            }))
+            .sort(
+                (a, b) =>
+                    a.order - b.order || String(a.material_name || '').localeCompare(String(b.material_name || ''), 'ru')
+            );
+    }
 
     // --- ПРОСТЫЕ ЗАПРОСЫ ---
     router.get('/api/mix-templates', async (req, res) => {
@@ -82,8 +159,49 @@ module.exports = function (pool, getWhId, withTransaction) {
         }
     });
 
+    // Batch-сохранение нескольких шаблонов за одну транзакцию
+    router.post('/api/mix-templates/batch', requireAdmin, async (req, res) => {
+        const { templates } = req.body;
+        if (!Array.isArray(templates) || templates.length === 0) {
+            return res.status(400).json({ error: 'templates[] required' });
+        }
+        for (const t of templates) {
+            if (!t.templateKey || !Array.isArray(t.ingredients)) {
+                return res.status(400).json({ error: 'Each template requires templateKey and ingredients[]' });
+            }
+        }
+        try {
+            await withTransaction(pool, async (client) => {
+                // Читаем оба JSONB-ключа атомарно (FOR UPDATE)
+                const resMix = await client.query(`SELECT value FROM settings WHERE key = 'mix_templates' FOR UPDATE`);
+                let mixTemplates = resMix.rows.length > 0 ? resMix.rows[0].value : {};
 
+                const resYields = await client.query(`SELECT value FROM settings WHERE key = 'mix_template_yields' FOR UPDATE`);
+                let mixYields = resYields.rows.length > 0 ? resYields.rows[0].value : {};
 
+                // Обновляем все ключи в памяти
+                for (const t of templates) {
+                    mixTemplates[t.templateKey] = t.ingredients;
+                    mixYields[t.templateKey] = parseFloat(t.yieldValue) || 1;
+                }
+
+                // Записываем одним запросом
+                await client.query(`
+                    INSERT INTO settings (key, value) VALUES ('mix_templates', $1)
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+                `, [JSON.stringify(mixTemplates)]);
+
+                await client.query(`
+                    INSERT INTO settings (key, value) VALUES ('mix_template_yields', $1)
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+                `, [JSON.stringify(mixYields)]);
+            });
+            res.json({ success: true, count: templates.length });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Ошибка batch-сохранения шаблонов.' });
+        }
+    });
 
     router.get('/api/production/history', async (req, res) => {
         const { date } = req.query;
@@ -181,10 +299,63 @@ module.exports = function (pool, getWhId, withTransaction) {
         }
     });
 
-    router.get('/api/recipes/:productId', async (req, res) => {
+    /** Пакетная выдача рецептов (один запрос к БД вместо N× GET) — для UI сравнения рецептур */
+    router.post('/api/recipes/batch', validateRecipeBatch, async (req, res) => {
         try {
-            const result = await pool.query(`SELECT r.id, r.material_id, r.quantity_per_unit, i.name as material_name, i.unit, i.current_price FROM recipes r JOIN items i ON r.material_id = i.id WHERE r.product_id = $1`, [req.params.productId]);
-            res.json(result.rows);
+            const rawIds = req.body.productIds || [];
+            const productIds = [...new Set(rawIds.map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n) && n > 0))];
+            if (productIds.length === 0) {
+                return res.status(400).json({ error: 'Некорректные productIds' });
+            }
+
+            const recipesRes = await pool.query(
+                `
+                SELECT r.product_id, r.id, r.material_id, r.quantity_per_unit,
+                       i.name as material_name, i.unit, i.current_price, i.category
+                FROM recipes r
+                JOIN items i ON r.material_id = i.id
+                WHERE r.product_id = ANY($1::int[])
+                ORDER BY r.product_id, r.id
+            `,
+                [productIds]
+            );
+
+            const layersRes = await pool.query(`SELECT value FROM settings WHERE key = 'recipe_layer_map'`);
+            const layerMap = layersRes.rows.length ? layersRes.rows[0].value || {} : {};
+            const splitMap = await getRecipeSplitMap(pool);
+
+            const grouped = new Map();
+            productIds.forEach((id) => grouped.set(id, []));
+
+            recipesRes.rows.forEach((row) => {
+                const pid = parseInt(row.product_id, 10);
+                if (grouped.has(pid)) grouped.get(pid).push(row);
+            });
+
+            const recipes = {};
+            productIds.forEach((id) => {
+                recipes[String(id)] = assembleRecipeRowsForProduct(id, grouped.get(id) || [], layerMap, splitMap);
+            });
+
+            res.json({ recipes });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
+    });
+
+    router.get('/api/recipes/:productId', async (req, res) => {
+        const productId = parseInt(req.params.productId, 10);
+        if (!Number.isFinite(productId) || productId <= 0) {
+            return res.status(400).json({ error: 'Некорректный productId' });
+        }
+        try {
+            const result = await pool.query(`SELECT r.id, r.material_id, r.quantity_per_unit, i.name as material_name, i.unit, i.current_price, i.category FROM recipes r JOIN items i ON r.material_id = i.id WHERE r.product_id = $1`, [productId]);
+            const layersRes = await pool.query(`SELECT value FROM settings WHERE key = 'recipe_layer_map'`);
+            const layerMap = layersRes.rows.length ? (layersRes.rows[0].value || {}) : {};
+            const splitMap = await getRecipeSplitMap(pool);
+            const rows = assembleRecipeRowsForProduct(productId, result.rows, layerMap, splitMap);
+            res.json(rows);
         } catch (err) {
             logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
@@ -215,7 +386,7 @@ module.exports = function (pool, getWhId, withTransaction) {
     router.post('/api/production', requireAdmin, validateProductionDraft, async (req, res) => {
         let { date, shiftName, products, materialsUsed, status: requestedStatus } = req.body;
         const isDraft = (requestedStatus === 'draft');
-        console.log(`[PRODUCTION] Получен запрос: date=${date}, isDraft=${isDraft}`);
+        logger.info(`[PRODUCTION] Получен запрос: date=${date}, isDraft=${isDraft}`);
 
         try {
             await withTransaction(pool, async (client) => {
@@ -227,6 +398,17 @@ module.exports = function (pool, getWhId, withTransaction) {
                 // Очистка списка материалов
                 if (materialsUsed) {
                     materialsUsed = materialsUsed.filter(m => m.id && String(m.id).trim() !== '' && !isNaN(m.id));
+                }
+                // Упаковка — только план/отображение; физически не списываем при замесе (черновик/фиксация)
+                if (materialsUsed && materialsUsed.length > 0) {
+                    const pids = materialsUsed.map(m => parseInt(m.id, 10)).filter(n => !isNaN(n));
+                    if (pids.length > 0) {
+                        const infoRes = await client.query('SELECT id, name, category FROM items WHERE id = ANY($1::int[])', [pids]);
+                        materialsUsed = materialsUsed.filter(m => {
+                            const info = infoRes.rows.find(x => x.id === parseInt(m.id, 10));
+                            return !isPackagingItem(info && info.name, info && info.category);
+                        });
+                    }
                 }
 
                 // ПОЛУЧАЕМ ПАРАМЕТРЫ АМОРТИЗАЦИИ (нужны и для черновика, и для фиксации)
@@ -339,6 +521,14 @@ module.exports = function (pool, getWhId, withTransaction) {
 
                 // 2. Очистка materialsUsed
                 let cleanMaterials = (materialsUsed || []).filter(m => m.id && String(m.id).trim() !== '' && !isNaN(m.id));
+                if (cleanMaterials.length > 0) {
+                    const pids = cleanMaterials.map(m => parseInt(m.id, 10)).filter(n => !isNaN(n));
+                    const infoRes = await client.query('SELECT id, name, category FROM items WHERE id = ANY($1::int[])', [pids]);
+                    cleanMaterials = cleanMaterials.filter(m => {
+                        const info = infoRes.rows.find(x => x.id === parseInt(m.id, 10));
+                        return !isPackagingItem(info && info.name, info && info.category);
+                    });
+                }
 
                 // 🚀 СТОП-КРАН: Запрещаем фиксировать смену без сырья
                 if (cleanMaterials.length === 0) {
@@ -505,9 +695,13 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     router.delete('/api/production/batch/:id', requireAdmin, async (req, res) => {
         const batchId = parseInt(req.params.id);
+        const reason = String((req.query || {}).reason || '').trim();
 
         if (isNaN(batchId)) {
             return res.status(400).json({ error: `Неверный формат ID: ${req.params.id}` });
+        }
+        if (!reason) {
+            return res.status(400).json({ error: 'Укажите причину отмены формовки' });
         }
 
         try {
@@ -599,6 +793,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     }
                 }
             });
+            await auditLog(pool, req, 'production_batch_delete', 'production_batch', batchId, `reason=${reason}`);
             res.json({ success: true });
         } catch (err) {
             // 🚀 Изменили статус с 500 на 400, чтобы фронтенд понял, что это 
@@ -630,12 +825,45 @@ module.exports = function (pool, getWhId, withTransaction) {
 
                 await client.query('DELETE FROM recipes WHERE product_id = $1', [productId]);
                 if (ingredients.length > 0) {
-                    const matIds = ingredients.map(i => i.materialId);
-                    const qtys = ingredients.map(i => i.qty);
+                    const agg = new Map();
+                    const splitRows = [];
+                    ingredients.forEach((ing, idx) => {
+                        const matId = Number(ing.materialId);
+                        const qty = Number(ing.qty || 0);
+                        if (!Number.isFinite(matId) || matId <= 0 || !Number.isFinite(qty) || qty <= 0) return;
+                        agg.set(matId, Number(agg.get(matId) || 0) + qty);
+                        splitRows.push({
+                            materialId: matId,
+                            qty,
+                            layer: normalizeLayer(ing.layer),
+                            order: Number.isFinite(Number(ing.order)) ? Number(ing.order) : idx
+                        });
+                    });
+                    const matIds = Array.from(agg.keys());
+                    const qtys = matIds.map((id) => agg.get(id));
                     await client.query(`
                         INSERT INTO recipes (product_id, material_id, quantity_per_unit)
                         SELECT $1, * FROM UNNEST($2::int[], $3::numeric[])
                     `, [productId, matIds, qtys]);
+                    const layerMap = await getRecipeLayerMap(client);
+                    const splitMap = await getRecipeSplitMap(client);
+                    const nextProductMap = {};
+                    splitRows.forEach((row) => {
+                        if (!nextProductMap[String(row.materialId)]) {
+                            nextProductMap[String(row.materialId)] = row.layer;
+                        }
+                    });
+                    layerMap[String(productId)] = nextProductMap;
+                    splitMap[String(productId)] = splitRows.sort((a, b) => a.order - b.order);
+                    await saveRecipeLayerMap(client, layerMap);
+                    await saveRecipeSplitMap(client, splitMap);
+                } else {
+                    const layerMap = await getRecipeLayerMap(client);
+                    const splitMap = await getRecipeSplitMap(client);
+                    layerMap[String(productId)] = {};
+                    splitMap[String(productId)] = [];
+                    await saveRecipeLayerMap(client, layerMap);
+                    await saveRecipeSplitMap(client, splitMap);
                 }
             });
             res.json({ success: true });
@@ -652,28 +880,187 @@ module.exports = function (pool, getWhId, withTransaction) {
 
 
 
+    /**
+     * Синхронизация только указанных слоёв: убираем эти блоки из split target, добавляем из источника,
+     * затем полностью пересобираем таблицу recipes по объединённому split (консистентно с сохранением).
+     */
+    async function applyRecipeSyncScopedLayers(client, targetId, materials, allowLayerSet, layerMap, splitMap) {
+        const splitRowsIncoming = [];
+        for (let idx = 0; idx < materials.length; idx++) {
+            const mat = materials[idx];
+            const layer = normalizeLayer(mat.layer);
+            if (!allowLayerSet.has(layer)) continue;
+            const matId = Number(mat.materialId);
+            const qty = Number(mat.qty || 0);
+            if (!Number.isFinite(matId) || matId <= 0 || !Number.isFinite(qty) || qty <= 0) continue;
+            splitRowsIncoming.push({
+                materialId: matId,
+                qty,
+                layer,
+                order: Number.isFinite(Number(mat.order)) ? Number(mat.order) : idx
+            });
+        }
+        if (!splitRowsIncoming.length) throw new Error('Нет строк для синхронизации выбранных блоков');
+
+        const sid = String(targetId);
+        const prevSplitRaw = splitMap[sid];
+        const existingSplitRows = Array.isArray(prevSplitRaw)
+            ? prevSplitRaw.map((row) => ({
+                  materialId: Number(row.materialId),
+                  qty: Number(row.qty || 0),
+                  layer: normalizeLayer(row.layer),
+                  order: Number.isFinite(Number(row.order)) ? Number(row.order) : 0
+              }))
+            : [];
+        const stripped = existingSplitRows.filter((row) => !allowLayerSet.has(normalizeLayer(row.layer)));
+
+        const byKey = new Map();
+        stripped.forEach((row, idx) => {
+            const key = `${Number(row.materialId)}:${normalizeLayer(row.layer)}`;
+            byKey.set(key, {
+                materialId: Number(row.materialId),
+                qty: Number(row.qty || 0),
+                layer: normalizeLayer(row.layer),
+                order: Number.isFinite(Number(row.order)) ? Number(row.order) : idx
+            });
+        });
+        splitRowsIncoming.forEach((row, idx) => {
+            const key = `${row.materialId}:${row.layer}`;
+            byKey.set(key, {
+                materialId: Number(row.materialId),
+                qty: Number(row.qty || 0),
+                layer: row.layer,
+                order: Number.isFinite(Number(row.order)) ? Number(row.order) : 10000 + idx
+            });
+        });
+        const mergedSplit = Array.from(byKey.values()).sort((a, b) => a.order - b.order);
+
+        const agg = new Map();
+        mergedSplit.forEach((row) => {
+            const mid = Number(row.materialId);
+            const q = Number(row.qty || 0);
+            if (!Number.isFinite(mid) || mid <= 0 || !Number.isFinite(q) || q <= 0) return;
+            agg.set(mid, Number(agg.get(mid) || 0) + q);
+        });
+
+        await client.query('DELETE FROM recipes WHERE product_id = $1', [targetId]);
+        if (agg.size > 0) {
+            const materialIds = Array.from(agg.keys());
+            const quantities = materialIds.map((id) => agg.get(id));
+            const productIds = materialIds.map(() => Number(targetId));
+            await client.query(
+                `
+                INSERT INTO recipes (product_id, material_id, quantity_per_unit)
+                SELECT * FROM UNNEST($1::int[], $2::int[], $3::numeric[])
+            `,
+                [productIds, materialIds, quantities]
+            );
+        }
+
+        const nextProductMap = {};
+        mergedSplit.forEach((row) => {
+            const k = String(row.materialId);
+            if (!(k in nextProductMap)) nextProductMap[k] = normalizeLayer(row.layer);
+        });
+        layerMap[sid] = nextProductMap;
+        splitMap[sid] = mergedSplit;
+    }
+
     router.post('/api/recipes/sync-category', requireAdmin, validateRecipeSync, async (req, res) => {
-        const { targetProductIds, materials } = req.body;
+        const { targetProductIds, materials, mode, layers } = req.body;
         try {
             await withTransaction(pool, async (client) => {
                 // 🛡️ AUDIT-018: проверка targetProductIds перенесена в validateRecipeSync middleware
 
-                const productIds = [];
-                const materialIds = [];
-                const quantities = [];
+                const safeMode = mode === 'replace_all' ? 'replace_all' : 'upsert';
+                const allowLayerSet =
+                    Array.isArray(layers) && layers.length > 0
+                        ? new Set(
+                              layers.map((x) => String(x || '').toLowerCase()).filter((x) =>
+                                  ['face', 'main', 'packaging'].includes(x)
+                              )
+                          )
+                        : null;
+
+                const layerMap = await getRecipeLayerMap(client);
+                const splitMap = await getRecipeSplitMap(client);
+
                 for (const targetId of targetProductIds) {
-                    for (const mat of materials) {
-                        productIds.push(targetId);
-                        materialIds.push(mat.materialId);
-                        quantities.push(mat.qty);
+                    if (allowLayerSet && allowLayerSet.size > 0) {
+                        await applyRecipeSyncScopedLayers(client, targetId, materials, allowLayerSet, layerMap, splitMap);
+                        continue;
                     }
+
+                    if (safeMode === 'replace_all') {
+                        await client.query('DELETE FROM recipes WHERE product_id = $1', [targetId]);
+                    }
+
+                    const agg = new Map();
+                    const splitRowsIncoming = [];
+                    for (let idx = 0; idx < materials.length; idx++) {
+                        const mat = materials[idx];
+                        const matId = Number(mat.materialId);
+                        const qty = Number(mat.qty || 0);
+                        if (!Number.isFinite(matId) || matId <= 0 || !Number.isFinite(qty) || qty <= 0) continue;
+                        agg.set(matId, Number(agg.get(matId) || 0) + qty);
+                        splitRowsIncoming.push({
+                            materialId: matId,
+                            qty,
+                            layer: normalizeLayer(mat.layer),
+                            order: Number.isFinite(Number(mat.order)) ? Number(mat.order) : idx
+                        });
+                    }
+
+                    if (agg.size > 0) {
+                        const materialIds = Array.from(agg.keys());
+                        const quantities = materialIds.map((id) => agg.get(id));
+                        const productIds = materialIds.map(() => Number(targetId));
+                        await client.query(
+                            `
+                            INSERT INTO recipes (product_id, material_id, quantity_per_unit)
+                            SELECT * FROM UNNEST($1::int[], $2::int[], $3::numeric[])
+                            ON CONFLICT (product_id, material_id)
+                            DO UPDATE SET quantity_per_unit = EXCLUDED.quantity_per_unit
+                        `,
+                            [productIds, materialIds, quantities]
+                        );
+                    }
+
+                    const existingProductMap = safeMode === 'replace_all' ? {} : layerMap[String(targetId)] || {};
+                    splitRowsIncoming.forEach((mat) => {
+                        existingProductMap[String(mat.materialId)] = mat.layer;
+                    });
+                    layerMap[String(targetId)] = existingProductMap;
+
+                    let existingSplitRows = safeMode === 'replace_all' ? [] : Array.isArray(splitMap[String(targetId)]) ? splitMap[String(targetId)] : [];
+                    if (safeMode === 'replace_all') {
+                        existingSplitRows = splitRowsIncoming.sort((a, b) => a.order - b.order);
+                    } else {
+                        const byKey = new Map();
+                        existingSplitRows.forEach((row, idx) => {
+                            const key = `${row.materialId}:${normalizeLayer(row.layer)}`;
+                            byKey.set(key, {
+                                materialId: Number(row.materialId),
+                                qty: Number(row.qty || 0),
+                                layer: normalizeLayer(row.layer),
+                                order: Number.isFinite(Number(row.order)) ? Number(row.order) : idx
+                            });
+                        });
+                        splitRowsIncoming.forEach((row) => {
+                            const key = `${row.materialId}:${normalizeLayer(row.layer)}`;
+                            byKey.set(key, {
+                                materialId: Number(row.materialId),
+                                qty: Number(row.qty || 0),
+                                layer: normalizeLayer(row.layer),
+                                order: Number.isFinite(Number(row.order)) ? Number(row.order) : byKey.size
+                            });
+                        });
+                        existingSplitRows = Array.from(byKey.values()).sort((a, b) => a.order - b.order);
+                    }
+                    splitMap[String(targetId)] = existingSplitRows;
                 }
-                await client.query(`
-                    INSERT INTO recipes (product_id, material_id, quantity_per_unit)
-                    SELECT * FROM UNNEST($1::int[], $2::int[], $3::numeric[])
-                    ON CONFLICT (product_id, material_id)
-                    DO UPDATE SET quantity_per_unit = EXCLUDED.quantity_per_unit
-                `, [productIds, materialIds, quantities]);
+                await saveRecipeLayerMap(client, layerMap);
+                await saveRecipeSplitMap(client, splitMap);
             });
             res.json({ success: true, message: `Успешно применено к ${targetProductIds.length} позициям.` });
         } catch (err) {

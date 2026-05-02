@@ -1,6 +1,6 @@
 # PLITTEX ERP — карта репозитория
 
-**Обновлено:** 2026-04-24  
+**Обновлено:** 2026-05-02  
 
 Карта структуры и границ ответственности. Историю фаз сюда не пишем — только актуальное состояние.
 
@@ -65,7 +65,7 @@ plittex-erp/
 ## 3. Маршруты (файл → mount)
 
 | Файл | Примечание |
-|------|------------|
+|------|-----------|
 | `routes/inventory.js` | `app.use('/', …)` — склад, сушилка, закупки (API), движения |
 | `routes/production.js` | Производство, рецептуры (часть путей), MRP, аналитика |
 | `routes/finance.js` | Касса, транзакции, контрагенты, **дашборд-виджеты** (`/api/analytics/…`), **ожидаемые платежи** (`/api/invoices`) |
@@ -73,6 +73,7 @@ plittex-erp/
 | `routes/hr.js` | Кадры, зарплата |
 | `routes/sales.js` | Заказы, отгрузки, аналитика продаж, часть путей контрагентов |
 | `routes/docs.js` | Печать, реестр, PDF/HTML документы |
+| `routes/reports.js` | `app.use('/', …)` — ОСВ (контрагенты, деньги, материалы, продукция), реестр движений, аналитика продаж, управленческий/регламентный режим, экспорт CSV/XLSX, история формирований (`report_runs`) |
 | `routes/dev.js` | `app.use('/api/dev', …)` — только dev |
 | `routes/admin.js` | `app.use('/api/admin', …)` — бэкапы, настройки, аудит-экспорт |
 
@@ -104,6 +105,7 @@ plittex-erp/
 | Закупки | `purchase-mod` | `views/modules/purchase.ejs` | `public/js/purchases.js` |
 | Продажи | `sales-mod` | `views/modules/sales.ejs` | `public/js/sales.js` |
 | Кадры/ЗП | `salary-mod` | `views/modules/salary.ejs` | `public/js/salary.js` |
+| Отчёты и ОСВ | `reports-mod` | `views/modules/reports.ejs` | `public/js/reports.js` |
 | Справочники | `ref-mod` (admin) | `views/modules/references.ejs` | `public/js/references.js` |
 | Реестр документов | `docs-registry-mod` (admin) | `views/modules/docs_registry.ejs` | `public/js/docs_registry.js` |
 | Рецептуры | `recipe-mod` (admin) | `views/modules/recipes.ejs` | `public/js/recipes.js` |

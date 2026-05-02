@@ -10,7 +10,7 @@
 
     <div class="card pur-main-panel">
         <div class="form-grid pur-form-grid">
-            <div class="form-group col-span-3">
+            <div class="form-group col-span-2 pur-material-group">
                 <label>Закупаемая номенклатура:</label>
                 <select id="purchase-material-select" class="input-modern" placeholder="-- Выберите ТМЦ --">
                     <option value="">-- Загрузка... --</option>
@@ -19,7 +19,7 @@
                 </div>
             </div>
 
-            <div class="form-group col-span-3">
+            <div class="form-group col-span-2">
                 <label>Поставщик (Поиск по Имени или ИНН):</label>
                 <div class="pur-supplier-flex">
                     <div class="flex-1 min-w-0">
@@ -40,16 +40,21 @@
                 </select>
             </div>
 
-            <div class="form-group">
-                <label>Количество:</label>
-                <input type="number" id="purchase-qty" class="input-modern" oninput="calculatePurchaseTotal()"
-                    placeholder="0.00">
-            </div>
-
-            <div class="form-group">
-                <label>Цена за ед. (₽):</label>
-                <input type="number" id="purchase-price" class="input-modern" oninput="calculatePurchaseTotal()"
-                    placeholder="0.00">
+            <div class="form-group col-span-2 pur-price-qty-group">
+                <label class="pur-price-qty-title">Параметры закупки:</label>
+                <div class="pur-price-qty-grid">
+                    <div class="form-group m-0">
+                        <label>Цена за ед. (₽):</label>
+                        <input type="number" id="purchase-price" class="input-modern" oninput="calculatePurchaseTotal()"
+                            placeholder="0.00">
+                        <div id="purchase-price-source" class="pur-price-source-hint">Источник цены: не выбран</div>
+                    </div>
+                    <div class="form-group m-0">
+                        <label>Количество:</label>
+                        <input type="number" id="purchase-qty" class="input-modern" oninput="calculatePurchaseTotal()"
+                            placeholder="0.00">
+                    </div>
+                </div>
             </div>
 
 

@@ -1,8 +1,11 @@
+const path = require("path");
+
 module.exports = {
   apps: [
     {
       name: "plittex-erp",
-      script: "./web.js",
+      cwd: __dirname,
+      script: path.join(__dirname, "web.js"),
       instances: 1,
       autorestart: true,
       watch: false,

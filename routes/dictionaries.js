@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
+const { auditLog } = require('../utils/db_init');
 
 // 👈 Добавили withTransaction
 const { requireAdmin } = require('../middleware/auth');
@@ -98,7 +99,8 @@ module.exports = function (pool, withTransaction) {
             'qty_per_cycle',  // Тот самый "Выход с 1 удара"
             'piece_rate',     // Сдельная ставка
             'mix_main_tpl',   // Шаблон основного слоя
-            'mix_face_tpl'    // Шаблон лицевого слоя
+            'mix_face_tpl',   // Шаблон лицевого слоя
+            'default_layer'   // Слой по умолчанию для модуля рецептур
         ];
 
         // 2. Фильтрация входящих данных: оставляем только те, что в белом списке
@@ -134,8 +136,11 @@ module.exports = function (pool, withTransaction) {
 
     // === БЕЗОПАСНОЕ УДАЛЕНИЕ ТОВАРА (SOFT DELETE) ===
     router.delete('/api/items/:id', requireAdmin, async (req, res) => {
+        const reason = String((req.query || {}).reason || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину удаления позиции' });
         try {
             await pool.query(`UPDATE items SET is_deleted = true WHERE id = $1`, [req.params.id]);
+            await auditLog(pool, req, 'dictionary_item_delete', 'item', Number(req.params.id), `reason=${reason}`);
             res.json({ success: true, message: 'Позиция перенесена в архив' });
         } catch (err) {
             logger.error(err);
@@ -258,6 +263,8 @@ module.exports = function (pool, withTransaction) {
 
     // === БЕЗОПАСНОЕ УДАЛЕНИЕ СОТРУДНИКА (УВОЛЬНЕНИЕ) ===
     router.delete('/api/employees/:id', requireAdmin, async (req, res) => {
+        const reason = String((req.query || {}).reason || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину увольнения/архивации сотрудника' });
         try {
             await withTransaction(pool, async (client) => {
                 // 1. Мягкое удаление сотрудника
@@ -278,6 +285,7 @@ module.exports = function (pool, withTransaction) {
                     WHERE name = 'Подотчет: ' || $1 AND type = 'imprest'
                 `, [empName]);
             });
+            await auditLog(pool, req, 'dictionary_employee_delete', 'employee', Number(req.params.id), `reason=${reason}`);
             res.json({ success: true, message: 'Сотрудник перенесен в архив (уволен)' });
         } catch (err) {
             logger.error(err);
@@ -351,8 +359,11 @@ module.exports = function (pool, withTransaction) {
     });
 
     router.delete('/api/equipment/:id', requireAdmin, async (req, res) => {
+        const reason = String((req.query || {}).reason || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину списания оборудования' });
         try {
             await pool.query(`UPDATE equipment SET status = 'scrapped' WHERE id = $1`, [req.params.id]);
+            await auditLog(pool, req, 'dictionary_equipment_delete', 'equipment', Number(req.params.id), `reason=${reason}`);
             res.json({ success: true, message: 'Успешно списано (Soft Delete)' });
         } catch (err) {
             logger.error(err);

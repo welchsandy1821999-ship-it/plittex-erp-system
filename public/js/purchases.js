@@ -6,6 +6,31 @@ window.activePurchaseDates = [];
 let purchaseDatePicker = null;
 window.currentEditingPurchaseId = null;
 
+function setPurchasePriceSource(sourceKey, extra = '') {
+    const el = document.getElementById('purchase-price-source');
+    if (!el) return;
+    const map = {
+        none: 'Источник цены: не выбран',
+        fallback: 'Источник цены: базовая цена номенклатуры',
+        last_purchase: 'Источник цены: последняя закупка',
+        manual: 'Источник цены: введено вручную',
+        from_total: 'Источник цены: рассчитано из суммы и количества',
+        from_edit: 'Источник цены: из редактируемого прихода'
+    };
+    const baseText = map[sourceKey] || map.none;
+    el.textContent = extra ? `${baseText}${extra}` : baseText;
+}
+
+function setPurchasePriceValue(value, sourceKey, extra = '') {
+    const priceInput = document.getElementById('purchase-price');
+    if (!priceInput) return;
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) {
+        priceInput.value = n.toFixed(2);
+        setPurchasePriceSource(sourceKey, extra);
+    }
+}
+
 async function loadPurchaseMaterials() {
     try {
         const dataMat = await API.get('/api/items?limit=2000');
@@ -86,7 +111,7 @@ function reorderSuppliers(prevSupplierIds) {
 function initStaticPurchaseSelects() {
     const matSelect = document.getElementById('purchase-material-select');
     if (matSelect && !matSelect.tomselect) {
-        new TomSelect(matSelect, {
+        const matTs = new TomSelect(matSelect, {
             plugins: ['clear_button'],
             optgroups: [
                 {value: 'material', label: '🛢️ Сырье'},
@@ -101,8 +126,13 @@ function initStaticPurchaseSelects() {
             placeholder: "-- Выберите ТМЦ (Сырье или Продукцию) --",
             onChange: async function(value) {
                 const mat = allPurchaseMaterials.find(m => m.id == value);
-                const price = mat ? parseFloat(mat.current_price || 0) : 0;
-                if (price > 0) document.getElementById('purchase-price').value = price;
+                const priceInput = document.getElementById('purchase-price');
+                const fallbackPrice = mat ? parseFloat(mat.current_price || 0) : 0;
+                if (!value) {
+                    setPurchasePriceSource('none');
+                } else if (fallbackPrice > 0 && priceInput) {
+                    setPurchasePriceValue(fallbackPrice, 'fallback');
+                }
                 calculatePurchaseTotal();
 
                 const informer = document.getElementById('material-informer');
@@ -122,6 +152,12 @@ function initStaticPurchaseSelects() {
                         API.get(`/api/inventory/material-stats/${value}`),
                         API.get(`/api/inventory/material-suppliers/${value}`)
                     ]);
+                    // Приоритет: последняя фактическая закупочная цена этого сырья.
+                    const derivedPrice = Number(stats.lastPrice || 0);
+                    if (priceInput && Number.isFinite(derivedPrice) && derivedPrice > 0) {
+                        setPurchasePriceValue(derivedPrice, 'last_purchase', stats.lastDate ? ` (${stats.lastDate})` : '');
+                        calculatePurchaseTotal();
+                    }
                     let html = `<span class="text-main">📊 На складе: <b>${parseFloat(stats.balance).toFixed(2)} ${mat ? mat.unit : ''}</b></span>`;
                     if (stats.lastPrice) {
                         html += `<br><span class="text-muted">💸 Прошлая закупка (${stats.lastDate}): по <b>${parseFloat(stats.lastPrice).toFixed(2)} ₽</b></span>`;
@@ -137,6 +173,17 @@ function initStaticPurchaseSelects() {
                 }
             }
         });
+        // UX как в "Комментарий..." — клик по уже активному полю выбора выделяет текущий текст для быстрой замены.
+        const bindSelectAll = () => {
+            const input = matTs.control_input;
+            if (!input || input.dataset.selectAllBound === '1') return;
+            input.dataset.selectAllBound = '1';
+            input.addEventListener('focus', () => input.select());
+            input.addEventListener('click', () => {
+                if (document.activeElement === input) input.select();
+            });
+        };
+        bindSelectAll();
     }
 
     const supSelect = document.getElementById('purchase-supplier-select');
@@ -229,8 +276,10 @@ window.calculatePriceFromTotal = function () {
 
     if (priceInput && qty > 0 && total > 0) {
         priceInput.value = (total / qty).toFixed(2);
+        setPurchasePriceSource('from_total');
     } else if (priceInput) {
         priceInput.value = '';
+        setPurchasePriceSource('none');
     }
 };
 
@@ -319,14 +368,7 @@ window.executePurchase = async function (materialId, counterparty_id, account_id
             if (typeof loadDailyPurchases === 'function') loadDailyPurchases(dateStr);
         }
 
-        // Очищаем форму
-        const matSelect = document.getElementById('purchase-material-select');
-        if (matSelect && matSelect.tomselect) matSelect.tomselect.clear();
-        document.getElementById('purchase-qty').value = '';
-        document.getElementById('purchase-price').value = '';
-        document.getElementById('purchase-total-cost').value = '';
-        document.getElementById('purchase-has-delivery').checked = false;
-        if (typeof toggleDeliveryFields === 'function') toggleDeliveryFields();
+        resetPurchaseForm({ preserveDate: true, keepEditState: false });
 
     } catch (e) { console.error(e); }
 };
@@ -360,7 +402,7 @@ window.editPurchase = async function (id) {
         if (accSel) { data.account_id ? accSel.setValue(data.account_id) : accSel.clear(); }
 
         document.getElementById('purchase-qty').value = data.quantity;
-        document.getElementById('purchase-price').value = data.price;
+        setPurchasePriceValue(data.price, 'from_edit');
 
         // Восстанавливаем доставку
         const hasDeliveryCheckbox = document.getElementById('purchase-has-delivery');
@@ -392,26 +434,57 @@ window.editPurchase = async function (id) {
 };
 
 window.cancelEditMode = function () {
-    window.currentEditingPurchaseId = null;
-
-    const btnSubmit = document.getElementById('btn-submit-purchase');
-    btnSubmit.innerHTML = '📥 Оформить приход';
-    btnSubmit.className = 'btn btn-blue w-100';
-    document.getElementById('btn-cancel-edit').classList.add('inv-hidden');
-
-    document.getElementById('purchase-material-select').tomselect.clear();
-    document.getElementById('purchase-supplier-select').tomselect.clear();
-    document.getElementById('purchase-account-select').tomselect.clear();
-    document.getElementById('purchase-qty').value = '';
-    document.getElementById('purchase-price').value = '';
-    document.getElementById('purchase-total-cost').value = '';
-
-    document.getElementById('purchase-has-delivery').checked = false;
-    toggleDeliveryFields();
-
-    if (purchaseDatePicker) purchaseDatePicker.setDate(new Date());
+    resetPurchaseForm({ preserveDate: false, keepEditState: false });
     UI.toast('Редактирование отменено', 'info');
 };
+
+function resetPurchaseForm({ preserveDate = true, keepEditState = false } = {}) {
+    if (!keepEditState) {
+        window.currentEditingPurchaseId = null;
+        const btnSubmit = document.getElementById('btn-submit-purchase');
+        if (btnSubmit) {
+            btnSubmit.innerHTML = '📥 Оформить приход';
+            btnSubmit.className = 'btn btn-blue w-100';
+        }
+        const btnCancel = document.getElementById('btn-cancel-edit');
+        if (btnCancel) btnCancel.classList.add('inv-hidden');
+    }
+
+    const clearTs = (id) => {
+        const el = document.getElementById(id);
+        if (el?.tomselect) el.tomselect.clear(true);
+        else if (el) el.value = '';
+    };
+    clearTs('purchase-material-select');
+    clearTs('purchase-supplier-select');
+    clearTs('purchase-account-select');
+    clearTs('purchase-delivery-account');
+    clearTs('purchase-delivery-supplier-select');
+
+    const clearInput = (id, v = '') => {
+        const el = document.getElementById(id);
+        if (el) el.value = v;
+    };
+    clearInput('purchase-qty', '');
+    clearInput('purchase-price', '');
+    clearInput('purchase-total-cost', '');
+    clearInput('purchase-delivery-cost', '');
+    setPurchasePriceSource('none');
+
+    const informer = document.getElementById('material-informer');
+    if (informer) {
+        informer.classList.add('inv-hidden');
+        informer.innerHTML = '';
+    }
+
+    const hasDelivery = document.getElementById('purchase-has-delivery');
+    if (hasDelivery) hasDelivery.checked = false;
+    if (typeof toggleDeliveryFields === 'function') toggleDeliveryFields();
+
+    if (!preserveDate && purchaseDatePicker) {
+        purchaseDatePicker.setDate(new Date());
+    }
+}
 
 async function loadDailyPurchases(dateStr) {
     const tbody = document.getElementById('daily-purchases-table');
@@ -481,6 +554,10 @@ window.deletePurchase = function (id, itemName) {
             Точно отменить приход ТМЦ <b>${itemName}</b>?<br><br>
             <span class="text-danger font-13">Товар будет списан со склада, а деньги (включая доставку) вернутся на счет.</span>
         </div>
+        <div class="form-group m-0">
+            <label>Причина отмены (обязательно)</label>
+            <textarea id="purchase-delete-reason" class="input-modern" rows="3" placeholder="Например: ошибочная закупка"></textarea>
+        </div>
     `;
 
     UI.showModal('⚠️ Отмена закупки', html, `
@@ -490,11 +567,13 @@ window.deletePurchase = function (id, itemName) {
 };
 
 window.executeDeletePurchase = async function (id) {
+    const reason = (document.getElementById('purchase-delete-reason')?.value || '').trim();
+    if (!reason) return UI.toast('Укажите причину отмены закупки', 'warning');
     UI.closeModal();
     UI.toast('⏳ Отмена закупки...', 'info');
 
     try {
-        await API.delete(`/api/inventory/purchase/${id}`);
+        await API.delete(`/api/inventory/purchase/${id}?reason=${encodeURIComponent(reason)}`);
 
         UI.toast('🗑️ Закупка отменена', 'success');
             const dateStr = document.getElementById('purchase-date').value;
@@ -780,4 +859,10 @@ window.sortSearchResults = function (field) {
     if (typeof loadPurchaseMaterials === 'function') window.loadPurchaseMaterials = loadPurchaseMaterials;
     if (typeof initStaticPurchaseSelects === 'function') window.initStaticPurchaseSelects = initStaticPurchaseSelects;
     if (typeof loadDailyPurchases === 'function') window.loadDailyPurchases = loadDailyPurchases;
+const priceInputEl = document.getElementById('purchase-price');
+if (priceInputEl && priceInputEl.dataset.priceSourceBound !== '1') {
+    priceInputEl.dataset.priceSourceBound = '1';
+    priceInputEl.addEventListener('input', () => setPurchasePriceSource('manual'));
+}
+setPurchasePriceSource('none');
 })();

@@ -5,6 +5,10 @@ const logger = require('../utils/logger');
 const Big = require('big.js');
 const { requireAdmin } = require('../middleware/auth');
 const { validateSalaryAdjustment, validateTimesheetCell, validateMassBonus, validateSalaryPay } = require('../middleware/validator');
+const { auditLog } = require('../utils/db_init');
+
+/** Статья ДДС для выплат из «Кадры» — должна совпадать с `transaction_categories` (SSoT), иначе снова появится «дикая» статья. */
+const HR_SALARY_EXPENSE_CATEGORY = 'Зарплата и Авансы';
 
 // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (Вне экспорта) ===
 
@@ -54,6 +58,8 @@ module.exports = function (pool, withTransaction) {
     });
 
     router.delete('/api/salary/adjustments/:id', requireAdmin, async (req, res) => {
+        const reason = String((req.query || {}).reason || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину удаления корректировки' });
         try {
             // 🛡️ ЗАЩИТА: Проверяем, не закрыт ли месяц перед удалением
             const adj = await pool.query('SELECT month_str FROM salary_adjustments WHERE id = $1', [req.params.id]);
@@ -61,6 +67,7 @@ module.exports = function (pool, withTransaction) {
                 return res.status(403).json({ error: "Нельзя удалять операции из закрытого месяца." });
             }
             await pool.query(`UPDATE salary_adjustments SET is_deleted = true WHERE id = $1`, [req.params.id]);
+            await auditLog(pool, req, 'salary_adjustment_delete', 'salary_adjustment', Number(req.params.id), `reason=${reason}`);
             res.json({ success: true });
         } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
@@ -289,10 +296,21 @@ module.exports = function (pool, withTransaction) {
 
                 // 2. Списываем из кассы (только если сумма > 0)
                 if (payAmount.gt(0)) {
-                    const transRes = await client.query(`
+                    const transRes = await client.query(
+                        `
                         INSERT INTO transactions (account_id, counterparty_id, amount, transaction_type, category, description, payment_method, source_module, transaction_date) 
-                        VALUES ($1, $2, $3, 'expense', 'Зарплата', $4, $5, 'salary', $6) RETURNING id
-                    `, [account_id, counterparty_id, amountStr, `Выплата сотруднику: ${description}`, paymentMethod, date + ' 12:00:00']);
+                        VALUES ($1, $2, $3, 'expense', $4, $5, $6, 'salary', $7) RETURNING id
+                    `,
+                        [
+                            account_id,
+                            counterparty_id,
+                            amountStr,
+                            HR_SALARY_EXPENSE_CATEGORY,
+                            `Выплата сотруднику: ${description}`,
+                            paymentMethod,
+                            date + ' 12:00:00'
+                        ]
+                    );
                     linkedTransactionId = transRes.rows[0].id;
                 }
 
@@ -323,6 +341,8 @@ module.exports = function (pool, withTransaction) {
     });
 
     router.delete('/api/salary/payment/:id', requireAdmin, async (req, res) => {
+        const reason = String((req.query || {}).reason || '').trim();
+        if (!reason) return res.status(400).json({ error: 'Укажите причину удаления выплаты' });
         try {
             await withTransaction(pool, async (client) => {
                 const payRes = await client.query('SELECT * FROM salary_payments WHERE id = $1', [req.params.id]);
@@ -345,6 +365,7 @@ module.exports = function (pool, withTransaction) {
                 // Удаляем запись о выплате (Soft Delete)
                 await client.query('UPDATE salary_payments SET is_deleted = true WHERE id = $1', [req.params.id]);
             });
+            await auditLog(pool, req, 'salary_payment_delete', 'salary_payment', Number(req.params.id), `reason=${reason}`);
             res.json({ success: true });
         } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
@@ -411,9 +432,13 @@ module.exports = function (pool, withTransaction) {
     router.post('/api/salary/close-month', requireAdmin, async (req, res) => {
         // Принимаем месяц, точные остатки и введенные налоги
         const { monthStr, balances, totalTaxes } = req.body;
+        const reason = String((req.body || {}).reason || '').trim();
 
         if (!/^\d{4}-\d{2}$/.test(monthStr)) {
             return res.status(400).json({ error: 'Неверный формат месяца' });
+        }
+        if (!reason) {
+            return res.status(400).json({ error: 'Укажите причину закрытия месяца' });
         }
 
         try {
@@ -469,6 +494,7 @@ module.exports = function (pool, withTransaction) {
                 );
             });
 
+            await auditLog(pool, req, 'salary_month_close', 'closed_period', null, `month=${monthStr}; reason=${reason}`);
             res.json({ success: true, message: `Месяц закрыт. Балансы перенесены.` });
         } catch (err) {
             logger.error('Ошибка закрытия:', err.message);
@@ -481,9 +507,13 @@ module.exports = function (pool, withTransaction) {
     // ==========================================
     router.post('/api/salary/reopen-month', requireAdmin, async (req, res) => {
         const { monthStr, balances } = req.body;
+        const reason = String((req.body || {}).reason || '').trim();
 
         if (!/^\d{4}-\d{2}$/.test(monthStr)) {
             return res.status(400).json({ error: 'Неверный формат месяца' });
+        }
+        if (!reason) {
+            return res.status(400).json({ error: 'Укажите причину отмены закрытия месяца' });
         }
 
         try {
@@ -512,6 +542,7 @@ module.exports = function (pool, withTransaction) {
                 await client.query(`DELETE FROM closed_periods WHERE period_str = $1 AND module = 'salary'`, [monthStr]);
             });
 
+            await auditLog(pool, req, 'salary_month_reopen', 'closed_period', null, `month=${monthStr}; reason=${reason}`);
             res.json({ success: true, message: `Месяц ${monthStr} открыт. Балансы успешно откачены.` });
         } catch (err) {
             logger.error('Ошибка отмены закрытия:', err.message);

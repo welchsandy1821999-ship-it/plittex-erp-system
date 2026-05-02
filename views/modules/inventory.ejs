@@ -1,14 +1,4 @@
 <div id="stock-mod" class="module">
-    <style>
-        @media print {
-            body { background: white; }
-            .sidebar, .top-header, .inv-filter-panel, #inventory-search, .card-header .btn, .inv-actions-cell, .table-container .flex-between { display: none !important; }
-            .module { padding: 0; margin: 0; top: 0; left: 0; position: absolute; width: 100%; box-shadow: none; border: none; }
-            .inv-stock-card { box-shadow: none; border: none; }
-            table, th, td { border: 1px solid #ccc !important; }
-            * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        }
-    </style>
     <div class="flex-between mb-20 items-end">
         <div>
             <h2 class="mt-0 mb-0">📦 Склад и Остатки</h2>
@@ -39,6 +29,7 @@
             
             
             <button class="btn btn-outline hide-in-audit inv-toolbar-btn" onclick="openPrintModal()">Печать</button>
+            <button id="inventory-density-btn" class="btn btn-outline hide-in-audit inv-toolbar-btn" onclick="toggleInventoryDensity()">Плотность: компактно</button>
             
             <div class="dropdown inline-block relative hide-in-audit inv-toolbar-dropdown">
                 <button class="btn btn-outline inv-toolbar-btn" onclick="this.nextElementSibling.classList.toggle('inv-hidden')">📥 Экспорт XLS ▼</button>
@@ -71,26 +62,45 @@
         <button class="btn btn-outline filter-btn inv-reserve-btn" onclick="applyWarehouseFilter('7', this)">🔒 Склад №7 (Резервы)</button>
     </div>
 
-    <div class="card inv-stock-card p-0">
+    <div id="inv-reserve-controls" class="inv-reserve-controls mb-10 inv-hidden">
+        <div class="inv-reserve-presets">
+            <button type="button" class="btn btn-outline btn-sm" id="inv-reserve-preset-deficit" onclick="applyReservePreset('deficit')">⚠️ Дефицит резерва</button>
+            <button type="button" class="btn btn-outline btn-sm" id="inv-reserve-preset-completed" onclick="applyReservePreset('completed_only')">✅ Только завершенные</button>
+            <button type="button" class="btn btn-outline btn-sm" id="inv-reserve-preset-unlinked" onclick="applyReservePreset('unlinked_only')">🔗 Только без привязки</button>
+            <button type="button" class="btn btn-outline btn-sm" id="inv-reserve-preset-reset" onclick="applyReservePreset('reset')">Сброс</button>
+        </div>
+        <div class="form-group m-0">
+            <label class="label-sm text-muted">Статус заказа</label>
+            <select id="inv-reserve-status" class="input-modern" onchange="onReserveFilterChange()">
+                <option value="active">Незавершенные</option>
+                <option value="completed">Завершенные</option>
+                <option value="all">Все</option>
+            </select>
+        </div>
+        <div class="form-group m-0">
+            <label class="label-sm text-muted">Режим отображения</label>
+            <select id="inv-reserve-view" class="input-modern" onchange="onReserveFilterChange()">
+                <option value="orders">По отдельным заказам</option>
+                <option value="products">По видам продукции</option>
+            </select>
+        </div>
+        <div class="form-group m-0">
+            <label class="label-sm text-muted">Продукция</label>
+            <select id="inv-reserve-product" class="input-modern" onchange="onReserveFilterChange()">
+                <option value="">Все виды</option>
+            </select>
+        </div>
+        <div class="form-group m-0">
+            <label class="label-sm text-muted">Заказ</label>
+            <select id="inv-reserve-order" class="input-modern" onchange="onReserveFilterChange()">
+                <option value="">Все заказы</option>
+            </select>
+        </div>
+    </div>
+    <div id="inv-reserve-summary" class="inv-reserve-summary mb-10 inv-hidden"></div>
+
+    <div class="card inv-stock-card inv-stock-card-compact p-0">
         <div class="table-container">
-            <style>
-                /* Компактный режим для склада по требованию пользователя */
-                .inv-stock-card table td, .inv-stock-card table th {
-                    padding: 4px 8px !important;
-                    height: 32px !important;
-                    vertical-align: middle;
-                }
-                .inv-name-cell {
-                    max-width: 300px;
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                }
-                .inv-actions-cell button {
-                    padding: 2px 8px !important;
-                    font-size: 12px !important;
-                }
-            </style>
             <table class="table-modern w-100 table-fixed">
                 <thead class="bg-surface-alt" id="inventory-thead">
                     <tr>

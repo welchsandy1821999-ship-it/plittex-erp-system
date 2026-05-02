@@ -238,7 +238,11 @@ window.deleteEquipment = function (id, name) {
         <p>Удалить оборудование <strong class="text-primary">${name}</strong>?</p>
         <p class="text-danger mt-10" style="background: var(--danger-bg); padding: 10px; border-radius: 6px;">
             ⚠️ <b>Внимание:</b> Рекомендуется изменить статус на "Списано", чтобы сохранить историю производства.
-        </p>`;
+        </p>
+        <div class="form-group m-0">
+            <label>Причина списания (обязательно)</label>
+            <textarea id="equipment-delete-reason" class="input-modern" rows="3" placeholder="Например: физический износ"></textarea>
+        </div>`;
 
     UI.showModal('Удаление', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
@@ -247,8 +251,10 @@ window.deleteEquipment = function (id, name) {
 };
 
 window.confirmDeleteEquipment = async function (id) {
+    const reason = (document.getElementById('equipment-delete-reason')?.value || '').trim();
+    if (!reason) return UI.toast('Укажите причину списания оборудования', 'warning');
     try {
-        await API.delete(`/api/equipment/${id}`);
+        await API.delete(`/api/equipment/${id}?reason=${encodeURIComponent(reason)}`);
         if (true) {
             UI.closeModal();
             UI.toast('Удалено', 'success');

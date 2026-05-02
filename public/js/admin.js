@@ -66,20 +66,244 @@ async function adminCreateBackup() {
 // 2. VACUUM
 // ═══════════════════════════════════════════════════
 async function adminRunVacuum() {
-    const btn = document.getElementById('btn-vacuum');
-    if (!confirm('Запустить VACUUM ANALYZE? Это может занять несколько секунд.')) return;
+    adminConfirmAndRun({
+        title: '🧹 Подтвердите запуск',
+        message: 'Запустить VACUUM ANALYZE? Операция может занять некоторое время.',
+        run: async () => {
+            const btn = document.getElementById('btn-vacuum');
+            if (!btn) return;
+            const original = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = '⏳ Выполняется...';
+            try {
+                const res = await fetch('/api/admin/cron/vacuum', { method: 'POST' });
+                const data = await res.json();
+                UI.toast(data.message || 'VACUUM завершён', data.success ? 'success' : 'error');
+            } catch (err) {
+                UI.toast('Ошибка VACUUM', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = original || 'Запустить VACUUM';
+            }
+        }
+    });
+}
+
+function adminConfirmAndRun({ title, message, run }) {
+    const actionKey = `__adminConfirmAction_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+    window[actionKey] = async function () {
+        try {
+            UI.closeModal();
+            await run();
+        } finally {
+            try { delete window[actionKey]; } catch (_) { /* ignore */ }
+        }
+    };
+    const safeTitle = title || 'Подтверждение действия';
+    const safeMessage = message || 'Выполнить действие?';
+    UI.showModal(
+        safeTitle,
+        `<div class="font-13">${safeMessage}</div>`,
+        `<button class="btn btn-outline" onclick="UI.closeModal(); try { delete window['${actionKey}']; } catch(e){}">Отмена</button><button class="btn btn-blue" onclick="${actionKey}()">Запустить</button>`
+    );
+}
+
+async function adminRunServiceAction({ endpoint, buttonId, pendingText, doneTextBuilder, payload }) {
+    const btn = document.getElementById(buttonId);
+    if (!btn) return;
+    const original = btn.textContent;
     btn.disabled = true;
-    btn.textContent = '⏳ Выполняется...';
+    btn.textContent = pendingText;
     try {
-        const res = await fetch('/api/admin/cron/vacuum', { method: 'POST' });
+        const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload || {})
+        });
         const data = await res.json();
-        UI.toast(data.message || 'VACUUM завершён', data.success ? 'success' : 'error');
+        if (!res.ok || data.success === false) {
+            throw new Error(data.error || 'Операция завершилась с ошибкой');
+        }
+        UI.toast(doneTextBuilder(data), 'success');
     } catch (err) {
-        UI.toast('Ошибка VACUUM', 'error');
+        UI.toast(err.message || 'Ошибка выполнения сервисной операции', 'error');
     } finally {
         btn.disabled = false;
-        btn.textContent = 'Запустить VACUUM';
+        btn.textContent = original;
     }
+}
+
+function adminAskReasonAndRun({ title, placeholder, onConfirm }) {
+    UI.showModal(title, `
+        <div class="form-group m-0">
+            <label>Причина запуска (обязательно)</label>
+            <textarea id="admin-service-reason" class="input-modern" rows="3" placeholder="${escapeHTML(placeholder || 'Например: плановая нормализация данных')}"></textarea>
+        </div>
+    `, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-blue" onclick="adminConfirmServiceReason()">Запустить</button>
+    `);
+    window.__adminServiceReasonConfirm = async function() {
+        const reason = (document.getElementById('admin-service-reason')?.value || '').trim();
+        if (!reason) return UI.toast('Укажите причину запуска операции', 'warning');
+        UI.closeModal();
+        await onConfirm(reason);
+    };
+}
+
+window.adminConfirmServiceReason = function() {
+    if (typeof window.__adminServiceReasonConfirm === 'function') {
+        window.__adminServiceReasonConfirm();
+    }
+};
+
+async function adminReclassifyTransferWild() {
+    adminConfirmAndRun({
+        title: '🧭 Переклассификация переводов',
+        message: 'Запустить сервисную переклассификацию статей по переводам?',
+        run: async () => adminAskReasonAndRun({
+            title: 'Причина переклассификации переводов',
+            placeholder: 'Например: плановая нормализация переводов после импорта',
+            onConfirm: async (reason) => adminRunServiceAction({
+                endpoint: '/api/finance/reclassify-transfer-wild',
+                buttonId: 'btn-reclassify-transfer',
+                pendingText: '⏳ Выполняется...',
+                doneTextBuilder: (data) => `Переклассификация переводов: обновлено ${Number(data.updated || 0)}`,
+                payload: { reason }
+            })
+        })
+    });
+}
+
+async function adminReclassifyTechnicalWild() {
+    adminConfirmAndRun({
+        title: '🧰 Переклассификация техопераций',
+        message: 'Запустить сервисную переклассификацию технических операций?',
+        run: async () => adminAskReasonAndRun({
+            title: 'Причина переклассификации техопераций',
+            placeholder: 'Например: плановая очистка технических проводок',
+            onConfirm: async (reason) => adminRunServiceAction({
+                endpoint: '/api/finance/reclassify-technical-wild',
+                buttonId: 'btn-reclassify-technical',
+                pendingText: '⏳ Выполняется...',
+                doneTextBuilder: (data) => {
+                    const scanned = Number(data.scanned || 0);
+                    const updated = Number(data.updated || 0);
+                    return `Техоперации: проверено ${scanned}, обновлено ${updated}`;
+                },
+                payload: { reason }
+            })
+        })
+    });
+}
+
+async function adminAuditIncomeCategories() {
+    const btn = document.getElementById('btn-audit-income');
+    const resultEl = document.getElementById('admin-income-audit-result');
+    if (!btn || !resultEl) return;
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Проверка...';
+    try {
+        const res = await fetch('/api/finance/audit-income-categories');
+        const data = await res.json();
+        if (!res.ok || data.success === false) throw new Error(data.error || 'Ошибка аудита');
+        const list = Array.isArray(data.problematic) ? data.problematic : [];
+        const expected = Array.isArray(data.expected_system) ? data.expected_system : [];
+        if (list.length === 0) {
+            resultEl.textContent = 'Аудит завершен: конфликтов направления не найдено.';
+            UI.toast('Аудит доходов: конфликтов не найдено', 'success');
+        } else {
+            const preview = list
+                .slice(0, 8)
+                .map((x) => `${x.category} (${x.cnt})`)
+                .join(', ');
+            resultEl.textContent = `Найдено проблемных статей: ${list.length}. Топ: ${preview}. Системных допустимых расхождений: ${expected.length}.`;
+            UI.toast(`Аудит доходов: проблемных статей ${list.length}`, 'warning');
+        }
+    } catch (err) {
+        UI.toast(err.message || 'Ошибка аудита доходных статей', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+    }
+}
+
+async function adminReclassifyIncomeSuspicious() {
+    adminConfirmAndRun({
+        title: '🟢 Нормализация доходов',
+        message: 'Запустить нормализацию проблемных доходных статей?',
+        run: async () => adminAskReasonAndRun({
+            title: 'Причина нормализации доходов',
+            placeholder: 'Например: устранение конфликтных доходных категорий',
+            onConfirm: async (reason) => adminRunServiceAction({
+                endpoint: '/api/finance/reclassify-income-suspicious',
+                buttonId: 'btn-fix-income',
+                pendingText: '⏳ Нормализация...',
+                doneTextBuilder: (data) => {
+                    const scanned = Number(data.scanned || 0);
+                    const updated = Number(data.updated || 0);
+                    return `Доходы: проверено ${scanned}, обновлено ${updated}`;
+                },
+                payload: { reason }
+            })
+        })
+            .then(() => adminAuditIncomeCategories())
+    });
+}
+
+async function adminAuditExpenseCategories() {
+    const btn = document.getElementById('btn-audit-expense');
+    const resultEl = document.getElementById('admin-expense-audit-result');
+    if (!btn || !resultEl) return;
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Проверка...';
+    try {
+        const res = await fetch('/api/finance/audit-expense-categories');
+        const data = await res.json();
+        if (!res.ok || data.success === false) throw new Error(data.error || 'Ошибка аудита');
+        const problematic = Array.isArray(data.problematic) ? data.problematic : [];
+        const expected = Array.isArray(data.expected_system) ? data.expected_system : [];
+        const wild = Array.isArray(data.wild) ? data.wild : [];
+        if (problematic.length === 0 && wild.length === 0) {
+            resultEl.textContent = `Аудит завершен: проблемных и диких расходных статей нет. Системных допустимых расхождений: ${expected.length}.`;
+            UI.toast('Аудит расходов: проблем не найдено', 'success');
+        } else {
+            const pPreview = problematic.slice(0, 6).map((x) => `${x.category} (${x.cnt})`).join(', ');
+            const wPreview = wild.slice(0, 6).map((x) => `${x.category} (${x.cnt})`).join(', ');
+            resultEl.textContent = `Проблемные: ${problematic.length}${pPreview ? `. Топ: ${pPreview}` : ''}. Дикие: ${wild.length}${wPreview ? `. Топ: ${wPreview}` : ''}. Системные допустимые: ${expected.length}.`;
+            UI.toast(`Аудит расходов: проблемных ${problematic.length}, диких ${wild.length}`, 'warning');
+        }
+    } catch (err) {
+        UI.toast(err.message || 'Ошибка аудита расходных статей', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+    }
+}
+
+async function adminReclassifyExpenseSuspicious() {
+    adminConfirmAndRun({
+        title: '🔴 Нормализация расходов',
+        message: 'Запустить нормализацию проблемных расходных статей?',
+        run: async () => adminAskReasonAndRun({
+            title: 'Причина нормализации расходов',
+            placeholder: 'Например: устранение конфликтных расходных категорий',
+            onConfirm: async (reason) => adminRunServiceAction({
+                endpoint: '/api/finance/reclassify-expense-suspicious',
+                buttonId: 'btn-fix-expense',
+                pendingText: '⏳ Нормализация...',
+                doneTextBuilder: (data) => {
+                    const scanned = Number(data.scanned || 0);
+                    const updated = Number(data.updated || 0);
+                    return `Расходы: проверено ${scanned}, обновлено ${updated}`;
+                },
+                payload: { reason }
+            })
+        })
+            .then(() => adminAuditExpenseCategories())
+    });
 }
 
 // ═══════════════════════════════════════════════════

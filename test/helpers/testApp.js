@@ -73,7 +73,7 @@ function createTestApp(routeFactory, factoryArgs) {
 
     // Обходим глобальный authenticateToken
     app.use('/api', (req, res, next) => {
-        req.user = { id: 1, username: 'test_admin', role: 'admin' };
+        req.user = { id: 1, username: 'test_admin', role: 'admin', can_planned: true };
         next();
     });
 

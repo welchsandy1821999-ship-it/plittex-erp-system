@@ -1,24 +1,36 @@
 <div id="recipe-mod" class="module">
-    <div class="flex-between mb-20 align-end">
-        <div>
+    <div class="flex-between mb-15 align-end">
+        <div class="rec-page-head w-100">
             <h2 class="mt-0">🧪 Управление рецептурами</h2>
-            
-            <div class="mb-20 flex-row gap-10" id="top-panel-mass-apply">
-                <button class="btn btn-outline rec-primary-outline"
-                    onclick="showRecipeMassApplyModal()">🎭 Массовое применение шаблона</button>
+
+            <div class="rec-main-tabs flex-row flex-wrap gap-10 mb-0" role="tablist" aria-label="Раздел рецептур">
+                <button type="button" id="tab-recipes-bom" class="btn btn-blue shadow-primary rec-main-tab"
+                    onclick="switchRecipeMode('BOM')" role="tab" aria-selected="true">📊 Рецептуры продукции</button>
+                <button type="button" id="tab-recipes-mix" class="btn btn-outline text-primary rec-main-tab"
+                    onclick="switchRecipeMode('MIX')" role="tab" aria-selected="false">🐘 Шаблоны замесов</button>
             </div>
 
-            <!-- ПЕРЕКЛЮЧАТЕЛЬ РЕЖИМОВ (TABS) -->
-            <div class="mb-20 rec-filter-container">
-                <button id="tab-recipes-bom" class="btn btn-blue shadow-primary font-bold radius-8 p-12-24" onclick="switchRecipeMode('BOM')">
-                    📊 Нормы расхода (1 ед.)
-                </button>
-                <button id="tab-recipes-mix" class="btn btn-outline rec-action-btn rec-primary-outline" onclick="switchRecipeMode('MIX')">
-                    🐘 Шаблоны Замесов
-                </button>
+            <div id="recipe-sheet-bom" class="recipe-mode-sheet mt-15" data-mode="BOM">
+                <div class="rec-sheet-toolbar flex-row gap-10 flex-wrap align-center">
+                    <button type="button" class="btn btn-outline rec-primary-outline rec-action-btn font-13"
+                        onclick="showRecipeMassApplyModal()">🎭 Массовое применение к товарам</button>
+                    <button type="button" class="btn btn-outline rec-primary-outline rec-action-btn font-13"
+                        onclick="showBomRecipeCompareWorkbench()">🔬 Сравнение рецептов</button>
+                    <button type="button" class="btn btn-outline rec-primary-outline rec-action-btn font-13"
+                        onclick="auditOpen()">📋 Аудит рецептур</button>
+                </div>
+                <p class="rec-sheet-lead text-muted font-13 m-0 mt-12">Нормы сырья на <strong>1 ед.</strong> продукции (кв.м, шт). Выберите позицию слева и отредактируйте состав справа.</p>
             </div>
-            
-            <p class="text-muted font-13 m-0">Настройка эталонного расхода сырья на 1 единицу продукции (кв.м, шт)</p>
+
+            <div id="recipe-sheet-mix" class="recipe-mode-sheet mt-15 d-none" data-mode="MIX">
+                <div class="rec-sheet-toolbar flex-row gap-10 flex-wrap align-center">
+                    <button type="button" class="btn btn-outline rec-primary-outline rec-action-btn font-13"
+                        onclick="showMixTemplatesCompareWorkbench()">🔬 Сравнение шаблонов</button>
+                    <button type="button" class="btn btn-outline rec-primary-outline rec-action-btn font-13"
+                        onclick="showMixCopyModal()">🎭 Умное копирование</button>
+                </div>
+                <p class="rec-sheet-lead text-muted font-13 m-0 mt-12">Состав замеса по <strong>ключам смесевой матрицы</strong> (весь смеситель). После сохранения доступна синхронизация группы смежных ключей.</p>
+            </div>
         </div>
     </div>
 
@@ -83,7 +95,7 @@
                 </div>
             </div>
 
-            <div class="card card-alt d-none" id="recipe-summary-card">
+            <div class="card card-alt d-none rec-summary-card" id="recipe-summary-card">
                 <h3 class="mt-0 font-16">📊 Сводка по рецепту</h3>
                 <div class="flex-between mb-15 font-15">
                     <span class="text-muted">Общий вес сырья:</span>
@@ -97,7 +109,7 @@
                 <div id="mix-yield-container" class="d-none bg-surface p-12 radius-8 border-dashed mt-15">
                     <div class="form-group mb-10">
                         <label class="text-primary font-600">Плановый выход (кв.м, шт):</label>
-                        <input type="number" id="mix-yield-input" class="input-modern mt-5" value="1" step="any" oninput="recalculateMixUnitCost()">
+                        <input type="number" id="mix-yield-input" class="input-modern mt-5" value="1" step="any" onfocus="this.select()" oninput="recalculateMixUnitCost()">
                     </div>
                     <div class="flex-between text-success rec-step-header">
                         <span>Себестоимость 1 ед:</span>
@@ -112,30 +124,40 @@
         </div>
 
         <div class="card card-recipe-editor d-none" id="recipe-editor-area">
-            <div class="flex-between mb-20 align-center pb-20 border-bottom-dashed">
+            <div class="flex-between mb-20 align-center pb-20 rec-editor-toolbar">
                 <div class="flex-row align-center gap-15">
                     <h3 id="recipe-editor-title" class="mt-0 text-main mb-0 font-20">Рецепт: ...</h3>
                     <span id="recipe-editor-badge" class="badge d-none p-6-12 font-13 font-bold radius-6"></span>
                 </div>
-                <div class="flex-row gap-10">
-                    <button id="btn-mass-apply-recipe" class="btn btn-outline rec-primary-outline" onclick="showRecipeMassApplyModal()">🎭 Массовое применение</button>
-
-                    <button class="btn btn-green shadow-success" onclick="saveRecipe(false)">💾 Сохранить</button>
+                <div class="flex-row gap-10 flex-wrap">
+                    <button class="btn btn-green shadow-success rec-primary-action" onclick="saveRecipe(false)">💾 Сохранить</button>
                 </div>
             </div>
 
             <div class="add-component-box rec-cost-panel">
-                <h4 class="mt-0 mb-15 text-primary font-15">➕ Добавить сырье</h4>
-                <div class="rec-cost-param">
-                    <div class="form-group flex-2 min-w-200 m-0">
+                <button id="recipe-add-toggle-btn" class="btn btn-outline rec-add-toggle-btn" type="button" aria-expanded="false" onclick="toggleRecipeAddPanel()">
+                    <span id="recipe-add-toggle-text">➕ Добавить сырье</span>
+                    <span id="recipe-add-toggle-icon" class="rec-add-toggle-icon">▾</span>
+                </button>
+                <div id="recipe-add-panel" class="rec-cost-param rec-add-row rec-add-panel mt-15" aria-hidden="true">
+                    <div class="form-group flex-2 min-w-200 m-0 rec-add-col-material">
                         <label>Материал (Сырье):</label>
                         <select id="recipe-material-select" class="input-modern"></select>
                     </div>
-                    <div class="form-group flex-1 min-w-120 m-0">
-                        <label>Кол-во (кг/л/шт):</label>
-                        <input type="number" id="recipe-material-qty" class="input-modern" step="0.001" placeholder="0.00">
+                    <div class="form-group flex-1 min-w-160 m-0 rec-add-col-layer">
+                        <label>Блок рецепта:</label>
+                        <select id="recipe-material-layer" class="input-modern rec-select-placeholder" onchange="updateRecipeLayerPlaceholderState()">
+                            <option value="" selected>-- Выберите блок --</option>
+                            <option value="face">Лицевой слой</option>
+                            <option value="main">Основной слой</option>
+                            <option value="packaging">Упаковка</option>
+                        </select>
                     </div>
-                    <button class="btn btn-blue shadow-primary h-42 px-25" onclick="addIngredientToRecipe()">В список</button>
+                    <div class="form-group flex-1 min-w-120 m-0 rec-add-col-qty">
+                        <label>Кол-во (кг/л/шт):</label>
+                        <input type="number" id="recipe-material-qty" class="input-modern" step="0.001" placeholder="0.00" onfocus="this.select()">
+                    </div>
+                    <button class="btn btn-blue shadow-primary h-42 px-25 rec-add-submit-btn" onclick="addIngredientToRecipe()">В список</button>
                 </div>
             </div>
 
@@ -143,6 +165,8 @@
                 <table>
                     <thead class="bg-surface-alt">
                         <tr>
+                            <th class="px-15 py-12 rec-col-drag">↕</th>
+                            <th class="px-15 py-12">Блок</th>
                             <th class="px-15 py-12">Сырье</th>
                             <th class="text-right px-15 py-12">Кол-во</th>
                             <th class="px-15 py-12">Ед.</th>
