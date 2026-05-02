@@ -14,23 +14,23 @@
 
     <div id="eq-alerts-container" class="flex-column gap-10 mb-20"></div>
 
-    <div class="card" style="border-top: 4px solid var(--primary); padding: 0;">
+    <div class="card eq-card-accent">
         <div class="table-container">
             <table>
                 <thead>
                     <tr>
-                        <th style="width: 50px;">ID</th>
+                        <th class="eq-col-id">ID</th>
                         <th>Название и Тип</th>
                         <th class="text-right">Стоимость (₽)</th>
                         <th class="text-right">Амортизация</th>
-                        <th style="width: 220px;">Ресурс (Факт / План)</th>
+                        <th class="eq-col-resource">Ресурс (Факт / План)</th>
                         <th class="text-center">Статус</th>
                         <th class="text-right">Действия</th>
                     </tr>
                 </thead>
                 <tbody id="equipment-table">
                     <tr>
-                        <td colspan="7" class="text-center text-muted" style="padding: 30px;">
+                        <td colspan="7" class="text-center text-muted eq-loading-cell">
                             Загрузка данных...
                         </td>
                     </tr>
@@ -42,7 +42,7 @@
 <!-- Модуль equipment-mod завершен. Далее глобальные модалки оборудования -->
 
     <div id="equipment-modal" class="modal-overlay d-none">
-        <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-content eq-modal-md">
             <div class="modal-header">
                 <span id="eq-modal-title">Добавить оборудование</span>
                 <button class="btn-close" onclick="UI.closeModal('equipment-modal')">×</button>
@@ -67,7 +67,7 @@
                     </select>
                 </div>
 
-                <div class="form-grid mb-10" style="grid-template-columns: 1fr 1fr 1fr;">
+                <div class="form-grid mb-10 eq-grid-3">
                     <div class="form-group">
                         <label>Стоимость (₽):</label>
                         <input type="number" id="eq-cost" class="input-modern" placeholder="0" onfocus="this.select()">
@@ -81,7 +81,7 @@
                         <input type="number" id="eq-current-cycles" class="input-modern" placeholder="0" onfocus="this.select()">
                     </div>
                 </div>
-                <p class="text-muted" style="font-size: 11px; margin-bottom: 15px;">*Ресурс в ударах/циклах для расчета амортизации.</p>
+                <p class="text-muted eq-hint-text">*Ресурс в ударах/циклах для расчета амортизации.</p>
 
                 <div class="form-group mb-15" id="eq-qty-group">
                     <label>Выход за 1 формовку (м²/шт):</label>
@@ -106,14 +106,14 @@
     </div>
 
     <div id="maintenance-modal" class="modal-overlay d-none">
-        <div class="modal-content" style="max-width: 450px;">
+        <div class="modal-content eq-modal-sm">
             <div class="modal-header">
                 <span id="maint-title-header">🛠️ Проведение ТО или Ремонта</span>
                 <button class="btn-close" onclick="UI.closeModal('maintenance-modal')">×</button>
             </div>
             
             <div class="modal-body">
-                <p id="maint-eq-name" style="font-weight: bold; color: var(--primary); margin-bottom: 15px;"></p>
+                <p id="maint-eq-name" class="eq-maint-name"></p>
                 <input type="hidden" id="maint-eq-id">
 
                 <div class="form-group mb-15">
@@ -130,9 +130,9 @@
                         <option value="">-- Бесплатно --</option>
                     </select>
                 </div>
-                <div class="form-group" style="display: flex; align-items: center; gap: 10px; background: var(--danger-bg); padding: 12px; border-radius: 8px; border: 1px solid var(--danger-border);">
-                    <input type="checkbox" id="maint-reset" style="width: 20px; height: 20px; cursor: pointer;">
-                    <label for="maint-reset" style="color: var(--danger-text); margin: 0; cursor: pointer; font-size: 13px;">
+                <div class="form-group eq-reset-group">
+                    <input type="checkbox" id="maint-reset" class="eq-reset-checkbox">
+                    <label for="maint-reset" class="eq-reset-label">
                         <b>Обнулить счетчик износа</b><br>
                         <small>(Если была реставрация или капремонт)</small>
                     </label>

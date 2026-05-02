@@ -293,6 +293,11 @@
     gap: 10px;
 }
 
+.finance-period-day-nav .finance-period-shift-btn {
+    min-width: 34px;
+    padding: 4px 10px;
+}
+
 .account-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -1809,28 +1814,208 @@
 
 .sales-filter-bar {
     background: var(--surface-alt);
-    padding: 15px;
-    border-radius: 8px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+}
+
+.sales-filter-grid {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+}
+
+.sales-filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 150px;
+    flex: 1 1 150px;
+}
+.sales-filter-field--chips { flex: 1.5 1 200px; }
+.sales-filter-field--period { flex: 2 1 260px; }
+
+.sales-filter-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+
+.sales-filter-input {
+    height: 36px;
+    padding: 0 10px;
     border: 1px solid var(--border);
-    margin-bottom: 15px;
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text-main);
+    font-size: 13px;
+    transition: border-color 0.18s, box-shadow 0.18s;
+    width: 100%;
+    box-sizing: border-box;
+}
+.sales-filter-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(59,130,246,0.13);
 }
 
-.sales-orders-filter-grid {
-    grid-template-columns: 2fr 1.5fr 1.5fr 1.5fr auto;
-    gap: 10px;
-    align-items: end;
+/* Навигационный мини-календарь */
+.sales-period-nav {
+    display: flex;
+    align-items: center;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    height: 42px;
+    overflow: hidden;
+    width: 100%;
+    box-sizing: border-box;
+}
+.sales-period-arrow {
+    flex-shrink: 0;
+    width: 34px;
+    height: 42px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.sales-period-arrow:hover { background: var(--surface-hover); color: var(--primary); }
+.sales-period-label {
+    flex: 1;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-main);
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 4px;
+    user-select: none;
+}
+.sales-period-label:hover { color: var(--primary); }
+.sales-period-control { width: 100%; }
+
+/* Стили внутри sales-period-nav (из renderHistoryPeriodUI) */
+.sales-period-nav select {
+    height: 42px; padding: 0 8px;
+    border: none; background: transparent;
+    color: var(--text-main); font-size: 13px; font-weight: 500;
+    cursor: pointer; flex: 1;
+}
+.sales-period-nav select:focus { outline: none; }
+.sales-period-nav input[type="date"],
+.sales-period-nav input[type="text"] {
+    height: 40px; padding: 0 8px;
+    border: none; background: transparent;
+    color: var(--text-main); font-size: 13px; flex: 1; min-width: 0;
+}
+.sales-period-nav input[type="date"]:focus,
+.sales-period-nav input[type="text"]:focus { outline: none; }
+
+/* === Итого-бар (количество + сумма) === */
+.sales-totals-bar {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 10px 16px;
+    border-top: 1px solid var(--border-color);
+    background: var(--surface-alt);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-main);
+    flex-wrap: wrap;
+}
+.sales-totals-bar:empty { display: none; }
+.sales-totals-stat {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.sales-totals-stat .stat-label {
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 12px;
+}
+.sales-totals-stat .stat-value {
+    color: var(--primary);
+    font-weight: 700;
+    font-size: 14px;
+}
+.sales-totals-stat .stat-value.accent-green { color: var(--success); }
+
+
+/* Pill-chips статуса оплаты — высота как input-modern */
+.sales-status-chips { display: flex; gap: 6px; flex-wrap: nowrap; height: 42px; align-items: center; }
+.sales-chip {
+    padding: 0 14px;
+    height: 32px;
+    border-radius: 20px;
+    border: 1.5px solid var(--border);
+    background: var(--surface);
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.sales-chip:hover { border-color: var(--primary); color: var(--primary); background: var(--surface-hover); }
+.sales-chip--active { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+.sales-chip--active:hover { opacity: 0.9; color: #fff; }
+
+
+/* Кнопка сброса фильтров */
+.sales-filter-reset {
+    flex-shrink: 0;
+    height: 36px;
+    padding: 0 14px;
+    border-radius: 8px;
+    border: 1.5px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+    align-self: flex-end;
+}
+.sales-filter-reset:hover { border-color: var(--danger); color: var(--danger); }
+
+/* === sales-filter-row: горизонтальная строка фильтров (flex, 1 строка) === */
+.sales-filter-row {
+    display: flex;
+    gap: 14px;
+    align-items: flex-end;
+    flex-wrap: nowrap;
+    overflow-x: auto;
 }
 
-.sales-history-filter-grid {
-    grid-template-columns: 2fr 1.5fr 2.5fr auto;
-    gap: 10px;
-    align-items: end;
-}
+/* Ширины колонок фильтра */
+.sales-filter-row .sf-search  { flex: 1.2; min-width: 140px; }
+.sales-filter-row .sf-client  { flex: 1.2; min-width: 130px; }
+.sales-filter-row .sf-product { flex: 1;   min-width: 120px; }
+.sales-filter-row .sf-period  { flex: 1.4; min-width: 170px; }
+.sales-filter-row .sf-status  { flex: 1.5; min-width: 180px; }
+.sales-filter-row .sf-reset   { flex: 0 0 auto; align-self: flex-end; height: 42px; }
 
-.sales-btn-reset {
-    padding: 8px 12px;
-    height: 38px;
-}
+/* form-group внутри строки — без margin */
+.sales-filter-row .form-group { margin-bottom: 0; min-width: 0; }
+
+/* input-modern внутри строки — полная ширина поля */
+.sales-filter-row .input-modern { width: 100%; }
+
+
 
 /* --- 17.11 Таблица заказов --- */
 .sales-table-full {
@@ -5705,6 +5890,7 @@ body.dark-theme #recipe-mod .recipe-mode-sheet {
     overflow-y: auto;
     padding-right: 6px;
 }
+.rec-audit-category-filter-wrap .rec-filter-label,
 .rec-audit-matrix-filter-wrap .rec-filter-label {
     display: block;
     margin-bottom: 4px;
@@ -5712,6 +5898,14 @@ body.dark-theme #recipe-mod .recipe-mode-sheet {
 .rec-audit-matrix-select {
     padding: 6px 10px;
     max-width: 100%;
+}
+.rec-audit-matrix-check-list {
+    max-height: min(28vh, 200px);
+    overflow-y: auto;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--surface-alt) 40%, transparent 60%);
 }
 .rec-audit-two-col {
     display: grid;
@@ -5745,7 +5939,8 @@ body.dark-theme #recipe-mod .recipe-mode-sheet {
     border-color: color-mix(in srgb, var(--primary) 55%, var(--border) 45%);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 12%, transparent 88%);
 }
-.rec-audit-prow-name {
+.rec-audit-prow-name,
+.text-ellipsis-single {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -5782,6 +5977,29 @@ body.dark-theme #recipe-mod .recipe-mode-sheet {
     border-left: 4px solid color-mix(in srgb, var(--success) 70%, var(--warning) 30%);
 }
 
+.rec-audit-layer-breakdown-btn {
+    border: none;
+    background: transparent;
+    padding: 2px 6px;
+    margin: 0 -2px;
+    cursor: pointer;
+    color: var(--danger);
+    border-radius: 6px;
+    line-height: 1;
+}
+.rec-audit-layer-breakdown-btn:hover {
+    background: color-mix(in srgb, var(--danger) 14%, transparent 86%);
+}
+.rec-audit-layer-breakdown-btn:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+.rec-audit-layer-break-scroll {
+    max-height: min(50vh, 420px);
+    overflow-y: auto;
+    padding-right: 6px;
+}
+
 .rec-audit-diff-list {
     color: var(--text-main);
     line-height: 1.45;
@@ -5791,22 +6009,36 @@ body.dark-theme #recipe-mod .recipe-mode-sheet {
     border: 1px solid color-mix(in srgb, var(--success) 28%, var(--border) 72%);
 }
 
+/* fixed + высокий z-index: не перекрывается overflow modal-body и клики доходят до чекбоксов */
 .rec-audit-sync-overlay {
-    position: absolute;
+    position: fixed;
     inset: 0;
-    z-index: 5;
+    z-index: 10050;
     display: flex;
     align-items: flex-start;
     justify-content: center;
     padding: 12px;
-    background: color-mix(in srgb, var(--surface) 20%, rgba(0, 0, 0, 0.4) 80%);
+    padding-top: max(12px, 8vh);
+    background: color-mix(in srgb, var(--surface) 20%, rgba(0, 0, 0, 0.45) 80%);
     backdrop-filter: blur(2px);
+    pointer-events: auto;
 }
 .rec-audit-sync-dialog {
+    position: relative;
+    z-index: 10051;
     width: min(440px, 100%);
-    max-height: calc(62vh + 40px);
+    max-height: min(72vh, 560px);
     overflow-y: auto;
     box-shadow: var(--shadow-lg);
+    pointer-events: auto;
+}
+.rec-audit-sync-native-cb {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--primary, #2563eb);
 }
 .rec-audit-sync-products {
     max-height: 220px;
@@ -5815,6 +6047,10 @@ body.dark-theme #recipe-mod .recipe-mode-sheet {
     border-radius: 8px;
     border: 1px solid var(--border);
     background: var(--surface);
+    pointer-events: auto;
+}
+.rec-audit-sync-layers {
+    pointer-events: auto;
 }
 
 .rec-panel { background: var(--surface-alt); padding: 15px; border-radius: 8px; }
@@ -6665,6 +6901,11 @@ body.dark-theme #recipe-mod .rec-add-row .input-modern::placeholder {
     border: 1px solid var(--border);
     flex-wrap: wrap;
     gap: 10px;
+}
+
+.finance-period-day-nav .finance-period-shift-btn {
+    min-width: 34px;
+    padding: 4px 10px;
 }
 
 .account-grid {
@@ -8145,30 +8386,8 @@ body.dark-theme #recipe-mod .rec-add-row .input-modern::placeholder {
     padding-bottom: 15px;
 }
 
-.sales-filter-bar {
-    background: var(--surface-alt);
-    padding: 15px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    margin-bottom: 15px;
-}
+/* sales-filter-bar — см. основные стили выше (line ~1815) */
 
-.sales-orders-filter-grid {
-    grid-template-columns: 2fr 1.5fr 1.5fr 1.5fr auto;
-    gap: 10px;
-    align-items: end;
-}
-
-.sales-history-filter-grid {
-    grid-template-columns: 2fr 1.5fr 2.5fr auto;
-    gap: 10px;
-    align-items: end;
-}
-
-.sales-btn-reset {
-    padding: 8px 12px;
-    height: 38px;
-}
 
 /* --- 17.11 Таблица заказов --- */
 .sales-table-full {
@@ -12123,6 +12342,79 @@ body.dark-theme #recipe-mod .rec-add-row .input-modern::placeholder {
 .bg-surface-alt { background: var(--bg-surface-alt); }
 .border-b { border-bottom: 1px solid var(--border-color); }
 .border-b-2 { border-bottom: 2px solid var(--border-color); }
+
+/* ==========================================================================
+   EQUIPMENT MODULE — семантические классы (замена инлайн-стилей)
+   ========================================================================== */
+
+/* Карточка с акцентной полосой сверху */
+.eq-card-accent {
+    border-top: 4px solid var(--primary);
+    padding: 0;
+}
+
+/* Ширина колонок таблицы оборудования */
+.eq-col-id { width: 50px; }
+.eq-col-resource { width: 220px; }
+
+/* Ячейка-заглушка при загрузке */
+.eq-loading-cell { padding: 30px; }
+
+/* Модалки оборудования */
+.eq-modal-md { max-width: 500px; }
+.eq-modal-sm { max-width: 450px; }
+
+/* Сетка 3 колонки (стоимость / план / факт) */
+.eq-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+/* Подсказка под полями ресурса */
+.eq-hint-text {
+    font-size: 11px;
+    margin-bottom: 15px;
+}
+
+/* Название оборудования в модалке ТО */
+.eq-maint-name {
+    font-weight: bold;
+    color: var(--primary);
+    margin-bottom: 15px;
+}
+
+/* Группа сброса счётчика износа */
+.eq-reset-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--danger-bg);
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid var(--danger-border);
+}
+
+.eq-reset-checkbox {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+}
+
+.eq-reset-label {
+    color: var(--danger-text);
+    margin: 0;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+/* ==========================================================================
+   FINANCE MODULE — утилита для period-selector
+   ========================================================================== */
+.finance-period-selector {
+    display: flex;
+    gap: 8px;
+}
+
+/* Цвет суммы: положительная / отрицательная */
+.fin-sum-positive { color: var(--success); }
+.fin-sum-negative { color: var(--danger); }
 .border-t-2 { border-top: 2px solid var(--border-color); }
 .border-r { border-right: 1px solid var(--border-color); }
 .border-r-dashed { border-right: 1px dashed var(--border-color); }

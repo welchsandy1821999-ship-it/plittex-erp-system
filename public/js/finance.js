@@ -31,9 +31,25 @@
     let finCustomStart = ''; // 🚀 Начало произвольного периода
     let finCustomEnd = '';   // 🚀 Конец произвольного периода
 
+    window.toggleFinanceAccordion = function (bodyId, iconEl) {
+        const body = document.getElementById(bodyId);
+        if (!body) return;
+        body.classList.toggle('d-none');
+        const isCollapsed = body.classList.contains('d-none');
+        if (iconEl) iconEl.innerText = isCollapsed ? '▼ РАСКРЫТЬ' : '▲ СВЕРНУТЬ';
+
+        // Chart.js в скрытом контейнере может терять размеры — подправляем после раскрытия.
+        if (!isCollapsed) {
+            requestAnimationFrame(() => {
+                if (chartFlow && typeof chartFlow.resize === 'function') chartFlow.resize();
+                if (chartCategories && typeof chartCategories.resize === 'function') chartCategories.resize();
+            });
+        }
+    };
+
     window.renderFinPeriodUI = function () {
         let typeOptions = `
-        <option value="day" ${finPeriodType === 'day' ? 'selected' : ''}>Сегодня</option>
+        <option value="day" ${finPeriodType === 'day' ? 'selected' : ''}>День</option>
         <option value="week" ${finPeriodType === 'week' ? 'selected' : ''}>Текущая неделя</option>
         <option value="month" ${finPeriodType === 'month' ? 'selected' : ''}>Месяц</option>
         <option value="quarter" ${finPeriodType === 'quarter' ? 'selected' : ''}>Квартал</option>
@@ -56,7 +72,12 @@
 
         let activeInputHtml = '';
         if (finPeriodType === 'day') {
-            activeInputHtml = `<input type="date" class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px; width: 130px;" value="${finSpecificDate}" onchange="applyFinPeriod('date', this.value)">`;
+            activeInputHtml = `
+            <div class="finance-period-day-nav flex-row gap-5 align-center" style="flex-wrap: nowrap;">
+                <button type="button" class="btn btn-outline btn-sm finance-period-shift-btn" onclick="financeShiftFinDay(-1)" title="Предыдущий день" aria-label="Предыдущий день">◀</button>
+                <input type="date" class="input-modern finance-period-date-input" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px; width: 130px;" value="${finSpecificDate}" onchange="applyFinPeriod('date', this.value)">
+                <button type="button" class="btn btn-outline btn-sm finance-period-shift-btn" onclick="financeShiftFinDay(1)" title="Следующий день" aria-label="Следующий день">▶</button>
+            </div>`;
         } else if (finPeriodType === 'custom') {
             // 🚀 Поле для Flatpickr
             activeInputHtml = `<input type="text" id="fin-custom-date" class="input-modern" style="padding: 4px 6px; font-size: 13px; border-radius: 6px; height: 32px; width: 190px;" placeholder="Выберите даты...">`;
@@ -77,8 +98,6 @@
 
         document.querySelectorAll('.finance-period-selector').forEach(container => {
             container.innerHTML = html;
-            container.style.display = 'flex';
-            container.style.gap = '8px';
         });
 
         // 🚀 Инициализация Flatpickr
@@ -117,6 +136,27 @@
         else if (field === 'value') finPeriodValue = parseInt(value);
         else if (field === 'year') finYear = parseInt(value);
 
+        renderFinPeriodUI();
+        currentFinancePage = 1;
+        loadFinanceData();
+    };
+
+    /** Сдвиг выбранного дня (режим «День»), без сдвига по UTC */
+    window.financeShiftFinDay = function (delta) {
+        if (finPeriodType !== 'day') return;
+        const raw = String(finSpecificDate || '').trim();
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+        if (!m) return;
+        const y = parseInt(m[1], 10);
+        const mo = parseInt(m[2], 10) - 1;
+        const d = parseInt(m[3], 10);
+        const dt = new Date(y, mo, d);
+        if (Number.isNaN(dt.getTime())) return;
+        dt.setDate(dt.getDate() + delta);
+        const ny = dt.getFullYear();
+        const nmo = String(dt.getMonth() + 1).padStart(2, '0');
+        const nd = String(dt.getDate()).padStart(2, '0');
+        finSpecificDate = `${ny}-${nmo}-${nd}`;
         renderFinPeriodUI();
         currentFinancePage = 1;
         loadFinanceData();
@@ -700,10 +740,10 @@
             }
 
             let receiptHtml = t.receipt_url
-                ? `<a href="${t.receipt_url}" target="_blank" style="text-decoration:none; font-size:16px;" title="Смотреть документ">📄</a>
-               <button class="btn btn-outline" style="border:none; padding:2px; font-size:12px; color: var(--danger);" onclick="deleteReceipt(${t.id})" title="Удалить файл">✖</button>`
-                : `<label style="cursor:pointer; font-size:16px;" title="Прикрепить файл">📎
-                   <input type="file" style="display:none;" onchange="uploadReceipt(${t.id}, this)">
+                ? `<a href="${t.receipt_url}" target="_blank" class="tx-action-btn tx-action-btn-attach" title="Смотреть документ">📄</a>
+               <button class="tx-action-btn tx-action-btn-danger" onclick="deleteReceipt(${t.id})" title="Удалить файл">✖</button>`
+                : `<label class="tx-action-btn tx-action-btn-attach" title="Прикрепить файл">📎
+                   <input type="file" class="tx-file-input" onchange="uploadReceipt(${t.id}, this)">
                </label>`;
 
             const cpObj = financeCounterparties.find(c => c.id == t.counterparty_id);
@@ -713,8 +753,10 @@
                 ? `<div style="color: var(--primary); font-size: 14px; display: flex; align-items: center;">👤 ${t.counterparty_id ? `<span class="entity-link" onclick="window.app.openEntity('client', ${t.counterparty_id})">${Utils.escapeHtml(t.counterparty_name)}</span>` : Utils.escapeHtml(t.counterparty_name)} ${catBadge}</div>`
                 : '';
 
-            const systemCategories = ['Перевод', 'Техническая проводка', 'Возврат из подотчета'];
-            const isSystem = systemCategories.includes(t.category);
+            const catNorm = String(t.category || '').trim().toLowerCase();
+            const isTransferFamily = catNorm === 'перевод' || catNorm.startsWith('перевод /');
+            const systemCategories = ['техническая проводка', 'возврат из подотчета'];
+            const isSystem = isTransferFamily || systemCategories.includes(catNorm);
             const categoryIcon = isSystem ? '⚙️ ' : '';
 
             return `
@@ -737,14 +779,14 @@
                 </span>
             </td>
             <td class="font-13">${t.payment_method}</td>
-            <td class="text-right font-bold font-15" style="color: ${isIncome ? 'var(--success)' : 'var(--text-main)'}">${isIncome ? '+' : '-'}${Utils.formatMoney(t.amount)}</td>
+            <td class="text-right font-bold font-15 tx-amount-cell" style="color: ${isIncome ? 'var(--success)' : 'var(--text-main)'}">${isIncome ? '+' : '-'}${Utils.formatMoney(t.amount)}</td>
             <td class="tx-actions-cell">
                 ${receiptHtml}
                 ${isLocked ?
                     `<span class="tx-locked-badge">Заблокировано</span>`
                     :
-                    `<button class="btn btn-outline p-5 font-12" style="border-color: var(--primary); color: var(--primary);" onclick="openEditTransactionModal(${t.id})" title="Редактировать">✏️</button>
-            <button class="btn btn-outline p-5 font-12" style="border-color: var(--danger); color: var(--danger);" onclick="deleteTransaction(${t.id})" title="Удалить">❌</button>`
+                    `<button class="tx-action-btn tx-action-btn-primary" onclick="openEditTransactionModal(${t.id})" title="Редактировать">✏️</button>
+            <button class="tx-action-btn tx-action-btn-danger" onclick="deleteTransaction(${t.id})" title="Удалить">❌</button>`
                 }
             </td>
         </tr>`;
@@ -781,7 +823,8 @@
         // Окрашиваем сумму в зеленый или красный
         const sumEl = document.getElementById('summary-filter-sum');
         sumEl.innerText = (sum > 0 ? '+' : '') + Utils.formatMoney(sum);
-        sumEl.style.color = sum >= 0 ? 'var(--success)' : 'var(--danger)';
+        sumEl.classList.remove('fin-sum-positive', 'fin-sum-negative');
+        sumEl.classList.add(sum >= 0 ? 'fin-sum-positive' : 'fin-sum-negative');
     };
 
     window.resetFinanceSummary = function () {
@@ -800,7 +843,12 @@
 
     // 1. Удаление транзакции
     window.deleteTransaction = function (id) {
-        const html = `<div style="padding: 15px; text-align: center; font-size: 15px;">Вы уверены, что хотите удалить эту операцию?<br><small style="color: var(--text-muted);">Баланс счета будет автоматически пересчитан.</small></div>`;
+        const html = `
+        <div class="modal-confirm-text">Вы уверены, что хотите удалить эту операцию?<br><small class="text-muted">Баланс счета будет автоматически пересчитан.</small></div>
+        <div class="form-group m-0">
+            <label>Причина удаления (обязательно)</label>
+            <textarea id="finance-delete-transaction-reason" class="input-modern" rows="3" placeholder="Например: ошибочно внесенная операция"></textarea>
+        </div>`;
         UI.showModal('⚠️ Удаление операции', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
         <button class="btn btn-red" onclick="executeDeleteTransaction(${id})">🗑️ Да, удалить</button>
@@ -808,9 +856,11 @@
     };
 
     window.executeDeleteTransaction = async function (id) {
+        const reason = (document.getElementById('finance-delete-transaction-reason')?.value || '').trim();
+        if (!reason) return UI.toast('Укажите причину удаления операции', 'warning');
         UI.closeModal();
         try {
-            await API.delete(`/api/transactions/${id}`);
+            await API.delete(`/api/transactions/${id}?reason=${encodeURIComponent(reason)}`);
             UI.toast('🗑️ Операция удалена', 'success');
             loadFinanceData();
         } catch (e) {
@@ -908,15 +958,22 @@
 
     // 4. Удаление категории (статьи ДДС)
     window.deleteCategory = function (id) {
-        const html = `<div style="padding: 15px; text-align: center; font-size: 15px;">Удалить эту статью расходов/доходов?</div>`;
+        const html = `
+        <div class="modal-confirm-text">Удалить эту статью расходов/доходов?</div>
+        <div class="form-group m-0">
+            <label>Причина удаления (обязательно)</label>
+            <textarea id="finance-delete-category-reason" class="input-modern" rows="3" placeholder="Например: дубль категории"></textarea>
+        </div>`;
         UI.showModal('⚠️ Удаление категории', html, `
         <button class="btn btn-outline" onclick="openCategoriesModal()">Отмена</button>
         <button class="btn btn-red" onclick="executeDeleteCategory(${id})">🗑️ Удалить</button>
     `);
     };
     window.executeDeleteCategory = async function (id) {
+        const reason = (document.getElementById('finance-delete-category-reason')?.value || '').trim();
+        if (!reason) return UI.toast('Укажите причину удаления категории', 'warning');
         UI.closeModal();
-        await API.delete(`/api/finance/categories/${id}`);
+        await API.delete(`/api/finance/categories/${id}?reason=${encodeURIComponent(reason)}`);
         await loadFinanceData();
         openCategoriesModal();
     };
@@ -977,9 +1034,9 @@
                     typeSelect.disabled = true;
                     // Скрываем весь контейнер поля — пользователю видеть его незачем
                     const typeWrapper = typeSelect.closest('.form-group');
-                    if (typeWrapper) typeWrapper.style.display = 'none';
+                    if (typeWrapper) typeWrapper.classList.add('d-none');
                 }
-                if (catWrapper) catWrapper.style.display = 'none';
+                if (catWrapper) catWrapper.classList.add('d-none');
 
                 if (categoryInput) {
                     categoryInput.value = 'Перевод';
@@ -997,9 +1054,9 @@
                     typeSelect.value = 'income'; // Возврат - это доход в кассу
                     typeSelect.disabled = true;
                     const typeWrapper = typeSelect.closest('.form-group');
-                    if (typeWrapper) typeWrapper.style.display = 'none';
+                    if (typeWrapper) typeWrapper.classList.add('d-none');
                 }
-                if (catWrapper) catWrapper.style.display = 'block';
+                if (catWrapper) catWrapper.classList.remove('d-none');
                 if (categoryInput) {
                     categoryInput.required = true;
                     if (categoryInput.value === 'Перевод') categoryInput.value = '';
@@ -1015,9 +1072,9 @@
                 if (typeSelect) {
                     typeSelect.disabled = false;
                     const typeWrapper = typeSelect.closest('.form-group');
-                    if (typeWrapper) typeWrapper.style.display = 'block';
+                    if (typeWrapper) typeWrapper.classList.remove('d-none');
                 }
-                if (catWrapper) catWrapper.style.display = 'block';
+                if (catWrapper) catWrapper.classList.remove('d-none');
                 if (categoryInput) {
                     categoryInput.required = true;
                     if (categoryInput.value === 'Перевод') categoryInput.value = '';
@@ -1043,7 +1100,7 @@
             const modeWrapper = document.getElementById('employee-mode-wrapper');
 
             if (cp && cp.is_employee) {
-                if (modeWrapper) modeWrapper.style.display = 'block';
+                if (modeWrapper) modeWrapper.classList.remove('d-none');
 
                 // Читаем ТЕКУЩИЙ выбранный режим — НЕ перезаписываем его
                 const currentModeRadio = document.querySelector('input[name="employee-mode"]:checked');
@@ -1054,7 +1111,7 @@
                     selectEmployeeMode('settlement');
                 }
             } else {
-                if (modeWrapper) modeWrapper.style.display = 'none';
+                if (modeWrapper) modeWrapper.classList.add('d-none');
             }
         }
 
@@ -1073,7 +1130,14 @@
         if (typeof updateAccountSelectForCounterparty === 'function') {
             updateAccountSelectForCounterparty(counterpartyName);
         }
-        if (!counterpartyName) return;
+        if (!counterpartyName) {
+            const typeElEarly = document.getElementById('trans-type');
+            const catEarly = document.getElementById('trans-category');
+            if (typeElEarly && typeElEarly.value === 'expense' && catEarly && catEarly.value && typeof previewCategoryMatrix === 'function') {
+                previewCategoryMatrix(catEarly.value);
+            }
+            return;
+        }
 
         // 1. Ищем контрагента по имени в уже загруженном списке
         const cp = financeCounterparties.find(c => c.name === counterpartyName);
@@ -1095,6 +1159,12 @@
                     categorySelect.style.backgroundColor = 'var(--success-bg)';
                     setTimeout(() => { categorySelect.style.backgroundColor = ''; }, 800);
                 }
+                if (typeof previewCategoryMatrix === 'function') {
+                    previewCategoryMatrix(data.category);
+                }
+            } else if (typeof previewCategoryMatrix === 'function') {
+                const catRemain = document.getElementById('trans-category');
+                if (catRemain && catRemain.value) previewCategoryMatrix(catRemain.value);
             }
         } catch (e) {
             console.error('Не удалось определить категорию', e);
@@ -1114,7 +1184,7 @@
             </div>
             <div class="form-group" style="grid-column: span 2;">
                 <label>Тип операции:</label>
-                <select id="trans-type" class="input-modern" style="font-size: 15px; font-weight: bold;" onchange="updateCategoryList()">
+                <select id="trans-type" class="input-modern" style="font-size: 15px; font-weight: bold;" onchange="updateCategoryListOnTypeChange()">
                     <option value="expense">🔴 Расход (Списание денег)</option>
                     <option value="income">🟢 Доход (Поступление денег)</option>
                 </select>
@@ -1171,7 +1241,7 @@
             <div class="form-group" id="category-wrapper" style="grid-column: span 2;">
                 <label style="color: var(--primary);">Категория (Выберите из списка или впишите новую):</label>
                 <div style="position: relative;">
-                    <input type="text" id="trans-category" list="category-options" class="input-modern" style="font-weight: 600; width: 100%; box-sizing: border-box;" placeholder="Начните вводить или выберите..." autocomplete="off" oninput="previewCategoryMatrix(this.value)" onfocus="this.select(); if(typeof this.showPicker === 'function') this.showPicker();">
+                    <input type="text" id="trans-category" list="category-options" class="input-modern" style="font-weight: 600; width: 100%; box-sizing: border-box;" placeholder="Начните вводить или выберите..." autocomplete="off" oninput="previewCategoryMatrix(this.value)" onchange="previewCategoryMatrix(this.value)" onfocus="this.select(); if(typeof this.showPicker === 'function') this.showPicker();">
                     <span style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #64748b; font-size: 10px; padding: 5px;" onclick="const inp = document.getElementById('trans-category'); inp.focus(); if(typeof inp.showPicker === 'function') inp.showPicker();">▼</span>
                 </div>
                 <datalist id="category-options"></datalist>
@@ -1239,7 +1309,13 @@
         }
     };
 
-    window.updateCategoryList = function () {
+    /** Только смена типа операции (расход/доход) — сбрасываем категорию. Режимы сотрудника вызывают updateCategoryList() без сброса. */
+    window.updateCategoryListOnTypeChange = function () {
+        updateCategoryList({ clearCategory: true });
+    };
+
+    window.updateCategoryList = function (options) {
+        const clearCategory = options && options.clearCategory === true;
         const type = document.getElementById('trans-type').value;
         const datalist = document.getElementById('category-options');
 
@@ -1247,21 +1323,23 @@
         const filteredCats = window.financeCategories.filter(c => c.type === type);
         datalist.innerHTML = filteredCats.map(c => `<option value="${Utils.escapeHtml(c.name)}">`).join('');
 
-        // При переключении схода на расход очищаем поле
         const catInput = document.getElementById('trans-category');
-        if (catInput) catInput.value = '';
+        if (clearCategory && catInput) catInput.value = '';
 
         // Прячем выбор группы затрат (Прямые/Косвенные/Капитал) для доходов
         const costGroupWrapper = document.getElementById('cost-group-wrapper');
         const categoryMatrixPreview = document.getElementById('category-matrix-preview');
         if (costGroupWrapper) {
             if (type === 'income') {
-                costGroupWrapper.style.display = 'none';
-                if (categoryMatrixPreview) categoryMatrixPreview.style.display = 'none';
+                costGroupWrapper.classList.add('d-none');
+                if (categoryMatrixPreview) categoryMatrixPreview.classList.add('d-none');
             } else {
-                costGroupWrapper.style.display = 'block';
-                if (categoryMatrixPreview) categoryMatrixPreview.style.display = 'block';
+                costGroupWrapper.classList.remove('d-none');
+                if (categoryMatrixPreview) categoryMatrixPreview.classList.remove('d-none');
             }
+        }
+        if (!clearCategory && catInput && catInput.value && type === 'expense' && typeof previewCategoryMatrix === 'function') {
+            previewCategoryMatrix(catInput.value);
         }
     };
 
@@ -1274,18 +1352,29 @@
             return;
         }
 
+        const cpInput = document.getElementById('trans-counterparty-name');
+        const cpRaw = cpInput ? cpInput.value.trim() : '';
+        let counterpartyQs = '';
+        if (cpRaw) {
+            const foundCp = financeCounterparties.find(c => String(c.name).toLowerCase() === cpRaw.toLowerCase());
+            if (foundCp && foundCp.id) {
+                counterpartyQs = '&counterparty_id=' + encodeURIComponent(foundCp.id);
+            }
+        }
+
         try {
-            const data = await API.get('/api/finance/category-info?name=' + encodeURIComponent(categoryName));
+            const data = await API.get('/api/finance/category-info?name=' + encodeURIComponent(categoryName) + counterpartyQs);
             if (data.cost_group) {
                 let groupName = 'OPEX (Косвенные)';
                 let color = 'var(--text-main)';
-                if (data.cost_group === 'direct') { groupName = 'COGS (Прямые)'; color = 'var(--success)'; }
+                if (data.cost_group === 'direct' || data.cost_group === 'cogs') { groupName = 'COGS (Прямые)'; color = 'var(--success)'; }
                 else if (data.cost_group === 'overhead' || data.cost_group === 'opex') { groupName = 'OPEX (Косвенные)'; color = 'var(--warning)'; }
-                else if (data.cost_group === 'capital') { groupName = 'CAPEX (Капитал)'; color = 'var(--primary)'; }
+                else if (data.cost_group === 'capital' || data.cost_group === 'capex') { groupName = 'CAPEX (Капитал)'; color = 'var(--primary)'; }
 
-                previewEl.innerHTML = `<span style="color: ${color};">📌 Автоматически: ${Utils.escapeHtml(groupName)}</span>`;
+                const prefix = data.source === 'rule' ? 'По правилу контрагента' : 'Автоматически';
+                previewEl.innerHTML = `<span style="color: ${color};">📌 ${prefix}: ${Utils.escapeHtml(groupName)}</span>`;
             } else {
-                previewEl.innerHTML = `<span style="color: var(--text-muted);">📌 Новая категория (будет создана)</span>`;
+                previewEl.innerHTML = `<span class="text-muted">📌 Новая категория (будет создана)</span>`;
             }
         } catch (e) {
             previewEl.innerHTML = '';
@@ -1356,7 +1445,7 @@
         const remember_rule = rememberEl ? rememberEl.checked : false;
 
         try {
-            await API.post('/api/transactions', {
+            const result = await API.post('/api/transactions', {
                 amount,
                 type,
                 date,
@@ -1372,8 +1461,43 @@
 
             // Если дошли сюда — значит сервер ответил 200 OK
             UI.closeModal();
-            UI.toast('✅ Операция успешно сохранена', 'success');
             loadFinanceData();
+
+            // 💰 Смарт-промпт: если у контрагента остались незакрытые заказы
+            if (result && result.suggest_reconcile) {
+                const sr = result.suggest_reconcile;
+                const fmtDebt = Number(sr.open_debt).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                const cpName = cpNameInput || 'контрагента';
+                UI.showModal(
+                    '💰 Распределить платёж по заказам?',
+                    `<div style="line-height: 1.7; font-size: 14px;">
+                        <p>У <b>${Utils.escapeHtml(cpName)}</b> есть незакрытые заказы на сумму <b style="color: var(--warning-text);">${fmtDebt} ₽</b> (${sr.order_count} шт.).</p>
+                        <p style="color: var(--text-muted); font-size: 13px;">Хотите автоматически распределить сохранённую оплату по этим заказам (FIFO)?</p>
+                        <div style="background: var(--surface-alt); border-radius: 8px; padding: 12px; margin-top: 10px; font-size: 12px; color: var(--text-muted);">
+                            ℹ️ Система сопоставит поступившие деньги с заказами в порядке их создания и обновит <b>paid_amount</b> в каждом заказе.
+                        </div>
+                    </div>`,
+                    `<button class="btn btn-outline" onclick="UI.closeModal(); UI.toast('Пропущено. Можно распределить вручную через карточку контрагента.', 'info')">Пропустить</button>
+                     <button class="btn btn-blue" id="smart-reconcile-btn" onclick="
+                         document.getElementById('smart-reconcile-btn').disabled = true;
+                         document.getElementById('smart-reconcile-btn').textContent = '⏳ Распределяю...';
+                         API.post('/api/finance/reconcile-advances/${sr.counterparty_id}', {})
+                             .then(r => {
+                                 UI.closeModal();
+                                 UI.toast('✅ Платёж распределён по заказам', 'success');
+                                 loadFinanceData();
+                                 if (typeof loadDashboardWidgets === 'function') loadDashboardWidgets();
+                             })
+                             .catch(e => {
+                                 document.getElementById('smart-reconcile-btn').disabled = false;
+                                 document.getElementById('smart-reconcile-btn').textContent = '💰 Распределить';
+                                 UI.toast(e.message || 'Ошибка распределения', 'error');
+                             });
+                     ">💰 Распределить</button>`
+                );
+            } else {
+                UI.toast('✅ Операция успешно сохранена', 'success');
+            }
 
         } catch (e) {
             // Вся обработка ошибок (400, 500, нет сети) теперь здесь
@@ -1774,7 +1898,12 @@
     }
 
     window.deleteCounterparty = function (id) {
-        const html = `<div style="padding: 15px; text-align: center; font-size: 15px;">Точно удалить этого контрагента?<br><small style="color: var(--text-muted);">Его имя пропадет из новых списков, но старая история платежей сохранится.</small></div>`;
+        const html = `
+        <div class="modal-confirm-text">Точно удалить этого контрагента?<br><small class="text-muted">Его имя пропадет из новых списков, но старая история платежей сохранится.</small></div>
+        <div class="form-group m-0">
+            <label>Причина удаления (обязательно)</label>
+            <textarea id="finance-delete-counterparty-reason" class="input-modern" rows="3" placeholder="Например: контрагент создан ошибочно"></textarea>
+        </div>`;
         UI.showModal('⚠️ Удаление контрагента', html, `
         <button class="btn btn-outline" onclick="openCounterpartiesModal()">Отмена</button>
         <button class="btn btn-red" onclick="executeDeleteCounterparty(${id})">🗑️ Удалить</button>
@@ -1782,9 +1911,11 @@
     };
 
     window.executeDeleteCounterparty = async function (id) {
+        const reason = (document.getElementById('finance-delete-counterparty-reason')?.value || '').trim();
+        if (!reason) return UI.toast('Укажите причину удаления контрагента', 'warning');
         UI.closeModal();
         try {
-            await API.delete(`/api/counterparties/${id}`);
+            await API.delete(`/api/counterparties/${id}?reason=${encodeURIComponent(reason)}`);
             await loadFinanceData();
             openCounterpartiesModal();
         } catch (e) { console.error(e); }
@@ -1793,10 +1924,10 @@
     // === УМНОЕ ВЫСТАВЛЕНИЕ СЧЕТА ИЗ ФИНАНСОВ ===
     window.toggleFinInvoiceType = function () {
         const type = document.getElementById('fin-invoice-type').value;
-        document.getElementById('fin-general-block').style.display = type === 'general' ? 'block' : 'none';
-        document.getElementById('fin-order-block').style.display = type === 'order' ? 'block' : 'none';
+        document.getElementById('fin-general-block').classList.toggle('d-none', type !== 'general');
+        document.getElementById('fin-order-block').classList.toggle('d-none', type !== 'order');
         const contractBlock = document.getElementById('fin-contract-block');
-        if (contractBlock) contractBlock.style.display = type === 'contract' ? 'block' : 'none';
+        if (contractBlock) contractBlock.classList.toggle('d-none', type !== 'contract');
     };
 
     window.openFinanceInvoiceModal = async function (cpId, cpName) {
@@ -2001,13 +2132,13 @@
 
         window.toggleAccountSelector = function(checked) {
         const dd = document.getElementById('pay-account-dropdown');
-        if (dd) dd.style.display = checked ? 'none' : 'block';
+        if (dd) dd.classList.toggle('d-none', checked);
     }
     
     window.checkSaldoWarning = function(saldo, amount) {
         const warn = document.getElementById('saldo-warning');
         if(warn) {
-            warn.style.display = (parseFloat(amount) > parseFloat(saldo)) ? 'block' : 'none';
+            warn.classList.toggle('d-none', !(parseFloat(amount) > parseFloat(saldo)));
         }
     }
 
@@ -2098,7 +2229,12 @@
     };
 
     window.deleteInvoice = function (id) {
-        const html = `<div style="padding: 15px; text-align: center; font-size: 15px;">Точно удалить этот счет?<br><small style="color: var(--text-muted);">Он безвозвратно исчезнет из списка ожидаемых платежей.</small></div>`;
+        const html = `
+        <div class="modal-confirm-text">Точно удалить этот счет?<br><small class="text-muted">Он безвозвратно исчезнет из списка ожидаемых платежей.</small></div>
+        <div class="form-group m-0">
+            <label>Причина удаления (обязательно)</label>
+            <textarea id="finance-delete-invoice-reason" class="input-modern" rows="3" placeholder="Например: счет создан ошибочно"></textarea>
+        </div>`;
         UI.showModal('⚠️ Отмена выставленного счета', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
         <button class="btn btn-red" onclick="executeDeleteInvoice(${id})">🗑️ Удалить счет</button>
@@ -2106,9 +2242,11 @@
     };
 
     window.executeDeleteInvoice = async function (id) {
+        const reason = (document.getElementById('finance-delete-invoice-reason')?.value || '').trim();
+        if (!reason) return UI.toast('Укажите причину удаления счета', 'warning');
         UI.closeModal();
         try {
-            const data = await API.delete(`/api/invoices/${id}`);
+            const data = await API.delete(`/api/invoices/${id}?reason=${encodeURIComponent(reason)}`);
             if (data.action === 'deleted') {
                 UI.toast('Счет полностью удален, нумерация восстановлена', 'success');
             } else if (data.action === 'cancelled') {
@@ -2450,7 +2588,14 @@
         }
 
         // Если всё чисто — разрешаем удаление
-        const html = `<div style="padding: 15px; text-align: center; font-size: 15px;">Вы уверены, что хотите удалить <b>${selectedTransIds.size}</b> операций?<br><small style="color: var(--text-muted);">Балансы счетов будут автоматически пересчитаны!</small></div>`;
+        const html = `
+            <div class="mb-10">Вы уверены, что хотите удалить <b>${selectedTransIds.size}</b> операций?</div>
+            <div class="text-muted mb-10">Балансы счетов будут автоматически пересчитаны.</div>
+            <div class="form-group m-0">
+                <label>Причина действия (обязательно)</label>
+                <textarea id="bulk-delete-reason" class="input-modern" rows="3" placeholder="Например: удаление ошибочного импорта"></textarea>
+            </div>
+        `;
         UI.showModal('⚠️ Массовое удаление', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
         <button class="btn btn-red" onclick="confirmBulkDelete()">🗑️ Да, удалить</button>
@@ -2458,9 +2603,11 @@
     };
 
     window.confirmBulkDelete = async function () {
+        const reason = (document.getElementById('bulk-delete-reason')?.value || '').trim();
+        if (!reason) return UI.toast('Укажите причину массового удаления', 'warning');
         UI.closeModal();
         try {
-            await API.post('/api/transactions/bulk-delete', { ids: Array.from(selectedTransIds) });
+            await API.post('/api/transactions/bulk-delete', { ids: Array.from(selectedTransIds), reason });
             UI.toast('✅ Операции удалены', 'success');
             selectedTransIds.clear();
             loadFinanceData();
@@ -2696,7 +2843,12 @@
         }
     };
     window.deleteReceipt = function (id) {
-        const html = `<div style="padding: 15px; text-align: center; font-size: 15px;">Точно открепить файл от этой операции?</div>`;
+        const html = `
+        <div class="modal-confirm-text">Точно открепить файл от этой операции?</div>
+        <div class="form-group m-0">
+            <label>Причина удаления (обязательно)</label>
+            <textarea id="finance-delete-receipt-reason" class="input-modern" rows="3" placeholder="Например: прикреплен неверный файл"></textarea>
+        </div>`;
         UI.showModal('⚠️ Удаление файла', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
         <button class="btn btn-red" onclick="executeDeleteReceipt(${id})">🗑️ Да, удалить</button>
@@ -2704,9 +2856,11 @@
     };
 
     window.executeDeleteReceipt = async function (id) {
+        const reason = (document.getElementById('finance-delete-receipt-reason')?.value || '').trim();
+        if (!reason) return UI.toast('Укажите причину удаления файла', 'warning');
         UI.closeModal();
         try {
-            await API.delete(`/api/transactions/${id}/receipt`);
+            await API.delete(`/api/transactions/${id}/receipt?reason=${encodeURIComponent(reason)}`);
             if (true) {
                 UI.toast('🗑️ Файл успешно откреплен', 'success');
                 loadFinanceData();
@@ -2811,20 +2965,32 @@
         } catch (e) { console.error(e); UI.toast('Ошибка построения P&L', 'error'); }
     };
 
-    window.addPlannedExpense = async function () {
+    /** Создание плана из формы в модалке «Календарь платежей» */
+    window.submitPlannedCalendarForm = async function () {
+        if (!isCurrentUserCanPlanned()) {
+            return UI.toast('Нет права вести план платежей. Нужен админ, бухгалтер, роль «финансы» или флаг в карточке пользователя (БД).', 'warning');
+        }
+        const get = (id) => document.getElementById(id);
         const data = {
-            date: document.getElementById('plan-date').value,
-            amount: document.getElementById('plan-amount').value,
-            category: document.getElementById('plan-category').value,
-            is_recurring: document.getElementById('plan-recurring').checked
+            date: get('plan-cal-date') && get('plan-cal-date').value,
+            amount: get('plan-cal-amount') && get('plan-cal-amount').value,
+            category: (get('plan-cal-category') && get('plan-cal-category').value) ? get('plan-cal-category').value.trim() : '',
+            description: (get('plan-cal-desc') && get('plan-cal-desc').value) ? get('plan-cal-desc').value.trim() : '',
+            is_recurring: get('plan-cal-recurring') ? get('plan-cal-recurring').checked : false
         };
-        if (!data.date || !data.amount) return UI.toast('Укажите дату и сумму', 'warning');
-
+        if (!data.date || !data.amount || !data.category) {
+            return UI.toast('Укажите дату, сумму и статью расхода', 'warning');
+        }
         try {
             await API.post('/api/finance/planned-expenses', data);
-            UI.toast('✅ Расход запланирован', 'success');
+            UI.toast('Плановый платёж добавлен', 'success');
             openPaymentCalendarModal();
         } catch (e) { console.error(e); }
+    };
+
+    /** Старое имя; форма в модалке с id plan-cal-* */
+    window.addPlannedExpense = function () {
+        return submitPlannedCalendarForm();
     };
 
     window.payPlannedExpense = async function (id) {
@@ -2836,9 +3002,12 @@
     };
 
     window.deletePlannedExpense = async function (id) {
+        if (!isCurrentUserCanPlanned()) {
+            return UI.toast('Нет права удалять плановые строки.', 'warning');
+        }
         try {
             await API.delete(`/api/finance/planned-expenses/${id}`);
-            UI.toast('🗑️ Плановый расход отменен', 'success');
+            UI.toast('Плановый платёж удалён', 'success');
             openPaymentCalendarModal();
         } catch (e) { console.error(e); }
     };
@@ -2851,6 +3020,22 @@
             if (parts.length !== 3) return false;
             const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
             return payload.role === 'admin';
+        } catch (e) {
+            return false;
+        }
+    }
+
+    /** План/факт плановых исходящих: admin, JWT can_planned, роли бух/финансы (см. middleware PLANNED_PLAN_ROLES) */
+    function isCurrentUserCanPlanned() {
+        if (isCurrentUserAdmin()) return true;
+        try {
+            const token = localStorage.getItem('token') || localStorage.getItem('jwtToken');
+            if (!token) return false;
+            const parts = token.split('.');
+            if (parts.length !== 3) return false;
+            const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+            if (payload.can_planned === true) return true;
+            return ['accountant', 'finance', 'buh', 'bukh'].includes(payload.role);
         } catch (e) {
             return false;
         }
@@ -3005,9 +3190,13 @@
     // === КРАСИВОЕ И БЕЗОПАСНОЕ УДАЛЕНИЕ ДОГОВОРА (УНИВЕРСАЛЬНОЕ) ===
     window.deleteContract = function (contractId, cpId = null) {
         const html = `
-        <div style="padding: 15px; text-align: center; font-size: 15px;">
+        <div class="modal-confirm-text">
             Вы уверены, что хотите удалить этот договор?<br>
-            <small style="color: var(--text-muted);">Это действие нельзя отменить.</small>
+            <small class="text-muted">Это действие нельзя отменить.</small>
+        </div>
+        <div class="form-group m-0">
+            <label>Причина удаления (обязательно)</label>
+            <textarea id="finance-delete-contract-reason" class="input-modern" rows="3" placeholder="Например: договор создан ошибочно"></textarea>
         </div>`;
 
         // Вызываем твое фирменное модальное окно
@@ -3029,9 +3218,11 @@
     };
 
     window.executeDeleteContract = async function (contractId, cpId = null) {
+        const reason = (document.getElementById('finance-delete-contract-reason')?.value || '').trim();
+        if (!reason) return UI.toast('Укажите причину удаления договора', 'warning');
         try {
             // 🚀 Выполняем удаление
-            await API.delete(`/api/contracts/${contractId}`);
+            await API.delete(`/api/contracts/${contractId}?reason=${encodeURIComponent(reason)}`);
 
             // Если выполнение дошло сюда — удаление успешно (статус 200)
             UI.toast('✅ Договор удален', 'success');
@@ -3064,58 +3255,161 @@
         }
     };
 
-    // === КАЛЕНДАРЬ ПЛАТЕЖЕЙ ===
+    // === КАЛЕНДАРЬ ПЛАНОВЫХ ПЛАТЕЖЕЙ (напоминания, проведение = реальная операция) ===
     window.openPaymentCalendarModal = async function () {
         try {
             const expenses = await API.get('/api/finance/planned-expenses');
+            const canPlan = typeof isCurrentUserCanPlanned === 'function' && isCurrentUserCanPlanned();
+            const catOptions = (window.financeCategories || [])
+                .filter((c) => c.type === 'expense')
+                .map((c) => `<option value="${Utils.escapeHtml(c.name)}">`)
+                .join('');
 
-            let tbody = expenses.map(e => `
+            const weekLabel = (wid) => {
+                if (!wid) return '';
+                const m = String(wid).match(/^(\d{4})-(\d{2})$/);
+                if (m) return `Неделя ${m[2]} (${m[1]}, ISO)`;
+                return `Неделя ${wid}`;
+            };
+
+            let tbody = '';
+            let lastWk = null;
+            (expenses || []).forEach((e) => {
+                const wk = e.week_id || '';
+                if (wk !== lastWk) {
+                    lastWk = wk;
+                    tbody += `<tr style="background: var(--surface-alt);"><td colspan="8" style="padding: 8px 10px; font-weight: 600; font-size: 12px; color: var(--primary);">${Utils.escapeHtml(weekLabel(wk))}</td></tr>`;
+                }
+                const plan = parseFloat(e.amount) || 0;
+                const paid = parseFloat(e.amount_paid) || 0;
+                const rem = parseFloat(e.amount_remaining) != null ? parseFloat(e.amount_remaining) : Math.max(0, plan - paid);
+                tbody += `
             <tr style="border-bottom: 1px solid var(--border);">
-                <td style="padding: 10px;"><b>${e.date}</b></td>
-                <td style="padding: 10px;">${e.category}</td>
-                <td style="padding: 10px; color: var(--text-muted);">${e.description || '-'}</td>
-                <td style="padding: 10px; color: var(--danger); font-weight: bold;">-${Utils.formatMoney(e.amount)}</td>
-                <td style="padding: 10px; text-align: right;">
-                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 11px; color: var(--success); border-color: var(--success);" onclick="executePlannedExpense(${e.id}, ${e.amount})" title="Провести платеж">✅ Оплатить</button>
-                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 11px; color: var(--danger); border-color: var(--danger); margin-left: 5px;" onclick="deletePlannedExpense(${e.id})" title="Отменить план">❌</button>
+                <td style="padding: 8px; white-space: nowrap;"><b>${Utils.escapeHtml(e.date)}</b></td>
+                <td style="padding: 8px;">${Utils.escapeHtml(e.category)}</td>
+                <td style="padding: 8px; color: var(--text-muted); font-size: 12px;">${e.description ? Utils.escapeHtml(e.description) : '—'}</td>
+                <td style="padding: 8px; text-align: center; font-size: 12px;" title="Ежемесячно после полного закрытия плана">${e.is_recurring ? '🔁' : '—'}</td>
+                <td style="padding: 8px; text-align: right; font-size: 12px;">${Utils.formatMoney(plan)}</td>
+                <td style="padding: 8px; text-align: right; font-size: 12px; color: var(--text-muted);">${paid > 0 ? `−${Utils.formatMoney(paid)}` : '—'}</td>
+                <td style="padding: 8px; color: var(--danger); font-weight: bold; text-align: right;">−${Utils.formatMoney(rem)}</td>
+                <td style="padding: 8px; text-align: right; white-space: nowrap;">
+                    <button type="button" class="btn btn-outline" style="padding: 4px 8px; font-size: 11px; color: var(--success); border-color: var(--success);" onclick="executePlannedExpense(${e.id}, ${plan}, ${paid}, ${rem})" title="Полная или частичная оплата остатка">✅ Оплатить</button>
+                    ${canPlan ? `<button type="button" class="btn btn-outline" style="padding: 4px 8px; font-size: 11px; color: var(--danger); border-color: var(--danger); margin-left: 4px;" onclick="deletePlannedExpense(${e.id})" title="Только если ещё не было списаний">🗑️</button>` : ''}
                 </td>
             </tr>
-        `).join('') || '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding: 20px;">Нет запланированных платежей</td></tr>';
+        `;
+            });
+
+            if (!tbody) {
+                tbody = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding: 20px;">Нет запланированных платежей. Добавьте обязательство ниже или оно появится после полного закрытия ежемесячного плана.</td></tr>';
+            }
+
+            const addFormBlock = canPlan
+                ? `
+            <div class="card" style="padding: 14px; margin-bottom: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); max-width: 100%;">
+                <h4 class="m-0 mb-10 text-primary font-15">➕ Запланировать исходящий платёж</h4>
+                <p class="text-muted font-12 m-0 mb-10">Деньги на счётах <b>не</b> меняются, пока вы не нажмёте «Оплатить». Следующий месяц по 🔁 — только после <b>полного</b> закрытия суммы плана.</p>
+                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 8px; align-items: end;">
+                    <div class="form-group m-0">
+                        <label class="font-11 text-muted m-0">Плановая дата</label>
+                        <input type="date" id="plan-cal-date" class="input-modern" required>
+                    </div>
+                    <div class="form-group m-0">
+                        <label class="font-11 text-muted m-0">Сумма, ₽</label>
+                        <input type="number" id="plan-cal-amount" class="input-modern" min="0.01" step="0.01" placeholder="0.00" required>
+                    </div>
+                    <div class="form-group m-0" style="grid-column: 1 / -1;">
+                        <label class="font-11 text-muted m-0">Статья (категория)</label>
+                        <input type="text" id="plan-cal-category" class="input-modern" list="plan-cal-category-dl" placeholder="По справочнику или вручную" autocomplete="off" required>
+                        <datalist id="plan-cal-category-dl">${catOptions}</datalist>
+                    </div>
+                    <div class="form-group m-0" style="grid-column: 1 / -1;">
+                        <label class="font-11 text-muted m-0">Назначение (по желанию)</label>
+                        <input type="text" id="plan-cal-desc" class="input-modern" placeholder="Аренда, кредит, поставщик, комментарий...">
+                    </div>
+                    <div class="form-group m-0" style="grid-column: 1 / -1;">
+                        <label class="font-12 flex-row items-center gap-8 cursor-pointer m-0">
+                            <input type="checkbox" id="plan-cal-recurring"> Повторять каждый месяц (след. строка плана — после нажатия «Оплатить»)
+                        </label>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-blue mt-10" onclick="submitPlannedCalendarForm()">📌 Добавить в план</button>
+            </div>
+            ` : `<p class="text-muted font-12 mb-12">Создание и удаление планов — у пользователей с соответствующим правом (см. настройки доступа / роль / БД). Список и оплата доступны с правом на модуль.</p>`;
 
             const html = `
-            <div style="padding: 10px;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+            <div style="padding: 6px; max-height: 75vh; overflow-y: auto;">
+                ${addFormBlock}
+                <p class="text-muted font-12 mb-8 m-0">Группировка — по <b>неделе (ISO)</b>. «Оплатить» — полная список остатка или ввод суммы; строка плана снимается после полного закрытия.</p>
+                <div style="overflow-x: auto;">
+                <table style="width: 100%; min-width: 720px; border-collapse: collapse; font-size: 13px;">
                     <thead style="background: var(--surface-alt); text-align: left;">
                         <tr>
-                            <th style="padding: 10px;">Дата</th>
-                            <th style="padding: 10px;">Категория</th>
-                            <th style="padding: 10px;">Назначение</th>
-                            <th style="padding: 10px;">Сумма</th>
-                            <th style="padding: 10px; text-align: right;">Действия</th>
+                            <th style="padding: 8px;">Дата</th>
+                            <th style="padding: 8px;">Категория</th>
+                            <th style="padding: 8px;">Назначение</th>
+                            <th style="padding: 8px; text-align: center; width: 40px;" title="Повтор">🔁</th>
+                            <th style="padding: 8px; text-align: right;" title="По плану">План</th>
+                            <th style="padding: 8px; text-align: right;" title="Уже списано">Списано</th>
+                            <th style="padding: 8px; text-align: right;" title="К доплате">Остаток</th>
+                            <th style="padding: 8px; text-align: right;">Действия</th>
                         </tr>
                     </thead>
                     <tbody>${tbody}</tbody>
                 </table>
+                </div>
             </div>
         `;
 
-            UI.showModal('📅 Календарь платежей', html, `<button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>`);
+            UI.showModal('📅 Плановые исходящие платежи', html, `<button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>`);
+
+            if (canPlan) {
+                const d = new Date();
+                const de = document.getElementById('plan-cal-date');
+                if (de) de.value = d.toISOString().slice(0, 10);
+            }
         } catch (e) {
             console.error(e);
-            UI.toast('Ошибка загрузки календаря', 'error');
+            UI.toast('Ошибка загрузки плана платежей', 'error');
         }
     };
 
-    window.executePlannedExpense = function (id, amount) {
-        const options = currentAccounts.map(acc =>
-            `<option value="${acc.id}">${acc.name} (баланс: ${Utils.formatMoney(acc.balance)})</option>`
-        ).join('');
+    /**
+     * @param {number} id
+     * @param {number} planTotal план, ₽
+     * @param {number} paidSoFar уже по проводкам, ₽
+     * @param {number} remaining к доплате, ₽
+     */
+    window.executePlannedExpense = function (id, planTotal, paidSoFar, remaining) {
+        if (remaining <= 0) {
+            return UI.toast('По этой строке нет остатка к списанию.', 'warning');
+        }
+        let payAccounts = currentAccounts.filter((acc) => acc.type === 'bank' || acc.type === 'cash');
+        if (payAccounts.length === 0) {
+            payAccounts = currentAccounts.filter((a) => a.type !== 'imprest');
+        }
+        const options = payAccounts
+            .map(
+                (acc) =>
+                    `<option value="${acc.id}">${Utils.escapeHtml(acc.name)} (баланс: ${Utils.formatMoney(acc.balance)})</option>`
+            )
+            .join('');
 
+        if (!options) {
+            return UI.toast('Нет подходящего счёта (банк/касса) для списания. Добавьте счёт в настройках.', 'warning');
+        }
+
+        const rem2 = Math.round(remaining * 100) / 100;
         const html = `
         <div style="padding: 10px;">
-            <p style="margin-bottom: 15px;">Провести оплату на сумму <b>${Utils.formatMoney(amount)}</b>?</p>
+            <p style="margin-bottom: 8px;">По плану: <b>${Utils.formatMoney(planTotal)}</b> · Списано: <b>${Utils.formatMoney(paidSoFar || 0)}</b> · <span style="color: var(--danger);">К доплате: ${Utils.formatMoney(remaining)}</span></p>
+            <p class="text-muted font-12 m-0 mb-10">Оставьте сумму по умолчанию для полного остатка или укажите меньше — частичная оплата.</p>
+            <div class="form-group" style="margin-bottom: 12px;">
+                <label style="font-weight: bold; color: var(--primary);">Сумма списания, ₽</label>
+                <input type="number" id="pay-planned-amount" class="input-modern" min="0.01" max="${rem2}" step="0.01" value="${rem2}" style="margin-top: 5px;">
+            </div>
             <div class="form-group">
-                <label style="font-weight: bold; color: var(--primary);">Выберите счет для списания:</label>
+                <label style="font-weight: bold; color: var(--primary);">Счёт для списания</label>
                 <select id="pay-planned-account" class="input-modern" style="margin-top: 5px;">
                     ${options}
                 </select>
@@ -3125,7 +3419,7 @@
 
         UI.showModal('Подтверждение оплаты', html, `
         <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-        <button class="btn btn-blue" onclick="confirmPlannedPay(${id})">✅ Подтвердить списание</button>
+        <button class="btn btn-blue" onclick="confirmPlannedPay(${id}, ${rem2})">✅ Подтвердить списание</button>
     `);
         setTimeout(() => {
             ['pay-planned-account'].forEach(id => {
@@ -3135,14 +3429,23 @@
         }, 50);
     };
 
-    window.confirmPlannedPay = async function (id) {
+    window.confirmPlannedPay = async function (id, maxRemaining) {
         const accId = document.getElementById('pay-planned-account').value;
         if (!accId) return UI.toast('Выберите счет!', 'warning');
+        const amtEl = document.getElementById('pay-planned-amount');
+        let payPayload = { account_id: accId };
+        if (amtEl) {
+            const raw = (amtEl.value || '').toString().replace(/\s/g, '').replace(',', '.');
+            const n = parseFloat(raw);
+            if (isNaN(n) || n <= 0) return UI.toast('Укажите корректную сумму списания', 'warning');
+            if (typeof maxRemaining === 'number' && n > maxRemaining + 0.0001) {
+                return UI.toast(`Сумма не больше остатка ${maxRemaining.toFixed(2)} ₽`, 'warning');
+            }
+            payPayload.amount = n;
+        }
 
         try {
-            // 🚀 Отправляем запрос через обертку API
-            // Передаем только URL и данные вторым аргументом
-            await API.post(`/api/finance/planned-expenses/${id}/pay`, { account_id: accId });
+            await API.post(`/api/finance/planned-expenses/${id}/pay`, payPayload);
 
             // Если дошли сюда — сервер ответил успехом (HTTP 200)
             UI.closeModal();
@@ -3166,11 +3469,11 @@
 
     window.openEditAccountModal = function (id, currentName) {
         const html = `
-        <div style="padding: 10px; text-align: left;">
+        <div class="p-10 text-left">
             <div class="form-group">
-                <label style="font-weight: bold; color: var(--text-main);">Название счета (кассы):</label>
-                <input type="text" id="edit-account-name" class="input-modern" value="${currentName}" style="margin-top: 5px;">
-                <small style="color: var(--text-muted); display: block; margin-top: 5px;">
+                <label class="font-bold text-main">Название счета (кассы):</label>
+                <input type="text" id="edit-account-name" class="input-modern mt-5" value="${currentName}">
+                <small class="text-muted d-block mt-5">
                     💡 Если это расчетный счет, добавьте в скобках его 20-значный номер для умного импорта выписок (например: Точка Банк (407028...)).
                 </small>
             </div>
@@ -3424,7 +3727,7 @@
         typeInput.value = type;
         document.getElementById('cp-entity-legal').classList.toggle('active', type === 'legal');
         document.getElementById('cp-entity-physical').classList.toggle('active', type === 'physical');
-        document.getElementById('legal-entity-fields').style.display = type === 'legal' ? 'block' : 'none';
+        document.getElementById('legal-entity-fields').classList.toggle('d-none', type !== 'legal');
     };
 
     window.toggleNoPhone = function (cb) {
@@ -3593,7 +3896,15 @@
                 </div>
                 <div class="form-group mb-15">
                     <label>Комментарий (Отобразится в Акте сверки):</label>
-                    <input type="text" id="corr-desc" class="input-modern" value="Ввод начальных остатков">
+                    <input
+                        type="text"
+                        id="corr-desc"
+                        class="input-modern corr-desc-input"
+                        placeholder="Ввод начальных остатков"
+                        onfocus="this.classList.add('corr-desc-input-active'); this.select();"
+                        onclick="if (document.activeElement === this) this.select();"
+                        onblur="this.classList.remove('corr-desc-input-active')"
+                    >
                 </div>
                 <button class="btn btn-blue w-full" onclick="executeCorrection(${cpId})">💾 Применить корректировку</button>
             </div>
@@ -3606,7 +3917,7 @@
         </div>
     `;
         UI.showModal('⚖️ Управление балансом и корректировки', html, `
-        <button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>
+        <button class="btn btn-outline" onclick="UI.closeModal()">Назад к списку</button>
     `, false, '800px');
         
         setTimeout(() => {
@@ -3667,7 +3978,15 @@
         const html = `
             <div class="form-group mb-15">
                 <label>Новый комментарий:</label>
-                <input type="text" id="edit-corr-desc" class="input-modern" value="${oldDesc}">
+                <input
+                    type="text"
+                    id="edit-corr-desc"
+                    class="input-modern corr-desc-input"
+                    value="${oldDesc}"
+                    onfocus="this.classList.add('corr-desc-input-active'); this.select();"
+                    onclick="if (document.activeElement === this) this.select();"
+                    onblur="this.classList.remove('corr-desc-input-active')"
+                >
             </div>
         `;
         
@@ -3698,15 +4017,23 @@
     };
 
     window.deleteCorrection = function(txId, cpId) {
-        UI.showModal('⚠️ Удаление корректировки', 'Вы уверены, что хотите удалить эту корректировку? Баланс контрагента будет пересчитан.', `
+        UI.showModal('⚠️ Удаление корректировки', `
+            <div class="mb-10">Вы уверены, что хотите удалить эту корректировку? Баланс контрагента будет пересчитан.</div>
+            <div class="form-group m-0">
+                <label>Причина удаления (обязательно)</label>
+                <textarea id="finance-delete-correction-reason" class="input-modern" rows="3" placeholder="Например: ошибочная корректировка"></textarea>
+            </div>
+        `, `
             <button class="btn btn-outline" onclick="openCorrectionModal(${cpId})">Отмена</button>
             <button class="btn btn-red" onclick="executeDeleteCorrection(${txId}, ${cpId})">🗑️ Удалить</button>
         `);
     };
     
     window.executeDeleteCorrection = async function(txId, cpId) {
+        const reason = (document.getElementById('finance-delete-correction-reason')?.value || '').trim();
+        if (!reason) return UI.toast('Укажите причину удаления корректировки', 'warning');
         try {
-            await API.delete(`/api/finance/transactions/${txId}`);
+            await API.delete(`/api/finance/transactions/${txId}?reason=${encodeURIComponent(reason)}`);
             UI.toast('✅ Корректировка удалена', 'success');
             
             // Если мы находимся в каком-то родительском профиле, перезагружаем его перед возвратом к Коррекциям
@@ -3966,27 +4293,35 @@
     `;
 
         container.innerHTML = `
-        <div style="background: var(--surface); padding: 20px; border-radius: 12px; border: 1px solid var(--border); box-shadow: var(--shadow-sm);">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
-                <div>
-                    <div style="font-size: 11px; font-weight: 800; color: var(--primary); text-transform: uppercase;">🏦 Налоговый резерв</div>
-                    <div style="font-size: 28px; font-weight: 900; color: var(--text-main); margin-top: 4px; white-space: nowrap;">${Utils.formatMoney(live.total)}</div>
-                </div>
-                <div id="tax-period-controls" style="display: flex; gap: 3px;" class="no-print">
-                    ${periodHtml}
-                </div>
+        <div style="background: var(--surface); border-radius: 12px; border: 1px solid var(--border); box-shadow: var(--shadow-sm); overflow: hidden;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; cursor: pointer; background: var(--surface-hover);"
+                 onclick="toggleFinanceAccordion('tax-widget-body', this.querySelector('.acc-icon'));">
+                <div style="font-size: 14px; font-weight: 700; color: var(--text-main);">🏦 Налоговый резерв</div>
+                <div class="text-muted font-11 font-bold acc-icon user-select-none">▼ РАСКРЫТЬ</div>
             </div>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
-                <div style="cursor: pointer; padding: 10px; border-radius: 8px; transition: 0.2s;" onclick="openTaxDetailsModal('cash')">
-                    <div style="font-size: 10px; color: var(--text-muted);">Касса (УСН ${taxUsnRate}%):</div>
-                    <div style="font-size: 16px; font-weight: bold; color: var(--success); white-space: nowrap;">+${Utils.formatMoney(Math.max(0, live.cashTax))}</div>
-                    <div style="font-size: 9px; color: var(--primary); margin-top: 4px;">Аналитика УСН ➔</div>
+            <div id="tax-widget-body" class="d-none" style="padding: 20px; border-top: 1px solid var(--border);">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
+                    <div>
+                        <div style="font-size: 11px; font-weight: 800; color: var(--primary); text-transform: uppercase;">🏦 Налоговый резерв</div>
+                        <div style="font-size: 28px; font-weight: 900; color: var(--text-main); margin-top: 4px; white-space: nowrap;">${Utils.formatMoney(live.total)}</div>
+                    </div>
+                    <div id="tax-period-controls" style="display: flex; gap: 3px;" class="no-print">
+                        ${periodHtml}
+                    </div>
                 </div>
-                <div style="cursor: pointer; padding: 10px; border-radius: 8px; transition: 0.2s;" onclick="openTaxDetailsModal('bank')">
-                    <div style="font-size: 10px; color: var(--text-muted);">Безнал (Оперативный НДС):</div>
-                    <div style="font-size: 16px; font-weight: bold; color: var(--primary); white-space: nowrap;">${live.bankVat > 0 ? '+' : ''}${Utils.formatMoney(Math.max(0, live.bankVat))}</div>
-                    <div style="font-size: 9px; color: var(--primary); margin-top: 4px;">Аналитика НДС ➔</div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; border-top: 1px solid var(--border); padding-top: 15px;">
+                    <div style="cursor: pointer; padding: 10px; border-radius: 8px; transition: 0.2s;" onclick="openTaxDetailsModal('cash')">
+                        <div style="font-size: 10px; color: var(--text-muted);">Касса (УСН ${taxUsnRate}%):</div>
+                        <div style="font-size: 16px; font-weight: bold; color: var(--success); white-space: nowrap;">+${Utils.formatMoney(Math.max(0, live.cashTax))}</div>
+                        <div style="font-size: 9px; color: var(--primary); margin-top: 4px;">Аналитика УСН ➔</div>
+                    </div>
+                    <div style="cursor: pointer; padding: 10px; border-radius: 8px; transition: 0.2s;" onclick="openTaxDetailsModal('bank')">
+                        <div style="font-size: 10px; color: var(--text-muted);">Безнал (Оперативный НДС):</div>
+                        <div style="font-size: 16px; font-weight: bold; color: var(--primary); white-space: nowrap;">${live.bankVat > 0 ? '+' : ''}${Utils.formatMoney(Math.max(0, live.bankVat))}</div>
+                        <div style="font-size: 9px; color: var(--primary); margin-top: 4px;">Аналитика НДС ➔</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -4561,19 +4896,40 @@ window.bindOrphan = async function(txId, btnElement) {
 // УМНЫЙ СПРАВОЧНИК ДДС (Cashflow Dictionary)
 // ==========================================
 
-window.switchFinanceTab = function(tab) {
-    if(tab === 'ops') {
-        document.getElementById('fin-view-ops').classList.remove('d-none');
-        document.getElementById('fin-view-dict').classList.add('d-none');
-        document.getElementById('fin-tab-ops').className = 'btn btn-blue';
-        document.getElementById('fin-tab-dict').className = 'btn btn-outline';
-    } else {
-        document.getElementById('fin-view-ops').classList.add('d-none');
-        document.getElementById('fin-view-dict').classList.remove('d-none');
-        document.getElementById('fin-tab-ops').className = 'btn btn-outline';
-        document.getElementById('fin-tab-dict').className = 'btn btn-blue';
-        loadFinanceDictionary();
-    }
+window.openFinanceDictionaryModal = function() {
+    const html = `
+        <div class="flex-between mb-15">
+            <h3 class="m-0">Управление статьями доходов и расходов</h3>
+            <div class="toolbar-group">
+                <button class="btn btn-outline text-warning" onclick="openCategoryMergeModal()">🖇️ Объединить дубликаты</button>
+                <button class="btn btn-outline border-warning text-warning" onclick="openOrphansModal()">⚠️ Обезличенные</button>
+                <button class="btn btn-blue" onclick="openCategoryEditModal()">➕ Добавить статью</button>
+            </div>
+        </div>
+        <div class="toolbar-group mb-15 card-alt p-10">
+            <button id="dict-tab-type-all" class="btn btn-blue dict-type-btn" onclick="setDictTypeFilter('all')">📋 Все статьи</button>
+            <button id="dict-tab-type-income" class="btn btn-outline btn-outline-success dict-type-btn" onclick="setDictTypeFilter('income')">🟢 Доходы</button>
+            <button id="dict-tab-type-expense" class="btn btn-outline btn-outline-danger dict-type-btn" onclick="setDictTypeFilter('expense')">🔴 Расходы</button>
+        </div>
+        <div class="card p-0 overflow-hidden">
+            <table class="finance-table w-100" id="fin-dict-table">
+                <thead class="bg-surface-alt">
+                    <tr>
+                        <th class="w-5 text-center"><input type="checkbox" id="finCatSelectAll" onchange="toggleSelectAllCategories(this)"></th>
+                        <th class="text-left w-30">Название статьи</th>
+                        <th class="text-center w-15">Направление</th>
+                        <th class="text-center w-15">Тип затрат</th>
+                        <th class="text-right w-15">Лимит (мес)</th>
+                        <th class="text-center w-10">Статус</th>
+                        <th class="text-center w-10">⚙️</th>
+                    </tr>
+                </thead>
+                <tbody id="fin-dict-tbody"></tbody>
+            </table>
+        </div>
+    `;
+    UI.showModal('⚙️ Справочник ДДС', html, '<button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>', false, '1200px');
+    loadFinanceDictionary();
 }
 
 window.financeCategoriesFull = [];
@@ -4657,6 +5013,9 @@ window.renderFinanceDictionary = function(data) {
                           (c.cost_group === 'overhead' || c.cost_group === 'opex') ? '<span class="badge badge-warning">Косвенные (OPEX)</span>' :
                           '-';
         const wildBadge = c.is_wild ? '<span class="badge badge-warning font-10">⚠️ (Дикая)</span>' : '';
+        const cidAttr = c.id != null && c.id !== '' ? String(c.id) : '';
+        const nameAttr = encodeURIComponent(c.name || '');
+        const wildAttr = c.is_wild ? 'true' : 'false';
         
         let indentHtml = '';
         if (level > 0) {
@@ -4664,22 +5023,23 @@ window.renderFinanceDictionary = function(data) {
         }
         
         html += `
-            <tr style="${opacity}">
+            <tr data-dict-cat-main="1" data-cat-id="${cidAttr}" data-cat-name="${nameAttr}" data-cat-wild="${wildAttr}" style="${opacity}">
                 <td class="text-center"><input type="checkbox" class="fin-cat-checkbox" value="${Utils.escapeHtml(c.name)}" /></td>
                 <td>
-                    ${indentHtml}<b>${Utils.escapeHtml(c.name)}</b> ${wildBadge}
+                    ${indentHtml}<button type="button" class="btn btn-sm btn-outline mr-5 fin-dict-expand-btn" title="Показать операции по статье" aria-expanded="false" onclick="toggleDictCategoryTx(this)">▶</button><b>${Utils.escapeHtml(c.name)}</b> ${wildBadge}
                     ${isArchived ? '<span class="badge bg-gray ml-5">Архив</span>' : ''}
                 </td>
                 <td class="text-center">${dirBadge}</td>
                 <td class="text-center">${costBadge}</td>
                 <td class="text-right">${c.monthly_limit > 0 ? Utils.formatCurrency(c.monthly_limit) : '-'}</td>
                 <td class="text-center">
-                    <button class="btn btn-sm btn-outline" title="${isArchived ? 'Разархивировать' : 'В архив'}" onclick="toggleArchiveCategory(${c.id}, ${!isArchived})">${isArchived ? '🟢' : '📦'}</button>
+                    <button class="btn btn-sm btn-outline" title="${isArchived ? 'Разархивировать' : 'В архив'}" onclick="toggleArchiveCategory(${c.id != null ? c.id : 'null'}, ${!isArchived})">${isArchived ? '🟢' : '📦'}</button>
                 </td>
                 <td class="text-center">
                     <button class="btn btn-sm btn-outline text-primary" onclick='editCategoryModal(${JSON.stringify(c).replace(/\'/g, "&#39;")})'>✏️</button>
                 </td>
             </tr>
+            <tr class="fin-dict-detail d-none" data-dict-cat-detail="1"><td colspan="7" class="p-0"></td></tr>
         `;
         
         if (childrenMap[c.id]) {
@@ -4694,7 +5054,62 @@ window.renderFinanceDictionary = function(data) {
     }
     
     tbody.innerHTML = html;
-}
+};
+
+/** Раскрытие строки справочника ДДС: последние операции по статье (и подстатьям, если есть id в справочнике). */
+window.toggleDictCategoryTx = async function (btn) {
+    const tr = btn.closest('tr[data-dict-cat-main]');
+    if (!tr) return;
+    const detail = tr.nextElementSibling;
+    if (!detail || !detail.classList.contains('fin-dict-detail')) return;
+    const opening = detail.classList.contains('d-none');
+    if (opening) {
+        detail.classList.remove('d-none');
+        btn.textContent = '▼';
+        btn.setAttribute('aria-expanded', 'true');
+        if (detail.dataset.loaded === '1') return;
+        const cell = detail.querySelector('td');
+        const cid = (tr.getAttribute('data-cat-id') || '').trim();
+        const isWild = tr.getAttribute('data-cat-wild') === 'true';
+        let qs;
+        if (cid && !isWild) {
+            qs = 'category_id=' + encodeURIComponent(cid);
+        } else {
+            const raw = tr.getAttribute('data-cat-name') || '';
+            const nm = raw ? decodeURIComponent(raw) : '';
+            qs = 'name=' + encodeURIComponent(nm);
+        }
+        cell.innerHTML = '<div class="p-10 text-muted">Загрузка…</div>';
+        try {
+            const data = await API.get('/api/finance/category-transactions?' + qs + '&limit=80');
+            detail.dataset.loaded = '1';
+            const list = data.transactions || [];
+            const cnt = data.count != null ? data.count : list.length;
+            if (list.length === 0) {
+                cell.innerHTML = '<div class="p-10 text-muted font-12">Нет операций по этой статье (для строки из справочника учитываются и подстатьи).</div>';
+                return;
+            }
+            const rowsHtml = list.map((t) => {
+                const d = t.transaction_date ? new Date(t.transaction_date) : null;
+                const dStr = d && !isNaN(d.getTime()) ? d.toLocaleDateString('ru-RU') : (t.transaction_date || '—');
+                const sign = t.transaction_type === 'income' ? '+' : '−';
+                const col = t.transaction_type === 'income' ? 'var(--success)' : 'var(--danger)';
+                return `<tr><td class="font-11">${Utils.escapeHtml(dStr)}</td><td class="font-11">${Utils.escapeHtml(String(t.category || ''))}</td><td class="text-right font-11" style="color:${col};">${sign}${Utils.formatMoney(t.amount)}</td><td class="font-11 text-muted">${Utils.escapeHtml(String(t.description || '—'))}</td><td class="font-11 text-muted">#${t.id}</td></tr>`;
+            }).join('');
+            const more = cnt > list.length
+                ? `<p class="text-muted font-11 m-0 mt-8">Показано ${list.length} из ${cnt}. Полный список — во вкладке «Операции», поиск по статье.</p>`
+                : '';
+            cell.innerHTML = `<div class="p-10"><p class="m-0 mb-8 font-12 text-muted">Всего операций: <b>${cnt}</b></p><table class="finance-table w-100"><thead><tr><th>Дата</th><th>Статья в проводке</th><th class="text-right">Сумма</th><th>Основание</th><th class="text-muted">ID</th></tr></thead><tbody>${rowsHtml}</tbody></table>${more}</div>`;
+        } catch (e) {
+            console.error(e);
+            cell.innerHTML = '<div class="p-10 text-danger font-12">Не удалось загрузить операции.</div>';
+        }
+    } else {
+        detail.classList.add('d-none');
+        btn.textContent = '▶';
+        btn.setAttribute('aria-expanded', 'false');
+    }
+};
 
 window.toggleSelectAllCategories = function(el) {
     const checkboxes = document.querySelectorAll('.fin-cat-checkbox');
@@ -4702,7 +5117,7 @@ window.toggleSelectAllCategories = function(el) {
 }
 
 window.openCategoryEditModal = function() {
-    editCategoryModal({ id: null, name: '', type: 'expense', cost_group: 'overhead', parent_id: null, monthly_limit: 0 });
+    editCategoryModal({ id: null, name: '', type: 'expense', cost_group: 'opex', parent_id: null, monthly_limit: 0 });
 }
 
 window.editCategoryModal = function(c) {
@@ -4729,9 +5144,9 @@ window.editCategoryModal = function(c) {
             <div id="cat-edit-cost-wrapper">
                 <label>Тип затрат (Группа)</label>
                 <select id="cat-edit-cost" class="input-modern">
-                    <option value="overhead" ${c.cost_group==='overhead'?'selected':''}>Косвенные (OPEX)</option>
-                    <option value="cogs" ${c.cost_group==='cogs'?'selected':''}>Прямые (COGS)</option>
-                    <option value="capital" ${c.cost_group==='capital'?'selected':''}>Капитал (CAPEX)</option>
+                    <option value="opex" ${['opex','overhead',null,undefined,''].includes(c.cost_group)?'selected':''}>Косвенные (OPEX)</option>
+                    <option value="direct" ${['direct','cogs'].includes(c.cost_group)?'selected':''}>Прямые (COGS)</option>
+                    <option value="capex" ${['capex','capital'].includes(c.cost_group)?'selected':''}>Капитал (CAPEX)</option>
                 </select>
             </div>
         </div>
@@ -4828,9 +5243,25 @@ window.saveCategoryEdit = async function(endpoint, method) {
 
 window.toggleArchiveCategory = async function(id, is_archived) {
     if(!id) return UI.toast('Эту "дикую" статью сначала нужно сохранить', 'info');
-    if(!confirm(is_archived ? 'Отправить категорию в архив?' : 'Разархивировать категорию?')) return;
+    const actionText = is_archived ? 'Отправить категорию в архив' : 'Разархивировать категорию';
+    UI.showModal('Подтверждение изменения статуса', `
+        <div class="mb-10">${actionText}?</div>
+        <div class="form-group m-0">
+            <label>Причина действия (обязательно)</label>
+            <textarea id="archive-category-reason" class="input-modern" rows="3" placeholder="Например: категория не используется"></textarea>
+        </div>
+    `, `
+        <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+        <button class="btn btn-blue" onclick="confirmToggleArchiveCategory(${id}, ${is_archived ? 'true' : 'false'})">Подтвердить</button>
+    `);
+}
+
+window.confirmToggleArchiveCategory = async function(id, is_archived) {
+    const reason = (document.getElementById('archive-category-reason')?.value || '').trim();
+    if(!reason) return UI.toast('Укажите причину изменения статуса', 'warning');
     try {
-        await API.put(`/api/finance/category-full/${id}/archive`, { is_archived });
+        await API.put(`/api/finance/category-full/${id}/archive`, { is_archived, reason });
+        UI.closeModal();
         UI.toast('Статус изменен', 'success');
         loadFinanceDictionary();
     } catch(e) {
@@ -4870,6 +5301,10 @@ window.openCategoryMergeModal = function() {
             </select>
             <small class="text-danger mt-10 d-block">Внимание! Исторические транзакции будут перезаписаны. Дубликаты будут удалены из справочника навсегда.</small>
         </div>
+        <div class="form-group m-0">
+            <label>Причина слияния (обязательно)</label>
+            <textarea id="merge-reason" class="input-modern" rows="3" placeholder="Например: объединение дублей после импорта"></textarea>
+        </div>
     `;
 
     UI.showModal('🖇️ Smart Merge (Умное объединение)', html, `
@@ -4880,12 +5315,14 @@ window.openCategoryMergeModal = function() {
 
 window.executeCategoryMerge = async function(sourceNamesStr) {
     const targetName = document.getElementById('merge-target-name').value;
+    const reason = (document.getElementById('merge-reason')?.value || '').trim();
     const sourceNames = sourceNamesStr.split('|||');
     
     if(!targetName) return UI.toast('Выберите целевую статью', 'error');
+    if(!reason) return UI.toast('Укажите причину слияния', 'warning');
     
     try {
-        await API.post('/api/finance/category-merge', { source_names: sourceNames, target_name: targetName });
+        await API.post('/api/finance/category-merge', { source_names: sourceNames, target_name: targetName, reason });
         UI.toast('Успешное слияние дубликатов!', 'success');
         UI.closeModal();
         loadFinanceDictionary();
@@ -4893,7 +5330,5 @@ window.executeCategoryMerge = async function(sourceNamesStr) {
         UI.toast(e.message || 'Ошибка слияния', 'error');
     }
 }
-
-    
 
     
