@@ -2618,6 +2618,73 @@ function renderBatchCard(data, titleEl, badgesEl, bodyEl) {
     }
     html += '</div>';
 
+    // === Анализ отклонений (Plan vs Fact) — для completed-партий ===
+    if (a.is_closed || b.status === 'completed') {
+        html += '<div class="batch-section-card" id="batch-deviation-section">';
+        html += '<div class="batch-section-title">📊 Анализ отклонений (План vs Факт)</div>';
+        html += '<div id="batch-deviation-body" class="text-muted font-13">⏳ Загрузка...</div>';
+        html += '</div>';
+
+        // Async load
+        setTimeout(async () => {
+            const container = document.getElementById('batch-deviation-body');
+            if (!container) return;
+            try {
+                const dev = await API.get(`/api/production/analytics/batch-deviations/${b.id}`);
+                if (!dev || !dev.materials || dev.materials.length === 0) {
+                    container.innerHTML = '<div class="text-muted">Нет данных для анализа (нет расхода или рецепта)</div>';
+                    return;
+                }
+
+                const fmtN = (v) => Number(v || 0).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                const fmtQ = (v) => Number(v || 0).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+
+                // Summary badges
+                let devHtml = '<div class="batch-analytics-grid" style="margin-bottom:12px">';
+                devHtml += `<div class="batch-analytics-item"><div class="batch-analytics-value">${dev.batch.yield_pct}%</div><div class="batch-analytics-label">Выход 1с</div></div>`;
+                devHtml += `<div class="batch-analytics-item"><div class="batch-analytics-value" style="color:var(--color-warning)">${fmtN(dev.totals.scrap_loss_cost)} ₽</div><div class="batch-analytics-label">Потери (брак)</div></div>`;
+                const unaccColor = dev.totals.unaccounted_loss_cost > 0 ? 'var(--color-danger)' : 'var(--color-success)';
+                devHtml += `<div class="batch-analytics-item"><div class="batch-analytics-value" style="color:${unaccColor}">${fmtN(dev.totals.unaccounted_loss_cost)} ₽</div><div class="batch-analytics-label">Перерасход</div></div>`;
+                devHtml += '</div>';
+
+                // Table
+                devHtml += '<div style="overflow-x:auto"><table class="erp-table" style="font-size:12px;width:100%">';
+                devHtml += '<thead><tr><th>Сырьё</th><th style="text-align:right">Факт</th><th style="text-align:right">План (1с)</th><th style="text-align:right">Брак</th><th style="text-align:right">Перерасход</th></tr></thead><tbody>';
+
+                for (const m of dev.materials) {
+                    const hasLoss = m.unaccounted_loss_cost > 0.01;
+                    const lossStyle = hasLoss ? ' style="color:var(--color-danger);font-weight:600"' : '';
+                    devHtml += '<tr>';
+                    devHtml += `<td>${Utils.escapeHtml(m.name)}<span class="text-muted font-11"> (${m.unit})</span></td>`;
+                    devHtml += `<td style="text-align:right">${fmtQ(m.fact_qty)}<br><span class="text-muted">${fmtN(m.fact_cost)} ₽</span></td>`;
+                    devHtml += `<td style="text-align:right">${fmtQ(m.plan_good_qty)}<br><span class="text-muted">${fmtN(m.plan_good_cost)} ₽</span></td>`;
+                    devHtml += `<td style="text-align:right">${fmtQ(m.scrap_qty)}<br><span class="text-muted">${fmtN(m.scrap_loss_cost)} ₽</span></td>`;
+                    devHtml += `<td style="text-align:right"${lossStyle}>${fmtQ(m.unaccounted_loss_qty)}<br><span${lossStyle}>${fmtN(m.unaccounted_loss_cost)} ₽</span></td>`;
+                    devHtml += '</tr>';
+                }
+
+                // Totals
+                devHtml += '<tr style="font-weight:700;border-top:2px solid var(--border-color)">';
+                devHtml += '<td>ИТОГО</td>';
+                devHtml += `<td style="text-align:right">${fmtN(dev.totals.fact_cost)} ₽</td>`;
+                devHtml += `<td style="text-align:right">${fmtN(dev.totals.plan_good_cost)} ₽</td>`;
+                devHtml += `<td style="text-align:right">${fmtN(dev.totals.scrap_loss_cost)} ₽</td>`;
+                const totalLossStyle = dev.totals.unaccounted_loss_cost > 0.01 ? ' style="text-align:right;color:var(--color-danger)"' : ' style="text-align:right"';
+                devHtml += `<td${totalLossStyle}>${fmtN(dev.totals.unaccounted_loss_cost)} ₽</td>`;
+                devHtml += '</tr></tbody></table></div>';
+
+                if (dev.totals.amortization > 0) {
+                    devHtml += `<div class="text-muted font-12 mt-5">+ Амортизация (станок + форма): ${fmtN(dev.totals.amortization)} ₽</div>`;
+                }
+
+                container.innerHTML = devHtml;
+            } catch (e) {
+                console.error('Ошибка загрузки анализа отклонений:', e);
+                container.innerHTML = '<div class="text-muted">Не удалось загрузить анализ отклонений</div>';
+            }
+        }, 50);
+    }
+
     // === История этапов ===
     html += '<div class="batch-section-card">';
     html += '<div class="batch-section-title">📜 История этапов</div>';

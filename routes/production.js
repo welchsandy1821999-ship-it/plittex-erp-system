@@ -1220,6 +1220,138 @@ module.exports = function (pool, getWhId, withTransaction) {
     });
 
 
+    // ------------------------------------------------------------------
+    // АНАЛИТИКА ОТКЛОНЕНИЙ ПО ПАРТИИ (Plan vs Fact & Scrap Valuation)
+    // ------------------------------------------------------------------
+    router.get('/api/production/analytics/batch-deviations/:batchId', async (req, res) => {
+        const batchId = parseInt(req.params.batchId);
+        if (!Number.isFinite(batchId) || batchId <= 0) return res.status(400).json({ error: 'Неверный ID партии' });
+
+        try {
+            // 1. Основная информация о партии
+            const batchRes = await pool.query(`
+                SELECT pb.id, pb.batch_number, pb.product_id, pb.planned_quantity,
+                       pb.actual_good_qty, pb.mat_cost_total,
+                       pb.machine_amort_cost, pb.mold_amort_cost,
+                       pb.status, i.name as product_name, i.unit as product_unit
+                FROM production_batches pb
+                JOIN items i ON pb.product_id = i.id
+                WHERE pb.id = $1
+            `, [batchId]);
+
+            if (!batchRes.rows.length) return res.status(404).json({ error: 'Партия не найдена' });
+            const batch = batchRes.rows[0];
+            if (!batch.product_id) return res.json({ error: 'Нет product_id', materials: [], totals: {} });
+
+            // 2. Фактический выход по сортам (из inventory_movements)
+            const outputRes = await pool.query(`
+                SELECT
+                    COALESCE(SUM(CASE WHEN movement_type IN ('finished_receipt','reserve_receipt')
+                                      AND quantity > 0 THEN quantity END), 0) AS grade1,
+                    COALESCE(SUM(CASE WHEN movement_type = 'markdown_receipt'
+                                      AND quantity > 0 THEN quantity END), 0) AS grade2,
+                    COALESCE(SUM(CASE WHEN movement_type = 'scrap_receipt'
+                                      AND quantity > 0 THEN quantity END), 0) AS scrap
+                FROM inventory_movements
+                WHERE batch_id = $1
+            `, [batchId]);
+            const output = outputRes.rows[0];
+
+            // 3. Фактический расход сырья (по материалам)
+            const factRes = await pool.query(`
+                SELECT m.item_id, i.name, i.unit,
+                       SUM(ABS(m.quantity)) AS fact_qty,
+                       SUM(ABS(m.quantity) * COALESCE(NULLIF(m.unit_price, 0), i.current_price, 0)) AS fact_cost
+                FROM inventory_movements m
+                JOIN items i ON m.item_id = i.id
+                WHERE m.batch_id = $1 AND m.movement_type = 'production_expense'
+                GROUP BY m.item_id, i.name, i.unit
+            `, [batchId]);
+
+            // 4. Плановый расход (рецепт)
+            const recipeRes = await pool.query(`
+                SELECT r.material_id, i.name, i.unit, i.current_price,
+                       r.quantity_per_unit
+                FROM recipes r
+                JOIN items i ON r.material_id = i.id
+                WHERE r.product_id = $1
+            `, [batch.product_id]);
+
+            // 5. Собираем метрики по каждому материалу
+            const goodQty = Number(batch.actual_good_qty || 0);
+            const scrapTotal = Number(output.scrap || 0);
+            const recipeMap = new Map(recipeRes.rows.map(r => [Number(r.material_id), r]));
+            const factMap = new Map(factRes.rows.map(r => [Number(r.item_id), r]));
+            const allIds = new Set([...recipeMap.keys(), ...factMap.keys()]);
+
+            const materials = [];
+            for (const matId of allIds) {
+                const recipe = recipeMap.get(matId);
+                const fact = factMap.get(matId);
+
+                const factQty = Number(fact?.fact_qty || 0);
+                const factCost = Number(fact?.fact_cost || 0);
+                const unitPrice = factQty > 0 ? factCost / factQty : Number(recipe?.current_price || 0);
+                const qtyPerUnit = Number(recipe?.quantity_per_unit || 0);
+
+                // План = рецепт × фактический годный выход 1 сорта
+                const planGoodQty = qtyPerUnit * goodQty;
+                // Расход на брак = рецепт × количество брака
+                const scrapQty = qtyPerUnit * scrapTotal;
+                // Неучтённые потери = факт - план_на_годные - план_на_брак
+                const unaccountedQty = Math.max(0, factQty - planGoodQty - scrapQty);
+
+                materials.push({
+                    item_id: matId,
+                    name: fact?.name || recipe?.name || `#${matId}`,
+                    unit: fact?.unit || recipe?.unit || 'ед.',
+                    fact_qty: Number(new Big(factQty).round(4)),
+                    plan_good_qty: Number(new Big(planGoodQty).round(4)),
+                    scrap_qty: Number(new Big(scrapQty).round(4)),
+                    unaccounted_loss_qty: Number(new Big(unaccountedQty).round(4)),
+                    unit_price: Number(new Big(unitPrice).round(4)),
+                    fact_cost: Number(new Big(factCost).round(2)),
+                    plan_good_cost: Number(new Big(planGoodQty).times(unitPrice).round(2)),
+                    scrap_loss_cost: Number(new Big(scrapQty).times(unitPrice).round(2)),
+                    unaccounted_loss_cost: Number(new Big(unaccountedQty).times(unitPrice).round(2)),
+                });
+            }
+
+            // 6. Итого
+            const totalFactCost = materials.reduce((s, m) => s + m.fact_cost, 0);
+            const totalPlanCost = materials.reduce((s, m) => s + m.plan_good_cost, 0);
+            const totalScrapLoss = materials.reduce((s, m) => s + m.scrap_loss_cost, 0);
+            const totalUnaccounted = materials.reduce((s, m) => s + m.unaccounted_loss_cost, 0);
+            const plannedQty = Number(batch.planned_quantity || 0);
+
+            res.json({
+                batch: {
+                    id: batch.id,
+                    batch_number: batch.batch_number,
+                    product_name: batch.product_name,
+                    product_unit: batch.product_unit,
+                    planned_quantity: plannedQty,
+                    actual_good_qty: goodQty,
+                    grade2_qty: Number(output.grade2 || 0),
+                    scrap_qty: scrapTotal,
+                    total_output: goodQty + Number(output.grade2 || 0) + scrapTotal,
+                    yield_pct: plannedQty > 0 ? Number(new Big(goodQty).div(plannedQty).times(100).round(1)) : 0,
+                },
+                materials,
+                totals: {
+                    fact_cost: Number(new Big(totalFactCost).round(2)),
+                    plan_good_cost: Number(new Big(totalPlanCost).round(2)),
+                    scrap_loss_cost: Number(new Big(totalScrapLoss).round(2)),
+                    unaccounted_loss_cost: Number(new Big(totalUnaccounted).round(2)),
+                    total_deviation: Number(new Big(totalFactCost - totalPlanCost).round(2)),
+                    amortization: Number(new Big(Number(batch.machine_amort_cost || 0)).plus(Number(batch.mold_amort_cost || 0)).round(2)),
+                }
+            });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
+    });
 
     return router;
 };
