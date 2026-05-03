@@ -438,12 +438,13 @@ module.exports = function (pool, getWhId, withTransaction) {
                         const calcMachineCost = Number(new Big(machineAmort).times(pCycles).round(2));
                         const calcMoldCost = Number(new Big(pMoldAmort).times(pCycles).round(2));
 
+                        const authorId = req.user ? req.user.id : null;
                         const bRes = await client.query(`
                             INSERT INTO production_batches 
                             (batch_number, product_id, planned_quantity, status, cycles_count, shift_name, 
-                             mat_cost_total, overhead_cost_total, machine_amort_cost, mold_amort_cost, production_date)
-                            VALUES ($1, $2, $3, 'draft', $4, $5, 0, 0, $6, $7, $8) RETURNING id
-                        `, [batchNum, p.id, pQty, pCycles, shiftName, calcMachineCost, calcMoldCost, date]);
+                             mat_cost_total, overhead_cost_total, machine_amort_cost, mold_amort_cost, production_date, user_id)
+                            VALUES ($1, $2, $3, 'draft', $4, $5, 0, 0, $6, $7, $8, $9) RETURNING id
+                        `, [batchNum, p.id, pQty, pCycles, shiftName, calcMachineCost, calcMoldCost, date, authorId]);
 
                         const newBatchId = bRes.rows[0].id;
 
@@ -459,9 +460,9 @@ module.exports = function (pool, getWhId, withTransaction) {
 
                                 await client.query(`
                                     INSERT INTO inventory_movements 
-                                    (item_id, quantity, movement_type, description, warehouse_id, batch_id, unit_price, movement_date) 
-                                    VALUES ($1, $2, 'production_draft', $3, $4, $5, $6, $7)
-                                `, [mat.id, new Big(mat.qty).times(-1).toFixed(4), `${mixPrefix}Черновик состава: ${mat.name || 'Сырье'}`, materialsWh, newBatchId, price, date]);
+                                    (item_id, quantity, movement_type, description, warehouse_id, batch_id, unit_price, movement_date, user_id) 
+                                    VALUES ($1, $2, 'production_draft', $3, $4, $5, $6, $7, $8)
+                                `, [mat.id, new Big(mat.qty).times(-1).toFixed(4), `${mixPrefix}Черновик состава: ${mat.name || 'Сырье'}`, materialsWh, newBatchId, price, date, authorId]);
                             }
                         }
                     }
@@ -642,10 +643,11 @@ module.exports = function (pool, getWhId, withTransaction) {
                     const matCost = Number(new Big(matCostRes.rows[0]?.mat_cost || 0).round(2));
 
                     // 8b. Приход продукции на сушилку
+                    const fixateAuthorId = req.user ? req.user.id : null;
                     await client.query(
-                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, movement_date) 
-                         VALUES ($1, $2, 'production_receipt', $3, $4, $5, $6)`,
-                        [batch.product_id, bQty.toFixed(4), `Выпуск: Партия ${batch.batch_number}`, dryingWh, batch.id, date]
+                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, movement_date, user_id) 
+                         VALUES ($1, $2, 'production_receipt', $3, $4, $5, $6, $7)`,
+                        [batch.product_id, bQty.toFixed(4), `Выпуск: Партия ${batch.batch_number}`, dryingWh, batch.id, date, fixateAuthorId]
                     );
 
                     // 8c. Расчёт амортизации (станок + форма)
