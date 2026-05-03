@@ -168,7 +168,7 @@
                 labelField: 'text',
                 searchField: ['text'],
                 maxItems: 1,
-                maxOptions: 500,
+                maxOptions: 50,
                 plugins: ['clear_button'],
                 placeholder: 'Начните вводить название...',
                 score: function (search) {
@@ -313,7 +313,8 @@
                 const addSel = document.getElementById(`add-mat-${prefix}`);
                 if (addSel && !addSel.tomselect) {
                     new TomSelect(addSel, {
-                        plugins: ['clear_button']
+                        plugins: ['clear_button'],
+                        maxOptions: 50
                     });
                 }
             }, 50);
@@ -843,7 +844,8 @@
         setTimeout(() => {
             const tsConfig = {
                 plugins: ['clear_button'],
-                dropdownParent: 'body' // 🚀 КРИТИЧНО для модальных окон!
+                dropdownParent: 'body', // 🚀 КРИТИЧНО для модальных окон!
+                maxOptions: 50
             };
 
             const newTplMat = document.getElementById('new-tpl-mat');

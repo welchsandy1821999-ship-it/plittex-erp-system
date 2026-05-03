@@ -123,6 +123,7 @@ function initStaticPurchaseSelects() {
             labelField: 'text',
             valueField: 'value',
             searchField: ['text'],
+            maxOptions: 50,
             placeholder: "-- Выберите ТМЦ (Сырье или Продукцию) --",
             onChange: async function(value) {
                 const mat = allPurchaseMaterials.find(m => m.id == value);
