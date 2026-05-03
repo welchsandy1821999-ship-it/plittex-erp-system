@@ -55,17 +55,17 @@ async function loadPurchaseMaterials() {
                     if (searchInput && searchInput.value.trim().length > 0) {
                         handlePurchaseSearch(); // Обновляем результаты поиска
                     } else {
-                        const dateStr = document.getElementById('purchase-date').value;
-                        if (typeof loadDailyPurchases === 'function') loadDailyPurchases(dateStr);
+                        const selectedDateStr = document.getElementById('purchase-date').value;
+                        if (typeof loadDailyPurchases === 'function') loadDailyPurchases(selectedDateStr);
                     }
                 },
                 onDayCreate: function (dObj, dStr, fp, dayElem) {
                     const year = dayElem.dateObj.getFullYear();
                     const month = String(dayElem.dateObj.getMonth() + 1).padStart(2, '0');
                     const day = String(dayElem.dateObj.getDate()).padStart(2, '0');
-                    const dateStr = `${year}-${month}-${day}`;
+                    const formattedDate = `${year}-${month}-${day}`;
 
-                    if (window.activePurchaseDates.includes(dateStr)) {
+                    if (window.activePurchaseDates.includes(formattedDate)) {
                         dayElem.classList.add('font-bold');
                         dayElem.classList.add('text-primary');
                         dayElem.innerHTML += '<span class="pur-active-date-dot"></span>';
@@ -577,14 +577,13 @@ window.executeDeletePurchase = async function (id) {
         await API.delete(`/api/inventory/purchase/${id}?reason=${encodeURIComponent(reason)}`);
 
         UI.toast('🗑️ Закупка отменена', 'success');
-            const dateStr = document.getElementById('purchase-date').value;
+            const selectedDateStr = document.getElementById('purchase-date').value;
             // Умное обновление таблицы
             const searchInput = document.getElementById('purchase-search-input');
             if (searchInput && searchInput.value.trim().length > 0) {
                 handlePurchaseSearch(); // Обновляем результаты поиска
             } else {
-                const dateStr = document.getElementById('purchase-date').value;
-                if (typeof loadDailyPurchases === 'function') loadDailyPurchases(dateStr);
+                if (typeof loadDailyPurchases === 'function') loadDailyPurchases(selectedDateStr);
             }
 
             const matSelect = document.getElementById('purchase-material-select');

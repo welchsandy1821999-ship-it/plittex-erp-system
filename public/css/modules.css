@@ -4238,36 +4238,88 @@
 @media print {
     body {
         background: #fff !important;
+        color: #000 !important;
+        font-size: 12px !important;
     }
+    /* Скрываем навигацию, сайдбар, модалки, кнопки действий */
     .sidebar,
     .top-header,
+    .navbar,
+    .modal,
+    .modal-backdrop,
+    .toast-container,
+    .btn,
+    .btn-primary,
+    .btn-secondary,
+    .btn-danger,
+    .btn-action,
     #stock-mod .inv-filter-panel,
     #stock-mod #inventory-search,
     #stock-mod .card-header .btn,
     #stock-mod .inv-actions-cell,
-    #stock-mod .table-container .flex-between {
+    #stock-mod .inv-toolbar,
+    #stock-mod .table-container .flex-between,
+    .inv-toolbar,
+    .inv-toolbar-btn,
+    .filter-panel,
+    .filter-btn,
+    .sales-action-bar,
+    .fab-button,
+    [data-action],
+    [onclick] {
         display: none !important;
     }
+    /* Модуль на всю ширину */
+    .module,
     #stock-mod.module {
         padding: 0 !important;
         margin: 0 !important;
         position: absolute !important;
         top: 0;
         left: 0;
-        width: 100%;
+        width: 100% !important;
+        max-width: 100% !important;
         box-shadow: none !important;
         border: none !important;
     }
+    .main-content {
+        margin-left: 0 !important;
+        padding: 0 !important;
+    }
+    /* Карточки без теней */
+    .card,
     #stock-mod .inv-stock-card {
         box-shadow: none !important;
         border: none !important;
+        background: #fff !important;
     }
-    #stock-mod table,
+    /* Таблица на 100% */
+    .table-modern,
+    #stock-mod table {
+        width: 100% !important;
+        background: #fff !important;
+        color: #000 !important;
+    }
+    .table-modern th,
+    .table-modern td,
     #stock-mod th,
     #stock-mod td {
         border: 1px solid #ccc !important;
+        color: #000 !important;
+        background: #fff !important;
+        padding: 6px 8px !important;
     }
-    #stock-mod * {
+    .table-modern th {
+        font-weight: 700 !important;
+        background: #f0f0f0 !important;
+    }
+    /* Ссылки — чёрным */
+    a {
+        color: #000 !important;
+        text-decoration: none !important;
+    }
+    /* Точная цветопередача */
+    * {
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
     }
