@@ -13,6 +13,7 @@ const {
     reconcileOrderSettlement
 } = require('../utils/orderSettlement');
 const { estimatePalletsFromRecipes } = require('../utils/palletRecipeEstimate');
+const { buildSalesAnalyticsUnitCostData } = require('../utils/salesAnalyticsUnitCost');
 
 const { requireAdmin } = require('../middleware/auth');
 const { validateCheckout, validateReturn, validateShipment, validateTransferReserve, validateOrderStatus } = require('../middleware/validator');
@@ -609,7 +610,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
                     // 🔒 ШАГ 1: Блокируем позицию заказа (Row-Level Lock)
                     const coiRes = await client.query(
-                        `SELECT id, item_id, qty_ordered, COALESCE(qty_shipped, 0) as qty_shipped
+                        `SELECT id, item_id, qty_ordered, COALESCE(qty_shipped, 0) as qty_shipped, unit_cost_snapshot
                          FROM client_order_items WHERE id = $1 FOR UPDATE`,
                         [item.coi_id]
                     );
@@ -675,6 +676,25 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         `UPDATE client_order_items SET qty_shipped = COALESCE(qty_shipped, 0) + $1 WHERE id = $2`,
                         [item.qty, item.coi_id]
                     );
+
+                    // 📸 СЛЕПОК СЕБЕСТОИМОСТИ: фиксируем при первой отгрузке позиции
+                    if (coi.unit_cost_snapshot == null) {
+                        try {
+                            const overheadRes = await client.query(`SELECT value FROM settings WHERE key = 'overhead_per_cycle'`);
+                            const overheadPerCycle = overheadRes.rows.length > 0 ? Number(overheadRes.rows[0].value || 0) : 0;
+                            const { unitCostMap } = await buildSalesAnalyticsUnitCostData(pool, [item.item_id], {
+                                includeOverhead: true,
+                                overheadPerCycle
+                            });
+                            const costInfo = unitCostMap.get(item.item_id) || { unit_cost: 0, source: 'none' };
+                            await client.query(
+                                `UPDATE client_order_items SET unit_cost_snapshot = $1, cost_source = $2 WHERE id = $3`,
+                                [costInfo.unit_cost, costInfo.source, item.coi_id]
+                            );
+                        } catch (snapErr) {
+                            logger.warn(`Не удалось зафиксировать себестоимость для COI #${item.coi_id}: ${snapErr.message}`);
+                        }
+                    }
                 }
 
                 const checkRes = await client.query(`SELECT qty_ordered, COALESCE(qty_shipped, 0) as qty_shipped FROM client_order_items WHERE order_id = $1`, [orderId]);
@@ -1033,19 +1053,58 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
         const orderId = req.params.id;
         const { status } = req.body;
         try {
-            const checkRes = await pool.query('SELECT is_locked FROM client_orders WHERE id = $1', [orderId]);
-            if (checkRes.rows.length === 0) return res.status(404).json({ error: 'Заказ не найден' });
-            if (checkRes.rows[0].is_locked === true) {
-                return res.status(403).json({ success: false, error: 'Заказ защищен режимом "Нотариус" (опечатан). Изменение статуса запрещено.' });
-            }
+            await withTransaction(pool, async (client) => {
+                const checkRes = await client.query('SELECT is_locked, status AS current_status FROM client_orders WHERE id = $1 FOR UPDATE', [orderId]);
+                if (checkRes.rows.length === 0) throw new Error('Заказ не найден');
+                if (checkRes.rows[0].is_locked === true) {
+                    throw new Error('Заказ защищен режимом "Нотариус" (опечатан). Изменение статуса запрещено.');
+                }
 
-            await pool.query(`UPDATE client_orders SET status = $1 WHERE id = $2`, [status, orderId]);
+                // ── Высвобождение резервов при отмене ──
+                if (status === 'cancelled') {
+                    // 1. Получаем все ID позиций заказа
+                    const coiRes = await client.query(
+                        'SELECT id FROM client_order_items WHERE order_id = $1',
+                        [orderId]
+                    );
+                    const coiIds = coiRes.rows.map(r => r.id);
+
+                    if (coiIds.length > 0) {
+                        // 2. Удаляем физические движения резерва по надёжной FK-связи
+                        await client.query(
+                            `DELETE FROM inventory_movements
+                             WHERE linked_order_item_id = ANY($1::int[])
+                               AND movement_type IN ('reserve_expense', 'reserve_receipt')`,
+                            [coiIds]
+                        );
+
+                        // 3. Обнуляем счётчики резерва и планового производства
+                        await client.query(
+                            `UPDATE client_order_items
+                             SET qty_reserved = 0, qty_production = 0
+                             WHERE order_id = $1`,
+                            [orderId]
+                        );
+
+                        // 4. Удаляем плановое производство
+                        await client.query(
+                            `DELETE FROM planned_production
+                             WHERE order_item_id = ANY($1::int[])`,
+                            [coiIds]
+                        );
+                    }
+                }
+
+                await client.query('UPDATE client_orders SET status = $1 WHERE id = $2', [status, orderId]);
+            });
+
             const io = req.app.get('io');
             if (io) { io.emit('inventory_updated'); io.emit('sales_updated'); }
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
-            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+            const code = err.message.includes('Нотариус') ? 403 : (err.message.includes('не найден') ? 404 : 500);
+            res.status(code).json({ error: err.message || 'Внутренняя ошибка сервера.' });
         }
     });
 

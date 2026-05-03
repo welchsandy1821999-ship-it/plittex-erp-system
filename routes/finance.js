@@ -3182,14 +3182,20 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     router.get('/api/analytics/profitability', async (req, res) => {
         try {
             const result = await pool.query(`
-                SELECT 
+                SELECT
                     o.doc_number,
                     c.name as client_name,
                     o.created_at,
                     o.total_amount as order_total,
-                    COALESCE(SUM(ABS(m.quantity) * coi.price), 0) as revenue,
+                    -- Выручка: цена продажи × кол-во отгруженного
+                    COALESCE(SUM(ABS(m.quantity) * COALESCE(coi.price, 0)), 0) as revenue,
+                    -- Полная себестоимость: слепок (unit_cost_snapshot) → fallback на recipe_cost
                     COALESCE(SUM(
-                        ABS(m.quantity) * COALESCE(recipe_data.recipe_cost, 0)
+                        ABS(m.quantity) * COALESCE(
+                            coi.unit_cost_snapshot,
+                            recipe_data.recipe_cost,
+                            0
+                        )
                     ), 0) as material_cost
                 FROM client_orders o
                 JOIN counterparties c ON o.counterparty_id = c.id
@@ -3199,7 +3205,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     SELECT SUM(r.quantity_per_unit * ri_i.current_price) as recipe_cost
                     FROM recipes r
                     JOIN items ri_i ON ri_i.id = r.material_id
-                    WHERE r.product_id = (SELECT item_id FROM client_order_items WHERE id = m.linked_order_item_id)
+                    WHERE r.product_id = coi.item_id
                 ) recipe_data ON true
                 WHERE o.status = 'completed'
                 GROUP BY o.id, o.doc_number, o.total_amount, c.name, o.created_at

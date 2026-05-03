@@ -1608,7 +1608,18 @@ async function buildSalesAnalytics(pool, period, filters = {}, accountingMode = 
             ROUND(COALESCE(SUM(CASE WHEN m.movement_type = 'sales_shipment' THEN ABS(m.quantity) ELSE 0 END), 0)::numeric, 4) AS shipped_qty,
             ROUND(COALESCE(SUM(CASE WHEN m.movement_type = 'shipment_reversal' THEN ABS(m.quantity) ELSE 0 END), 0)::numeric, 4) AS reversed_qty,
             ROUND(COALESCE(SUM(CASE WHEN m.movement_type = 'sales_shipment' THEN ABS(m.quantity) * COALESCE(coi.price, 0) ELSE 0 END), 0)::numeric, 2) AS shipped_revenue,
-            ROUND(COALESCE(SUM(CASE WHEN m.movement_type = 'shipment_reversal' THEN ABS(m.quantity) * COALESCE(coi.price, 0) ELSE 0 END), 0)::numeric, 2) AS reversed_revenue
+            ROUND(COALESCE(SUM(CASE WHEN m.movement_type = 'shipment_reversal' THEN ABS(m.quantity) * COALESCE(coi.price, 0) ELSE 0 END), 0)::numeric, 2) AS reversed_revenue,
+            -- COGS из исторических слепков (средневзвешенная себестоимость)
+            CASE WHEN SUM(CASE WHEN m.movement_type = 'sales_shipment' THEN ABS(m.quantity) ELSE 0 END) > 0
+                 THEN ROUND(
+                     SUM(CASE WHEN m.movement_type = 'sales_shipment'
+                              THEN ABS(m.quantity) * COALESCE(coi.unit_cost_snapshot, 0) ELSE 0 END)
+                     / NULLIF(SUM(CASE WHEN m.movement_type = 'sales_shipment' THEN ABS(m.quantity) ELSE 0 END), 0)
+                 , 4) ELSE 0 END AS unit_cost_snapshot_avg,
+            -- Проверяем, есть ли позиции без слепка
+            BOOL_OR(coi.unit_cost_snapshot IS NULL AND m.movement_type = 'sales_shipment') AS has_missing_snapshot,
+            -- Источник себестоимости (самый частый)
+            MODE() WITHIN GROUP (ORDER BY COALESCE(coi.cost_source, 'none')) FILTER (WHERE m.movement_type = 'sales_shipment') AS snapshot_cost_source
         FROM inventory_movements m
         JOIN items i ON i.id = m.item_id
         JOIN warehouses w ON w.id = m.warehouse_id
@@ -1633,15 +1644,22 @@ async function buildSalesAnalytics(pool, period, filters = {}, accountingMode = 
             sold_qty: Number(soldQty.toFixed(4)),
             shipped_revenue: shippedRevenue,
             reversed_revenue: reversedRevenue,
-            revenue_gross: Number(revenueGross.toFixed(2))
+            revenue_gross: Number(revenueGross.toFixed(2)),
+            unit_cost_snapshot_avg: Number(r.unit_cost_snapshot_avg || 0),
+            has_missing_snapshot: Boolean(r.has_missing_snapshot),
+            snapshot_cost_source: String(r.snapshot_cost_source || 'none')
         };
     });
 
-    const itemIdsForCosts = productRows.map((r) => Number(r.item_id || 0)).filter((x) => x > 0);
-    const unitCostInfoMap = await buildSalesAnalyticsUnitCostMap(pool, itemIdsForCosts, {
-        includeOverhead,
-        overheadPerCycle: overheadRate
-    });
+    // Fallback: для позиций без слепка — динамический пересчёт (только для них)
+    const itemsWithoutSnapshot = productRows.filter((r) => r.has_missing_snapshot).map((r) => r.item_id);
+    let fallbackCostMap = new Map();
+    if (itemsWithoutSnapshot.length > 0) {
+        fallbackCostMap = await buildSalesAnalyticsUnitCostMap(pool, itemsWithoutSnapshot, {
+            includeOverhead,
+            overheadPerCycle: overheadRate
+        });
+    }
 
     const stockParams = [period.toTs];
     let stockExtra = '';
@@ -1723,9 +1741,14 @@ async function buildSalesAnalytics(pool, period, filters = {}, accountingMode = 
 
     const productBase = productRows
         .map((r) => {
-            const unitCostInfo = unitCostInfoMap.get(Number(r.item_id || 0)) || { unit_cost: 0, source: 'none' };
-            const unitCost = Number(unitCostInfo.unit_cost || 0);
-            const costSource = String(unitCostInfo.source || 'none');
+            // Приоритет: слепок из БД → fallback динамический пересчёт
+            let unitCost = Number(r.unit_cost_snapshot_avg || 0);
+            let costSource = String(r.snapshot_cost_source || 'none');
+            if (r.has_missing_snapshot && unitCost === 0) {
+                const fb = fallbackCostMap.get(Number(r.item_id || 0)) || { unit_cost: 0, source: 'none' };
+                unitCost = Number(fb.unit_cost || 0);
+                costSource = String(fb.source || 'none');
+            }
             const cogsBase = Number((Number(r.sold_qty || 0) * unitCost).toFixed(2));
             const taxAmount = includeTaxes ? Number((Number(r.revenue_gross || 0) * (taxRate / 100)).toFixed(2)) : 0;
             const revenueNet = Number((Number(r.revenue_gross || 0) - taxAmount).toFixed(2));
