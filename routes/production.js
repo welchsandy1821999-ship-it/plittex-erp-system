@@ -571,9 +571,32 @@ module.exports = function (pool, getWhId, withTransaction) {
                     }
                 }
 
-                // 4. Сбор цен на сырьё
+                // 4. Сбор WAC-цен на сырьё (средневзвешенная по закупкам за 180 дней)
                 const matIds = cleanMaterials.map(m => m.id);
-                const itemPricesRes = await client.query(`SELECT id, current_price FROM items WHERE id = ANY($1::int[])`, [matIds.length > 0 ? matIds : [0]]);
+                const itemPricesRes = await client.query(`
+                    SELECT 
+                        i.id,
+                        COALESCE(
+                            NULLIF(
+                                ROUND(
+                                    SUM(CASE WHEN m.movement_type = 'purchase' AND m.quantity > 0
+                                                  AND COALESCE(m.movement_date, m.created_at) >= NOW() - INTERVAL '180 days'
+                                             THEN COALESCE(m.amount, m.quantity * COALESCE(m.unit_price, 0))
+                                        END)
+                                    / NULLIF(
+                                        SUM(CASE WHEN m.movement_type = 'purchase' AND m.quantity > 0
+                                                      AND COALESCE(m.movement_date, m.created_at) >= NOW() - INTERVAL '180 days'
+                                                 THEN m.quantity
+                                            END), 0)::numeric
+                                , 4),
+                            0),
+                            i.current_price
+                        ) AS current_price
+                    FROM items i
+                    LEFT JOIN inventory_movements m ON m.item_id = i.id AND m.movement_type = 'purchase'
+                    WHERE i.id = ANY($1::int[])
+                    GROUP BY i.id, i.current_price
+                `, [matIds.length > 0 ? matIds : [0]]);
                 const itemPrices = itemPricesRes.rows;
 
                 // 5. Получаем информацию о формах для каждого изделия (включая амортизацию!)
