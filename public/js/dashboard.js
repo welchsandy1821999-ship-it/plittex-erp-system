@@ -470,6 +470,7 @@ window.applyDashPeriod = function (field, value) {
 
     renderDashPeriodUI();
     loadCostConstructor();
+    if (typeof loadDeviationsWidget === 'function') loadDeviationsWidget();
 };
 
 window.renderDrilldown = function () {
@@ -1276,5 +1277,90 @@ window.loadDashboardWidgets = async function () {
         }
     } catch (e) {
         console.error('Ошибка загрузки виджетов', e);
+    }
+
+    // --- Виджет производственных потерь ---
+    loadDeviationsWidget();
+};
+
+window.loadDeviationsWidget = async function () {
+    const totalEl = document.getElementById('dash-deviations-total');
+    const contentEl = document.getElementById('dash-deviations-content');
+    if (!contentEl) return;
+
+    // Используем даты из глобального фильтра дашборда
+    let startDate = '', endDate = '';
+    if (dashPeriodType === 'day') {
+        startDate = dashSpecificDate; endDate = dashSpecificDate;
+    } else if (dashPeriodType === 'week') {
+        const now = new Date();
+        const dow = now.getDay() || 7;
+        const mon = new Date(now); mon.setDate(now.getDate() - dow + 1);
+        startDate = mon.toISOString().split('T')[0]; endDate = now.toISOString().split('T')[0];
+    } else if (dashPeriodType === 'year') {
+        startDate = `${dashYear}-01-01`; endDate = `${dashYear}-12-31`;
+    } else if (dashPeriodType === 'quarter') {
+        const sm = (dashPeriodValue - 1) * 3 + 1;
+        startDate = `${dashYear}-${String(sm).padStart(2,'0')}-01`;
+        const ed = new Date(dashYear, sm + 2, 0).getDate();
+        endDate = `${dashYear}-${String(sm + 2).padStart(2,'0')}-${ed}`;
+    } else if (dashPeriodType === 'month') {
+        startDate = `${dashYear}-${String(dashPeriodValue).padStart(2,'0')}-01`;
+        const ed = new Date(dashYear, dashPeriodValue, 0).getDate();
+        endDate = `${dashYear}-${String(dashPeriodValue).padStart(2,'0')}-${ed}`;
+    } else {
+        startDate = '2020-01-01'; endDate = '2099-12-31';
+    }
+
+    try {
+        const data = await API.get(`/api/production/analytics/deviations-summary?startDate=${startDate}&endDate=${endDate}`);
+        if (!data || !data.summary) {
+            contentEl.innerHTML = '<div class="p-10 text-muted">Нет данных</div>';
+            return;
+        }
+
+        const s = data.summary;
+        const totalLoss = s.total_scrap_loss + s.total_unaccounted_loss;
+        if (totalEl) totalEl.innerText = fmtRub(totalLoss) + ' ₽';
+
+        let html = '';
+
+        // Summary badges
+        html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:10px 15px">';
+        html += `<div class="text-center"><div class="font-20 font-bold" style="color:var(--success)">${s.avg_yield_pct}%</div><div class="font-11 text-muted">Ср. выход 1с</div></div>`;
+        html += `<div class="text-center"><div class="font-20 font-bold" style="color:var(--warning)">${fmtRub(s.total_scrap_loss)} ₽</div><div class="font-11 text-muted">Брак</div></div>`;
+        const unaccColor = s.total_unaccounted_loss > 0 ? 'var(--danger)' : 'var(--success)';
+        html += `<div class="text-center"><div class="font-20 font-bold" style="color:${unaccColor}">${fmtRub(s.total_unaccounted_loss)} ₽</div><div class="font-11 text-muted">Перерасход</div></div>`;
+        html += '</div>';
+
+        // Table — top 10 worst batches by unaccounted_loss_cost
+        const worst = [...data.batches].sort((a, b) => b.unaccounted_loss_cost - a.unaccounted_loss_cost).slice(0, 10);
+
+        if (worst.length > 0) {
+            html += '<div style="padding:0 15px 15px;overflow-x:auto"><table class="erp-table" style="font-size:12px;width:100%">';
+            html += '<thead><tr><th>Партия</th><th>Продукт</th><th style="text-align:right">Выход</th><th style="text-align:right">Брак ₽</th><th style="text-align:right">Перерасход ₽</th></tr></thead><tbody>';
+            for (const b of worst) {
+                const yieldColor = b.yield_pct >= 90 ? 'var(--success)' : b.yield_pct >= 75 ? 'var(--warning)' : 'var(--danger)';
+                const lossStyle = b.unaccounted_loss_cost > 0.01 ? 'color:var(--danger);font-weight:600' : '';
+                html += `<tr class="cursor-pointer" onclick="if(typeof openBatchCard==='function')openBatchCard(${b.id})">`;
+                html += `<td>${Utils.escapeHtml(b.batch_number)}<br><span class="text-muted font-11">${b.production_date || ''}</span></td>`;
+                html += `<td>${Utils.escapeHtml(b.product_name)}</td>`;
+                html += `<td style="text-align:right;color:${yieldColor};font-weight:600">${b.yield_pct}%</td>`;
+                html += `<td style="text-align:right">${fmtRub(b.scrap_loss_cost)}</td>`;
+                html += `<td style="text-align:right;${lossStyle}">${fmtRub(b.unaccounted_loss_cost)}</td>`;
+                html += '</tr>';
+            }
+            html += '</tbody></table></div>';
+            if (data.batches.length > 10) {
+                html += `<div class="text-center text-muted font-12 p-10">Показаны топ-10 из ${data.batches.length} партий</div>`;
+            }
+        } else {
+            html += '<div class="p-15 text-center" style="color:var(--success);font-weight:bold">✅ Нет завершённых партий за период</div>';
+        }
+
+        contentEl.innerHTML = html;
+    } catch (e) {
+        console.error('Ошибка загрузки виджета потерь:', e);
+        contentEl.innerHTML = '<div class="p-10 text-muted">Ошибка загрузки</div>';
     }
 };

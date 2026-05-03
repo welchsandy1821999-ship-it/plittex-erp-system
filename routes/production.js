@@ -1353,5 +1353,122 @@ module.exports = function (pool, getWhId, withTransaction) {
         }
     });
 
+    // ------------------------------------------------------------------
+    // ГЛОБАЛЬНАЯ СВОДКА ПОТЕРЬ ЗА ПЕРИОД
+    // ------------------------------------------------------------------
+    router.get('/api/production/analytics/deviations-summary', async (req, res) => {
+        try {
+            const now = new Date();
+            const startDate = req.query.startDate || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+            const endDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+            const endDate = req.query.endDate || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${endDay}`;
+
+            const result = await pool.query(`
+                WITH batch_output AS (
+                    SELECT m.batch_id,
+                        COALESCE(SUM(CASE WHEN movement_type IN ('finished_receipt','reserve_receipt')
+                                          AND quantity > 0 THEN quantity END), 0) AS grade1,
+                        COALESCE(SUM(CASE WHEN movement_type = 'markdown_receipt'
+                                          AND quantity > 0 THEN quantity END), 0) AS grade2,
+                        COALESCE(SUM(CASE WHEN movement_type = 'scrap_receipt'
+                                          AND quantity > 0 THEN quantity END), 0) AS scrap
+                    FROM inventory_movements m
+                    WHERE m.batch_id IS NOT NULL
+                    GROUP BY m.batch_id
+                ),
+                batch_costs AS (
+                    SELECT m.batch_id,
+                           SUM(ABS(m.quantity) * COALESCE(NULLIF(m.unit_price, 0), i.current_price, 0)) AS fact_cost
+                    FROM inventory_movements m
+                    JOIN items i ON m.item_id = i.id
+                    WHERE m.movement_type = 'production_expense' AND m.batch_id IS NOT NULL
+                    GROUP BY m.batch_id
+                )
+                SELECT pb.id, pb.batch_number, pb.product_id, i.name AS product_name,
+                    pb.planned_quantity,
+                    COALESCE(pb.actual_good_qty, 0) AS actual_good_qty,
+                    COALESCE(bo.grade2, 0) AS grade2_qty,
+                    COALESCE(bo.scrap, 0) AS scrap_qty,
+                    COALESCE(bc.fact_cost, 0) AS fact_cost,
+                    COALESCE(pb.machine_amort_cost, 0) + COALESCE(pb.mold_amort_cost, 0) AS amort_cost,
+                    CASE WHEN pb.planned_quantity > 0
+                         THEN ROUND(COALESCE(pb.actual_good_qty, 0)::numeric / pb.planned_quantity * 100, 1)
+                         ELSE 0 END AS yield_pct,
+                    to_char(pb.production_date, 'YYYY-MM-DD') AS production_date
+                FROM production_batches pb
+                JOIN items i ON pb.product_id = i.id
+                LEFT JOIN batch_output bo ON bo.batch_id = pb.id
+                LEFT JOIN batch_costs bc ON bc.batch_id = pb.id
+                WHERE pb.status = 'completed'
+                  AND pb.production_date BETWEEN $1 AND $2
+                ORDER BY pb.production_date DESC, pb.id DESC
+            `, [startDate, endDate]);
+
+            const batches = result.rows;
+            let totalFactCost = 0, totalYieldSum = 0, yieldCount = 0;
+
+            for (const b of batches) {
+                b.fact_cost = Number(b.fact_cost || 0);
+                b.amort_cost = Number(b.amort_cost || 0);
+                b.yield_pct = Number(b.yield_pct || 0);
+                b.actual_good_qty = Number(b.actual_good_qty || 0);
+                b.scrap_qty = Number(b.scrap_qty || 0);
+                b.planned_quantity = Number(b.planned_quantity || 0);
+                totalFactCost += b.fact_cost;
+                if (b.planned_quantity > 0) { totalYieldSum += b.yield_pct; yieldCount++; }
+            }
+
+            // Per-batch deviation needs recipes — compute unaccounted for each
+            const productIds = [...new Set(batches.map(b => b.product_id))];
+            let recipeMap = new Map();
+            if (productIds.length > 0) {
+                const recipeRes = await pool.query(`
+                    SELECT product_id, SUM(quantity_per_unit * COALESCE(i.current_price, 0)) AS recipe_cost_per_unit
+                    FROM recipes r JOIN items i ON r.material_id = i.id
+                    WHERE r.product_id = ANY($1::int[])
+                    GROUP BY product_id
+                `, [productIds]);
+                for (const r of recipeRes.rows) recipeMap.set(Number(r.product_id), Number(r.recipe_cost_per_unit || 0));
+            }
+
+            let totalScrapLoss = 0, totalUnaccounted = 0;
+            for (const b of batches) {
+                const recipeCostPerUnit = recipeMap.get(b.product_id) || 0;
+                b.plan_good_cost = Number(new Big(recipeCostPerUnit).times(b.actual_good_qty).round(2));
+                b.scrap_loss_cost = Number(new Big(recipeCostPerUnit).times(b.scrap_qty).round(2));
+                b.unaccounted_loss_cost = Number(new Big(Math.max(0, b.fact_cost - b.plan_good_cost - b.scrap_loss_cost)).round(2));
+                totalScrapLoss += b.scrap_loss_cost;
+                totalUnaccounted += b.unaccounted_loss_cost;
+            }
+
+            res.json({
+                period: { startDate, endDate },
+                summary: {
+                    batch_count: batches.length,
+                    avg_yield_pct: yieldCount > 0 ? Number(new Big(totalYieldSum / yieldCount).round(1)) : 0,
+                    total_fact_cost: Number(new Big(totalFactCost).round(2)),
+                    total_scrap_loss: Number(new Big(totalScrapLoss).round(2)),
+                    total_unaccounted_loss: Number(new Big(totalUnaccounted).round(2)),
+                },
+                batches: batches.map(b => ({
+                    id: b.id,
+                    batch_number: b.batch_number,
+                    product_name: b.product_name,
+                    production_date: b.production_date,
+                    planned_quantity: b.planned_quantity,
+                    actual_good_qty: b.actual_good_qty,
+                    yield_pct: b.yield_pct,
+                    scrap_qty: b.scrap_qty,
+                    fact_cost: b.fact_cost,
+                    scrap_loss_cost: b.scrap_loss_cost,
+                    unaccounted_loss_cost: b.unaccounted_loss_cost,
+                }))
+            });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Ошибка расчёта сводки потерь' });
+        }
+    });
+
     return router;
 };
