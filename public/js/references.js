@@ -82,7 +82,10 @@
                 ${item.article || '<span class="text-border font-normal">—</span>'}
             </td>
             
-            <td><b class="text-main">${item.name}</b></td> 
+            <td>
+                <b class="text-main">${item.name}</b>
+                ${item.item_type === 'product' ? `<span class="inv-reserve-badge-slot" data-ref-item-id="${item.id}"></span>` : ''}
+            </td> 
             <td class="text-muted">${item.unit || ''}</td>
             
             <td class="text-right font-bold">${parseFloat(item.current_price).toLocaleString()} ₽</td>
@@ -97,6 +100,25 @@
             </td>
         </tr>
     `).join('');
+
+        // Асинхронно подгружаем бейджи резервов для продукции
+        const productItems = items.filter(i => i.item_type === 'product');
+        if (productItems.length > 0) {
+            setTimeout(() => populateRefReserveBadges(productItems), 50);
+        }
+    }
+
+    async function populateRefReserveBadges(productItems) {
+        for (const item of productItems) {
+            const slot = document.querySelector(`.inv-reserve-badge-slot[data-ref-item-id="${item.id}"]`);
+            if (!slot) continue;
+            try {
+                const data = await API.get(`/api/inventory/reserves-detail/${item.id}`);
+                if (data && data.totalReserved > 0.0001) {
+                    slot.innerHTML = `<span class="inv-reserve-badge" onclick="openReserveDetailModal(${item.id})" title="Нажмите для детализации резервов">🔒 ${data.totalReserved.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} в резерве</span>`;
+                }
+            } catch (_) { /* тихо пропускаем */ }
+        }
     }
 
     // === УПРАВЛЕНИЕ ФОРМОЙ И МАТРИЦАМИ ===

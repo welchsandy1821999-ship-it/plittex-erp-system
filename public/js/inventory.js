@@ -776,6 +776,11 @@ function renderInventoryTable() {
                 <td class="inv-actions-cell">${actionHtml}</td>
             </tr>`;
         } else {
+            // Бейдж резерва для склада ГП (warehouse_id === 4)
+            const itemReserveQty = Number(reservedByItem[String(item.item_id)] || 0);
+            const reserveBadgeHtml = (String(item.warehouse_id) === '4' && itemReserveQty > 0.0001)
+                ? `<span class="inv-reserve-badge" onclick="openReserveDetailModal(${item.item_id})" title="Нажмите для детализации резервов">🔒 ${itemReserveQty.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} в резерве</span>`
+                : '';
             tbody.innerHTML += `
             <tr>
                 <td><span class="badge inv-wh-badge">${Utils.escapeHtml(item.warehouse_name)}</span></td>
@@ -784,6 +789,7 @@ function renderInventoryTable() {
                     <a href="javascript:void(0)" onclick="openItemHistory(${item.item_id}, ${item.warehouse_id === 'all' ? 'null' : item.warehouse_id})" class="text-primary text-decoration-none">
                         <strong>${Utils.escapeHtml(item.item_name)}</strong>
                     </a>
+                    ${reserveBadgeHtml}
                 </td>
                 ${qtyHtml}
                 <td class="inv-unit-cell">${item.unit}</td>
@@ -2717,3 +2723,68 @@ try {
     inventoryDensity = 'compact';
 }
 applyInventoryDensity();
+
+// === МОДАЛКА ДЕТАЛИЗАЦИИ РЕЗЕРВОВ ===
+window.openReserveDetailModal = async function (itemId) {
+    try {
+        const data = await API.get(`/api/inventory/reserves-detail/${itemId}`);
+        if (!data || !Array.isArray(data.orders)) {
+            return UI.toast('Не удалось загрузить данные резервов', 'error');
+        }
+
+        const statusLabels = {
+            'pending': '⏳ Ожидает',
+            'processing': '🔄 В работе',
+            'completed': '✅ Завершён',
+            'cancelled': '❌ Отменён'
+        };
+
+        const rows = data.orders.map(o => `
+            <tr class="inv-reserve-detail-row">
+                <td><a href="javascript:void(0)" class="text-primary" onclick="UI.closeModal(); if(typeof openInventoryOrder==='function') openInventoryOrder(${o.orderId})">${Utils.escapeHtml(o.docNumber)}</a></td>
+                <td>${Utils.escapeHtml(o.clientName)}</td>
+                <td><span class="badge inv-order-badge">${statusLabels[o.status] || o.status}</span></td>
+                <td class="text-right font-bold">${o.qtyReserved.toLocaleString('ru-RU', {maximumFractionDigits: 2})}</td>
+                <td class="text-right">${o.qtyOrdered.toLocaleString('ru-RU', {maximumFractionDigits: 2})}</td>
+                <td class="text-right">${o.qtyShipped.toLocaleString('ru-RU', {maximumFractionDigits: 2})}</td>
+                <td class="text-right">${o.remaining.toLocaleString('ru-RU', {maximumFractionDigits: 2})}</td>
+            </tr>
+        `).join('');
+
+        const html = `
+            <div class="inv-reserve-detail-summary">
+                <div class="inv-reserve-detail-metric">
+                    <span class="inv-reserve-detail-label">Склад ГП (свободно)</span>
+                    <span class="inv-reserve-detail-value">${data.totalFreeStock.toLocaleString('ru-RU', {maximumFractionDigits: 2})} ${Utils.escapeHtml(data.itemUnit || '')}</span>
+                </div>
+                <div class="inv-reserve-detail-metric">
+                    <span class="inv-reserve-detail-label">Итого в резерве</span>
+                    <span class="inv-reserve-detail-value inv-reserve-detail-value--reserved">${data.totalReserved.toLocaleString('ru-RU', {maximumFractionDigits: 2})} ${Utils.escapeHtml(data.itemUnit || '')}</span>
+                </div>
+                <div class="inv-reserve-detail-metric">
+                    <span class="inv-reserve-detail-label">Заказов с резервом</span>
+                    <span class="inv-reserve-detail-value">${data.orders.length}</span>
+                </div>
+            </div>
+            <table class="inv-reserve-detail-table">
+                <thead>
+                    <tr>
+                        <th>Заказ</th>
+                        <th>Клиент</th>
+                        <th>Статус</th>
+                        <th class="text-right">Резерв</th>
+                        <th class="text-right">Заказано</th>
+                        <th class="text-right">Отгружено</th>
+                        <th class="text-right">Осталось</th>
+                    </tr>
+                </thead>
+                <tbody>${rows || '<tr><td colspan="7" class="text-center text-muted">Нет активных резервов</td></tr>'}</tbody>
+            </table>
+        `;
+
+        UI.showModal(`🔒 Резервы: ${Utils.escapeHtml(data.itemName)}`, html, `<button class="btn btn-outline" onclick="UI.closeModal()">Закрыть</button>`);
+    } catch (e) {
+        console.error('Reserve detail error:', e);
+        UI.toast('Ошибка загрузки детализации резервов', 'error');
+    }
+};

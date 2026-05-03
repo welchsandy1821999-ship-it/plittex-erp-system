@@ -2249,6 +2249,84 @@ module.exports = function (pool, getWhId, withTransaction) {
     });
 
     // ------------------------------------------------------------------
+    // 7.5 ДЕТАЛИЗАЦИЯ РЕЗЕРВОВ ПО ТОВАРУ (Read-only)
+    // ------------------------------------------------------------------
+    router.get('/api/inventory/reserves-detail/:itemId', requireAdmin, async (req, res) => {
+        const itemId = parseInt(req.params.itemId);
+        if (!Number.isFinite(itemId) || itemId <= 0) {
+            return res.status(400).json({ error: 'Некорректный ID товара' });
+        }
+
+        try {
+            // Название товара
+            const itemRes = await pool.query('SELECT name, unit FROM items WHERE id = $1', [itemId]);
+            const itemName = itemRes.rows.length > 0 ? itemRes.rows[0].name : `Товар #${itemId}`;
+            const itemUnit = itemRes.rows.length > 0 ? itemRes.rows[0].unit : '';
+
+            // Заказы с резервами
+            const ordersRes = await pool.query(`
+                SELECT 
+                    coi.id AS coi_id,
+                    co.doc_number,
+                    co.id AS order_id,
+                    co.status AS order_status,
+                    co.created_at AS order_date,
+                    COALESCE(c.name, 'Не указан') AS client_name,
+                    COALESCE(coi.qty_ordered, 0) AS qty_ordered,
+                    COALESCE(coi.qty_shipped, 0) AS qty_shipped,
+                    COALESCE(coi.qty_reserved, 0) AS qty_reserved,
+                    COALESCE(coi.qty_production, 0) AS qty_production
+                FROM client_order_items coi
+                JOIN client_orders co ON coi.order_id = co.id
+                LEFT JOIN counterparties c ON co.counterparty_id = c.id
+                WHERE coi.item_id = $1
+                  AND co.status IN ('pending', 'processing')
+                  AND coi.qty_reserved > 0
+                ORDER BY co.created_at ASC
+            `, [itemId]);
+
+            // Общий резерв и свободный остаток на складе ГП
+            const finishedWhRes = await pool.query("SELECT id FROM warehouses WHERE type = 'finished' LIMIT 1");
+            const finishedWhId = finishedWhRes.rows.length > 0 ? finishedWhRes.rows[0].id : null;
+
+            let totalFreeStock = 0;
+            if (finishedWhId) {
+                const stockRes = await pool.query(
+                    'SELECT COALESCE(SUM(quantity), 0) AS q FROM inventory_movements WHERE item_id = $1 AND warehouse_id = $2',
+                    [itemId, finishedWhId]
+                );
+                totalFreeStock = parseFloat(stockRes.rows[0].q) || 0;
+            }
+
+            const totalReserved = ordersRes.rows.reduce((sum, r) => sum + parseFloat(r.qty_reserved), 0);
+
+            res.json({
+                itemId,
+                itemName,
+                itemUnit,
+                totalReserved: Number(totalReserved.toFixed(2)),
+                totalFreeStock: Number(totalFreeStock.toFixed(2)),
+                orders: ordersRes.rows.map(r => ({
+                    coiId: r.coi_id,
+                    orderId: r.order_id,
+                    docNumber: r.doc_number || `#${r.order_id}`,
+                    clientName: r.client_name,
+                    status: r.order_status,
+                    orderDate: r.order_date,
+                    qtyOrdered: Number(parseFloat(r.qty_ordered).toFixed(2)),
+                    qtyShipped: Number(parseFloat(r.qty_shipped).toFixed(2)),
+                    qtyReserved: Number(parseFloat(r.qty_reserved).toFixed(2)),
+                    qtyProduction: Number(parseFloat(r.qty_production).toFixed(2)),
+                    remaining: Number(Math.max(parseFloat(r.qty_ordered) - parseFloat(r.qty_shipped), 0).toFixed(2))
+                }))
+            });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Ошибка при получении детализации резервов' });
+        }
+    });
+
+    // ------------------------------------------------------------------
     // 8. УПРАВЛЕНИЕ РЕЗЕРВАМИ: Снятие / Переброска
     // ------------------------------------------------------------------
     router.post('/api/inventory/reserve-action', requireAdmin, validateReserveAction, async (req, res) => {
