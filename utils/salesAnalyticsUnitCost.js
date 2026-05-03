@@ -90,8 +90,10 @@ async function buildSalesAnalyticsUnitCostData(pool, itemIds = [], options = {})
 
     const histRes = await pool.query(
         `
-        SELECT id, product_id, COALESCE(planned_quantity, 0) AS planned_quantity,
-               ((COALESCE(machine_amort_cost, 0) + COALESCE(mold_amort_cost, 0)) / NULLIF(COALESCE(planned_quantity, 0), 0)) AS unit_amort
+        SELECT id, product_id,
+               COALESCE(NULLIF(actual_good_qty, 0), planned_quantity, 0) AS effective_qty,
+               ((COALESCE(machine_amort_cost, 0) + COALESCE(mold_amort_cost, 0))
+                / NULLIF(COALESCE(NULLIF(actual_good_qty, 0), planned_quantity, 0), 0)) AS unit_amort
         FROM (
             SELECT pb.*,
                    ROW_NUMBER() OVER (
@@ -106,7 +108,7 @@ async function buildSalesAnalyticsUnitCostData(pool, itemIds = [], options = {})
     `,
         [effectiveIds]
     );
-    /** @type {Map<number, { id: number, planned_quantity: number, unit_amort: number }[]>} */
+    /** @type {Map<number, { id: number, effective_qty: number, unit_amort: number }[]>} */
     const batchesByProduct = new Map();
     /** @type {Map<number, number>} */
     const batchIdToProduct = new Map();
@@ -115,7 +117,7 @@ async function buildSalesAnalyticsUnitCostData(pool, itemIds = [], options = {})
         if (!batchesByProduct.has(pid)) batchesByProduct.set(pid, []);
         const obj = {
             id: Number(b.id || 0),
-            planned_quantity: Number(b.planned_quantity || 0),
+            effective_qty: Number(b.effective_qty || 0),
             unit_amort: Number(b.unit_amort || 0)
         };
         batchesByProduct.get(pid).push(obj);
@@ -211,7 +213,7 @@ async function buildSalesAnalyticsUnitCostData(pool, itemIds = [], options = {})
         const palletAmort = palletCycles > 0 ? palletCost / (palletCycles * qtyPerCycle) : 0;
 
         if (batches.length) {
-            const totalProduced = batches.reduce((s, b) => s + Number(b.planned_quantity || 0), 0);
+            const totalProduced = batches.reduce((s, b) => s + Number(b.effective_qty || 0), 0);
             amort =
                 palletAmort + (batches.reduce((s, b) => s + Number(b.unit_amort || 0), 0) / batches.length || 0);
             if (totalProduced > 0) {
