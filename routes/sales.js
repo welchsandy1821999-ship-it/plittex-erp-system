@@ -1203,6 +1203,11 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 const currentItemsRes = await client.query('SELECT * FROM client_order_items WHERE order_id = $1', [orderId]);
                 const currentItems = currentItemsRes.rows;
 
+                // Получаем ID складов один раз для всех операций
+                const finishedWhId = await getWhId(client, 'finished');
+                const reserveWhId = await getWhId(client, 'reserve');
+                const docNumber = order.doc_number || `#${orderId}`;
+
                 // 2. Обрабатываем присланные товары (обновление / добавление)
                 let calculatedTotal = 0;
                 
@@ -1227,31 +1232,62 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         
                         // Если кол-во изменилось, пересчитываем резервы
                         if (newQty !== oldQty) {
-                            let newReserved = parseFloat(existingRow.qty_reserved || 0);
+                            const oldReserved = parseFloat(existingRow.qty_reserved || 0);
+                            let newReserved = oldReserved;
                             
                             if (newQty < oldQty) {
                                 // Уменьшаем заказ -> Срезаем резерв, если он превышает остаток, нужный для отгрузки
-                                // Доступный для резервирования остаток = qty_ordered - qty_shipped
                                 const remainingToShip = newQty - shipped;
                                 if (newReserved > remainingToShip) {
-                                    newReserved = remainingToShip;
+                                    newReserved = Math.max(remainingToShip, 0);
                                 }
                             } else {
-                                // Увеличиваем заказ -> Пытаемся захватить со склада
+                                // Увеличиваем заказ -> Пытаемся захватить со склада готовой продукции
                                 const delta = newQty - oldQty;
                                 const stockRes = await client.query(`
-                                    SELECT COALESCE(SUM(quantity),0) as q FROM inventory_movements WHERE item_id = $1
-                                    `, [itemId]);
+                                    SELECT COALESCE(SUM(quantity),0) as q 
+                                    FROM inventory_movements 
+                                    WHERE item_id = $1 AND warehouse_id = $2
+                                `, [itemId, finishedWhId]);
                                 const physicalQty = parseFloat(stockRes.rows[0].q);
                                 
                                 const totalReservedRes = await client.query(`
                                     SELECT COALESCE(SUM(qty_reserved),0) as r FROM client_order_items WHERE item_id = $1
                                     `, [itemId]);
-                                const otherReserved = parseFloat(totalReservedRes.rows[0].r) - parseFloat(existingRow.qty_reserved);
+                                const otherReserved = parseFloat(totalReservedRes.rows[0].r) - oldReserved;
                                 
                                 const freeStock = Math.max(0, physicalQty - otherReserved);
                                 const extraReserve = Math.min(delta, freeStock);
                                 newReserved += extraReserve;
+                            }
+                            
+                            // ── Синхронизация физических движений резерва ──
+                            const deltaReserved = newReserved - oldReserved;
+                            if (deltaReserved > 0.0001) {
+                                // Увеличиваем резерв: списываем со склада ГП → приход на склад резерва
+                                await client.query(
+                                    `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id)
+                                     VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6)`,
+                                    [itemId, -deltaReserved, `Корректировка резерва (ред.): ${docNumber}`, finishedWhId, req.user.id || null, existingRow.id]
+                                );
+                                await client.query(
+                                    `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id)
+                                     VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6)`,
+                                    [itemId, deltaReserved, `Корректировка резерва (ред.): ${docNumber}`, reserveWhId, req.user.id || null, existingRow.id]
+                                );
+                            } else if (deltaReserved < -0.0001) {
+                                // Уменьшаем резерв: возвращаем со склада резерва → приход на склад ГП
+                                const absDelta = Math.abs(deltaReserved);
+                                await client.query(
+                                    `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id)
+                                     VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6)`,
+                                    [itemId, -absDelta, `Возврат резерва (ред.): ${docNumber}`, reserveWhId, req.user.id || null, existingRow.id]
+                                );
+                                await client.query(
+                                    `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id)
+                                     VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6)`,
+                                    [itemId, absDelta, `Возврат резерва (ред.): ${docNumber}`, finishedWhId, req.user.id || null, existingRow.id]
+                                );
                             }
                             
                             await client.query(`
@@ -1266,8 +1302,10 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     } else {
                         // Это НОВЫЙ товар в заказе
                         const stockRes = await client.query(`
-                            SELECT COALESCE(SUM(quantity),0) as q FROM inventory_movements WHERE item_id = $1
-                            `, [itemId]);
+                            SELECT COALESCE(SUM(quantity),0) as q 
+                            FROM inventory_movements 
+                            WHERE item_id = $1 AND warehouse_id = $2
+                        `, [itemId, finishedWhId]);
                         const physicalQty = parseFloat(stockRes.rows[0].q);
                         
                         const totalReservedRes = await client.query(`
@@ -1278,10 +1316,25 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         const freeStock = Math.max(0, physicalQty - totalReserved);
                         const reserve = Math.min(newQty, freeStock);
                         
-                        await client.query(`
+                        const newCoiRes = await client.query(`
                             INSERT INTO client_order_items (order_id, item_id, qty_ordered, qty_reserved, qty_production, price, qty_shipped)
-                            VALUES ($1, $2, $3, $4, 0, $5, 0)
+                            VALUES ($1, $2, $3, $4, 0, $5, 0) RETURNING id
                         `, [orderId, itemId, newQty, reserve, price]);
+                        
+                        // Создаём физические движения резерва для новой позиции
+                        if (reserve > 0.0001) {
+                            const newCoiId = newCoiRes.rows[0].id;
+                            await client.query(
+                                `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id)
+                                 VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6)`,
+                                [itemId, -reserve, `Заказ (Резерв): ${docNumber}`, finishedWhId, req.user.id || null, newCoiId]
+                            );
+                            await client.query(
+                                `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id)
+                                 VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6)`,
+                                [itemId, reserve, `Заказ (Резерв): ${docNumber}`, reserveWhId, req.user.id || null, newCoiId]
+                            );
+                        }
                     }
                 }
                 
@@ -1291,6 +1344,14 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     if (!newIds.includes(parseInt(oldRow.item_id))) {
                         const shipped = parseFloat(oldRow.qty_shipped || 0);
                         if (shipped > 0) throw new Error('Нельзя удалить из заказа товар, по которому уже была отгрузка.');
+                        
+                        // Удаляем физические движения резерва этой позиции
+                        await client.query(
+                            `DELETE FROM inventory_movements
+                             WHERE linked_order_item_id = $1
+                               AND movement_type IN ('reserve_expense', 'reserve_receipt')`,
+                            [oldRow.id]
+                        );
                         
                         await client.query('DELETE FROM client_order_items WHERE id = $1', [oldRow.id]);
                     }
