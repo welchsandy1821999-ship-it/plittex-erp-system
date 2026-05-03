@@ -131,15 +131,15 @@ function groupRecipeDataByLayerAndReindexOrders() {
 async function loadRecipeModuleData() {
     try {
         // Грузим продукцию для левого списка
-        const prodData = await API.get('/api/items?item_type=product&limit=500');
-        allRecipeProducts = Array.isArray(prodData.data) ? prodData.data : [];
+        const prodData = await window.loadItemsCached('product');
+        allRecipeProducts = Array.isArray(prodData) ? prodData : (Array.isArray(prodData.data) ? prodData.data : []);
         const prodSelect = document.getElementById('recipe-product-select');
         prodSelect.innerHTML = '<option value="" disabled selected>-- Выберите продукцию --</option>';
         allRecipeProducts.forEach(p => prodSelect.add(new Option(p.name, p.id)));
 
         // Грузим сырье для правого списка (добавление компонентов)
-        const matData = await API.get('/api/items?item_type=material&limit=500');
-        allMaterialsList = matData.data;
+        const matData = await window.loadItemsCached('material');
+        allMaterialsList = Array.isArray(matData) ? matData : (matData.data || []);
         auditComputePigmentIds();
 
         const matSelect = document.getElementById('recipe-material-select');
@@ -3486,8 +3486,8 @@ function bomCompareSyncLayersHuman(lyPayload) {
 async function bomCompareEnsureMaterialsLoaded() {
     if (Array.isArray(allMaterialsList) && allMaterialsList.length) return;
     try {
-        const matData = await API.get('/api/items?item_type=material&limit=500');
-        allMaterialsList = matData.data || [];
+        const matData = await window.loadItemsCached('material');
+        allMaterialsList = Array.isArray(matData) ? matData : (matData.data || []);
         auditComputePigmentIds();
     } catch (e) {
         console.error(e);

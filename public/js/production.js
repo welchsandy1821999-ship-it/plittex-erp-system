@@ -65,8 +65,8 @@
             }
 
             // 2. ЗАГРУЖАЕМ СЫРЬЕ
-            const matData = await API.get('/api/items?item_type=material&limit=500');
-            allMaterialsForMix = matData.data || [];
+            const matData = await window.loadItemsCached('material');
+            allMaterialsForMix = Array.isArray(matData) ? matData : (matData.data || []);
 
             // 3. ЗАГРУЖАЕМ ШАБЛОНЫ
             const dbTemplates = await API.get('/api/mix-templates');

@@ -33,8 +33,8 @@ function setPurchasePriceValue(value, sourceKey, extra = '') {
 
 async function loadPurchaseMaterials() {
     try {
-        const dataMat = await API.get('/api/items?limit=2000');
-        allPurchaseMaterials = dataMat.data || [];
+        const dataMat = await window.loadItemsCached();
+        allPurchaseMaterials = Array.isArray(dataMat) ? dataMat : (dataMat.data || []);
 
         allCounterparties = await API.get('/api/counterparties');
 

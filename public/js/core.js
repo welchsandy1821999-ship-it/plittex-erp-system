@@ -263,6 +263,10 @@ window.getPrintToken = getPrintToken;
 
     // --- Склад ---
     socket.on('inventory_updated', () => {
+        // Инвалидируем кэш номенклатуры при изменениях на складе
+        window._itemsCacheAll = null;
+        window._itemsCacheProducts = null;
+        window._itemsCacheMaterials = null;
         debouncedRefresh('inventory', () => {
             if (typeof loadTable === 'function') loadTable();
             if (typeof loadDryingHistory === 'function' && document.getElementById('drying-history-block') && !document.getElementById('drying-history-block').classList.contains('d-none')) {
@@ -297,8 +301,69 @@ window.getPrintToken = getPrintToken;
         });
     });
 
+    // --- Документы ---
+    socket.on('docs_updated', () => {
+        debouncedRefresh('docs', () => {
+            if (typeof loadDocsRegistry === 'function') loadDocsRegistry();
+        });
+    });
+
+    // --- Оборудование ---
+    socket.on('equipment_updated', () => {
+        debouncedRefresh('equipment', () => {
+            if (typeof loadEquipment === 'function') loadEquipment();
+        });
+    });
+
     socket.on('connect', () => { });
     socket.on('disconnect', () => { });
 
     window._erpSocket = socket;
 })();
+
+// =========================================================
+// [Глобальный кэш номенклатуры]
+// =========================================================
+window._itemsCacheAll = null;
+window._itemsCacheProducts = null;
+window._itemsCacheMaterials = null;
+window._itemsCachePromise = {};
+
+/**
+ * Загружает список номенклатуры с кэшированием.
+ * @param {string} [filter] - 'product', 'material' или '' (все)
+ * @returns {Promise<Array>} массив товаров
+ */
+window.loadItemsCached = function (filter) {
+    const key = filter || 'all';
+    const cacheMap = { all: '_itemsCacheAll', product: '_itemsCacheProducts', material: '_itemsCacheMaterials' };
+    const cacheKey = cacheMap[key] || '_itemsCacheAll';
+
+    // Отдаём из кэша
+    if (window[cacheKey]) return Promise.resolve(window[cacheKey]);
+
+    // Защита от параллельных запросов
+    if (window._itemsCachePromise[key]) return window._itemsCachePromise[key];
+
+    const typeParam = filter ? `&item_type=${filter}` : '';
+    window._itemsCachePromise[key] = API.get(`/api/items?limit=2000${typeParam}`)
+        .then(data => {
+            const items = Array.isArray(data) ? data : (Array.isArray(data.data) ? data.data : []);
+            window[cacheKey] = items;
+            delete window._itemsCachePromise[key];
+            return items;
+        })
+        .catch(err => {
+            delete window._itemsCachePromise[key];
+            throw err;
+        });
+
+    return window._itemsCachePromise[key];
+};
+
+/** Сброс кэша (при сохранении новой позиции и т.д.) */
+window.invalidateItemsCache = function () {
+    window._itemsCacheAll = null;
+    window._itemsCacheProducts = null;
+    window._itemsCacheMaterials = null;
+};
