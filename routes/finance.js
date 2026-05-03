@@ -1088,12 +1088,14 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                        t.counterparty_id, t.account_id, 
                        t.cost_group_override, /* 👈 Добавили ручное исключение */
                        ${getEffectiveCostGroupSql('t', 'tc', 'tc_override', 'opex')} as current_cost_group,
-                       c.name as counterparty_name, a.name as account_name
+                       c.name as counterparty_name, a.name as account_name,
+                       u_author.full_name as author_name
                 FROM transactions t
                 LEFT JOIN counterparties c ON t.counterparty_id = c.id
                 LEFT JOIN accounts a ON t.account_id = a.id
                 LEFT JOIN transaction_categories tc ON t.category = tc.name /* 👈 Джойним матрицу категорий */
                 LEFT JOIN transaction_categories tc_override ON t.category_override = tc_override.name
+                LEFT JOIN users u_author ON t.user_id = u_author.id
                 ${whereClause} 
                 ORDER BY t.transaction_date DESC, t.id DESC 
                 LIMIT $${paramIndex} OFFSET $${paramIndex + 1}

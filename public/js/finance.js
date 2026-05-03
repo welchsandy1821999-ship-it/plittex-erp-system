@@ -777,6 +777,7 @@
                 <span class="tx-account-label" style="color: ${t.account_name ? 'var(--primary)' : 'var(--text-muted)'}">
                     ${t.account_name ? `🏦 ${Utils.escapeHtml(t.account_name)}` : '⚖️ Без движения денег (Корректировка)'}
                 </span>
+                ${t.author_name ? `<div class="font-11 text-muted" style="margin-top:2px;">👤 ${Utils.escapeHtml(t.author_name)}</div>` : ''}
             </td>
             <td class="font-13">${t.payment_method}</td>
             <td class="text-right font-bold font-15 tx-amount-cell" style="color: ${isIncome ? 'var(--success)' : 'var(--text-main)'}">${isIncome ? '+' : '-'}${Utils.formatMoney(t.amount)}</td>

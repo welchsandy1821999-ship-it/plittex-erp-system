@@ -1528,7 +1528,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     -- Свободный аванс (CTE)
                     GREATEST(0, ABS(LEAST(0, (COALESCE(cpc.total, 0) + COALESCE(cpe.total, 0) - COALESCE(cpp.total, 0) - COALESCE(cpi.total, 0)))) - COALESCE(cpa.total, 0)) as free_advance,
                     -- Прогноз
-                    COALESCE(cpd.total, 0) * -1 as projected_balance
+                    COALESCE(cpd.total, 0) * -1 as projected_balance,
+                    u_author.full_name as author_name
                 FROM client_orders o
                 LEFT JOIN counterparties c ON o.counterparty_id = c.id
                 LEFT JOIN order_items_agg oia ON oia.order_id = o.id
@@ -1538,6 +1539,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 LEFT JOIN cp_purchases cpp ON cpp.counterparty_id = o.counterparty_id
                 LEFT JOIN cp_pending_allocated cpa ON cpa.counterparty_id = o.counterparty_id
                 LEFT JOIN cp_pending_debt cpd ON cpd.counterparty_id = c.id
+                LEFT JOIN users u_author ON o.user_id = u_author.id
                 WHERE o.status IN ('pending', 'processing')
             `;
             const params = [];

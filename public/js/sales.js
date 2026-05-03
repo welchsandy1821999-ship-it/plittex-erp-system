@@ -2042,6 +2042,7 @@ function renderBlankOrdersTable() {
             <td class="valign-top">
                 <span class="sales-order-client entity-link" onclick="window.app.openEntity('client', ${o.counterparty_id})">${Utils.escapeHtml(o.client_name || 'Неизвестный клиент')}</span><br>
                 <span class="sales-order-address">📍 ${Utils.escapeHtml(o.delivery_address || 'Самовывоз')}</span><br>
+                ${o.author_name ? `<span class="font-11 text-muted">👤 ${Utils.escapeHtml(o.author_name)}</span><br>` : ''}
                 ${clientBalanceBadge}
                 ${projHtml}
             </td>

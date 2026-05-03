@@ -988,7 +988,7 @@
 
                 return `
             <tr id="row-${b.id}" class="${isDraft ? 'prod-row-draft' : ''}">
-                <td class="w-15" onclick="toggleBatchDetails(${b.id})"><strong>${Utils.escapeHtml(b.batch_number)}</strong>${draftBadge}</td>
+                <td class="w-15" onclick="toggleBatchDetails(${b.id})"><strong>${Utils.escapeHtml(b.batch_number)}</strong>${draftBadge}${b.author_name ? `<div class="font-11 text-muted">👤 ${Utils.escapeHtml(b.author_name)}</div>` : ''}</td>
                 <td class="w-30p" onclick="toggleBatchDetails(${b.id})">${Utils.escapeHtml(b.product_name)}</td>
                 <td class="w-13p text-right" onclick="toggleBatchDetails(${b.id})">${volume.toFixed(2)}</td>
                 <td class="w-15p text-right" onclick="toggleBatchDetails(${b.id})">${costDisplay}</td>

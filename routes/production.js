@@ -213,9 +213,11 @@ module.exports = function (pool, getWhId, withTransaction) {
                 b.product_id,
                 p.name as product_name,
                 b.mat_cost_total,
-                b.status
+                b.status,
+                u.full_name as author_name
             FROM production_batches b
             JOIN items p ON b.product_id = p.id
+            LEFT JOIN users u ON b.user_id = u.id
             WHERE b.production_date = $1 AND b.status != 'deleted'
             ORDER BY b.created_at DESC
         `, [date]);
