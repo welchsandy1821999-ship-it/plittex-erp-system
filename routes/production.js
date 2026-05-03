@@ -627,15 +627,20 @@ module.exports = function (pool, getWhId, withTransaction) {
                         [batch.product_id, bQty.toFixed(4), `Выпуск: Партия ${batch.batch_number}`, dryingWh, batch.id, date]
                     );
 
-                    // 7d. ОБНОВЛЯЕМ ПАРТИЮ (Только мат. затраты, накладные теперь в глобальном дашборде)
+                    // 7c. Расчёт амортизации (станок + форма) — аналогично черновику
+                    const pInfo = prodInfoRes.rows.find(info => info.id == batch.product_id);
+                    const pMoldAmort = Number(new Big(pInfo?.mold_amort || pInfo?.manual_amort || 0).round(4));
+                    const calcMachineCost = Number(new Big(machineAmortRate).times(bCycles).round(2));
+                    const calcMoldCost = Number(new Big(pMoldAmort).times(bCycles).round(2));
+
+                    // 7d. ОБНОВЛЯЕМ ПАРТИЮ (мат. затраты + амортизация; overhead считается динамически в аналитике)
                     await client.query(`
                         UPDATE production_batches 
                         SET mat_cost_total = $1, overhead_cost_total = 0, 
-                            machine_amort_cost = 0, mold_amort_cost = 0 
+                            machine_amort_cost = $3, mold_amort_cost = $4 
                         WHERE id = $2
-                    `, [matCost.toFixed(2), batch.id]);
+                    `, [matCost.toFixed(2), batch.id, calcMachineCost, calcMoldCost]);
 
-                    const pInfo = prodInfoRes.rows.find(info => info.id == batch.product_id);
                     if (pInfo?.mold_id && bCycles > 0) {
                         await client.query(
                             `UPDATE equipment SET current_cycles = COALESCE(current_cycles, 0) + $1 WHERE id = $2`,
