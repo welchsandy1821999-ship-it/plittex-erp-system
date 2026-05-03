@@ -343,13 +343,14 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
                 const finalOrderDate = order_date ? new Date(order_date).toISOString() : new Date().toISOString();
 
+                const orderAuthorId = req.user ? req.user.id : null;
                 const orderRes = await client.query(`
                     INSERT INTO client_orders (
                         counterparty_id, doc_number, status, total_amount, paid_amount, pending_debt,
                         payment_method, account_id, discount, planned_shipment_date, delivery_address, 
-                        logistics_cost, pallets_qty, driver_name, auto_number, contract_info, contract_id, specification_id, created_at
-                    ) VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id
-                `, [counterparty_id, docNum, finalAmount, advanceAmt, pendingDebt, payment_method, account_id || null, discount, planned_shipment_date || null, delivery_address, logistics_cost, pallets_qty, driver, auto, contract_info, contract_id || null, specId, finalOrderDate]);
+                        logistics_cost, pallets_qty, driver_name, auto_number, contract_info, contract_id, specification_id, created_at, user_id
+                    ) VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id
+                `, [counterparty_id, docNum, finalAmount, advanceAmt, pendingDebt, payment_method, account_id || null, discount, planned_shipment_date || null, delivery_address, logistics_cost, pallets_qty, driver, auto, contract_info, contract_id || null, specId, finalOrderDate, orderAuthorId]);
 
                 const orderId = orderRes.rows[0].id;
                 const reserveWhId = await getWhId(client, 'reserve');

@@ -295,11 +295,12 @@ module.exports = function (pool, withTransaction) {
                 const counterparty_id = cpRes.rows.length > 0 ? cpRes.rows[0].id : null;
 
                 // 2. Списываем из кассы (только если сумма > 0)
+                const hrAuthorId = req.user ? req.user.id : null;
                 if (payAmount.gt(0)) {
                     const transRes = await client.query(
                         `
-                        INSERT INTO transactions (account_id, counterparty_id, amount, transaction_type, category, description, payment_method, source_module, transaction_date) 
-                        VALUES ($1, $2, $3, 'expense', $4, $5, $6, 'salary', $7) RETURNING id
+                        INSERT INTO transactions (account_id, counterparty_id, amount, transaction_type, category, description, payment_method, source_module, transaction_date, user_id) 
+                        VALUES ($1, $2, $3, 'expense', $4, $5, $6, 'salary', $7, $8) RETURNING id
                     `,
                         [
                             account_id,
@@ -308,7 +309,8 @@ module.exports = function (pool, withTransaction) {
                             HR_SALARY_EXPENSE_CATEGORY,
                             `Выплата сотруднику: ${description}`,
                             paymentMethod,
-                            date + ' 12:00:00'
+                            date + ' 12:00:00',
+                            hrAuthorId
                         ]
                     );
                     linkedTransactionId = transRes.rows[0].id;
@@ -320,17 +322,17 @@ module.exports = function (pool, withTransaction) {
                     const empName = empRes.rows[0]?.full_name || 'Сотрудник';
 
                     await client.query(`
-                        INSERT INTO transactions (account_id, amount, transaction_type, category, description, payment_method, source_module, transaction_date)
-                        VALUES ((SELECT id FROM accounts WHERE employee_id = $1 AND type = 'imprest'), $2, 'expense', 'Удержание из ЗП', 'Автоматическое погашение подотчета', 'Взаимозачет', 'salary', $3)
-                    `, [employee_id, deductionAmount.toFixed(2), date + ' 12:01:00']);
+                        INSERT INTO transactions (account_id, amount, transaction_type, category, description, payment_method, source_module, transaction_date, user_id)
+                        VALUES ((SELECT id FROM accounts WHERE employee_id = $1 AND type = 'imprest'), $2, 'expense', 'Удержание из ЗП', 'Автоматическое погашение подотчета', 'Взаимозачет', 'salary', $3, $4)
+                    `, [employee_id, deductionAmount.toFixed(2), date + ' 12:01:00', hrAuthorId]);
                 }
 
                 // 4. Записываем факт выплаты в зарплатную таблицу (полная сумма: руки + удержание)
                 const totalCleared = payAmount.plus(deductionAmount).toFixed(2);
                 await client.query(`
-                    INSERT INTO salary_payments (employee_id, amount, payment_date, description, account_id, linked_transaction_id) 
-                    VALUES ($1, $2, $3, $4, $5, $6)
-                `, [employee_id, totalCleared, date, description, account_id, linkedTransactionId]);
+                    INSERT INTO salary_payments (employee_id, amount, payment_date, description, account_id, linked_transaction_id, user_id) 
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                `, [employee_id, totalCleared, date, description, account_id, linkedTransactionId, hrAuthorId]);
             });
 
             res.json({ success: true });
@@ -456,20 +458,21 @@ module.exports = function (pool, withTransaction) {
 
                         // 1. Начисление ЗП
                         if (b.accrued && parseFloat(b.accrued) > 0) {
+                            const closeAuthorId = req.user ? req.user.id : null;
                             await client.query(`
                                 INSERT INTO transactions 
-                                (amount, transaction_type, category, description, counterparty_id, account_id, payment_method, transaction_date)
-                                VALUES ($1, 'income', 'Начисление ЗП', $2, $3, NULL, 'Взаимозачет', (date_trunc('month', $4::date) + interval '1 month' - interval '1 second')::timestamp)
-                            `, [b.accrued, 'Начислено за период: ' + monthStr, cpId, `${monthStr}-01`]);
+                                (amount, transaction_type, category, description, counterparty_id, account_id, payment_method, transaction_date, user_id)
+                                VALUES ($1, 'income', 'Начисление ЗП', $2, $3, NULL, 'Взаимозачет', (date_trunc('month', $4::date) + interval '1 month' - interval '1 second')::timestamp, $5)
+                            `, [b.accrued, 'Начислено за период: ' + monthStr, cpId, `${monthStr}-01`, closeAuthorId]);
                         }
 
                         // 2. Удержание Налога
                         if (b.tax && parseFloat(b.tax) > 0) {
                             await client.query(`
                                 INSERT INTO transactions 
-                                (amount, transaction_type, category, description, counterparty_id, account_id, payment_method, transaction_date)
-                                VALUES ($1, 'expense', 'Удержание из ЗП', $2, $3, NULL, 'Взаимозачет', (date_trunc('month', $4::date) + interval '1 month' - interval '1 second')::timestamp)
-                            `, [parseFloat(b.tax).toFixed(2), 'Удержан налог за период: ' + monthStr, cpId, `${monthStr}-01`]);
+                                (amount, transaction_type, category, description, counterparty_id, account_id, payment_method, transaction_date, user_id)
+                                VALUES ($1, 'expense', 'Удержание из ЗП', $2, $3, NULL, 'Взаимозачет', (date_trunc('month', $4::date) + interval '1 month' - interval '1 second')::timestamp, $5)
+                            `, [parseFloat(b.tax).toFixed(2), 'Удержан налог за период: ' + monthStr, cpId, `${monthStr}-01`, closeAuthorId]);
                         }
 
                         // 3. Корректировки (adjSum)
@@ -480,9 +483,9 @@ module.exports = function (pool, withTransaction) {
 
                             await client.query(`
                                 INSERT INTO transactions 
-                                (amount, transaction_type, category, description, counterparty_id, account_id, payment_method, transaction_date)
-                                VALUES ($1, $2, $3, $4, $5, NULL, 'Взаимозачет', (date_trunc('month', $6::date) + interval '1 month' - interval '1 second')::timestamp)
-                            `, [Math.abs(adj).toFixed(2), tType, tCat, 'Доп. корректировки за период: ' + monthStr, cpId, `${monthStr}-01`]);
+                                (amount, transaction_type, category, description, counterparty_id, account_id, payment_method, transaction_date, user_id)
+                                VALUES ($1, $2, $3, $4, $5, NULL, 'Взаимозачет', (date_trunc('month', $6::date) + interval '1 month' - interval '1 second')::timestamp, $7)
+                            `, [Math.abs(adj).toFixed(2), tType, tCat, 'Доп. корректировки за период: ' + monthStr, cpId, `${monthStr}-01`, closeAuthorId]);
                         }
                     }
                 }

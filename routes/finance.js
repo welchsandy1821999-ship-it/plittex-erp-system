@@ -923,11 +923,12 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         const cat = String(category).trim();
 
         try {
+            const finAuthorId = req.user ? req.user.id : null;
             const ins = await pool.query(
-                `INSERT INTO planned_expenses (date, amount, amount_paid, category, description, is_recurring, status)
-                 VALUES ($1::date, $2, 0, $3, $4, $5, 'pending')
+                `INSERT INTO planned_expenses (date, amount, amount_paid, category, description, is_recurring, status, user_id)
+                 VALUES ($1::date, $2, 0, $3, $4, $5, 'pending', $6)
                  RETURNING id`,
-                [date, amt, cat, desc, rec]
+                [date, amt, cat, desc, rec, finAuthorId]
             );
             const io = req.app.get('io');
             if (io) io.emit('finance_updated');
@@ -2151,13 +2152,14 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     if (transferOverride) await ensureCategoryExists(client, transferOverride, 'expense', 'capital', null);
                     if (technicalOverride) await ensureCategoryExists(client, technicalOverride, 'expense', 'capital', null);
                     // 🚀 2. СТАНДАРТНАЯ ЗАПИСЬ: ДОБАВИЛИ cost_group_override В INSERT
+                    const txAuthorId = req.user ? req.user.id : null;
                     const insRes = await client.query(
                         `
-                        INSERT INTO transactions (amount, transaction_type, category, category_override, description, vat_amount, payment_method, account_id, counterparty_id, transaction_date, cost_group_override)
-                        VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8, $9, $10)
+                        INSERT INTO transactions (amount, transaction_type, category, category_override, description, vat_amount, payment_method, account_id, counterparty_id, transaction_date, cost_group_override, user_id)
+                        VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8, $9, $10, $11)
                         RETURNING *
                     `,
-                        [amount, type, category, transferOverride || technicalOverride, description, method, account_id, counterparty_id || null, finalDate, cost_group_override || null]
+                        [amount, type, category, transferOverride || technicalOverride, description, method, account_id, counterparty_id || null, finalDate, cost_group_override || null, txAuthorId]
                     );
                     const newRow = insRes.rows[0];
                     if (newRow) {
