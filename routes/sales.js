@@ -1130,12 +1130,46 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     throw new Error('Заказ защищен режимом Нотариус.');
                 }
 
-                // 1. Снимаем все незаконченные резервы
-                await client.query(`
-                    UPDATE client_order_items 
-                    SET qty_reserved = 0, qty_production = 0 
-                    WHERE order_id = $1
-                `, [orderId]);
+                // 1. Высвобождаем зависшие резервы с созданием компенсирующих движений
+                const finishedWhId = await getWhId(client, 'finished');
+                const reserveWhId = await getWhId(client, 'reserve');
+                const docNumber = order.doc_number || `#${orderId}`;
+
+                const reservedItems = await client.query(
+                    'SELECT id, item_id, qty_reserved FROM client_order_items WHERE order_id = $1 AND qty_reserved > 0',
+                    [orderId]
+                );
+
+                for (const coi of reservedItems.rows) {
+                    const qty = parseFloat(coi.qty_reserved);
+                    if (qty <= 0.0001) continue;
+                    // Возвращаем со склада резерва → склад ГП
+                    await client.query(
+                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id)
+                         VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6)`,
+                        [coi.item_id, -qty, `Возврат резерва (force-close): ${docNumber}`, reserveWhId, req.user.id || null, coi.id]
+                    );
+                    await client.query(
+                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id)
+                         VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6)`,
+                        [coi.item_id, qty, `Возврат резерва (force-close): ${docNumber}`, finishedWhId, req.user.id || null, coi.id]
+                    );
+                }
+
+                // Удаляем плановое производство
+                const coiIds = reservedItems.rows.map(r => r.id);
+                if (coiIds.length > 0) {
+                    await client.query(
+                        'DELETE FROM planned_production WHERE order_item_id = ANY($1::int[])',
+                        [coiIds]
+                    );
+                }
+
+                // Обнуляем счётчики
+                await client.query(
+                    'UPDATE client_order_items SET qty_reserved = 0, qty_production = 0 WHERE order_id = $1',
+                    [orderId]
+                );
 
                 // 2. НЕ обнуляем и не удаляем позиции:
                 // принудительное закрытие фиксирует текущую редакцию заказа, а не только отгруженный хвост.
