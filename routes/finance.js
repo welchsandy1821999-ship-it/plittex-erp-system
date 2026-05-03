@@ -1047,7 +1047,8 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
         try {
             let conditions = [
-                "COALESCE(t.is_deleted, false) = false"
+                "COALESCE(t.is_deleted, false) = false",
+                "t.account_id IS NOT NULL" /* 👈 ДДС: только реальные кассовые движения */
             ];
             let params = [];
             let paramIndex = 1;
@@ -1938,11 +1939,13 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 SELECT 
                     SUM(CASE 
                         WHEN transaction_type = 'income' 
-                         AND category NOT IN ('Техническая проводка', 'Ввод начальных остатков', 'Корректировка', 'Корректировка Баланса', 'Корректировка долга') 
+                         AND category NOT IN ('Техническая проводка', 'Ввод начальных остатков', 'Корректировка', 'Корректировка Баланса', 'Корректировка долга',
+                                              'Начисление ЗП', 'Премии', 'Взаимозачет аванса') /* 👈 Исключаем виртуальные начисления */
                         THEN amount ELSE 0 END) AS income,
                     SUM(CASE 
                         WHEN transaction_type = 'expense' 
-                         AND category NOT IN ('Техническая проводка', 'Ввод начальных остатков', 'Корректировка', 'Корректировка Баланса', 'Корректировка долга') 
+                         AND category NOT IN ('Техническая проводка', 'Ввод начальных остатков', 'Корректировка', 'Корректировка Баланса', 'Корректировка долга',
+                                              'Удержание из ЗП') /* 👈 Исключаем виртуальные удержания */
                         THEN amount ELSE 0 END) AS expense
                 FROM transactions
                 ${whereClause}
