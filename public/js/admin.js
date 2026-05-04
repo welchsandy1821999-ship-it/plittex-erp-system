@@ -570,6 +570,56 @@ function adminGenerateUserPassword() {
             'Пароль показан открыто — скопируйте для передачи сотруднику.';
         hintEl.classList.remove('d-none');
     }
+    adminUpdateCredentialShareUi();
+}
+
+/** Текст для передачи сотруднику через мессенджеры (до encodeURIComponent во внешних ссылках). */
+function adminBuildCredentialShareBody() {
+    const username = document.getElementById('adm-user-username')?.value?.trim() || '';
+    const password = document.getElementById('adm-user-password')?.value ?? '';
+    const fullName = document.getElementById('adm-user-fullname')?.value?.trim() || '';
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const fioLine = fullName ? `Сотрудник: ${fullName}` : 'Сотрудник: —';
+    return `🔐 Доступ к ERP Плиттекс
+${fioLine}
+Логин: ${username}
+Пароль: ${password}
+Ссылка: ${origin}`;
+}
+
+function adminCredentialShareReady() {
+    const u = document.getElementById('adm-user-username')?.value?.trim();
+    const p = document.getElementById('adm-user-password')?.value?.trim();
+    return !!(u && p);
+}
+
+function adminUpdateCredentialShareUi() {
+    const wrap = document.getElementById('adm-credential-share-wrap');
+    if (!wrap) return;
+    wrap.classList.toggle('d-none', !adminCredentialShareReady());
+}
+
+function adminBindCredentialShareHandlers() {
+    ['adm-user-username', 'adm-user-password', 'adm-user-fullname'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', adminUpdateCredentialShareUi);
+    });
+    adminUpdateCredentialShareUi();
+}
+
+function adminShareCredentialsWhatsApp() {
+    if (!adminCredentialShareReady()) return;
+    const text = adminBuildCredentialShareBody();
+    const href = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(href, '_blank', 'noopener,noreferrer');
+}
+
+function adminShareCredentialsTelegram() {
+    if (!adminCredentialShareReady()) return;
+    const text = adminBuildCredentialShareBody();
+    const url = typeof window !== 'undefined' ? window.location.origin : '';
+    const href = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
+    window.open(href, '_blank', 'noopener,noreferrer');
 }
 
 function adminOpenUserModal(userId) {
@@ -599,11 +649,19 @@ function adminOpenUserModal(userId) {
             </div>
             <p id="adm-user-password-hint" class="font-11 text-muted m-0 mt-5 d-none"></p>
         </div>
+        <div id="adm-credential-share-wrap" class="admin-credential-share d-none">
+            <div class="admin-credential-share-title">Поделиться доступами</div>
+            <div class="admin-credential-share-btns">
+                <button type="button" class="btn btn-sm btn-admin-share-wa" onclick="adminShareCredentialsWhatsApp()" title="Открыть WhatsApp">WhatsApp</button>
+                <button type="button" class="btn btn-sm btn-admin-share-tg" onclick="adminShareCredentialsTelegram()" title="Поделиться в Telegram">Telegram</button>
+            </div>
+        </div>
         <input type="hidden" id="adm-user-id" value="${escapeHTML(String(idVal))}">
         `,
         `<button type="button" class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
          <button type="button" class="btn btn-primary" onclick="adminSaveUser()">${edit ? 'Сохранить' : 'Создать'}</button>`
     );
+    adminBindCredentialShareHandlers();
 }
 
 async function adminSaveUser() {

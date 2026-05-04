@@ -3,6 +3,45 @@
 <!-- Доступен только для role=admin. Управление через admin.js -->
 <!-- ═══════════════════════════════════════════════════════════ -->
 <div id="admin-mod" class="module hidden">
+    <style>
+        /* Шеринг доступов пользователя — модалка собирается в admin.js (#adm-credential-share-wrap). */
+        .admin-credential-share {
+            margin-top: 14px;
+            padding-top: 12px;
+            border-top: 1px solid var(--hairline, rgba(0, 0, 0, 0.12));
+        }
+        .theme-dark .admin-credential-share,
+        .dark-theme .admin-credential-share {
+            border-top-color: rgba(255, 255, 255, 0.12);
+        }
+        .admin-credential-share-title {
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            opacity: 0.9;
+        }
+        .admin-credential-share-btns {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .btn-admin-share-wa {
+            background: #25d366 !important;
+            color: #fff !important;
+            border-color: #1faa52 !important;
+        }
+        .btn-admin-share-wa:hover {
+            filter: brightness(1.06);
+        }
+        .btn-admin-share-tg {
+            background: #229ed9 !important;
+            color: #fff !important;
+            border-color: #1b8bc2 !important;
+        }
+        .btn-admin-share-tg:hover {
+            filter: brightness(1.06);
+        }
+    </style>
     <h2 class="module-title">🛡️ Центр Управления</h2>
 
     <!-- Табы -->
