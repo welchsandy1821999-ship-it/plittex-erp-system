@@ -32,14 +32,24 @@ const NOTIFY_CB = {
 };
 
 if (token) {
-    bot = new TelegramBot(token, {
+    const tgProxyRaw = process.env.TG_PROXY_URL != null ? String(process.env.TG_PROXY_URL).trim() : '';
+    const tgProxyUrl = tgProxyRaw.length > 0 ? tgProxyRaw : null;
+
+    const botOptions = {
         polling: {
             interval: 300,
             autoStart: true,
             params: { timeout: 10 }
         }
-    });
-    logger.info('Telegram-бот запущен в интерактивном режиме (polling: interval=300ms, long-poll timeout=10s).');
+    };
+    if (tgProxyUrl) {
+        botOptions.request = { proxy: tgProxyUrl };
+    }
+
+    bot = new TelegramBot(token, botOptions);
+    logger.info(
+        `Telegram-бот запущен в интерактивном режиме (polling: interval=300ms, long-poll timeout=10s)${tgProxyUrl ? '; API через прокси (TG_PROXY_URL)' : ''}.`
+    );
 
     bot.on('polling_error', (error) => {
         const errCode = error && error.code !== undefined ? error.code : '';
