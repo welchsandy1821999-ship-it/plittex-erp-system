@@ -576,21 +576,32 @@ function adminGenerateUserPassword() {
 /** Текст для передачи сотруднику через мессенджеры (до encodeURIComponent во внешних ссылках). */
 function adminBuildCredentialShareBody() {
     const username = document.getElementById('adm-user-username')?.value?.trim() || '';
-    const password = document.getElementById('adm-user-password')?.value ?? '';
+    const passwordRaw = document.getElementById('adm-user-password')?.value ?? '';
+    const passwordTrim = passwordRaw.trim();
     const fullName = document.getElementById('adm-user-fullname')?.value?.trim() || '';
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const idRaw = document.getElementById('adm-user-id')?.value?.trim();
+    const edit = !!idRaw;
+    const passwordLine = passwordTrim
+        ? passwordTrim
+        : edit
+          ? 'без изменений / сохранён ранее'
+          : '';
     const fioLine = fullName ? `Сотрудник: ${fullName}` : 'Сотрудник: —';
     return `🔐 Доступ к ERP Плиттекс
 ${fioLine}
 Логин: ${username}
-Пароль: ${password}
+Пароль: ${passwordLine}
 Ссылка: ${origin}`;
 }
 
+/** Режим создания: нужны логин и пароль. Режим редактирования: достаточно логина (пароль может быть пустым). */
 function adminCredentialShareReady() {
     const u = document.getElementById('adm-user-username')?.value?.trim();
-    const p = document.getElementById('adm-user-password')?.value?.trim();
-    return !!(u && p);
+    if (!u) return false;
+    const edit = !!document.getElementById('adm-user-id')?.value?.trim();
+    if (edit) return true;
+    return !!document.getElementById('adm-user-password')?.value?.trim();
 }
 
 function adminUpdateCredentialShareUi() {
@@ -644,7 +655,7 @@ function adminOpenUserModal(userId) {
         <div class="form-group m-0">
             <label class="font-12">${edit ? 'Пароль (пусто = не менять)' : 'Пароль *'}</label>
             <div style="display:flex; gap:10px; align-items:stretch; flex-wrap:wrap;">
-                <input type="password" class="input-field" style="flex:1; min-width:180px;" id="adm-user-password" placeholder="${edit ? 'Оставить текущий' : ''}" autocomplete="new-password">
+                <input type="password" class="input-field" style="flex:1; min-width:180px;" id="adm-user-password" placeholder="${edit ? '•••••••• (скрыт)' : 'Введите пароль'}" autocomplete="new-password">
                 <button type="button" class="btn btn-outline" style="white-space:nowrap;" onclick="adminGenerateUserPassword()" title="Случайный пароль">🎲 Сгенерировать</button>
             </div>
             <p id="adm-user-password-hint" class="font-11 text-muted m-0 mt-5 d-none"></p>
