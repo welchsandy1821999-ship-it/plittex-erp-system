@@ -273,102 +273,111 @@ module.exports = function registerTelegramMessageHandlers(bot, pool, authorizedC
     }
 
     bot.on('message', async (msg) => {
-        const currentChatId = msg.chat.id;
-        if (!authorizedChat(currentChatId)) return;
+        const currentChatId = msg && msg.chat ? msg.chat.id : undefined;
+        try {
+            if (currentChatId == null || !authorizedChat(currentChatId)) return;
 
-        const text = (msg.text || '').trim();
+            const text = (msg.text || '').trim();
 
-        if (!text || text.startsWith('/start')) {
-            return bot.sendMessage(currentChatId, '👋 <b>Главное меню</b>\nВыберите раздел кнопками ниже.', {
-                parse_mode: 'HTML',
+            if (!text || text.startsWith('/start')) {
+                return bot.sendMessage(currentChatId, '👋 <b>Главное меню</b>\nВыберите раздел кнопками ниже.', {
+                    parse_mode: 'HTML',
+                    reply_markup: mainReplyKeyboard()
+                });
+            }
+
+            if (text === KB.REPORTS) {
+                return bot.sendMessage(currentChatId, '📊 <b>Отчёты</b>\nВыберите:', {
+                    parse_mode: 'HTML',
+                    reply_markup: reportsMenuMarkup()
+                });
+            }
+
+            if (text === KB.FINANCE) {
+                return bot.sendMessage(currentChatId, '💰 <b>Финансы</b>\nВыберите:', {
+                    parse_mode: 'HTML',
+                    reply_markup: financeMenuMarkup()
+                });
+            }
+
+            if (text === KB.WAREHOUSE) {
+                return bot.sendMessage(currentChatId, '🏗 <b>Склад</b>\nВыберите:', {
+                    parse_mode: 'HTML',
+                    reply_markup: warehouseMenuMarkup()
+                });
+            }
+
+            if (text === KB.REFRESH) {
+                return bot.sendMessage(currentChatId, '✅ Данные на экране обновлены. Меню без изменений.', {
+                    reply_markup: mainReplyKeyboard()
+                });
+            }
+
+            if (text === LEGACY.BALANCE || text === '/balance') {
+                try {
+                    const reply = await buildBalanceMessage(pool);
+                    return bot.sendMessage(currentChatId, reply, { parse_mode: 'HTML' });
+                } catch (e) {
+                    logger.warn(`[TG] balance: ${e.message || e}`);
+                    return bot.sendMessage(currentChatId, '❌ Ошибка БД');
+                }
+            }
+
+            if (text === LEGACY.CEMENT) {
+                try {
+                    const reply = await buildCementMessage(pool);
+                    return bot.sendMessage(currentChatId, reply, { parse_mode: 'HTML' });
+                } catch (e) {
+                    logger.warn(`[TG] cement: ${e.message || e}`);
+                    return bot.sendMessage(currentChatId, '❌ Ошибка');
+                }
+            }
+
+            if (text === LEGACY.SALES_TODAY) {
+                try {
+                    const reply = await buildSalesTodayMessage(pool);
+                    return bot.sendMessage(currentChatId, reply, { parse_mode: 'HTML' });
+                } catch (e) {
+                    logger.warn(`[TG] sales today: ${e.message || e}`);
+                    return bot.sendMessage(currentChatId, '❌ Ошибка');
+                }
+            }
+
+            if (!isReservedButtonOrCommand(text)) {
+                try {
+                    const lookup = await lookupCounterpartyByText(pool, text);
+                    if (lookup.kind === 'short') {
+                        return bot.sendMessage(currentChatId, '⌨️ Команда не распознана. Откройте главное меню:', {
+                            reply_markup: mainReplyKeyboard()
+                        });
+                    }
+                    if (lookup.kind === 'none') {
+                        return bot.sendMessage(currentChatId, '⌨️ Команда не распознана.\n<i>Контрагент не найден.</i>', {
+                            parse_mode: 'HTML',
+                            reply_markup: mainReplyKeyboard()
+                        });
+                    }
+                    if (lookup.kind === 'many') {
+                        return bot.sendMessage(currentChatId, lookup.html, { parse_mode: 'HTML', reply_markup: mainReplyKeyboard() });
+                    }
+                    return bot.sendMessage(currentChatId, lookup.html, { parse_mode: 'HTML' });
+                } catch (e) {
+                    logger.warn(`[TG] lookup: ${e.message || e}`);
+                    return bot.sendMessage(currentChatId, '❌ Ошибка поиска', { reply_markup: mainReplyKeyboard() });
+                }
+            }
+
+            return bot.sendMessage(currentChatId, '⌨️ Команда не распознана.', {
                 reply_markup: mainReplyKeyboard()
             });
-        }
-
-        if (text === KB.REPORTS) {
-            return bot.sendMessage(currentChatId, '📊 <b>Отчёты</b>\nВыберите:', {
-                parse_mode: 'HTML',
-                reply_markup: reportsMenuMarkup()
-            });
-        }
-
-        if (text === KB.FINANCE) {
-            return bot.sendMessage(currentChatId, '💰 <b>Финансы</b>\nВыберите:', {
-                parse_mode: 'HTML',
-                reply_markup: financeMenuMarkup()
-            });
-        }
-
-        if (text === KB.WAREHOUSE) {
-            return bot.sendMessage(currentChatId, '🏗 <b>Склад</b>\nВыберите:', {
-                parse_mode: 'HTML',
-                reply_markup: warehouseMenuMarkup()
-            });
-        }
-
-        if (text === KB.REFRESH) {
-            return bot.sendMessage(currentChatId, '✅ Данные на экране обновлены. Меню без изменений.', {
-                reply_markup: mainReplyKeyboard()
-            });
-        }
-
-        if (text === LEGACY.BALANCE || text === '/balance') {
-            try {
-                const reply = await buildBalanceMessage(pool);
-                return bot.sendMessage(currentChatId, reply, { parse_mode: 'HTML' });
-            } catch (e) {
-                logger.warn(`[TG] balance: ${e.message || e}`);
-                return bot.sendMessage(currentChatId, '❌ Ошибка БД');
+        } catch (e) {
+            logger.error(`[TG] message handler: ${e.message || e}`, e);
+            if (currentChatId != null && authorizedChat(currentChatId)) {
+                bot
+                    .sendMessage(currentChatId, '❌ Внутренняя ошибка. Попробуйте позже')
+                    .catch((sendErr) => logger.warn(`[TG] error reply sendMessage: ${sendErr.message || sendErr}`));
             }
         }
-
-        if (text === LEGACY.CEMENT) {
-            try {
-                const reply = await buildCementMessage(pool);
-                return bot.sendMessage(currentChatId, reply, { parse_mode: 'HTML' });
-            } catch (e) {
-                logger.warn(`[TG] cement: ${e.message || e}`);
-                return bot.sendMessage(currentChatId, '❌ Ошибка');
-            }
-        }
-
-        if (text === LEGACY.SALES_TODAY) {
-            try {
-                const reply = await buildSalesTodayMessage(pool);
-                return bot.sendMessage(currentChatId, reply, { parse_mode: 'HTML' });
-            } catch (e) {
-                logger.warn(`[TG] sales today: ${e.message || e}`);
-                return bot.sendMessage(currentChatId, '❌ Ошибка');
-            }
-        }
-
-        if (!isReservedButtonOrCommand(text)) {
-            try {
-                const lookup = await lookupCounterpartyByText(pool, text);
-                if (lookup.kind === 'short') {
-                    return bot.sendMessage(currentChatId, '⌨️ Команда не распознана. Откройте главное меню:', {
-                        reply_markup: mainReplyKeyboard()
-                    });
-                }
-                if (lookup.kind === 'none') {
-                    return bot.sendMessage(currentChatId, '⌨️ Команда не распознана.\n<i>Контрагент не найден.</i>', {
-                        parse_mode: 'HTML',
-                        reply_markup: mainReplyKeyboard()
-                    });
-                }
-                if (lookup.kind === 'many') {
-                    return bot.sendMessage(currentChatId, lookup.html, { parse_mode: 'HTML', reply_markup: mainReplyKeyboard() });
-                }
-                return bot.sendMessage(currentChatId, lookup.html, { parse_mode: 'HTML' });
-            } catch (e) {
-                logger.warn(`[TG] lookup: ${e.message || e}`);
-                return bot.sendMessage(currentChatId, '❌ Ошибка поиска', { reply_markup: mainReplyKeyboard() });
-            }
-        }
-
-        return bot.sendMessage(currentChatId, '⌨️ Команда не распознана.', {
-            reply_markup: mainReplyKeyboard()
-        });
     });
 
     bot.on('callback_query', async (cq) => {

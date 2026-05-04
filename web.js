@@ -3,6 +3,13 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const logger = require('./utils/logger');
 
+process.on('unhandledRejection', (reason, promise) => {
+    logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+process.on('uncaughtException', (error) => {
+    logger.error('Uncaught Exception:', error);
+});
+
 // [Блок 1.1: Sentry — Мониторинг ошибок (безопасная инициализация)]
 const Sentry = require('@sentry/node');
 if (process.env.SENTRY_DSN) {

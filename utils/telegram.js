@@ -42,13 +42,31 @@ if (token) {
     logger.info('Telegram-бот запущен в интерактивном режиме (polling: interval=300ms, long-poll timeout=10s).');
 
     bot.on('polling_error', (error) => {
-        const code = error && error.code !== undefined ? error.code : 'n/a';
-        const msg = error && error.message ? error.message : String(error);
-        logger.warn(`[TG] polling_error code=${code} ${msg}`);
+        const errCode = error && error.code !== undefined ? error.code : '';
+        const body = error && error.response && error.response.body ? error.response.body : null;
+        const apiCode = body && typeof body.error_code === 'number' ? body.error_code : null;
+        const description = body && body.description != null ? String(body.description) : '';
+        const msgStr = `${error && error.message ? error.message : String(error)} ${description}`.trim();
+        const isConflict =
+            errCode === 'ETELEGRAM' &&
+            (apiCode === 409 ||
+                /\b409\b/.test(msgStr) ||
+                /terminated by other getupdates request/i.test(msgStr));
+
+        if (isConflict) {
+            logger.error(
+                'CRITICAL: [TG] КТО-ТО ЗАПУСТИЛ ДУБЛЬ БОТА! Конфликт getUpdates (409). Останавливаем polling.'
+            );
+            bot.stopPolling().catch((e) => logger.warn(`[TG] stopPolling: ${e.message || e}`));
+            return;
+        }
+
+        const transientHint = ['ECONNRESET', 'ETIMEDOUT', 'EFATAL'].includes(errCode) ? ' (transient)' : '';
+        logger.warn(`[TG] polling_error${transientHint} code=${errCode || 'n/a'} api=${apiCode != null ? apiCode : 'n/a'} ${msgStr}`);
     });
 
     bot.on('error', (error) => {
-        console.error('🔴 [TG] Критическая ошибка бота:', error.message);
+        logger.error(`🔴 [TG] error event: ${error && error.message ? error.message : String(error)}`, error);
     });
 }
 
