@@ -536,6 +536,42 @@ async function adminLoadUsers() {
     }
 }
 
+/** Пароль 8–10 символов: латиница обоих регистров + цифры. После генерации поле показывается как text для копирования. */
+function adminGenerateUserPassword() {
+    const pwdInput = document.getElementById('adm-user-password');
+    const hintEl = document.getElementById('adm-user-password-hint');
+    if (!pwdInput) return;
+
+    const LOWER = 'abcdefghijklmnopqrstuvwxyz';
+    const UPPER = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const DIGIT = '23456789';
+    const POOL = LOWER + UPPER + DIGIT;
+    const len = 8 + Math.floor(Math.random() * 3);
+
+    const chars = [
+        LOWER[Math.floor(Math.random() * LOWER.length)],
+        UPPER[Math.floor(Math.random() * UPPER.length)],
+        DIGIT[Math.floor(Math.random() * DIGIT.length)]
+    ];
+    while (chars.length < len) {
+        chars.push(POOL[Math.floor(Math.random() * POOL.length)]);
+    }
+    for (let i = chars.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const t = chars[i];
+        chars[i] = chars[j];
+        chars[j] = t;
+    }
+
+    pwdInput.value = chars.join('');
+    pwdInput.type = 'text';
+    if (hintEl) {
+        hintEl.textContent =
+            'Пароль показан открыто — скопируйте для передачи сотруднику.';
+        hintEl.classList.remove('d-none');
+    }
+}
+
 function adminOpenUserModal(userId) {
     const edit = userId != null && userId !== '';
     const row = edit ? window.__adminUsersCache.find((x) => Number(x.id) === Number(userId)) : null;
@@ -550,13 +586,19 @@ function adminOpenUserModal(userId) {
     UI.showModal(
         title,
         `<div class="form-group"><label class="font-12">Логин *</label>
-            <input type="text" class="input-field" id="adm-user-username" value="${escapeHTML(uname)}" ${edit ? 'readonly class="opacity-70"' : ''} autocomplete="off"></div>
+            <input type="text" class="input-field" id="adm-user-username" value="${escapeHTML(uname)}" autocomplete="username"></div>
         <div class="form-group"><label class="font-12">ФИО</label>
             <input type="text" class="input-field" id="adm-user-fullname" value="${escapeHTML(fname)}" autocomplete="name"></div>
         <div class="form-group"><label class="font-12">Роль *</label>
             <select class="input-field" id="adm-user-role">${adminRoleSelectHtml(role)}</select></div>
-        <div class="form-group"><label class="font-12">${edit ? 'Новый пароль (оставьте пустым — не менять)' : 'Пароль *'}</label>
-            <input type="password" class="input-field" id="adm-user-password" placeholder="${edit ? '(без изменений)' : ''}" autocomplete="new-password"></div>
+        <div class="form-group m-0">
+            <label class="font-12">${edit ? 'Пароль (пусто = не менять)' : 'Пароль *'}</label>
+            <div style="display:flex; gap:10px; align-items:stretch; flex-wrap:wrap;">
+                <input type="password" class="input-field" style="flex:1; min-width:180px;" id="adm-user-password" placeholder="${edit ? 'Оставить текущий' : ''}" autocomplete="new-password">
+                <button type="button" class="btn btn-outline" style="white-space:nowrap;" onclick="adminGenerateUserPassword()" title="Случайный пароль">🎲 Сгенерировать</button>
+            </div>
+            <p id="adm-user-password-hint" class="font-11 text-muted m-0 mt-5 d-none"></p>
+        </div>
         <input type="hidden" id="adm-user-id" value="${escapeHTML(String(idVal))}">
         `,
         `<button type="button" class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
@@ -591,6 +633,10 @@ async function adminSaveUser() {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
             throw new Error(data.error || `HTTP ${res.status}`);
+        }
+        const oldRow = edit ? window.__adminUsersCache.find((x) => Number(x.id) === Number(idRaw)) : null;
+        if (edit && oldRow && data.user && oldRow.username !== data.user.username) {
+            UI.toast('Логин изменён: выйдите и войдите снова, чтобы отображался новый логин.', 'info');
         }
         UI.closeModal();
         UI.toast(edit ? 'Пользователь обновлён' : 'Пользователь создан', 'success');
