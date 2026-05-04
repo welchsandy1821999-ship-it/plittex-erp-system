@@ -281,6 +281,11 @@ app.post('/api/login', async (req, res) => {
             return res.status(401).json({ error: 'Неверный пароль' });
         }
 
+        if (user.is_active === false) {
+            logger.warn(`🚫 Вход заблокирован (неактивен): ${username}`);
+            return res.status(403).json({ error: 'Учётная запись отключена. Обратитесь к администратору.' });
+        }
+
         if (!JWT_SECRET) {
             logger.error('🚨 JWT_SECRET is missing!');
             return res.status(500).json({ error: 'Ошибка конфигурации сервера' });
@@ -383,6 +388,23 @@ app.post('/api/generate-print-token', authenticateToken, (req, res) => {
 });
 
 app.use('/api', authenticateToken);
+
+// Блокируем доступ по JWT для пользователей с is_active = false
+app.use('/api', async (req, res, next) => {
+    if (!req.user || req.user.type === 'print') return next();
+    try {
+        const r = await pool.query(
+            `SELECT COALESCE(is_active, true) AS ok FROM users WHERE id = $1`,
+            [req.user.id]
+        );
+        if (r.rows.length === 0 || r.rows[0].ok === false) {
+            return res.status(403).json({ error: 'Учётная запись отключена. Обратитесь к администратору.' });
+        }
+        next();
+    } catch (err) {
+        next(err);
+    }
+});
 
 // Регистрация маршрутов
 app.use('/', inventoryRoutes);

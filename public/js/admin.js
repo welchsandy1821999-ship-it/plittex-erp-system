@@ -15,6 +15,7 @@ function switchAdminTab(tabId, btn) {
     // Автозагрузка данных при переключении
     if (tabId === 'admin-tab-backups') adminLoadBackups();
     if (tabId === 'admin-tab-system') { adminLoadSystemStatus(); adminLoadLogs(); }
+    if (tabId === 'admin-tab-users') adminLoadUsers();
     if (tabId === 'admin-tab-audit') adminLoadAudit();
     if (tabId === 'admin-tab-settings') adminLoadSettings();
 }
@@ -468,6 +469,146 @@ async function adminSaveSetting(key) {
         UI.toast(data.message || 'Сохранено', data.success ? 'success' : 'error');
     } catch (err) {
         UI.toast('Ошибка сохранения', 'error');
+    }
+}
+
+// ═══════════════════════════════════════════════════
+// 8. ПОЛЬЗОВАТЕЛИ (админ CRUD + soft deactivate)
+// ═══════════════════════════════════════════════════
+window.__adminUsersCache = [];
+
+const ADMIN_ROLE_OPTIONS = [
+    ['admin', 'Администратор'],
+    ['manager', 'Менеджер'],
+    ['accountant', 'Бухгалтер'],
+    ['finance', 'Финансы'],
+    ['buh', 'Бух. (краткий код)'],
+    ['bukh', 'Бухгалтерия']
+];
+
+function adminRoleSelectHtml(selected) {
+    const s = String(selected || '').toLowerCase();
+    return ADMIN_ROLE_OPTIONS.map(([val, lab]) =>
+        `<option value="${escapeHTML(val)}" ${val === s ? 'selected' : ''}>${escapeHTML(lab)}</option>`
+    ).join('');
+}
+
+async function adminLoadUsers() {
+    const body = document.getElementById('admin-users-body');
+    if (!body) return;
+    body.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Загрузка...</td></tr>';
+    try {
+        const res = await fetch('/api/admin/users');
+        const data = await res.json();
+        if (!data.success) {
+            body.innerHTML = `<tr><td colspan="6" class="text-center text-danger">${escapeHTML(data.error || 'Ошибка')}</td></tr>`;
+            return;
+        }
+        window.__adminUsersCache = data.users || [];
+        const selfId = typeof window.USER_ID !== 'undefined' ? window.USER_ID : null;
+        if (!window.__adminUsersCache.length) {
+            body.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Пользователей нет</td></tr>';
+            return;
+        }
+        body.innerHTML = window.__adminUsersCache.map((u) => {
+            const active = u.is_active !== false;
+            const statusBadge = active
+                ? '<span class="text-success font-bold">Активен</span>'
+                : '<span class="text-danger font-bold">Заблокирован</span>';
+            const toggleLabel = active ? '🔒 Заблокировать' : '✅ Активировать';
+            const disableSelf = selfId != null && Number(u.id) === Number(selfId);
+            const toggleDisabled = disableSelf ? 'disabled title="Нельзя изменить свой статус"' : '';
+            return `<tr data-user-id="${u.id}">
+                <td>${escapeHTML(String(u.id))}</td>
+                <td><strong>${escapeHTML(u.username)}</strong></td>
+                <td>${escapeHTML(u.full_name || '—')}</td>
+                <td><code>${escapeHTML(u.role || '')}</code></td>
+                <td>${statusBadge}</td>
+                <td>
+                    <button type="button" class="btn btn-outline btn-sm" onclick="adminOpenUserModal(${u.id})">✏️ Редактировать</button>
+                    <button type="button" class="btn btn-warning btn-sm" onclick="adminToggleUser(${u.id})" ${toggleDisabled}>${toggleLabel}</button>
+                </td>
+            </tr>`;
+        }).join('');
+    } catch (err) {
+        console.error('Users load error:', err);
+        body.innerHTML = '<tr><td colspan="6" class="text-center text-danger">Ошибка сети</td></tr>';
+    }
+}
+
+function adminOpenUserModal(userId) {
+    const edit = userId != null && userId !== '';
+    const row = edit ? window.__adminUsersCache.find((x) => Number(x.id) === Number(userId)) : null;
+    if (edit && !row) return UI.toast('Пользователь не найден в кэше. Обновите список.', 'warning');
+
+    const title = edit ? `✏️ Редактировать: ${escapeHTML(row.username)}` : '➕ Новый пользователь';
+    const idVal = edit ? row.id : '';
+    const uname = edit ? row.username : '';
+    const fname = edit ? (row.full_name || '') : '';
+    const role = edit ? row.role : 'manager';
+
+    UI.showModal(
+        title,
+        `<div class="form-group"><label class="font-12">Логин *</label>
+            <input type="text" class="input-field" id="adm-user-username" value="${escapeHTML(uname)}" ${edit ? 'readonly class="opacity-70"' : ''} autocomplete="off"></div>
+        <div class="form-group"><label class="font-12">ФИО</label>
+            <input type="text" class="input-field" id="adm-user-fullname" value="${escapeHTML(fname)}" autocomplete="name"></div>
+        <div class="form-group"><label class="font-12">Роль *</label>
+            <select class="input-field" id="adm-user-role">${adminRoleSelectHtml(role)}</select></div>
+        <div class="form-group"><label class="font-12">${edit ? 'Новый пароль (оставьте пустым — не менять)' : 'Пароль *'}</label>
+            <input type="password" class="input-field" id="adm-user-password" placeholder="${edit ? '(без изменений)' : ''}" autocomplete="new-password"></div>
+        <input type="hidden" id="adm-user-id" value="${escapeHTML(String(idVal))}">
+        `,
+        `<button type="button" class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
+         <button type="button" class="btn btn-primary" onclick="adminSaveUser()">${edit ? 'Сохранить' : 'Создать'}</button>`
+    );
+}
+
+async function adminSaveUser() {
+    const idRaw = document.getElementById('adm-user-id')?.value?.trim();
+    const username = document.getElementById('adm-user-username')?.value?.trim();
+    const full_name = document.getElementById('adm-user-fullname')?.value?.trim() || '';
+    const role = document.getElementById('adm-user-role')?.value?.trim();
+    const password = document.getElementById('adm-user-password')?.value || '';
+    const edit = !!idRaw;
+
+    if (!username) return UI.toast('Укажите логин', 'warning');
+    if (!edit && (!password || password.length < 6)) return UI.toast('Пароль не менее 6 символов', 'warning');
+    if (edit && password.trim() !== '' && password.trim().length < 6) {
+        return UI.toast('Пароль не менее 6 символов или оставьте пустым', 'warning');
+    }
+
+    const payload = { username, full_name, role };
+    if (!edit || password.trim() !== '') payload.password = password;
+
+    try {
+        const url = edit ? `/api/admin/users/${encodeURIComponent(idRaw)}` : '/api/admin/users';
+        const res = await fetch(url, {
+            method: edit ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            throw new Error(data.error || `HTTP ${res.status}`);
+        }
+        UI.closeModal();
+        UI.toast(edit ? 'Пользователь обновлён' : 'Пользователь создан', 'success');
+        adminLoadUsers();
+    } catch (e) {
+        UI.toast(e.message || 'Ошибка сохранения', 'error');
+    }
+}
+
+async function adminToggleUser(uid) {
+    try {
+        const res = await fetch(`/api/admin/users/${encodeURIComponent(uid)}/toggle-status`, { method: 'PUT' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        UI.toast('Статус обновлён', 'success');
+        adminLoadUsers();
+    } catch (e) {
+        UI.toast(e.message || 'Ошибка', 'error');
     }
 }
 

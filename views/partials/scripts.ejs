@@ -221,9 +221,25 @@
         };
 
         document.addEventListener('DOMContentLoaded', () => {
+            window.USER_ID = null;
             const userStr = localStorage.getItem('user');
-            if (userStr) { try { const u = JSON.parse(userStr); window.startApp(u.username); } catch (e) { window.startApp(); } }
-            else window.startApp();
+            if (userStr) {
+                try {
+                    const u = JSON.parse(userStr);
+                    if (u && u.id != null) window.USER_ID = u.id;
+                    window.startApp(u.username);
+                } catch (e) { window.startApp(); }
+            } else window.startApp();
+            if (window.USER_ID == null && (localStorage.getItem('token') || localStorage.getItem('jwtToken'))) {
+                try {
+                    const tk = localStorage.getItem('token') || localStorage.getItem('jwtToken');
+                    const parts = tk.split('.');
+                    if (parts.length === 3) {
+                        const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+                        if (payload.id != null) window.USER_ID = payload.id;
+                    }
+                } catch (e2) { /* ignore */ }
+            }
         });
 
         document.addEventListener('click', (e) => {

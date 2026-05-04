@@ -14,8 +14,12 @@ const router = express.Router();
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
+const bcrypt = require('bcrypt');
 const { requireAdmin } = require('../middleware/auth');
 const logger = require('../utils/logger');
+const { auditLog } = require('../utils/db_init');
+
+const USER_ROLES = new Set(['admin', 'manager', 'accountant', 'finance', 'buh', 'bukh']);
 
 module.exports = function (pool) {
     // Все маршруты требуют роль admin
@@ -380,6 +384,226 @@ module.exports = function (pool) {
         } catch (err) {
             logger.error(`VACUUM error: ${err.message}`);
             res.status(500).json({ error: 'Ошибка VACUUM: ' + err.message });
+        } finally {
+            if (client) client.release();
+        }
+    });
+
+    // ═══════════════════════════════════════════════════
+    // 8. ПОЛЬЗОВАТЕЛИ (CRUD без физического удаления)
+    // ═══════════════════════════════════════════════════
+
+    function normalizeRole(role) {
+        const r = String(role || '').trim().toLowerCase();
+        return USER_ROLES.has(r) ? r : null;
+    }
+
+    /** Сколько активных администраторов кроме excludeId */
+    async function countOtherActiveAdmins(client, excludeId) {
+        const r = await client.query(
+            `SELECT COUNT(*)::int AS c FROM users
+             WHERE role = 'admin' AND COALESCE(is_active, true) = true AND id <> $1`,
+            [excludeId]
+        );
+        return r.rows[0]?.c ?? 0;
+    }
+
+    /**
+     * GET /api/admin/users
+     */
+    router.get('/users', async (req, res) => {
+        try {
+            const result = await pool.query(
+                `SELECT id, username, full_name, role, COALESCE(is_active, true) AS is_active
+                 FROM users
+                 ORDER BY id ASC`
+            );
+            res.json({ success: true, users: result.rows });
+        } catch (err) {
+            logger.error(`Admin users list: ${err.message}`);
+            res.status(500).json({ error: 'Ошибка чтения пользователей' });
+        }
+    });
+
+    /**
+     * POST /api/admin/users
+     */
+    router.post('/users', async (req, res) => {
+        const { username, password, full_name, role } = req.body || {};
+        const u = String(username || '').trim();
+        const p = password != null ? String(password) : '';
+        const fn = full_name != null ? String(full_name).trim() : '';
+        const nr = normalizeRole(role);
+
+        if (!u || u.length < 2) return res.status(400).json({ error: 'Логин слишком короткий' });
+        if (p.length < 6) return res.status(400).json({ error: 'Пароль не менее 6 символов' });
+        if (!nr) return res.status(400).json({ error: 'Недопустимая роль', allowed: [...USER_ROLES] });
+
+        let client;
+        try {
+            client = await pool.connect();
+            const exists = await client.query('SELECT 1 FROM users WHERE LOWER(username) = LOWER($1)', [u]);
+            if (exists.rows.length) {
+                return res.status(409).json({ error: 'Пользователь с таким логином уже есть' });
+            }
+            const hash = await bcrypt.hash(p, 10);
+            const ins = await client.query(
+                `INSERT INTO users (username, password_hash, full_name, role, is_active)
+                 VALUES ($1, $2, $3, $4, true)
+                 RETURNING id, username, full_name, role, is_active`,
+                [u, hash, fn || null, nr]
+            );
+            const row = ins.rows[0];
+            await auditLog(pool, req, 'create_user', 'user', row.id, `Создан пользователь ${row.username}, роль ${row.role}`);
+            logger.info(`👤 [ADMIN] Создан пользователь ${row.username} — ${req.user.username}`);
+            res.json({ success: true, user: row });
+        } catch (err) {
+            logger.error(`Admin create user: ${err.message}`);
+            res.status(500).json({ error: 'Ошибка создания пользователя' });
+        } finally {
+            if (client) client.release();
+        }
+    });
+
+    /**
+     * PUT /api/admin/users/:id
+     */
+    router.put('/users/:id', async (req, res) => {
+        const userId = parseInt(req.params.id, 10);
+        if (!userId || userId < 1) return res.status(400).json({ error: 'Некорректный id' });
+
+        const { username, password, full_name, role } = req.body || {};
+        const u = username != null ? String(username).trim() : undefined;
+        const fn = full_name !== undefined ? (full_name != null ? String(full_name).trim() : '') : undefined;
+        const p = password !== undefined ? String(password) : undefined;
+        const nr = role !== undefined ? normalizeRole(role) : undefined;
+
+        if (nr === null && role !== undefined) {
+            return res.status(400).json({ error: 'Недопустимая роль', allowed: [...USER_ROLES] });
+        }
+
+        let client;
+        try {
+            client = await pool.connect();
+
+            const cur = await client.query(
+                `SELECT id, username, role, COALESCE(is_active, true) AS is_active FROM users WHERE id = $1`,
+                [userId]
+            );
+            if (!cur.rows.length) return res.status(404).json({ error: 'Пользователь не найден' });
+            const before = cur.rows[0];
+
+            if (nr != null && nr !== before.role && before.role === 'admin') {
+                const others = await countOtherActiveAdmins(client, userId);
+                if (others < 1) {
+                    return res.status(400).json({ error: 'Нельзя сменить роль последнего активного администратора' });
+                }
+            }
+
+            if (u != null && u.length < 2) return res.status(400).json({ error: 'Логин слишком короткий' });
+            if (u != null) {
+                const dup = await client.query(
+                    'SELECT id FROM users WHERE LOWER(username) = LOWER($1) AND id <> $2',
+                    [u, userId]
+                );
+                if (dup.rows.length) return res.status(409).json({ error: 'Логин уже занят' });
+            }
+
+            const updates = [];
+            const params = [];
+            let n = 1;
+
+            if (u != null) {
+                updates.push(`username = $${n}`);
+                params.push(u);
+                n++;
+            }
+            if (fn !== undefined) {
+                updates.push(`full_name = $${n}`);
+                params.push(fn || null);
+                n++;
+            }
+            if (nr != null) {
+                updates.push(`role = $${n}`);
+                params.push(nr);
+                n++;
+            }
+            if (p !== undefined && p.trim() !== '') {
+                if (p.length < 6) return res.status(400).json({ error: 'Пароль не менее 6 символов' });
+                const hash = await bcrypt.hash(p.trim(), 10);
+                updates.push(`password_hash = $${n}`);
+                params.push(hash);
+                n++;
+            }
+
+            if (updates.length === 0) {
+                return res.status(400).json({ error: 'Нет полей для обновления' });
+            }
+
+            params.push(userId);
+            const sql = `UPDATE users SET ${updates.join(', ')} WHERE id = $${n} RETURNING id, username, full_name, role, is_active`;
+            const result = await client.query(sql, params);
+            const row = result.rows[0];
+            await auditLog(pool, req, 'update_user', 'user', userId, `Обновлён ${row.username}`);
+            logger.info(`👤 [ADMIN] Обновлён пользователь id=${userId} — ${req.user.username}`);
+            res.json({ success: true, user: row });
+        } catch (err) {
+            logger.error(`Admin update user: ${err.message}`);
+            res.status(500).json({ error: 'Ошибка обновления пользователя' });
+        } finally {
+            if (client) client.release();
+        }
+    });
+
+    /**
+     * PUT /api/admin/users/:id/toggle-status
+     */
+    router.put('/users/:id/toggle-status', async (req, res) => {
+        const userId = parseInt(req.params.id, 10);
+        if (!userId || userId < 1) return res.status(400).json({ error: 'Некорректный id' });
+
+        if (req.user.id === userId) {
+            return res.status(400).json({ error: 'Нельзя отключить собственную учётную запись' });
+        }
+
+        let client;
+        try {
+            client = await pool.connect();
+            const cur = await client.query(
+                `SELECT id, username, role, COALESCE(is_active, true) AS is_active FROM users WHERE id = $1`,
+                [userId]
+            );
+            if (!cur.rows.length) return res.status(404).json({ error: 'Пользователь не найден' });
+
+            const row = cur.rows[0];
+            const nextActive = !row.is_active;
+
+            if (row.role === 'admin' && row.is_active && !nextActive) {
+                const others = await countOtherActiveAdmins(client, userId);
+                if (others < 1) {
+                    return res.status(400).json({ error: 'Нельзя отключить последнего активного администратора' });
+                }
+            }
+
+            const upd = await client.query(
+                `UPDATE users SET is_active = $1 WHERE id = $2
+                 RETURNING id, username, full_name, role, is_active`,
+                [nextActive, userId]
+            );
+            const out = upd.rows[0];
+            await auditLog(
+                pool,
+                req,
+                nextActive ? 'activate_user' : 'deactivate_user',
+                'user',
+                userId,
+                `${out.username}: is_active=${nextActive}`
+            );
+            logger.info(`👤 [ADMIN] ${nextActive ? 'Активация' : 'Блокировка'} ${out.username} — ${req.user.username}`);
+            res.json({ success: true, user: out });
+        } catch (err) {
+            logger.error(`Admin toggle user: ${err.message}`);
+            res.status(500).json({ error: 'Ошибка смены статуса' });
         } finally {
             if (client) client.release();
         }

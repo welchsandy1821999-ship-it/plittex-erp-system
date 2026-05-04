@@ -84,6 +84,11 @@ async function initSystemTables(pool) {
         await pool.query(`CREATE INDEX IF NOT EXISTS idx_timesheet_date ON timesheet_records(record_date)`);
         await pool.query(`CREATE INDEX IF NOT EXISTS idx_txcat_name ON transaction_categories(name)`);
 
+        // === Users: soft-disable + ФИО (migration 010) ===
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE`);
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR(255)`);
+        await pool.query(`UPDATE users SET is_active = TRUE WHERE is_active IS NULL`);
+
         // === EPIC-4 P5: Денормализация shipment_doc_number (migration 008) ===
         await pool.query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS shipment_doc_number VARCHAR(50)`);
         await pool.query(`

@@ -9,6 +9,7 @@
     <div class="admin-tabs">
         <button class="admin-tab active" onclick="switchAdminTab('admin-tab-backups', this)">💾 Бэкапы и Задачи</button>
         <button class="admin-tab" onclick="switchAdminTab('admin-tab-system', this)">📡 Система и Логи</button>
+        <button class="admin-tab" onclick="switchAdminTab('admin-tab-users', this)">👥 Пользователи</button>
         <button class="admin-tab" onclick="switchAdminTab('admin-tab-audit', this)">🔍 Аудит и Экспорт</button>
         <button class="admin-tab" onclick="switchAdminTab('admin-tab-settings', this)">⚙️ Настройки</button>
     </div>
@@ -165,7 +166,38 @@
     </div>
 
     <!-- ═══════════════════════════════════════════════ -->
-    <!-- TAB 3: Аудит и Экспорт                        -->
+    <!-- TAB 3: Пользователи                            -->
+    <!-- ═══════════════════════════════════════════════ -->
+    <div id="admin-tab-users" class="admin-panel">
+        <div class="admin-section">
+            <div class="admin-section-header">
+                <h3>👥 Учётные записи</h3>
+                <div class="admin-actions">
+                    <button type="button" class="btn btn-primary" onclick="adminOpenUserModal(null)">➕ Добавить пользователя</button>
+                    <button type="button" class="btn btn-outline" onclick="adminLoadUsers()">🔄 Обновить</button>
+                </div>
+            </div>
+            <p class="text-muted font-13 m-0 mb-10">Физическое удаление недоступно: отключение через «Заблокировать» сохраняет историю аудита.</p>
+            <table class="data-table" id="admin-users-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Логин</th>
+                        <th>ФИО</th>
+                        <th>Роль</th>
+                        <th>Статус</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="admin-users-body">
+                    <tr><td colspan="6" class="text-center text-muted">Откройте вкладку для загрузки…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════ -->
+    <!-- TAB 4: Аудит и Экспорт                        -->
     <!-- ═══════════════════════════════════════════════ -->
     <div id="admin-tab-audit" class="admin-panel">
         <div class="admin-section">
@@ -222,7 +254,7 @@
     </div>
 
     <!-- ═══════════════════════════════════════════════ -->
-    <!-- TAB 4: Настройки                              -->
+    <!-- TAB 5: Настройки                              -->
     <!-- ═══════════════════════════════════════════════ -->
     <div id="admin-tab-settings" class="admin-panel">
         <div class="admin-section">
