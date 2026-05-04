@@ -1191,13 +1191,15 @@ module.exports = function (pool, getWhId, withTransaction) {
         }
     });
 
-    // Получение списка дат, в которые были зафиксированные формовки
+    // Даты с точками в календаре формовки: только реальные партии (есть изделие в номенклатуре).
+    // Технические строки production_batches без product_id (напр. «начальные остатки») не отмечаются.
     router.get('/api/production/active-dates', async (req, res) => {
         try {
             const result = await pool.query(`
-            SELECT DISTINCT to_char(production_date, 'YYYY-MM-DD') as date
-            FROM production_batches
-            WHERE status NOT IN ('draft', 'deleted')
+            SELECT DISTINCT to_char(b.production_date, 'YYYY-MM-DD') as date
+            FROM production_batches b
+            INNER JOIN items p ON b.product_id = p.id
+            WHERE b.status NOT IN ('draft', 'deleted')
             ORDER BY date DESC
         `);
             const dates = result.rows.map(r => r.date);
