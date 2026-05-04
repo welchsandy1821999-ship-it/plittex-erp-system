@@ -31,6 +31,10 @@ tmp/
 # === 6. СИСТЕМНЫЕ ФАЙЛЫ И РЕДАКТОРЫ ===
 .idea/
 .vscode/
+.vs/
+.agent/
+.antigravity/
+.gemini/
 .DS_Store
 Thumbs.db
 
