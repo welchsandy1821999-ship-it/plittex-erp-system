@@ -24,6 +24,8 @@ db_backups/
 backups/
 postgres_data/
 *.sql
+# Скрипты подготовки БД в репозитории
+!scripts/**/*.sql
 
 # === 5b. ВРЕМЕННЫЕ СКРИПТЫ И ЗАМЕТКИ ===
 tmp/
