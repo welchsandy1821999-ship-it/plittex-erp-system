@@ -1746,28 +1746,37 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
     router.get('/api/sales/history', async (req, res) => {
         try {
+            const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
+            const limitRaw = parseInt(String(req.query.limit || '5'), 10) || 5;
+            const limit = Math.min(100, Math.max(1, limitRaw));
+            const start = String(req.query.start || '').trim();
+            const end = String(req.query.end || '').trim();
+            const search = String(req.query.search || '').trim().toLowerCase();
+            const clientFilter = String(req.query.client || '').trim().toLowerCase();
+
             const result = await pool.query(`
                 SELECT 
-                    COALESCE(m.shipment_doc_number, SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) as doc_num, 
-                    TO_CHAR(MAX(m.movement_date), 'DD.MM.YYYY HH24:MI') as date_formatted, 
-                    SUM(ABS(m.quantity)) as total_qty, 
+                    COALESCE(m.shipment_doc_number, SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) as doc_num,
+                    TO_CHAR(MAX(m.movement_date), 'DD.MM.YYYY HH24:MI') as date_formatted,
+                    MAX(m.movement_date) as raw_date_ts,
+                    SUM(ABS(m.quantity)) as total_qty,
                     (SELECT c.name FROM client_order_items coi JOIN client_orders co ON coi.order_id = co.id JOIN counterparties c ON co.counterparty_id = c.id WHERE coi.id = MAX(m.linked_order_item_id)) as client_name,
                     (SELECT co.id FROM client_order_items coi JOIN client_orders co ON coi.order_id = co.id WHERE coi.id = MAX(m.linked_order_item_id)) as order_id,
                     (SELECT co.counterparty_id FROM client_order_items coi JOIN client_orders co ON coi.order_id = co.id WHERE coi.id = MAX(m.linked_order_item_id)) as client_id,
                     (SELECT co.total_amount FROM client_order_items coi JOIN client_orders co ON coi.order_id = co.id WHERE coi.id = MAX(m.linked_order_item_id)) as total_order_amount,
                     SUM(ABS(m.quantity) * COALESCE((SELECT coi.price FROM client_order_items coi WHERE coi.id = m.linked_order_item_id), 0)) as calculated_shipment_amount,
                     true as cancellable
-                FROM inventory_movements m 
-                WHERE m.movement_type = 'sales_shipment' 
-                GROUP BY COALESCE(m.shipment_doc_number, SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) 
-                HAVING COALESCE(m.shipment_doc_number, SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) IS NOT NULL 
-                ORDER BY MAX(m.movement_date) DESC 
-                LIMIT 100
+                FROM inventory_movements m
+                WHERE m.movement_type = 'sales_shipment'
+                GROUP BY COALESCE(m.shipment_doc_number, SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+'))
+                HAVING COALESCE(m.shipment_doc_number, SUBSTRING(m.description FROM 'УТ-[0-9]+'), SUBSTRING(m.description FROM 'PH-[0-9]+'), SUBSTRING(m.description FROM 'РН-[0-9]+')) IS NOT NULL
+                ORDER BY MAX(m.movement_date) DESC
             `);
             const forcedClosedRes = await pool.query(`
                 SELECT
                     co.doc_number as doc_num,
                     TO_CHAR(co.created_at, 'DD.MM.YYYY HH24:MI') as date_formatted,
+                    co.created_at as raw_date_ts,
                     (SELECT COALESCE(SUM(coi.qty_ordered), 0) FROM client_order_items coi WHERE coi.order_id = co.id)::numeric as total_qty,
                     c.name as client_name,
                     co.id as order_id,
@@ -1786,53 +1795,16 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                       AND m.movement_type = 'sales_shipment'
                   )
                 ORDER BY co.created_at DESC
-                LIMIT 100
             `);
 
             const validRows = [
-                ...(result.rows || []).filter(r => r.doc_num),
-                ...(forcedClosedRes.rows || []).filter(r => r.doc_num)
+                ...(result.rows || []).filter((r) => r.doc_num),
+                ...(forcedClosedRes.rows || []).filter((r) => r.doc_num)
             ];
-            if (validRows.length === 0) return res.json([]);
-
-            const docNumsPattern = validRows.map(r => '%' + r.doc_num + '%');
-            const docNumsExact = validRows.map(r => r.doc_num);
-
-            const txRes = await pool.query(`
-                SELECT t.amount, c.name as client_name, t.description 
-                FROM transactions t 
-                LEFT JOIN counterparties c ON t.counterparty_id = c.id 
-                WHERE t.description LIKE ANY($1::text[])
-            `, [docNumsPattern]);
-
-            const invRes = await pool.query(`
-                SELECT i.total_amount as amount, c.name as client_name, i.invoice_number 
-                FROM invoices i 
-                LEFT JOIN counterparties c ON i.counterparty_id = c.id 
-                WHERE i.invoice_number = ANY($1::text[])
-            `, [docNumsExact]);
-
-            for (let row of validRows) {
-                const tx = txRes.rows.find(t => t.description && t.description.includes(row.doc_num));
-                if (tx) {
-                    row.amount = parseFloat(tx.amount) || parseFloat(row.total_order_amount) || 0;
-                    row.client_name = row.client_name || tx.client_name;
-                    row.payment = '💰 Оплачено';
-                } else {
-                    const inv = invRes.rows.find(i => i.invoice_number === row.doc_num);
-                    if (inv) {
-                        row.amount = parseFloat(inv.amount) || parseFloat(row.total_order_amount) || 0;
-                        row.client_name = row.client_name || inv.client_name;
-                        row.payment = '⏳ В долг';
-                    } else {
-                        // Фаллбэк на сумму оригинального заказа, если счет не найден
-                        row.amount = Number(row.cancellable === false)
-                            ? null
-                            : (parseFloat(row.calculated_shipment_amount) || parseFloat(row.total_order_amount) || 0);
-                        row.payment = Number(row.total_qty || 0) > 0 ? '📦 Накладная' : '🧾 Принудительно закрыт';
-                    }
-                }
+            if (validRows.length === 0) {
+                return res.json({ data: [], pagination: { page: 1, totalPages: 1, total: 0, limit } });
             }
+
             // Убираем дубли по doc_num (если есть и отгрузка, и строка из forced-close), приоритет у реальной отгрузки.
             const byDoc = new Map();
             for (const row of validRows) {
@@ -1847,13 +1819,87 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 const curQty = Number(row.total_qty || 0);
                 if (curQty > prevQty) byDoc.set(key, row);
             }
-            const mergedRows = Array.from(byDoc.values());
-            mergedRows.sort((a, b) => {
-                const ad = String(a.date_formatted || '');
-                const bd = String(b.date_formatted || '');
-                return bd.localeCompare(ad, 'ru');
+
+            const mergedRows = Array.from(byDoc.values()).filter((row) => {
+                const rowDate = row.raw_date_ts ? new Date(row.raw_date_ts).toISOString().slice(0, 10) : '';
+                const matchesStart = !start || (rowDate && rowDate >= start);
+                const matchesEnd = !end || (rowDate && rowDate <= end);
+                const doc = String(row.doc_num || '').toLowerCase();
+                const client = String(row.client_name || '').toLowerCase();
+                const matchesSearch = !search || doc.includes(search) || client.includes(search);
+                const matchesClient = !clientFilter || client === clientFilter;
+                return matchesStart && matchesEnd && matchesSearch && matchesClient;
             });
-            res.json(mergedRows.slice(0, 100));
+
+            mergedRows.sort((a, b) => {
+                const at = a.raw_date_ts ? new Date(a.raw_date_ts).getTime() : 0;
+                const bt = b.raw_date_ts ? new Date(b.raw_date_ts).getTime() : 0;
+                return bt - at;
+            });
+
+            const total = mergedRows.length;
+            const clients = Array.from(new Set(
+                mergedRows
+                    .map((r) => String(r.client_name || '').trim())
+                    .filter(Boolean)
+            )).sort((a, b) => a.localeCompare(b, 'ru'));
+            const totalPages = Math.max(1, Math.ceil(total / limit));
+            const safePage = Math.min(page, totalPages);
+            const pageStart = (safePage - 1) * limit;
+            const pageRows = mergedRows.slice(pageStart, pageStart + limit);
+
+            if (pageRows.length === 0) {
+                return res.json({ data: [], pagination: { page: safePage, totalPages, total, limit } });
+            }
+
+            const docNumsPattern = pageRows.map((r) => `%${r.doc_num}%`);
+            const docNumsExact = pageRows.map((r) => r.doc_num);
+
+            const txRes = await pool.query(`
+                SELECT t.amount, c.name as client_name, t.description
+                FROM transactions t
+                LEFT JOIN counterparties c ON t.counterparty_id = c.id
+                WHERE t.description LIKE ANY($1::text[])
+            `, [docNumsPattern]);
+
+            const invRes = await pool.query(`
+                SELECT i.total_amount as amount, c.name as client_name, i.invoice_number
+                FROM invoices i
+                LEFT JOIN counterparties c ON i.counterparty_id = c.id
+                WHERE i.invoice_number = ANY($1::text[])
+            `, [docNumsExact]);
+
+            for (const row of pageRows) {
+                const tx = txRes.rows.find((t) => t.description && t.description.includes(row.doc_num));
+                if (tx) {
+                    row.amount = parseFloat(tx.amount) || parseFloat(row.total_order_amount) || 0;
+                    row.client_name = row.client_name || tx.client_name;
+                    row.payment = '💰 Оплачено';
+                } else {
+                    const inv = invRes.rows.find((i) => i.invoice_number === row.doc_num);
+                    if (inv) {
+                        row.amount = parseFloat(inv.amount) || parseFloat(row.total_order_amount) || 0;
+                        row.client_name = row.client_name || inv.client_name;
+                        row.payment = '⏳ В долг';
+                    } else {
+                        row.amount = Number(row.cancellable === false)
+                            ? null
+                            : (parseFloat(row.calculated_shipment_amount) || parseFloat(row.total_order_amount) || 0);
+                        row.payment = Number(row.total_qty || 0) > 0 ? '📦 Накладная' : '🧾 Принудительно закрыт';
+                    }
+                }
+            }
+
+            res.json({
+                data: pageRows,
+                clients,
+                pagination: {
+                    page: safePage,
+                    totalPages,
+                    total,
+                    limit
+                }
+            });
         } catch (err) {
             logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });

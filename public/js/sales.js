@@ -12,6 +12,7 @@ let boSearch = '';
 let allSalesHistory = [];
 let historyPage = 1;
 let historySearch = '';
+let historyPagination = { page: 1, totalPages: 1, total: 0, limit: 5 };
 
 let histPeriodType = 'all'; // За всё время
 let histPeriodValue = new Date().getMonth() + 1;
@@ -2260,7 +2261,7 @@ window.applyHistoryPeriod = function (field, value) {
 
 window.applyHistoryFilters = function() {
     historyPage = 1;
-    renderHistoryTable();
+    loadSalesHistory();
 };
 
 window.resetHistoryFilters = function() {
@@ -2276,6 +2277,7 @@ window.resetHistoryFilters = function() {
     historyDateRange = { start: '', end: '' };
     renderHistoryPeriodUI();
     historyPage = 1;
+    historyPagination = { page: 1, totalPages: 1, total: 0, limit: 5 };
     loadSalesHistory();
 };
 
@@ -2319,10 +2321,16 @@ function populateHistoryClientFilter(historyData) {
 }
 
 async function loadSalesHistory() {
-    // 🚀 Задача №14: Привязка фильтров даты и страниц
+    const histSearchEl = document.getElementById('hist-search');
+    const histClientEl = document.getElementById('hist-client-filter');
+    historySearch = histSearchEl ? histSearchEl.value.trim() : '';
+    const clientVal = histClientEl ? (histClientEl.tomselect ? histClientEl.tomselect.getValue() : histClientEl.value) : '';
+
     const query = new URLSearchParams({
         page: historyPage,
+        limit: 5,
         search: historySearch,
+        client: clientVal || '',
         start: historyDateRange.start,
         end: historyDateRange.end,
         _t: Date.now()
@@ -2331,59 +2339,35 @@ async function loadSalesHistory() {
     try {
         const data = await API.get(`/api/sales/history?${query}`);
 
-        // Предполагаем, что сервер возвращает { data: [], totalPages: X }
         allSalesHistory = data.data || data;
-        populateHistoryClientFilter(allSalesHistory); // Заполняем фильтр клиентов
+        historyPagination = data.pagination || {
+            page: historyPage,
+            totalPages: 1,
+            total: Array.isArray(allSalesHistory) ? allSalesHistory.length : 0,
+            limit: 5
+        };
+        historyPage = Number(historyPagination.page || historyPage);
+        populateHistoryClientFilter(data.clients || allSalesHistory); // Заполняем фильтр клиентов
         renderHistoryTable();
     } catch (e) { console.error(e); }
 }
 
 window.changeHistoryPage = function (dir) {
-    historyPage += dir;
-    renderHistoryTable();
+    const nextPage = historyPage + dir;
+    const maxPage = Math.max(1, Number(historyPagination.totalPages || 1));
+    if (nextPage < 1 || nextPage > maxPage) return;
+    historyPage = nextPage;
+    loadSalesHistory();
 };
 
 function renderHistoryTable() {
     const tbody = document.getElementById('sales-history-table');
     if (!tbody) return;
 
-    let filtered = allSalesHistory;
-    // === МУЛЬТИ-ФИЛЬТРАЦИЯ ИСТОРИИ ===
-    const searchVal = (document.getElementById('hist-search') ? document.getElementById('hist-search').value.toLowerCase() : '');
-    const histClientEl = document.getElementById('hist-client-filter');
-    const clientVal = histClientEl ? (histClientEl.tomselect ? histClientEl.tomselect.getValue() : histClientEl.value) : '';
-    const dateFrom = historyDateRange.start; // Берем из календаря
-    const dateTo = historyDateRange.end;
-
-    filtered = allSalesHistory.filter(h => {
-        let matchSearch = !searchVal ||
-            (h.doc_num && h.doc_num.toLowerCase().includes(searchVal)) ||
-            (h.client_name && h.client_name.toLowerCase().includes(searchVal));
-
-        let matchClient = !clientVal || h.client_name === clientVal;
-
-        let matchDate = true;
-        if (dateFrom || dateTo) {
-            // Превращаем формат ДД.ММ.ГГГГ в ГГГГ-ММ-ДД для правильного сравнения
-            if (h.date_formatted) {
-                const dateParts = h.date_formatted.split(' ')[0].split('.');
-                if (dateParts.length === 3) {
-                    const rowDateStr = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
-                    if (dateFrom && rowDateStr < dateFrom) matchDate = false;
-                    if (dateTo && rowDateStr > dateTo) matchDate = false;
-                }
-            }
-        }
-
-        return matchSearch && matchClient && matchDate;
-    });
-
-    const maxPage = Math.ceil(filtered.length / 5) || 1;
-    if (historyPage > maxPage) historyPage = maxPage;
-    if (historyPage < 1) historyPage = 1;
+    const filtered = Array.isArray(allSalesHistory) ? allSalesHistory : [];
 
     // === ИТОГО ===
-    const histCount = filtered.length;
+    const histCount = Number(historyPagination.total || filtered.length);
     const histSum = filtered.reduce((s, h) => s + (parseFloat(h.calculated_shipment_amount) || parseFloat(h.amount) || 0), 0);
     const histFmt = histSum.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
     const histBar = document.getElementById('hist-totals-bar');
@@ -2399,17 +2383,15 @@ function renderHistoryTable() {
             </div>`;
     }
 
-    document.getElementById('hist-page-info').innerText = `Страница ${historyPage} из ${maxPage} (Всего: ${filtered.length})`;
+    const maxPage = Math.max(1, Number(historyPagination.totalPages || 1));
+    document.getElementById('hist-page-info').innerText = `Страница ${historyPage} из ${maxPage} (Всего: ${histCount})`;
 
-    const start = (historyPage - 1) * 5;
-    const paginated = filtered.slice(start, start + 5);
-
-    if (paginated.length === 0) {
+    if (filtered.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" class="sales-empty-cell">Отгрузки не найдены</td></tr>';
         return;
     }
 
-    tbody.innerHTML = paginated.map(h => {
+    tbody.innerHTML = filtered.map(h => {
         // 🚀 НОВОЕ: Умный поиск цены (бэкенд может называть её по-разному)
         const rowSumRaw = (h.amount ?? h.total_amount ?? h.total_sum ?? h.sum);
         const rowSum = Number(rowSumRaw);

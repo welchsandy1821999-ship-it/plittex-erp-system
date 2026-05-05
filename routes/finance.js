@@ -2183,6 +2183,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 }
             });
 
+            cache.invalidate('finance:accounts');
             const io = req.app.get('io');
             if (io) {
                 io.emit('finance_updated');
@@ -2243,6 +2244,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     if (adv.orders && adv.orders.length > 0) touched += adv.orders.length;
                 }
             });
+            cache.invalidate('finance:accounts');
             const io = req.app.get('io');
             if (io) {
                 io.emit('finance_updated');
@@ -2270,6 +2272,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 await client.query(`INSERT INTO transactions (amount, transaction_type, category, category_override, description, account_id, linked_id, transaction_date) VALUES ($1, 'income', 'Перевод', $2, $3, $4, $5, $6)`, [amount, TRANSFER_CATEGORY_CHILDREN.INTERNAL, comment, to_account_id, linkedId, finalDate]);
             });
 
+            cache.invalidate('finance:accounts');
             const io = req.app.get('io');
             if (io) io.emit('finance_updated');
             res.json({ success: true, message: 'Перевод выполнен' });
@@ -2383,6 +2386,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 await recalcAccountBalances(client, out.affectedAccountIds || []);
             });
 
+            cache.invalidate('finance:accounts');
             const io = req.app.get('io');
             if (io) io.emit('finance_updated');
             auditLog(pool, req, 'delete_transaction', 'transaction', parseInt(id, 10), `reason=${reason}`);
@@ -2449,6 +2453,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 `);
             });
 
+            cache.invalidate('finance:accounts');
             const io = req.app.get('io');
             if (io) io.emit('finance_updated');
             res.json({ success: true });
