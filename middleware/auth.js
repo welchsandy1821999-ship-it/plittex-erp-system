@@ -1,6 +1,15 @@
 const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
 
+/**
+ * ВРЕМЕННЫЙ РЕЖИМ: всем авторизованным пользователям даём права admin.
+ * Отключение: FORCE_ALL_USERS_ADMIN=false в .env (и перезапуск сервера).
+ */
+function isForceAllUsersAdmin() {
+    const raw = String(process.env.FORCE_ALL_USERS_ADMIN || 'true').trim().toLowerCase();
+    return !(raw === '0' || raw === 'false' || raw === 'no' || raw === 'off');
+}
+
 const authenticateToken = (req, res, next) => {
     // Маршруты-исключения: только логин
     if (req.path === '/login' || req.path === '/api/login') {
@@ -56,7 +65,7 @@ const authenticateToken = (req, res, next) => {
 
 const requireAdmin = (req, res, next) => {
     // Ждем, что req.user уже заполнен через authenticateToken
-    if (req.user && req.user.role === 'admin') {
+    if (req.user && (req.user.role === 'admin' || isForceAllUsersAdmin())) {
         next();
     } else {
         res.status(403).json({ error: '⛔ Доступ запрещен. Требуются права Администратора.' });
@@ -71,6 +80,7 @@ const requirePlannedPlanManage = (req, res, next) => {
     if (!u) {
         return res.status(401).json({ error: 'Нет доступа' });
     }
+    if (isForceAllUsersAdmin()) return next();
     if (u.role === 'admin' || u.can_planned === true) {
         return next();
     }
@@ -99,6 +109,7 @@ const REPORT_DEFAULT_ROLE_MATRIX = {
 
 function hasReportPermission(user, action) {
     if (!user || !REPORT_ACTIONS.has(action)) return false;
+    if (isForceAllUsersAdmin()) return true;
     if (String(user.role || '').toLowerCase() === 'admin') return true;
 
     // Explicit JWT flags have priority

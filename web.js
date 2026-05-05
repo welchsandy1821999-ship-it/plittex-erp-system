@@ -3,6 +3,11 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const logger = require('./utils/logger');
 
+function isForceAllUsersAdmin() {
+    const raw = String(process.env.FORCE_ALL_USERS_ADMIN || 'true').trim().toLowerCase();
+    return !(raw === '0' || raw === 'false' || raw === 'no' || raw === 'off');
+}
+
 process.on('unhandledRejection', (reason, promise) => {
     logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
@@ -298,20 +303,21 @@ app.post('/api/login', async (req, res) => {
             return res.status(500).json({ error: 'Ошибка конфигурации сервера' });
         }
 
+        const effectiveRole = isForceAllUsersAdmin() ? 'admin' : user.role;
         const canPlanned =
-            user.role === 'admin' ||
+            effectiveRole === 'admin' ||
             user.can_manage_planned_payments === true ||
             (user.role && PLANNED_PLAN_ROLES.has(String(user.role)));
 
         const token = jwt.sign(
-            { id: user.id, username: user.username, role: user.role, can_planned: canPlanned },
+            { id: user.id, username: user.username, role: effectiveRole, can_planned: canPlanned },
             JWT_SECRET,
             { expiresIn: '12h' }
         );
         logger.info(`✅ Успешный вход: ${username}`);
         res.json({
             token,
-            user: { id: user.id, username: user.username, role: user.role, can_planned: canPlanned }
+            user: { id: user.id, username: user.username, role: effectiveRole, can_planned: canPlanned }
         });
     } catch (err) {
         logger.error(`💥 Ошибка API входа: ${err.message}`);
