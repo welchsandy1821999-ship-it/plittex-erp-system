@@ -2049,58 +2049,83 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 if (category) category = await resolveCategoryAlias(client, category);
                 if (employee_mode === 'instant_expense' && counterparty_id) {
                     await ensureTransferCategories(client);
-                    const cpRes = await client.query('SELECT name FROM counterparties WHERE id = $1', [counterparty_id]);
+                    const cpRes = await client.query('SELECT name, employee_id FROM counterparties WHERE id = $1', [counterparty_id]);
                     if (cpRes.rows.length === 0) throw new Error('Сотрудник не найден');
                     const cpName = cpRes.rows[0].name;
+                    const employeeId = cpRes.rows[0].employee_id || null;
+                    if (!employeeId) throw new Error('У сотрудника не настроена связка counterparty.employee_id');
 
-                    const accRes = await client.query(`SELECT id FROM accounts WHERE type = 'imprest' AND name = $1`, ['Подотчет: ' + cpName]);
+                    const accRes = await client.query(
+                        `SELECT id FROM accounts
+                         WHERE employee_id = $1
+                           AND (account_role = 'imprest' OR type = 'imprest')
+                         ORDER BY id ASC
+                         LIMIT 1`,
+                        [employeeId]
+                    );
                     if (accRes.rows.length === 0) throw new Error('Виртуальный счет сотрудника не найден (' + cpName + ')');
                     const imprest_account_id = accRes.rows[0].id;
 
                     // Запись 1: Транзит на imprest счет (Списание из кассы)
                     await client.query(`
-                        INSERT INTO transactions (amount, transaction_type, category, category_override, description, payment_method, account_id, transaction_date)
-                        VALUES ($1, 'expense', 'Перевод', $2, $3, $4, $5, $6)
-                    `, [amount, TRANSFER_CATEGORY_CHILDREN.IMPREST_TRANSIT, `Мгновенный транзит под отчет: ${cpName}`, method, account_id, finalDate]);
+                        INSERT INTO transactions (amount, transaction_type, category, category_override, description, payment_method, account_id, counterparty_id, employee_id, source_module, system_type, transaction_date)
+                        VALUES ($1, 'expense', 'Перевод', $2, $3, $4, $5, $6, $7, 'finance', 'imprest_instant_transit_out', $8)
+                    `, [amount, TRANSFER_CATEGORY_CHILDREN.IMPREST_TRANSIT, `Мгновенный транзит под отчет: ${cpName}`, method, account_id, counterparty_id, employeeId, finalDate]);
 
                     // Запись 1.5: Транзит на imprest счет (Зачисление в imprest)
                     await client.query(`
-                        INSERT INTO transactions (amount, transaction_type, category, category_override, description, payment_method, account_id, transaction_date)
-                        VALUES ($1, 'income', 'Перевод', $2, $3, $4, $5, $6)
-                    `, [amount, TRANSFER_CATEGORY_CHILDREN.IMPREST_TRANSIT, `Мгновенный транзит под отчет: ${cpName}`, method, imprest_account_id, finalDate]);
+                        INSERT INTO transactions (amount, transaction_type, category, category_override, description, payment_method, account_id, counterparty_id, employee_id, source_module, system_type, transaction_date)
+                        VALUES ($1, 'income', 'Перевод', $2, $3, $4, $5, $6, $7, 'finance', 'imprest_instant_transit_in', $8)
+                    `, [amount, TRANSFER_CATEGORY_CHILDREN.IMPREST_TRANSIT, `Мгновенный транзит под отчет: ${cpName}`, method, imprest_account_id, counterparty_id, employeeId, finalDate]);
 
                     // Запись 2: Непосредственная покупка (🚀 СЮДА ДОБАВИЛИ cost_group_override)
                     await client.query(`
-                        INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, transaction_date, cost_group_override)
-                        VALUES ($1, 'expense', $2, $3, $4, $5, NULL, $6, $7)
-                    `, [amount, category || 'Хоз. нужды', `${description} (через сотрудника: ${cpName})`, method, imprest_account_id, finalDate, cost_group_override || null]);
+                        INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, employee_id, source_module, system_type, transaction_date, cost_group_override)
+                        VALUES ($1, 'expense', $2, $3, $4, $5, $6, $7, 'finance', 'imprest_instant_expense', $8, $9)
+                    `, [amount, category || 'Хоз. нужды', `${description} (через сотрудника: ${cpName})`, method, imprest_account_id, counterparty_id, employeeId, finalDate, cost_group_override || null]);
 
                 } else if (employee_mode === 'imprest' && counterparty_id) {
                     await ensureTransferCategories(client);
-                    const cpRes = await client.query('SELECT name FROM counterparties WHERE id = $1', [counterparty_id]);
+                    const cpRes = await client.query('SELECT name, employee_id FROM counterparties WHERE id = $1', [counterparty_id]);
                     const cpName = cpRes.rows[0].name;
-
-                    const accRes = await client.query(`SELECT id FROM accounts WHERE type = 'imprest' AND name = $1`, ['Подотчет: ' + cpName]);
+                    const employeeId = cpRes.rows[0].employee_id || null;
+                    if (!employeeId) throw new Error('У сотрудника не настроена связка counterparty.employee_id');
+                    const accRes = await client.query(
+                        `SELECT id FROM accounts
+                         WHERE employee_id = $1
+                           AND (account_role = 'imprest' OR type = 'imprest')
+                         ORDER BY id ASC
+                         LIMIT 1`,
+                        [employeeId]
+                    );
                     if (accRes.rows.length === 0) throw new Error('Виртуальный счет сотрудника не найден (' + cpName + ')');
                     const imprest_account_id = accRes.rows[0].id;
 
                     const linkedId = crypto.randomUUID();
 
                     await client.query(`
-                        INSERT INTO transactions (amount, transaction_type, category, category_override, description, payment_method, account_id, linked_id, transaction_date)
-                        VALUES ($1, 'expense', 'Перевод', $2, $3, $4, $5, $6, $7)
-                    `, [amount, TRANSFER_CATEGORY_CHILDREN.IMPREST_ISSUE, `Выдача под отчет: ${cpName}`, method, account_id, linkedId, finalDate]);
+                        INSERT INTO transactions (amount, transaction_type, category, category_override, description, payment_method, account_id, counterparty_id, employee_id, source_module, system_type, linked_id, transaction_date)
+                        VALUES ($1, 'expense', 'Перевод', $2, $3, $4, $5, $6, $7, 'finance', 'imprest_issue_out', $8, $9)
+                    `, [amount, TRANSFER_CATEGORY_CHILDREN.IMPREST_ISSUE, `Выдача под отчет: ${cpName}`, method, account_id, counterparty_id, employeeId, linkedId, finalDate]);
 
                     await client.query(`
-                        INSERT INTO transactions (amount, transaction_type, category, category_override, description, payment_method, account_id, linked_id, transaction_date)
-                        VALUES ($1, 'income', 'Перевод', $2, $3, $4, $5, $6, $7)
-                    `, [amount, TRANSFER_CATEGORY_CHILDREN.IMPREST_ISSUE, `Получение под отчет: ${cpName}`, method, imprest_account_id, linkedId, finalDate]);
+                        INSERT INTO transactions (amount, transaction_type, category, category_override, description, payment_method, account_id, counterparty_id, employee_id, source_module, system_type, linked_id, transaction_date)
+                        VALUES ($1, 'income', 'Перевод', $2, $3, $4, $5, $6, $7, 'finance', 'imprest_issue_in', $8, $9)
+                    `, [amount, TRANSFER_CATEGORY_CHILDREN.IMPREST_ISSUE, `Получение под отчет: ${cpName}`, method, imprest_account_id, counterparty_id, employeeId, linkedId, finalDate]);
 
                 } else if (employee_mode === 'return' && counterparty_id) {
-                    const cpRes = await client.query('SELECT name FROM counterparties WHERE id = $1', [counterparty_id]);
+                    const cpRes = await client.query('SELECT name, employee_id FROM counterparties WHERE id = $1', [counterparty_id]);
                     const cpName = cpRes.rows[0].name;
-
-                    const accRes = await client.query(`SELECT id FROM accounts WHERE type = 'imprest' AND name = $1`, ['Подотчет: ' + cpName]);
+                    const employeeId = cpRes.rows[0].employee_id || null;
+                    if (!employeeId) throw new Error('У сотрудника не настроена связка counterparty.employee_id');
+                    const accRes = await client.query(
+                        `SELECT id FROM accounts
+                         WHERE employee_id = $1
+                           AND (account_role = 'imprest' OR type = 'imprest')
+                         ORDER BY id ASC
+                         LIMIT 1`,
+                        [employeeId]
+                    );
                     if (accRes.rows.length === 0) throw new Error('Виртуальный счет сотрудника не найден (' + cpName + ')');
                     const imprest_account_id = accRes.rows[0].id;
 
@@ -2108,15 +2133,15 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
                     // Расход со счета сотрудника (Возврат из подотчета)
                     await client.query(`
-                        INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, linked_id, transaction_date)
-                        VALUES ($1, 'expense', 'Возврат из подотчета', $2, $3, $4, $5, $6)
-                    `, [amount, description || `Возврат в кассу: ${cpName}`, method, imprest_account_id, linkedId, finalDate]);
+                        INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, employee_id, source_module, system_type, linked_id, transaction_date)
+                        VALUES ($1, 'expense', 'Возврат из подотчета', $2, $3, $4, $5, $6, 'finance', 'imprest_return_out', $7, $8)
+                    `, [amount, description || `Возврат в кассу: ${cpName}`, method, imprest_account_id, counterparty_id, employeeId, linkedId, finalDate]);
 
                     // Приход в основную кассу
                     await client.query(`
-                        INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, linked_id, transaction_date, cost_group_override)
-                        VALUES ($1, 'income', $2, $3, $4, $5, $6, $7, $8)
-                    `, [amount, category || 'Возврат из подотчета', description || `Возврат от: ${cpName}`, method, account_id, linkedId, finalDate, cost_group_override || null]);
+                        INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, employee_id, source_module, system_type, linked_id, transaction_date, cost_group_override)
+                        VALUES ($1, 'income', $2, $3, $4, $5, $6, $7, 'finance', 'imprest_return_in', $8, $9, $10)
+                    `, [amount, category || 'Возврат из подотчета', description || `Возврат от: ${cpName}`, method, account_id, counterparty_id, employeeId, linkedId, finalDate, cost_group_override || null]);
 
                     // Обязательный пересчет балансов обеих касс!
                     await client.query(`
@@ -2322,7 +2347,17 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     const finalBalance = new Big(currentBalance).minus(totalAmount).toNumber();
 
                     if (finalBalance !== 0) {
-                        const cpRes = await client.query('SELECT id, employee_id FROM counterparties WHERE name = $1 AND is_employee = true', [employeeName]);
+                        const cpRes = await client.query(
+                            `SELECT cp.id, cp.employee_id
+                             FROM accounts a
+                             JOIN counterparties cp ON cp.employee_id = a.employee_id
+                             WHERE a.id = $1
+                               AND (a.account_role = 'imprest' OR a.type = 'imprest')
+                               AND COALESCE(cp.is_deleted, false) = false
+                             ORDER BY cp.id ASC
+                             LIMIT 1`,
+                            [account_id]
+                        );
                         if (cpRes.rows.length > 0) {
                             const cpId = cpRes.rows[0].id;
                             const empId = cpRes.rows[0].employee_id;
@@ -2330,9 +2365,10 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
                             // Очистка финансового счета (обнуляем подотчет)
                             const closeType = finalBalance > 0 ? 'expense' : 'income';
-                            await client.query(`
+                            const closeTxRes = await client.query(`
                                 INSERT INTO transactions (amount, transaction_type, category, description, account_id, counterparty_id, transaction_date, payment_method)
                                 VALUES ($1, $2, 'Доп. операции', $3, $4, $5, $6, 'Взаимозачет')
+                                RETURNING id
                             `, [absBalance, closeType, finalBalance > 0 ? 'Списание остатка (перенос в ЗП)' : 'Пополнение перерасхода (перенос из ЗП)', account_id, cpId, transDate]);
 
                             // Трансляция в Зарплату (HR Модуль - salary_adjustments)
@@ -2341,9 +2377,22 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                                 const adjAmount = finalBalance > 0 ? -absBalance : absBalance;
                                 const adjDesc = finalBalance > 0 ? 'Удержание неистраченного подотчета' : 'Компенсация перерасхода по авансовому отчету';
 
+                                const adjRes = await client.query(
+                                    `INSERT INTO salary_adjustments
+                                        (employee_id, month_str, amount, description, counterparty_id, linked_transaction_id, cash_posting_mode, cash_account_id, operation_kind, source_module)
+                                     VALUES
+                                        ($1, $2, $3, $4, $5, $6, 'none', NULL, 'imprest_settlement', 'finance')
+                                     RETURNING id`,
+                                    [empId, monthStr, adjAmount, adjDesc, cpId, closeTxRes.rows[0].id]
+                                );
                                 await client.query(
-                                    `INSERT INTO salary_adjustments (employee_id, month_str, amount, description) VALUES ($1, $2, $3, $4)`,
-                                    [empId, monthStr, adjAmount, adjDesc]
+                                    `UPDATE transactions
+                                     SET employee_id = $1,
+                                         salary_adjustment_id = $2,
+                                         source_module = 'finance',
+                                         system_type = 'imprest_settlement_bridge'
+                                     WHERE id = $3`,
+                                    [empId, adjRes.rows[0].id, closeTxRes.rows[0].id]
                                 );
                             }
                         }
@@ -2683,52 +2732,63 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         const { account_id, transactions } = req.body;
 
         try {
-            let importedCount = 0; let autoPaidInvoicesCount = 0;
+            let importedCount = 0;
+            let skippedAsDuplicate = 0;
+            let errorsCount = 0;
+            let autoPaidInvoicesCount = 0;
+
+            const normalizeBankDocNo = (value, description) => {
+                const direct = String(value || '').trim();
+                if (direct) return direct;
+                const fallback = String(description || '').match(/\(№([^)]+)\)/i);
+                return fallback && fallback[1] ? String(fallback[1]).trim() : null;
+            };
+            const normalizeBankDocDate = (value, txDate) => {
+                const direct = String(value || '').trim();
+                if (direct) {
+                    const m = direct.match(/^(\d{4}-\d{2}-\d{2})/);
+                    if (m) return m[1];
+                }
+                const fallback = String(txDate || '').trim().match(/^(\d{4}-\d{2}-\d{2})/);
+                return fallback ? fallback[1] : null;
+            };
 
             await withTransaction(pool, async (client) => {
                 await ensureTransferCategories(client);
                 await ensureTechnicalCategories(client);
                 await ensureCategoryAliasesTable(client);
                 for (let tr of transactions) {
-                    let cp_id = null;
-                    let safeInn = tr.counterparty_inn ? String(tr.counterparty_inn).split('/')[0].split('\\')[0].trim().substring(0, 20) : null;
-                    const safeName = tr.counterparty_name ? String(tr.counterparty_name).substring(0, 140) : 'Неизвестный партнер';
-                    const cpType = tr.type === 'income' ? 'Покупатель' : 'Поставщик';
-                    const isBuyer = tr.type === 'income';
-                    const isSupplier = tr.type !== 'income';
+                    try {
+                        let cp_id = null;
+                        let safeInn = tr.counterparty_inn ? String(tr.counterparty_inn).split('/')[0].split('\\')[0].trim().substring(0, 20) : null;
+                        const safeName = tr.counterparty_name ? String(tr.counterparty_name).substring(0, 140) : 'Неизвестный партнер';
+                        const cpType = tr.type === 'income' ? 'Покупатель' : 'Поставщик';
+                        const isBuyer = tr.type === 'income';
+                        const isSupplier = tr.type !== 'income';
 
-                    // 1. Поиск или создание контрагента
-                    if (safeInn) {
-                        let cpRes = await client.query('SELECT id FROM counterparties WHERE inn = $1 LIMIT 1', [safeInn]);
-                        if (cpRes.rows.length > 0) cp_id = cpRes.rows[0].id;
-                        else {
-                            const newCp = await client.query(`INSERT INTO counterparties (name, inn, role, is_buyer, is_supplier, entity_type) VALUES ($1, $2, $3, $4, $5, 'legal') RETURNING id`, [safeName, safeInn, cpType, isBuyer, isSupplier]);
-                            cp_id = newCp.rows[0].id;
+                        // 1. Поиск или создание контрагента
+                        if (safeInn) {
+                            let cpRes = await client.query('SELECT id FROM counterparties WHERE inn = $1 LIMIT 1', [safeInn]);
+                            if (cpRes.rows.length > 0) cp_id = cpRes.rows[0].id;
+                            else {
+                                const newCp = await client.query(`INSERT INTO counterparties (name, inn, role, is_buyer, is_supplier, entity_type) VALUES ($1, $2, $3, $4, $5, 'legal') RETURNING id`, [safeName, safeInn, cpType, isBuyer, isSupplier]);
+                                cp_id = newCp.rows[0].id;
+                            }
+                        } else {
+                            let cpRes = await client.query('SELECT id FROM counterparties WHERE name = $1 LIMIT 1', [safeName]);
+                            if (cpRes.rows.length > 0) cp_id = cpRes.rows[0].id;
+                            else {
+                                const newCp = await client.query(`INSERT INTO counterparties (name, role, is_buyer, is_supplier, entity_type) VALUES ($1, $2, $3, $4, 'legal') RETURNING id`, [safeName, cpType, isBuyer, isSupplier]);
+                                cp_id = newCp.rows[0].id;
+                            }
                         }
-                    } else {
-                        let cpRes = await client.query('SELECT id FROM counterparties WHERE name = $1 LIMIT 1', [safeName]);
-                        if (cpRes.rows.length > 0) cp_id = cpRes.rows[0].id;
-                        else {
-                            const newCp = await client.query(`INSERT INTO counterparties (name, role, is_buyer, is_supplier, entity_type) VALUES ($1, $2, $3, $4, 'legal') RETURNING id`, [safeName, cpType, isBuyer, isSupplier]);
-                            cp_id = newCp.rows[0].id;
-                        }
-                    }
-                    const txDate = tr.date; // Дата строго из выписки (уже с временем 12:00:00 от фронтенда)
-                    if (!txDate) throw new Error("Система не смогла прочитать дату операции!");
-                    const safeDescription = tr.description || '';
+                        const txDate = tr.date; // Дата строго из выписки (уже с временем 12:00:00 от фронтенда)
+                        if (!txDate) throw new Error("Система не смогла прочитать дату операции!");
+                        const safeDescription = tr.description || '';
+                        const regDocumentNo = normalizeBankDocNo(tr.bank_doc_no, safeDescription);
+                        const regDocumentDate = normalizeBankDocDate(tr.bank_doc_date, txDate);
+                        const regSourceTag = '1c_import';
 
-                    // 🛡️ ЖЕЛЕЗОБЕТОННАЯ ПРОВЕРКА НА ДУБЛИКАТЫ
-                    // Сверяем счет, сумму, описание, тип и точную дату (игнорируя время загрузки)
-                    const dupCheck = await client.query(`
-                        SELECT id FROM transactions 
-                        WHERE account_id = $1 AND amount = $2 AND description = $3 AND transaction_type = $4 
-                        AND transaction_date >= $5::timestamp AND transaction_date < ($5::timestamp + interval '1 day')
-                        LIMIT 1
-                    `, [account_id, tr.amount, safeDescription, tr.type, txDate]);
-
-                    // Если дубля нет — обрабатываем и сохраняем
-                    // Если дубля нет — обрабатываем и сохраняем
-                    if (dupCheck.rows.length === 0) {
                         let category = tr.type === 'income' ? 'Продажа продукции' : 'Закупка сырья';
                         const cpName = (tr.counterparty_name || '').toLowerCase();
                         const descLower = (tr.description || '').toLowerCase();
@@ -2823,10 +2883,32 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                         });
                         if (importTransferOverride) await ensureCategoryExists(client, importTransferOverride, 'expense', 'capital', null);
                         if (importTechnicalOverride) await ensureCategoryExists(client, importTechnicalOverride, 'expense', 'capital', null);
-                        await client.query(`
-                            INSERT INTO transactions (amount, transaction_type, category, category_override, description, payment_method, account_id, counterparty_id, transaction_date, created_at, cost_group_override) 
-                            VALUES ($1, $2, $3, $4, $5, 'Безналичный расчет (Импорт)', $6, $7, $8::timestamp, NOW(), $9)
-                        `, [tr.amount, tr.type, category, importTransferOverride || importTechnicalOverride, safeDescription, account_id, cp_id, txDate, overrideGroup]);
+                        const insertRes = await client.query(`
+                            INSERT INTO transactions (
+                                amount, transaction_type, category, category_override, description, payment_method, account_id, counterparty_id,
+                                transaction_date, created_at, cost_group_override, reg_document_no, reg_document_date, reg_source_tag
+                            ) 
+                            VALUES (
+                                $1, $2, $3, $4, $5, 'Безналичный расчет (Импорт)', $6, $7,
+                                $8::timestamp, NOW(), $9, $10, $11::date, $12
+                            )
+                            ON CONFLICT (
+                                account_id, transaction_type, reg_document_date, ROUND(amount::numeric, 2), BTRIM(reg_document_no)
+                            )
+                            WHERE COALESCE(is_deleted, false) = false
+                              AND COALESCE(reg_source_tag, '') = '1c_import'
+                              AND reg_document_no IS NOT NULL
+                              AND BTRIM(reg_document_no) <> ''
+                              AND reg_document_date IS NOT NULL
+                              AND account_id IS NOT NULL
+                            DO NOTHING
+                            RETURNING id
+                        `, [tr.amount, tr.type, category, importTransferOverride || importTechnicalOverride, safeDescription, account_id, cp_id, txDate, overrideGroup, regDocumentNo, regDocumentDate, regSourceTag]);
+
+                        if (insertRes.rows.length === 0) {
+                            skippedAsDuplicate++;
+                            continue;
+                        }
 
                         // Логика автоматического закрытия выставленных счетов
                         if (tr.type === 'income') {
@@ -2852,10 +2934,20 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                             }
                         }
                         importedCount++;
+                    } catch (rowErr) {
+                        errorsCount++;
+                        logger.error(`Ошибка импорта банковской строки: ${rowErr.message}`);
                     }
                 }
             });
-            res.json({ success: true, count: importedCount, autoPaid: autoPaidInvoicesCount });
+            res.json({
+                success: true,
+                count: importedCount,
+                imported: importedCount,
+                skippedAsDuplicate,
+                errors: errorsCount,
+                autoPaid: autoPaidInvoicesCount
+            });
         } catch (err) {
             logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
