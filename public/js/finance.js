@@ -1109,6 +1109,13 @@
                 }
             } else {
                 if (modeWrapper) modeWrapper.classList.add('d-none');
+                // Безопасный сброс employee-mode для не-сотрудника:
+                // исключаем "залипание" прошлого выбора между контрагентами.
+                document.querySelectorAll('input[name="employee-mode"]').forEach(r => { r.checked = false; });
+                if (lblSettlement) lblSettlement.className = 'btn btn-outline';
+                if (lblImprest) lblImprest.className = 'btn btn-outline';
+                if (lblInstant) lblInstant.className = 'btn btn-outline';
+                if (lblReturn) lblReturn.className = 'btn btn-outline';
             }
         }
 
@@ -1387,19 +1394,27 @@
         const account_id = document.getElementById('trans-account-id').value;
         const cpNameInput = document.getElementById('trans-counterparty-name').value.trim();
 
-        // Получаем текущий режим выбора сотрудника, если он есть
-        const empModeInput = document.querySelector('input[name="employee-mode"]:checked');
-        const employee_mode = empModeInput ? empModeInput.value : 'settlement';
+        // employee_mode отправляем только для контрагента-сотрудника и только когда блок режимов активен.
+        const modeWrapper = document.getElementById('employee-mode-wrapper');
+        const isEmployeeModeVisible = modeWrapper && !modeWrapper.classList.contains('d-none');
+        let employee_mode = null;
         let counterparty_id = null;
+        let selectedCounterparty = null;
 
         if (cpNameInput) {
             const foundCp = financeCounterparties.find(c => c.name.toLowerCase() === cpNameInput.toLowerCase());
             if (foundCp) {
                 counterparty_id = foundCp.id;
+                selectedCounterparty = foundCp;
             } else {
                 if (btnElement) btnElement.disabled = false;
                 return UI.toast('Контрагент не найден. Выберите из списка!', 'warning');
             }
+        }
+
+        if (selectedCounterparty && selectedCounterparty.is_employee && isEmployeeModeVisible) {
+            const empModeInput = document.querySelector('input[name="employee-mode"]:checked');
+            employee_mode = empModeInput ? empModeInput.value : null;
         }
 
         const lowerCat = category ? category.toLowerCase() : '';
