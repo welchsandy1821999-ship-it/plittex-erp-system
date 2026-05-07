@@ -13,6 +13,8 @@ let itemsPerPage = 50;
 let demoldPackagingCheckSupported = true;
 let demoldKitMaterialsCache = null;
 let inventoryDensity = 'compact';
+let showFinishedBatches = false;
+let subtractFinishedReserves = false;
 let reserveFilters = {
     status: 'active',
     view: 'orders',
@@ -20,6 +22,7 @@ let reserveFilters = {
     order: '',
     preset: 'none'
 };
+let reserveRebalanceInFlight = false;
 
 function applyInventoryDensity() {
     const mod = document.getElementById('stock-mod');
@@ -130,6 +133,77 @@ function syncReserveControlsVisibility() {
     if (!panel) return;
     panel.classList.toggle('inv-hidden', currentWarehouseFilter !== '7');
     if (summary) summary.classList.toggle('inv-hidden', currentWarehouseFilter !== '7');
+}
+
+function syncFinishedControlsVisibility() {
+    const panel = document.getElementById('inv-finished-controls');
+    if (!panel) return;
+    const show = currentWarehouseFilter === '4' && !isAuditMode;
+    panel.classList.toggle('inv-hidden', !show);
+}
+
+async function triggerReserveRebalance(btnEl) {
+    if (reserveRebalanceInFlight) return;
+    reserveRebalanceInFlight = true;
+    const btn = btnEl || document.querySelector('#stock-mod .inv-reserve-btn.filter-btn.active');
+    const prevHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.classList.add('disabled');
+        btn.innerHTML = '⏳ Склад №7 (Резервы)';
+    }
+    try {
+        await API.post('/api/inventory/rebalance-reserves', {});
+        await loadTable();
+    } catch (_) {
+        // Тихий режим: не блокируем пользователя и не спамим UI ошибками.
+    } finally {
+        if (btn) {
+            btn.classList.remove('disabled');
+            btn.innerHTML = prevHtml || '🔒 Склад №7 (Резервы)';
+        }
+        reserveRebalanceInFlight = false;
+    }
+}
+
+window.onFinishedViewOptionsChange = function() {
+    showFinishedBatches = Boolean(document.getElementById('inv-show-batches-check')?.checked);
+    subtractFinishedReserves = Boolean(document.getElementById('inv-subtract-reserves-check')?.checked);
+    currentPage = 1;
+    renderInventoryTable();
+};
+
+function processInventoryForView(data, showBatches, subtractReserves) {
+    if (!Array.isArray(data)) return [];
+    let rows = data;
+    if (!showBatches) {
+        const grouped = new Map();
+        for (const row of rows) {
+            const key = String(row.item_id || '');
+            if (!key) continue;
+            if (!grouped.has(key)) {
+                grouped.set(key, {
+                    ...row,
+                    batch_id: null,
+                    batch_number: 'Общая',
+                    reserve_qty_by_batch: 0,
+                    total: 0
+                });
+            }
+            const item = grouped.get(key);
+            item.total = Number(item.total || 0) + Number(row.total || 0);
+            item.reserve_qty_by_batch = Number(item.reserve_qty_by_batch || 0) + Number(row.reserve_qty_by_batch || 0);
+        }
+        rows = Array.from(grouped.values());
+    }
+    return rows.map((row) => {
+        const total = Number(row.total || 0);
+        const reserve = Number(row.reserve_qty_by_batch || 0);
+        const rawDisplay = subtractReserves ? Math.max(0, total - reserve) : total;
+        return {
+            ...row,
+            display_qty: Number(rawDisplay.toFixed(4))
+        };
+    });
 }
 
 function syncReserveSelectors(rows) {
@@ -374,9 +448,13 @@ function applyWarehouseFilter(id, btn) {
 
     currentWarehouseFilter = id;
     syncReserveControlsVisibility();
+    syncFinishedControlsVisibility();
     document.querySelectorAll('#stock-mod .filter-btn').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');
     renderInventoryTable();
+    if (id === '7') {
+        void triggerReserveRebalance(btn);
+    }
 
     // Показ/скрытие блока истории сушилки
     const historyBlock = document.getElementById('drying-history-block');
@@ -402,6 +480,7 @@ function syncAuditUI(auditEnabled) {
     if (auditEnabled) {
         document.querySelectorAll('#stock-mod .dropdown-menu').forEach((menu) => menu.classList.add('inv-hidden'));
     }
+    syncFinishedControlsVisibility();
 }
 
 window.toggleAuditMode = function () {
@@ -513,6 +592,7 @@ function renderInventoryTable() {
 
     const isReserveView = currentWarehouseFilter === '7';
     syncReserveControlsVisibility();
+    syncFinishedControlsVisibility();
 
     // Динамический заголовок: Склад №7 показывает колонку "Заказ"
     if (thead) {
@@ -580,6 +660,7 @@ function renderInventoryTable() {
     let reserveRows = filtered;
     if (isReserveView) {
         reserveRows = filtered.filter((r) => {
+            if (!r.linked_order_item_id) return false;
             const status = String(r.order_status || '').toLowerCase();
             const qtyOrdered = Number(r.order_qty_ordered || 0);
             const qtyShipped = Number(r.order_qty_shipped || 0);
@@ -595,7 +676,11 @@ function renderInventoryTable() {
             return true;
         });
     }
-    const sourceRows = isReserveView ? reserveRows : filtered;
+    const sourceRows = isReserveView
+        ? reserveRows
+        : (currentWarehouseFilter === '4'
+            ? processInventoryForView(filtered, showFinishedBatches, subtractFinishedReserves)
+            : filtered);
     const pagesBy = Math.ceil(sourceRows.length / itemsPerPage) || 1;
     if (currentPage > pagesBy) currentPage = pagesBy;
     const startIdx = (currentPage - 1) * itemsPerPage;
@@ -704,7 +789,8 @@ function renderInventoryTable() {
                        onfocus="this.select()">
             </td>`;
         } else {
-            qtyHtml = `<td class="inv-qty-cell">${parseFloat(item.total).toLocaleString('ru-RU', { maximumFractionDigits: 2 })}</td>`;
+            const rowQty = Number(item.display_qty ?? item.total ?? 0);
+            qtyHtml = `<td class="inv-qty-cell">${rowQty.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}</td>`;
 
             if (isReserveView) {
                 // Склад №7: кнопка управления резервом
@@ -712,12 +798,14 @@ function renderInventoryTable() {
                     onclick="openReserveManagerModal(${item.item_id}, ${item.batch_id || 'null'}, ${item.linked_order_item_id || 'null'}, ${item.total})">
                     🔄 Управление
                 </button>`;
+            } else if (currentWarehouseFilter === '4' && !showFinishedBatches) {
+                actionHtml = `<span class="text-muted">Включите «По партиям»</span>`;
             } else if (item.warehouse_id === 3) {
                 if (item.batch_status === 'completed') {
                     actionHtml = `<span class="inv-demold-done-badge">✅ Упаковано</span>`;
                 } else {
                     const btnId = `demold-btn-${item.batch_id}`;
-                    actionHtml = `<button id="${btnId}" class="btn inv-btn-demold-enterprise" onclick="openDemoldingModal(${item.batch_id}, '${item.batch_number || 'Б/Н'}', ${item.item_id}, '${item.item_name}', ${item.total})">🧱 Распалубить</button>`;
+                    actionHtml = `<button id="${btnId}" class="btn inv-btn-demold-enterprise" onclick="openDemoldingModal(${item.batch_id}, '${item.batch_number || 'Б/Н'}', ${item.item_id}, '${item.item_name}', ${item.display_qty ?? item.total})">🧱 Распалубить</button>`;
                 }
             } else if (item.warehouse_id === 5 || item.warehouse_id === 6) {
                 const packBtn = item.warehouse_id === 5
@@ -726,16 +814,16 @@ function renderInventoryTable() {
                 actionHtml = `<div class="flex-row gap-5">
                             ${packBtn}
                             <button class="btn btn-outline inv-btn-dispose" 
-                                onclick="openDisposeModal(${item.item_id}, '${item.item_name}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
+                                onclick="openDisposeModal(${item.item_id}, '${item.item_name}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.display_qty ?? item.total})">
                                 🗑️ Утилизировать
                             </button>
                           </div>`;
             } else {
                 actionHtml = `<div class="flex-row gap-5">
-                    <button class="btn btn-outline" onclick="openScrapModal(${item.item_id}, '${Utils.escapeHtml(item.item_name)}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
+                    <button class="btn btn-outline" onclick="openScrapModal(${item.item_id}, '${Utils.escapeHtml(item.item_name)}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.display_qty ?? item.total})">
                           ↘️ Брак/Уценка
                     </button>
-                    <button class="btn btn-outline" onclick="openDirectScrapModal(${item.item_id}, '${Utils.escapeHtml(item.item_name)}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.total})">
+                    <button class="btn btn-outline" onclick="openDirectScrapModal(${item.item_id}, '${Utils.escapeHtml(item.item_name)}', ${item.batch_id || 'null'}, '${item.batch_number || ''}', ${item.warehouse_id}, ${item.display_qty ?? item.total})">
                           🔨 Прямое списание
                     </button>
                 </div>`;
@@ -1795,8 +1883,82 @@ window.confirmExcelImport = async function() {
     }
 };
 
+function getCurrentInventoryRowsForActions() {
+    const allowZero = isAuditMode && ['all', '1', '4', '5'].includes(currentWarehouseFilter);
+    const filtered = allInventory.filter((item) => {
+        if (isAuditMode && ['3', '6', '7'].includes(String(item.warehouse_id))) return false;
+        if (parseFloat(item.total) === 0 && !allowZero) return false;
+        if (currentWarehouseFilter !== 'all' && String(item.warehouse_id) !== currentWarehouseFilter) return false;
+        if (currentSearch) {
+            const searchStr = `${item.item_name} ${item.warehouse_name || ''} ${item.batch_number || ''} ${item.batch_id || ''}`.toLowerCase();
+            const tokens = currentSearch.split(/\s+/).filter(Boolean);
+            return tokens.every((t) => searchStr.includes(t));
+        }
+        return true;
+    });
+    if (currentWarehouseFilter === '4') {
+        return processInventoryForView(filtered, showFinishedBatches, subtractFinishedReserves);
+    }
+    return filtered.map((r) => ({ ...r, display_qty: Number(r.total || 0) }));
+}
+
+function openLocalInventoryPrint(mode, rows) {
+    const isBlind = mode === 'blind';
+    const title = `Печать остатков: Склад №4 (${isBlind ? 'Слепой' : 'Полный'})`;
+    const bodyRows = rows.map((r, idx) => {
+        const qty = Number(r.display_qty ?? r.total ?? 0);
+        const reserve = Number(r.reserve_qty_by_batch || 0);
+        return `<tr>
+            <td>${idx + 1}</td>
+            <td>${Utils.escapeHtml(r.batch_number || 'Общая')}</td>
+            <td>${Utils.escapeHtml(r.item_name || '')}</td>
+            <td style="text-align:right">${isBlind ? '' : qty.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}</td>
+            <td style="text-align:right">${reserve > 0.005 ? reserve.toLocaleString('ru-RU', { maximumFractionDigits: 2 }) : ''}</td>
+            <td>${Utils.escapeHtml(r.unit || '')}</td>
+        </tr>`;
+    }).join('');
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>
+    <style>body{font-family:Arial,sans-serif;font-size:12px;padding:16px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:6px}th{background:#f5f5f5}</style>
+    </head><body><h3>${title}</h3><table><thead><tr><th>#</th><th>Партия</th><th>Наименование</th><th>Остаток</th><th>В резерве</th><th>Ед.</th></tr></thead><tbody>${bodyRows}</tbody></table>
+    <script>window.onload=()=>window.print();</script></body></html>`;
+    const w = window.open('', '_blank');
+    if (!w) return UI.toast('Разрешите всплывающее окно для печати', 'warning');
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+}
+
+function exportLocalInventoryXls(mode, rows) {
+    const isBlind = mode === 'blind';
+    const tr = rows.map((r) => {
+        const qty = Number(r.display_qty ?? r.total ?? 0);
+        const reserve = Number(r.reserve_qty_by_batch || 0);
+        return `<tr>
+            <td>${Utils.escapeHtml(r.batch_number || 'Общая')}</td>
+            <td>${Utils.escapeHtml(r.item_name || '')}</td>
+            <td>${isBlind ? '' : qty.toFixed(2)}</td>
+            <td>${reserve > 0.005 ? reserve.toFixed(2) : ''}</td>
+            <td>${Utils.escapeHtml(r.unit || '')}</td>
+        </tr>`;
+    }).join('');
+    const tableHtml = `<table><tr><th>Партия</th><th>Наименование</th><th>Остаток</th><th>В резерве</th><th>Ед.</th></tr>${tr}</table>`;
+    const blob = new Blob([`\ufeff${tableHtml}`], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `Inventory_Wh4_${isBlind ? 'blind' : 'full'}.xls`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+}
+
 window._openInventoryPrint = async function (mode) {
     const wh = typeof currentWarehouseFilter !== 'undefined' ? currentWarehouseFilter : 'all';
+    if (wh === '4') {
+        openLocalInventoryPrint(mode, getCurrentInventoryRowsForActions());
+        UI.closeModal();
+        return;
+    }
     const dateParam = (inventoryDatePicker && inventoryDatePicker.selectedDates.length > 0) ? `&as_of_date=${inventoryDatePicker.formatDate(inventoryDatePicker.selectedDates[0], "Y-m-d")}` : '';
     await window.openPrintUrl(`/api/inventory/print?mode=${mode}&wh=${wh}${dateParam}`);
     UI.closeModal();
@@ -1824,6 +1986,10 @@ window.executeExport = async function (mode) {
     // Прячем дропдаун
     const dropdowns = document.querySelectorAll('.dropdown-menu');
     dropdowns.forEach(d => d.classList.add('inv-hidden'));
+    if (wh === '4') {
+        exportLocalInventoryXls(mode, getCurrentInventoryRowsForActions());
+        return;
+    }
     
     const dateParam = (inventoryDatePicker && inventoryDatePicker.selectedDates.length > 0) ? `&as_of_date=${inventoryDatePicker.formatDate(inventoryDatePicker.selectedDates[0], "Y-m-d")}` : '';
     await window.openPrintUrl(`/api/inventory/export?mode=${mode}&wh=${wh}${dateParam}`);

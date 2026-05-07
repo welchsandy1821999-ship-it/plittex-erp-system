@@ -61,6 +61,16 @@
         <button class="btn btn-outline filter-btn" onclick="applyWarehouseFilter('6', this)">Склад №6 (Утиль)</button>
         <button class="btn btn-outline filter-btn inv-reserve-btn" onclick="applyWarehouseFilter('7', this)">🔒 Склад №7 (Резервы)</button>
     </div>
+    <div id="inv-finished-controls" class="inv-reserve-controls mb-10 inv-hidden hide-in-audit">
+        <label class="flex-row items-center cursor-pointer gap-5 mb-0 text-main font-13" title="Показывать разбивку остатков по партиям для Склада №4">
+            <input type="checkbox" id="inv-show-batches-check" onchange="onFinishedViewOptionsChange()" class="cursor-pointer">
+            По партиям
+        </label>
+        <label class="flex-row items-center cursor-pointer gap-5 mb-0 text-main font-13" title="Вычитать резерв из физического остатка в отображении">
+            <input type="checkbox" id="inv-subtract-reserves-check" onchange="onFinishedViewOptionsChange()" class="cursor-pointer">
+            Учитывать резервы
+        </label>
+    </div>
 
     <div id="inv-reserve-controls" class="inv-reserve-controls mb-10 inv-hidden">
         <div class="inv-reserve-presets">

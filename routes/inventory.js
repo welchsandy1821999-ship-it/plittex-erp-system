@@ -48,6 +48,97 @@ module.exports = function (pool, getWhId, withTransaction) {
         return fallback;
     }
 
+    async function internalRebalanceReserves(client) {
+        const reserveWhId = await getWhId(client, 'reserve');
+        const finishedWhId = await getWhId(client, 'finished');
+        if (!reserveWhId || !finishedWhId) return { movedRows: 0, movedQty: 0 };
+
+        const deficitsRes = await client.query(`
+            SELECT
+                coi.id AS coi_id,
+                coi.item_id,
+                co.doc_number,
+                GREATEST(
+                    GREATEST(COALESCE(coi.qty_ordered, 0) - COALESCE(coi.qty_shipped, 0), 0) - COALESCE(coi.qty_reserved, 0),
+                    0
+                )::numeric AS qty_need
+            FROM client_order_items coi
+            JOIN client_orders co ON co.id = coi.order_id
+            WHERE co.status IN ('pending', 'processing')
+              AND GREATEST(
+                    GREATEST(COALESCE(coi.qty_ordered, 0) - COALESCE(coi.qty_shipped, 0), 0) - COALESCE(coi.qty_reserved, 0),
+                    0
+                ) > 0.0001
+            ORDER BY co.created_at ASC, co.id ASC, coi.id ASC
+        `);
+
+        let movedRows = 0;
+        let movedQty = new Big(0);
+
+        for (const d of deficitsRes.rows) {
+            const itemId = Number(d.item_id);
+            const coiId = Number(d.coi_id);
+            if (!Number.isFinite(itemId) || !Number.isFinite(coiId)) continue;
+            await lockStockPair(client, itemId, reserveWhId, finishedWhId);
+
+            let need = new Big(d.qty_need || 0);
+            if (need.lte(0.0001)) continue;
+
+            const fifoRes = await client.query(`
+                SELECT
+                    m.batch_id,
+                    SUM(m.quantity)::numeric AS available
+                FROM inventory_movements m
+                WHERE m.item_id = $1
+                  AND m.warehouse_id = $2
+                GROUP BY m.batch_id
+                HAVING SUM(m.quantity) > 0
+                ORDER BY MIN(COALESCE(m.movement_date, m.created_at)) ASC, m.batch_id ASC
+            `, [itemId, finishedWhId]);
+
+            for (const row of fifoRes.rows) {
+                if (need.lte(0.0001)) break;
+                const available = new Big(row.available || 0);
+                if (available.lte(0.0001)) continue;
+                const alloc = need.gt(available) ? available : need;
+                if (alloc.lte(0.0001)) continue;
+                const qty = Number(alloc.round(4));
+                const batchId = row.batch_id || null;
+                const docNum = d.doc_number || `#${coiId}`;
+
+                await client.query(`
+                    INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, linked_order_item_id)
+                    VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6)
+                `, [itemId, -qty, `Авто-ребаланс резерва -> ${docNum}`, finishedWhId, batchId, coiId]);
+
+                await client.query(`
+                    INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, linked_order_item_id)
+                    VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6)
+                `, [itemId, qty, `Авто-ребаланс резерва <- WH4 (${docNum})`, reserveWhId, batchId, coiId]);
+
+                await client.query(`
+                    UPDATE client_order_items
+                    SET qty_reserved = COALESCE(qty_reserved, 0) + $1,
+                        qty_production = GREATEST(COALESCE(qty_production, 0) - $1, 0)
+                    WHERE id = $2
+                `, [qty, coiId]);
+
+                await client.query(`
+                    UPDATE planned_production
+                    SET quantity = GREATEST(COALESCE(quantity, 0) - $1, 0)
+                    WHERE order_item_id = $2
+                `, [qty, coiId]);
+                await client.query(`DELETE FROM planned_production WHERE order_item_id = $1 AND quantity <= 0`, [coiId]);
+
+                movedRows += 1;
+                movedQty = movedQty.plus(alloc);
+                need = need.minus(alloc);
+            }
+        }
+
+        return { movedRows, movedQty: Number(movedQty.round(4)) };
+    }
+
     async function loadPalletCarryMapForUpdate(client) {
         const key = 'demold_pallet_carry_map';
         const res = await client.query('SELECT value FROM settings WHERE key = $1 FOR UPDATE', [key]);
@@ -1252,6 +1343,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
         try {
             await withTransaction(pool, async (client) => {
+                let rebalanceNeeded = false;
                 for (const adj of adjustments) {
                     const { itemId, actualQty } = adj;
                     let batchId = adj.batchId;
@@ -1300,6 +1392,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                             const desc = `Инвентаризация (Свернуто)${dateStrPart}: факт ${actualQty}, было ${currentBalance}`;
 
                             if (diffQtyBig.gt(0)) {
+                                if (whType === 'finished') rebalanceNeeded = true;
                                 // ИЗЛИШЕК (+) -> Кладем всё в системную партию
                                 const batchName = 'Излишки инвентаризации от ' + (auditDate || new Date().toISOString().slice(0,10));
                                 let surplusBatchId;
@@ -1418,6 +1511,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     if (diffQtyBig.abs().gt(0.0001)) {
                         const dateStrPart = auditDate ? ` от ${auditDate}` : '';
                         const desc = `Инвентаризация${dateStrPart}: факт ${actualQty}, было ${currentBalance}`;
+                        if (whType === 'finished' && diffQtyBig.gt(0)) rebalanceNeeded = true;
 
                         await client.query(`
                             INSERT INTO inventory_movements 
@@ -1425,6 +1519,9 @@ module.exports = function (pool, getWhId, withTransaction) {
                             VALUES ($1, $2, $3, $4, 'audit_adjustment', $5, $6, COALESCE($7::timestamp, CURRENT_TIMESTAMP), COALESCE($7::timestamp, CURRENT_TIMESTAMP))
                         `, [itemId, wh_id, batchId, diffQty, desc, userId, auditDate || null]);
                     }
+                }
+                if (rebalanceNeeded) {
+                    await internalRebalanceReserves(client);
                 }
             });
 
@@ -1509,6 +1606,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 const safeGrade2 = Number(new Big(grade2Qty || 0).round(2));
                 const safeScrap = Number(new Big(scrapQty || 0).round(2));
                 const reportedQty = Number(new Big(safeGood).plus(safeGrade2).plus(safeScrap).round(2));
+                let rebalanceNeeded = false;
 
                 // ✅ FIX (п.3): Жесткое обнуление — isComplete списывает весь реальный остаток из БД
                 const totalRemoved = isComplete ? realWipBalance : reportedQty;
@@ -1574,6 +1672,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                             INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, movement_date, transaction_id)
                             VALUES ($1, $2, 'finished_receipt', 'Распалубка: 1-й сорт', $3, $4, $5, COALESCE($6, NOW()), $7)
                         `, [tileId, Number(new Big(remainingGood).round(2)), finishedWh, batchId, userId, movementDate || null, trId]);
+                        rebalanceNeeded = true;
                     }
                 }
 
@@ -1683,6 +1782,9 @@ module.exports = function (pool, getWhId, withTransaction) {
 
                 if (isComplete && batchId) {
                     await client.query(`UPDATE production_batches SET status = 'completed' WHERE id = $1`, [batchId]);
+                }
+                if (rebalanceNeeded) {
+                    await internalRebalanceReserves(client);
                 }
             });
 
@@ -2367,6 +2469,21 @@ module.exports = function (pool, getWhId, withTransaction) {
         }
     });
 
+    router.post('/api/inventory/rebalance-reserves', requireAdmin, async (req, res) => {
+        try {
+            let stats = { movedRows: 0, movedQty: 0 };
+            await withTransaction(pool, async (client) => {
+                stats = await internalRebalanceReserves(client);
+            });
+            const io = req.app.get('io');
+            if (io) io.emit('inventory_updated');
+            res.json({ success: true, ...stats });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Ошибка пересчета резервов' });
+        }
+    });
+
     // ------------------------------------------------------------------
     // 8. УПРАВЛЕНИЕ РЕЗЕРВАМИ: Снятие / Переброска
     // ------------------------------------------------------------------
@@ -2415,6 +2532,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                             [Number(qtyFixed), linkedOrderItemId]
                         );
                     }
+                    await internalRebalanceReserves(client);
 
                 } else if (action === 'transfer') {
                     // === ПЕРЕБРОСКА НА ДРУГОЙ ЗАКАЗ: WH7(old) -> WH7(new) ===
