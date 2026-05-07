@@ -7,7 +7,10 @@
     "start": "node web.js",
     "dev": "nodemon web.js --ignore public/ --ignore views/",
     "start:prod": "pm2 start ecosystem.config.js --env production",
+    "restart:prod": "pm2 restart plittex-erp --update-env",
     "stop:prod": "pm2 stop plittex-erp",
+    "delete:prod": "pm2 delete plittex-erp",
+    "status:prod": "pm2 status",
     "logs:prod": "pm2 logs plittex-erp",
     "test": "jest --detectOpenHandles --forceExit",
     "test:mcp:pg": "node test/mcp_pg_test.js"
