@@ -3920,11 +3920,35 @@
     font-size: 13.5px;
 }
 
+/* Наименование: ширину задаём колонкой thead (table-fixed); обрезаем текст с многоточием, полное имя — в title на ячейке/ссылке */
 #stock-mod .inv-name-cell {
-    max-width: 320px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    vertical-align: middle;
+}
+
+#stock-mod .inv-name-cell a {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+}
+
+#stock-mod #inventory-thead tr.inv-thead-reserve .inv-col-batch {
+    width: 9%;
+    min-width: 90px;
+}
+
+#stock-mod #inventory-thead tr.inv-thead-reserve .inv-col-name {
+    width: 36%;
+    min-width: 400px;
+}
+
+#stock-mod #inventory-thead tr.inv-thead-reserve .inv-col-order {
+    width: 23%;
+    min-width: 240px;
 }
 
 #stock-mod .inv-actions-cell .btn {
@@ -3934,13 +3958,13 @@
 }
 
 #stock-mod .inv-reserve-order-cell {
-    min-width: 360px;
+    min-width: 240px;
     line-height: 1.3;
 }
 
-#stock-mod #inventory-thead .inv-col-order {
-    width: 34%;
-    min-width: 360px;
+#stock-mod #inventory-thead tr:not(.inv-thead-reserve) .inv-col-name {
+    width: 38%;
+    min-width: 280px;
 }
 
 #stock-mod .inv-reserve-order-main {

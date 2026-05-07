@@ -597,7 +597,7 @@ function renderInventoryTable() {
     // Динамический заголовок: Склад №7 показывает колонку "Заказ"
     if (thead) {
         if (isReserveView) {
-            thead.innerHTML = `<tr>
+            thead.innerHTML = `<tr class="inv-thead-reserve">
                 <th class="inv-col-batch">№ Партии</th>
                 <th class="inv-col-name">Наименование</th>
                 <th class="inv-col-order">Заказ</th>
@@ -606,7 +606,7 @@ function renderInventoryTable() {
                 <th class="inv-col-actions">Действия</th>
             </tr>`;
         } else {
-            thead.innerHTML = `<tr>
+            thead.innerHTML = `<tr class="inv-thead-stock">
                 <th class="inv-col-wh">Склад</th>
                 <th class="inv-col-batch">№ Партии</th>
                 <th class="inv-col-name">Наименование (Сырье / Продукция)</th>
@@ -675,6 +675,33 @@ function renderInventoryTable() {
             if (reserveFilters.preset === 'unlinked_only' && r.order_id) return false;
             return true;
         });
+        // В режиме "По отдельным заказам" схлопываем строки одного заказа по партиям,
+        // чтобы не показывать дубли по linked_order_item_id.
+        if (reserveFilters.view === 'orders') {
+            const groupedByOrder = new Map();
+            reserveRows.forEach((r) => {
+                const key = `${String(r.linked_order_item_id || '')}:${String(r.item_id || '')}`;
+                if (!groupedByOrder.has(key)) {
+                    groupedByOrder.set(key, {
+                        ...r,
+                        total: 0,
+                        __batchCount: 0,
+                        __batchKeys: new Set()
+                    });
+                }
+                const item = groupedByOrder.get(key);
+                item.total = Number(item.total || 0) + Number(r.total || 0);
+                item.__batchKeys.add(String(r.batch_id ?? 'null'));
+                if (r.batch_id) item.__batchCount += 1;
+                // Если у заказа несколько партий, убираем конкретный batch из строки
+                // и показываем как агрегированную позицию.
+                if (item.__batchKeys.size > 1) {
+                    item.batch_id = null;
+                    item.batch_number = '';
+                }
+            });
+            reserveRows = Array.from(groupedByOrder.values());
+        }
     }
     const sourceRows = isReserveView
         ? reserveRows
@@ -744,7 +771,20 @@ function renderInventoryTable() {
             const itemKey = String(g.item_id || '');
             const freeQty = Number(finishedByItem[itemKey] || 0);
             const reserveTotal = Number(reservedByItem[itemKey] || 0);
-            const orderList = g.rows.slice(0, 4).map((o) => {
+            const orderRowsByOrder = new Map();
+            g.rows.forEach((o) => {
+                const orderKey = String(o.linked_order_item_id || o.order_id || '');
+                if (!orderRowsByOrder.has(orderKey)) {
+                    orderRowsByOrder.set(orderKey, {
+                        ...o,
+                        total: 0
+                    });
+                }
+                const groupedOrder = orderRowsByOrder.get(orderKey);
+                groupedOrder.total = Number(groupedOrder.total || 0) + Number(o.total || 0);
+            });
+            const orderRows = Array.from(orderRowsByOrder.values());
+            const orderList = orderRows.slice(0, 4).map((o) => {
                 const doc = Utils.escapeHtml(o.order_doc_number || 'Без заказа');
                 const client = Utils.escapeHtml(o.order_client_name || '—');
                 const qty = Number(o.total || 0).toLocaleString('ru-RU', { maximumFractionDigits: 2 });
@@ -753,14 +793,19 @@ function renderInventoryTable() {
                 }
                 return `${doc} (${client}) — ${qty}`;
             }).join('<br>');
+            const fullNameEscaped = Utils.escapeHtml(g.item_name || '');
             tbody.innerHTML += `
             <tr>
                 <td class="inv-batch-cell"><span class="text-muted">—</span></td>
-                <td class="inv-name-cell"><strong>${Utils.escapeHtml(g.item_name || '')}</strong></td>
+                <td class="inv-name-cell" title="${fullNameEscaped}">
+                    <a href="javascript:void(0)" onclick="openItemHistory(${g.item_id}, 7)" class="text-primary text-decoration-none" title="${fullNameEscaped}">
+                        <strong>${Utils.escapeHtml(g.item_name || '')}</strong>
+                    </a>
+                </td>
                 <td class="inv-reserve-order-cell">
                     <div class="inv-reserve-order-metrics">Склад №4 свободно: <b>${freeQty.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}</b></div>
                     <div class="inv-reserve-order-metrics">Склад №7 в резерве: <b>${reserveTotal.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}</b></div>
-                    <div class="inv-reserve-order-metrics mt-5">${orderList}${g.rows.length > 4 ? '<br><span class="text-muted">...и еще заказы</span>' : ''}</div>
+                    <div class="inv-reserve-order-metrics mt-5">${orderList}${orderRows.length > 4 ? '<br><span class="text-muted">...и еще заказы</span>' : ''}</div>
                 </td>
                 <td class="inv-qty-cell">${g.reserve_qty.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}</td>
                 <td class="inv-unit-cell">${Utils.escapeHtml(g.unit || '')}</td>
@@ -794,10 +839,15 @@ function renderInventoryTable() {
 
             if (isReserveView) {
                 // Склад №7: кнопка управления резервом
-                actionHtml = `<button class="btn btn-outline inv-btn-reserve" 
-                    onclick="openReserveManagerModal(${item.item_id}, ${item.batch_id || 'null'}, ${item.linked_order_item_id || 'null'}, ${item.total})">
-                    🔄 Управление
-                </button>`;
+                const canManageReserve = !item.__batchKeys || item.__batchKeys.size <= 1;
+                if (canManageReserve) {
+                    actionHtml = `<button class="btn btn-outline inv-btn-reserve" 
+                        onclick="openReserveManagerModal(${item.item_id}, ${item.batch_id || 'null'}, ${item.linked_order_item_id || 'null'}, ${item.total})">
+                        🔄 Управление
+                    </button>`;
+                } else {
+                    actionHtml = '<span class="text-muted">Разверните по партиям для управления</span>';
+                }
             } else if (currentWarehouseFilter === '4' && !showFinishedBatches) {
                 actionHtml = `<span class="text-muted">Включите «По партиям»</span>`;
             } else if (item.warehouse_id === 3) {
@@ -850,11 +900,12 @@ function renderInventoryTable() {
                 <div class="inv-reserve-order-metrics" title="Склад №4 свободно: ${freeQty.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} | Склад №7 в резерве: ${reserveTotal.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}">Склад №4 свободно: ${freeQty.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} | Склад №7 в резерве: ${reserveTotal.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}</div>`
                 : '<span class="badge inv-wh-badge">Без привязки к заказу</span>';
             const rowClass = orderNeedReserve > 0.0001 ? 'inv-reserve-row inv-reserve-row--deficit' : 'inv-reserve-row';
+            const itemNameTitle = Utils.escapeHtml(item.item_name);
             tbody.innerHTML += `
             <tr class="${rowClass}">
                 <td class="inv-batch-cell">${batchCell}</td>
-                <td class="inv-name-cell" title="${Utils.escapeHtml(item.item_name)}">
-                    <a href="javascript:void(0)" onclick="openItemHistory(${item.item_id}, ${item.warehouse_id})" class="text-primary text-decoration-none">
+                <td class="inv-name-cell" title="${itemNameTitle}">
+                    <a href="javascript:void(0)" onclick="openItemHistory(${item.item_id}, ${item.warehouse_id})" class="text-primary text-decoration-none" title="${itemNameTitle}">
                         <strong>${Utils.escapeHtml(item.item_name)}</strong>
                     </a>
                 </td>
@@ -869,12 +920,13 @@ function renderInventoryTable() {
             const reserveBadgeHtml = (String(item.warehouse_id) === '4' && reserveQtyByBatch > 0.005)
                 ? `<span class="inv-reserve-badge" onclick="openReserveDetailModal(${item.item_id})" title="Нажмите для детализации резервов">🔒 ${reserveQtyByBatch.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} в резерве</span>`
                 : '';
+            const stockNameTitle = Utils.escapeHtml(item.item_name);
             tbody.innerHTML += `
             <tr>
                 <td><span class="badge inv-wh-badge">${Utils.escapeHtml(item.warehouse_name)}</span></td>
                 <td class="inv-batch-cell">${batchCell}</td>
-                <td class="inv-name-cell" title="${Utils.escapeHtml(item.item_name)}">
-                    <a href="javascript:void(0)" onclick="openItemHistory(${item.item_id}, ${item.warehouse_id === 'all' ? 'null' : item.warehouse_id})" class="text-primary text-decoration-none">
+                <td class="inv-name-cell" title="${stockNameTitle}">
+                    <a href="javascript:void(0)" onclick="openItemHistory(${item.item_id}, ${item.warehouse_id === 'all' ? 'null' : item.warehouse_id})" class="text-primary text-decoration-none" title="${stockNameTitle}">
                         <strong>${Utils.escapeHtml(item.item_name)}</strong>
                     </a>
                     ${reserveBadgeHtml}
