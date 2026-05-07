@@ -777,9 +777,9 @@ function renderInventoryTable() {
             </tr>`;
         } else {
             // Бейдж резерва для склада ГП (warehouse_id === 4)
-            const itemReserveQty = Number(reservedByItem[String(item.item_id)] || 0);
-            const reserveBadgeHtml = (String(item.warehouse_id) === '4' && itemReserveQty > 0.0001)
-                ? `<span class="inv-reserve-badge" onclick="openReserveDetailModal(${item.item_id})" title="Нажмите для детализации резервов">🔒 ${itemReserveQty.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} в резерве</span>`
+            const reserveQtyByBatch = Number(item.reserve_qty_by_batch || 0);
+            const reserveBadgeHtml = (String(item.warehouse_id) === '4' && reserveQtyByBatch > 0.005)
+                ? `<span class="inv-reserve-badge" onclick="openReserveDetailModal(${item.item_id})" title="Нажмите для детализации резервов">🔒 ${reserveQtyByBatch.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} в резерве</span>`
                 : '';
             tbody.innerHTML += `
             <tr>
