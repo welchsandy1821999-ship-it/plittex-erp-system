@@ -25,6 +25,29 @@ module.exports = function (pool, getWhId, withTransaction) {
         return PALLET_RX.test(String(name || '')) || PALLET_RX.test(String(category || ''));
     }
 
+    async function lockStockKey(client, itemId, warehouseId) {
+        const i = Number(itemId);
+        const w = Number(warehouseId);
+        if (!Number.isInteger(i) || i <= 0 || !Number.isInteger(w) || w <= 0) return;
+        await client.query('SELECT pg_advisory_xact_lock($1::int, $2::int)', [i, w]);
+    }
+
+    async function lockStockPair(client, itemId, warehouseA, warehouseB) {
+        const pairs = [Number(warehouseA), Number(warehouseB)]
+            .filter((v) => Number.isInteger(v) && v > 0);
+        const sorted = Array.from(new Set(pairs)).sort((a, b) => a - b);
+        for (const whId of sorted) {
+            await lockStockKey(client, itemId, whId);
+        }
+    }
+
+    function mapInventoryDbError(err, fallback) {
+        if (err && (err.code === '23514' || err.code === 'P0001')) {
+            return err.message || fallback;
+        }
+        return fallback;
+    }
+
     async function loadPalletCarryMapForUpdate(client) {
         const key = 'demold_pallet_carry_map';
         const res = await client.query('SELECT value FROM settings WHERE key = $1 FOR UPDATE', [key]);
@@ -1131,6 +1154,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             await withTransaction(pool, async (client) => {
                 const defectWh = await getWhId(client, 'defect');
                 const markdownWh = await getWhId(client, 'markdown');
+                await lockStockPair(client, itemId, warehouseId, targetWarehouseId);
 
                 // 🛡️ ЗАЩИТА: Проверяем, что на складе достаточно товара
                 let stockQuery = `SELECT COALESCE(SUM(quantity), 0) as balance FROM inventory_movements WHERE item_id = $1 AND warehouse_id = $2`;
@@ -1198,7 +1222,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             res.json({ success: true, message: 'Успешно перемещено' });
         } catch (err) {
             logger.error(err);
-            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+            res.status(400).json({ error: mapInventoryDbError(err, 'Внутренняя ошибка сервера. Обратитесь к администратору.') });
         }
     });
 
@@ -1217,6 +1241,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     const { itemId, actualQty } = adj;
                     let batchId = adj.batchId;
                     const wh_id = adj.warehouseId || warehouseId;
+                    await lockStockKey(client, itemId, wh_id);
 
                     const itemCheckRes = await client.query('SELECT item_type FROM items WHERE id = $1', [itemId]);
                     if (itemCheckRes.rows.length === 0) throw new Error(`Товар с ID ${itemId} не найден`);
@@ -1395,7 +1420,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             res.json({ success: true, message: 'Инвентаризация завершена успешно' });
         } catch (err) {
             logger.error(err);
-            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+            res.status(400).json({ error: mapInventoryDbError(err, 'Внутренняя ошибка сервера. Обратитесь к администратору.') });
         }
     });
 
@@ -1712,6 +1737,7 @@ module.exports = function (pool, getWhId, withTransaction) {
 
         try {
             await withTransaction(pool, async (client) => {
+                await lockStockKey(client, itemId, warehouseId);
                 // ✅ ПЕРЕНЕСЛИ СЮДА. Теперь client определен.
                 let userId = null;
                 if (req.user && req.user.id) {
@@ -1757,7 +1783,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             res.json({ success: true, message: 'Успешно утилизировано' });
         } catch (err) {
             logger.error(err);
-            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+            res.status(400).json({ error: mapInventoryDbError(err, 'Внутренняя ошибка сервера. Обратитесь к администратору.') });
         }
     });
 
@@ -2337,6 +2363,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             await withTransaction(pool, async (client) => {
                 const reserveWhId = await getWhId(client, 'reserve');
                 const finishedWhId = await getWhId(client, 'finished');
+                await lockStockPair(client, itemId, reserveWhId, finishedWhId);
                 const qtyBig = new Big(qty);
 
                 // Проверяем остаток в резерве
@@ -2413,7 +2440,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             res.json({ success: true, message: action === 'release' ? 'Резерв снят, товар возвращён на Склад №4' : 'Резерв переброшен на другой заказ' });
         } catch (err) {
             logger.error(err);
-            res.status(400).json({ error: err.message });
+            res.status(400).json({ error: mapInventoryDbError(err, err.message || 'Ошибка управления резервом') });
         }
     });
 
@@ -2506,41 +2533,61 @@ module.exports = function (pool, getWhId, withTransaction) {
         
         try {
             await withTransaction(pool, async (client) => {
-                const movRes = await client.query('SELECT transaction_id, batch_id, movement_date FROM inventory_movements WHERE id = $1', [movementId]);
+                const movRes = await client.query(
+                    'SELECT id, transaction_id, batch_id, movement_date FROM inventory_movements WHERE id = $1',
+                    [movementId]
+                );
                 if (movRes.rows.length === 0) throw new Error('Запись не найдена');
-                
-                const { transaction_id, batch_id, movement_date } = movRes.rows[0];
-                
+
+                const { transaction_id } = movRes.rows[0];
+
                 let targetMovementsRes;
                 if (transaction_id) {
-                    // Safe grouping by transaction ID
-                    targetMovementsRes = await client.query('SELECT * FROM inventory_movements WHERE transaction_id = $1', [transaction_id]);
-                } else if (batch_id) {
-                    // Fallback for older transactions without UUID. We drop to timestamp(0) to ignore JS microsecond precision loss!
-                    targetMovementsRes = await client.query('SELECT * FROM inventory_movements WHERE batch_id = $1 AND movement_date::timestamp(0) = $2::timestamp(0)', [batch_id, movement_date]);
+                    // Безопасно удаляем только связанную транзакционную группу.
+                    targetMovementsRes = await client.query('SELECT * FROM inventory_movements WHERE transaction_id = $1 ORDER BY id ASC', [transaction_id]);
                 } else {
+                    // Если группового UUID нет — удаляем только точечное движение по ID.
                     targetMovementsRes = await client.query('SELECT * FROM inventory_movements WHERE id = $1', [movementId]);
                 }
 
                 const movements = targetMovementsRes.rows;
 
                 for (const mov of movements) {
+                    const qtyAbs = Math.abs(parseFloat(mov.quantity || 0));
+
                     // 1. Rollback Reserves
                     if (mov.movement_type === 'reserve_receipt' && mov.linked_order_item_id) {
-                        const reserveQty = parseFloat(mov.quantity);
                         await client.query(`
                             UPDATE client_order_items 
                             SET qty_reserved = GREATEST(COALESCE(qty_reserved, 0) - $1, 0),
                                 qty_production = COALESCE(qty_production, 0) + $1
                             WHERE id = $2
-                        `, [reserveQty, mov.linked_order_item_id]);
+                        `, [qtyAbs, mov.linked_order_item_id]);
 
                         const ppCheck = await client.query('SELECT id FROM planned_production WHERE order_item_id = $1 LIMIT 1', [mov.linked_order_item_id]);
                         if (ppCheck.rows.length > 0) {
-                            await client.query('UPDATE planned_production SET quantity = COALESCE(quantity, 0) + $1 WHERE id = $2', [reserveQty, ppCheck.rows[0].id]);
+                            await client.query('UPDATE planned_production SET quantity = COALESCE(quantity, 0) + $1 WHERE id = $2', [qtyAbs, ppCheck.rows[0].id]);
                         } else {
-                            await client.query('INSERT INTO planned_production (order_item_id, quantity) VALUES ($1, $2)', [mov.linked_order_item_id, reserveQty]);
+                            await client.query('INSERT INTO planned_production (order_item_id, quantity) VALUES ($1, $2)', [mov.linked_order_item_id, qtyAbs]);
                         }
+                    }
+
+                    // 1.1 Rollback shipment counters
+                    if (mov.movement_type === 'sales_shipment' && mov.linked_order_item_id) {
+                        await client.query(
+                            `UPDATE client_order_items
+                             SET qty_shipped = GREATEST(COALESCE(qty_shipped, 0) - $1, 0)
+                             WHERE id = $2`,
+                            [qtyAbs, mov.linked_order_item_id]
+                        );
+                    }
+                    if (mov.movement_type === 'shipment_reversal' && mov.linked_order_item_id) {
+                        await client.query(
+                            `UPDATE client_order_items
+                             SET qty_shipped = COALESCE(qty_shipped, 0) + $1
+                             WHERE id = $2`,
+                            [qtyAbs, mov.linked_order_item_id]
+                        );
                     }
 
                     // 2. Rollback Production Batch Yield (Payroll fix)
@@ -2570,7 +2617,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             res.json({ success: true, message: 'Записи успешно удалены' });
         } catch (err) {
             logger.error(err);
-            res.status(500).json({ error: err.message || 'Ошибка удаления.' });
+            res.status(400).json({ error: mapInventoryDbError(err, err.message || 'Ошибка удаления.') });
         }
     });
 

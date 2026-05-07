@@ -19,6 +19,29 @@ const { requireAdmin } = require('../middleware/auth');
 const { validateCheckout, validateReturn, validateShipment, validateTransferReserve, validateOrderStatus } = require('../middleware/validator');
 
 module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP_CONFIG) {
+    async function lockStockKey(client, itemId, warehouseId) {
+        const i = Number(itemId);
+        const w = Number(warehouseId);
+        if (!Number.isInteger(i) || i <= 0 || !Number.isInteger(w) || w <= 0) return;
+        await client.query('SELECT pg_advisory_xact_lock($1::int, $2::int)', [i, w]);
+    }
+
+    async function lockStockPair(client, itemId, warehouseA, warehouseB) {
+        const pairs = [Number(warehouseA), Number(warehouseB)]
+            .filter((v) => Number.isInteger(v) && v > 0);
+        const sorted = Array.from(new Set(pairs)).sort((a, b) => a - b);
+        for (const whId of sorted) {
+            await lockStockKey(client, itemId, whId);
+        }
+    }
+
+    function mapDbError(err, fallback) {
+        if (err && (err.code === '23514' || err.code === 'P0001')) {
+            return err.message || fallback;
+        }
+        return fallback;
+    }
+
     async function recalcAccountBalances(client, accountIds = []) {
         const unique = Array.from(new Set((accountIds || []).map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0)));
         if (!unique.length) return;
@@ -408,6 +431,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 for (let item of items) {
                     await client.query(`SELECT id FROM items WHERE id = $1 FOR UPDATE`, [item.id]);
                     const whId = item.warehouse_id || defaultFinishedWhId;
+                    await lockStockPair(client, item.id, whId, reserveWhId);
                     
                     // Сначала создаём позицию заказа, чтобы получить её ID
                     const itemRes = await client.query(`
@@ -543,7 +567,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
         } catch (err) {
             logger.error(err);
-            res.status(400).json({ error: err.message });
+            res.status(400).json({ error: mapDbError(err, err.message || 'Ошибка оформления заказа') });
         }
     });
 
@@ -643,8 +667,10 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 }
 
                 const reserveWhId = await getWhId(client, 'reserve');
+                const finishedWhId = await getWhId(client, 'finished');
                 for (let item of items_to_ship) {
                     if (item.qty <= 0) continue;
+                    await lockStockPair(client, item.item_id, reserveWhId, finishedWhId);
 
                     // 🔒 ШАГ 1: Блокируем позицию заказа (Row-Level Lock)
                     const coiRes = await client.query(
@@ -675,7 +701,6 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     
                     if (reserveBalance < item.qty) {
                         // АВТО-ДОБОР: Если в резерве не хватает, смотрим на Склад №4 (Свободные остатки)
-                        const finishedWhId = await getWhId(client, 'finished');
                         const shortfall = parseFloat(new Big(item.qty).minus(reserveBalance).toFixed(4));
                         
                         const finishedRes = await client.query(
@@ -753,8 +778,9 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             res.json({ success: true, docNum, isCompleted: allCompleted });
         } catch (err) {
             logger.error(err);
-            res.status(err.message.includes('Невозможно') || err.message.includes('Недостаточно') || err.message.includes('не найдена') ? 400 : 500)
-               .json({ error: err.message || 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+            const msg = mapDbError(err, err.message || 'Внутренняя ошибка сервера. Обратитесь к администратору.');
+            res.status(msg.includes('Невозможно') || msg.includes('Недостаточно') || msg.includes('не найдена') || err.code === '23514' || err.code === 'P0001' ? 400 : 500)
+               .json({ error: msg });
         }
     });
 
@@ -1394,6 +1420,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     const itemId = newItem.id;
                     const newQty = newItem.qty;
                     const price = newItem.price;
+                    await lockStockPair(client, itemId, finishedWhId, reserveWhId);
 
                     calculatedTotal += (newQty * price);
                     
@@ -1733,7 +1760,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             
         } catch (err) {
             logger.error(err);
-            res.status(400).json({ error: err.message });
+            res.status(400).json({ error: mapDbError(err, err.message || 'Ошибка редактирования заказа') });
         }
     });
 
