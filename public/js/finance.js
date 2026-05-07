@@ -1207,20 +1207,17 @@
                 </div>
                 <datalist id="cp-options">${cpOptionsList}</datalist>
 
-                <div id="employee-mode-wrapper" style="display: none; margin-top: 10px; background: var(--surface-bg); padding: 10px; border-radius: 8px; border: 1px dashed var(--warning);">
+                <div id="employee-mode-wrapper" class="d-none" style="margin-top: 10px; background: var(--surface-bg); padding: 10px; border-radius: 8px; border: 1px dashed var(--warning);">
                     <label style="font-weight: bold; color: var(--text-main); font-size: 13px; margin-bottom: 8px; display: block;">⚙️ Режим работы с сотрудником:</label>
                     <div style="display: flex; gap: 10px;">
-                        <label style="flex:1; cursor:pointer;" class="btn btn-outline" id="label-emp-mode-settlement" onclick="selectEmployeeMode('settlement')">
-                            <input type="radio" name="employee-mode" value="settlement" checked style="display:none;"> 💰 Расчет по ЗП
+                        <label style="flex:1; cursor:pointer; color: var(--text-main); min-height: 44px; display:flex; align-items:center; justify-content:center; text-align:center; white-space:nowrap;" class="btn btn-outline" id="label-emp-mode-settlement" onclick="selectEmployeeMode('settlement')">
+                            <input type="radio" name="employee-mode" value="settlement" checked style="display:none;"> 💰 Личные взаиморасчеты
                         </label>
-                        <label style="flex:1; cursor:pointer;" class="btn btn-outline" id="label-emp-mode-imprest" onclick="selectEmployeeMode('imprest')">
+                        <label style="flex:1; cursor:pointer; color: var(--text-main); min-height: 44px; display:flex; align-items:center; justify-content:center; text-align:center; white-space:nowrap;" class="btn btn-outline" id="label-emp-mode-imprest" onclick="selectEmployeeMode('imprest')">
                             <input type="radio" name="employee-mode" value="imprest" style="display:none;"> 💳 В подотчет
                         </label>
-                        <label style="flex:1; cursor:pointer;" class="btn btn-outline" id="label-emp-mode-instant" onclick="selectEmployeeMode('instant_expense')">
-                            <input type="radio" name="employee-mode" value="instant_expense" style="display:none;"> 🛒 Покупка сейчас
-                        </label>
-                        <label style="flex:1; cursor:pointer;" class="btn btn-outline" id="label-emp-mode-return" onclick="selectEmployeeMode('return')">
-                            <input type="radio" name="employee-mode" value="return" id="mode-return" style="display:none;"> 🔄 Возврат в кассу
+                        <label style="flex:1; cursor:pointer; color: var(--text-main); min-height: 44px; display:flex; align-items:center; justify-content:center; text-align:center; white-space:nowrap;" class="btn btn-outline" id="label-emp-mode-instant" onclick="selectEmployeeMode('instant_expense')">
+                            <input type="radio" name="employee-mode" value="instant_expense" style="display:none;"> 🔁 Транзит
                         </label>
                     </div>
                 </div>
@@ -2458,7 +2455,10 @@
                         let name = type === 'income' ? (currentDoc['Плательщик1'] || currentDoc['Плательщик']) : (currentDoc['Получатель1'] || currentDoc['Получатель']);
 
                         const cleanAmount = parseFloat(currentDoc['Сумма'].replace(',', '.'));
-                        const docNum = currentDoc['Номер'] || 'Б/Н';
+                        const docNumRaw = String(currentDoc['Номер'] || '').trim();
+                        const docNum = docNumRaw || 'Б/Н';
+                        const bankDocDate = formattedDate.substring(0, 10);
+                        const bankAccountNo = String(statementAccount || currentDoc['РасчСчет'] || '').trim() || null;
                         let desc = `(№${docNum}) ${currentDoc['НазначениеПлатежа'] || 'Банковская операция'}`;
 
                         // Защита от дублей внутри одного дня
@@ -2473,7 +2473,10 @@
                             date: formattedDate,
                             counterparty_name: name || 'Неизвестный партнер',
                             counterparty_inn: inn ? String(inn).split('/')[0].split('\\')[0].trim().substring(0, 20) : null,
-                            description: desc
+                            description: desc,
+                            bank_doc_no: docNumRaw || null,
+                            bank_doc_date: bankDocDate,
+                            bank_account_no: bankAccountNo
                         });
                     }
                 } catch (e) { console.error("Ошибка парсинга строки", e); }
@@ -2509,7 +2512,16 @@
             // Если дошли сюда — всё прошло успешно
             UI.closeModal();
 
-            let msg = `✅ Успешно загружено: ${result.count} платежей.`;
+            const imported = Number(result.imported ?? result.count ?? 0);
+            const skippedAsDuplicate = Number(result.skippedAsDuplicate ?? 0);
+            const errors = Number(result.errors ?? 0);
+            let msg = `✅ Успешно загружено: ${imported} платежей.`;
+            if (skippedAsDuplicate > 0) {
+                msg += `\n🛡️ Пропущено как дубли: ${skippedAsDuplicate}.`;
+            }
+            if (errors > 0) {
+                msg += `\n⚠️ Ошибок импорта: ${errors}.`;
+            }
             if (result.autoPaid > 0) {
                 msg += `\n🎯 Автоматически закрыто счетов: ${result.autoPaid}!`;
             }

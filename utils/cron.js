@@ -12,26 +12,39 @@ const initCronJobs = (pool) => {
     // ═══════ 02:00 — Ежедневный бэкап БД (pg_dump) — runBackup() уже читает DB_* ═══════
     cron.schedule('0 2 * * *', () => {
         logger.info('💾 [CRON] Запуск ежедневного бэкапа БД...');
-        runBackup();
+        runBackup().catch((err) => {
+            logger.error(`❌ [CRON] Бэкап БД завершился с ошибкой: ${err.message}`);
+        });
     });
 
     // ═══════ 03:00 (воскресенье) — Обслуживание БД (VACUUM) ═══════
     cron.schedule('0 3 * * 0', async () => {
         logger.info('🧹 Запуск автоматического обслуживания БД (VACUUM ANALYZE)...');
         let client;
+        const startedAt = Date.now();
+        const tables = [
+            'inventory_movements',
+            'transactions',
+            'client_orders',
+            'client_order_items',
+            'production_batches',
+            'invoices'
+        ];
         try {
             client = await pool.connect();
 
             // PostgreSQL не позволяет запускать VACUUM внутри блока транзакции (BEGIN ... COMMIT)
             // Поэтому мы не используем стандартный web.js withTransaction
 
-            logger.info('Выполняем VACUUM ANALYZE для inventory_movements...');
-            await client.query('VACUUM ANALYZE inventory_movements');
+            for (const table of tables) {
+                const t0 = Date.now();
+                logger.info(`Выполняем VACUUM ANALYZE для ${table}...`);
+                // whitelist: таблицы берём только из фиксированного массива
+                await client.query(`VACUUM ANALYZE ${table}`);
+                logger.info(`✅ VACUUM ANALYZE ${table} завершён за ${Date.now() - t0}ms`);
+            }
 
-            logger.info('Выполняем VACUUM ANALYZE для transactions...');
-            await client.query('VACUUM ANALYZE transactions');
-
-            logger.info('✅ Обслуживание БД успешно завершено.');
+            logger.info(`✅ Обслуживание БД успешно завершено за ${Date.now() - startedAt}ms.`);
         } catch (error) {
             logger.error(`❌ Ошибка во время выполнения VACUUM: ${error.message}`);
         } finally {

@@ -52,11 +52,18 @@ async function adminCreateBackup() {
     btn.textContent = '⏳ Создание...';
     try {
         const res = await fetch('/api/admin/backups/create', { method: 'POST' });
-        const data = await res.json();
-        UI.toast(data.message || 'Бэкап запущен', 'success');
-        setTimeout(adminLoadBackups, 5000);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            UI.toast(data.error || 'Не удалось создать бэкап', 'error');
+            return;
+        }
+        UI.toast(data.message || 'Бэкап готов', 'success');
+        if (data.fileName && !data.skipped) {
+            void window.openPrintUrl(`/api/admin/backups/download/${encodeURIComponent(data.fileName)}`);
+        }
+        setTimeout(adminLoadBackups, data.skipped ? 300 : 1000);
     } catch (err) {
-        UI.toast('Ошибка создания бэкапа', 'error');
+        UI.toast(err.message || 'Ошибка создания бэкапа', 'error');
     } finally {
         btn.disabled = false;
         btn.textContent = '➕ Создать бэкап';
@@ -78,10 +85,27 @@ async function adminRunVacuum() {
             btn.textContent = '⏳ Выполняется...';
             try {
                 const res = await fetch('/api/admin/cron/vacuum', { method: 'POST' });
-                const data = await res.json();
-                UI.toast(data.message || 'VACUUM завершён', data.success ? 'success' : 'error');
+                const data = await res.json().catch(() => ({}));
+
+                if (res.status === 409) {
+                    UI.toast(
+                        data.error || 'Обслуживание БД уже выполняется. Дождитесь завершения.',
+                        'warning'
+                    );
+                    return;
+                }
+
+                if (!res.ok) {
+                    UI.toast(data.error || `Ошибка VACUUM (HTTP ${res.status})`, 'error');
+                    return;
+                }
+
+                const durationMs = Number(data.durationMs || 0);
+                const seconds = durationMs > 0 ? (durationMs / 1000) : 0;
+                const suffix = seconds > 0 ? ` (за ${seconds.toFixed(1)} сек)` : '';
+                UI.toast((data.message || 'VACUUM завершён успешно.') + suffix, 'success');
             } catch (err) {
-                UI.toast('Ошибка VACUUM', 'error');
+                UI.toast(err.message || 'Ошибка VACUUM', 'error');
             } finally {
                 btn.disabled = false;
                 btn.textContent = original || 'Запустить VACUUM';

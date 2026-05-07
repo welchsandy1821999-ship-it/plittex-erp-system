@@ -1344,30 +1344,53 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         if (!cpId || cpId === 'null') return res.status(400).json({ error: 'ID не указан' });
 
         try {
-            const cpRes = await pool.query('SELECT * FROM counterparties WHERE id = $1', [cpId]);
-            if (cpRes.rows.length === 0) return res.status(404).json({ error: 'Контрагент не найден' });
-            const cp = cpRes.rows[0];
+        const cpRes = await pool.query('SELECT * FROM counterparties WHERE id = $1', [cpId]);
+        if (cpRes.rows.length === 0) return res.status(404).json({ error: 'Контрагент не найден' });
+        const cp = cpRes.rows[0];
 
-            const queries = `
-                SELECT amount::numeric, transaction_type, category, description,
-                       TO_CHAR(transaction_date, 'DD.MM.YYYY HH24:MI') as date, 'money' as origin, transaction_date as sort_date
-                FROM transactions WHERE counterparty_id = $1 AND COALESCE(is_deleted, false) = false 
-                  AND category NOT IN ('Зачёт аванса', 'Взаимозачет') 
-                  AND (COALESCE(payment_method, '') != 'Взаимозачет' OR category IN ('Начисление ЗП', 'Зарплата', 'Оплата труда', 'Зарплата и Авансы', 'Премии', 'Штрафы', 'Удержание из ЗП', 'Ввод начальных остатков'))
-                UNION ALL
-                SELECT SUM(ABS(m.quantity) * coi.price)::numeric as amount, 'expense' as transaction_type, 'Отгрузка продукции' as category,
-                       m.description as description, TO_CHAR(COALESCE(m.movement_date, m.created_at), 'DD.MM.YYYY') as date, 'goods' as origin, COALESCE(m.movement_date, m.created_at) as sort_date
-                FROM inventory_movements m
-                JOIN client_order_items coi ON m.linked_order_item_id = coi.id
-                JOIN client_orders co ON coi.order_id = co.id
-                WHERE co.counterparty_id = $1 AND m.movement_type = 'sales_shipment'
-                GROUP BY m.description, COALESCE(m.movement_date, m.created_at)
-                UNION ALL
-                SELECT amount::numeric, 'income' as transaction_type, 'Поставка сырья' as category,
-                       description, TO_CHAR(COALESCE(movement_date, created_at), 'DD.MM.YYYY') as date, 'goods' as origin, COALESCE(movement_date, created_at) as sort_date
-                FROM inventory_movements WHERE supplier_id = $1 AND movement_type = 'purchase'
-            `;
-            const timelineRes = await pool.query(`SELECT * FROM (${queries}) AS combined ORDER BY sort_date DESC`, [cpId]);
+        const moneyWhere = `
+            (
+                /* 1. Действия как дилера/покупателя */
+                t.counterparty_id = $1
+                /* 2. Действия как сотрудника (только личные деньги) */
+                OR (
+                    t.employee_id = $2 AND $2 IS NOT NULL
+                    AND (
+                        t.source_module = 'salary'
+                        OR t.system_type LIKE 'salary_%'
+                        OR t.salary_adjustment_id IS NOT NULL
+                    )
+                )
+            )
+            AND COALESCE(t.is_deleted, false) = false
+            AND COALESCE(t.system_type, '') NOT LIKE 'imprest_%'
+            AND COALESCE(t.source_module, '') <> 'transit'
+        `;
+
+        const queries = `
+            SELECT amount::numeric, transaction_type, category, description,
+                   TO_CHAR(transaction_date, 'DD.MM.YYYY HH24:MI') as date, 'money' as origin, transaction_date as sort_date
+            FROM transactions t
+            WHERE ${moneyWhere}
+            UNION ALL
+            SELECT SUM(ABS(m.quantity) * coi.price)::numeric as amount, 'expense' as transaction_type, 'Отгрузка продукции' as category,
+                   m.description as description, TO_CHAR(COALESCE(m.movement_date, m.created_at), 'DD.MM.YYYY') as date, 'goods' as origin, COALESCE(m.movement_date, m.created_at) as sort_date
+            FROM inventory_movements m
+            JOIN client_order_items coi ON m.linked_order_item_id = coi.id
+            JOIN client_orders co ON coi.order_id = co.id
+            WHERE co.counterparty_id = $1 AND m.movement_type = 'sales_shipment'
+            GROUP BY m.description, COALESCE(m.movement_date, m.created_at)
+            ${cp.is_employee ? '' : `
+            UNION ALL
+            SELECT amount::numeric, 'income' as transaction_type, 'Поставка сырья' as category,
+                   description, TO_CHAR(COALESCE(movement_date, created_at), 'DD.MM.YYYY') as date, 'goods' as origin, COALESCE(movement_date, created_at) as sort_date
+            FROM inventory_movements WHERE supplier_id = $1 AND movement_type = 'purchase'
+            `}
+        `;
+        const timelineRes = await pool.query(
+            `SELECT * FROM (${queries}) AS combined ORDER BY sort_date DESC`,
+            [cpId, cp.employee_id || null]
+        );
             const timeline = timelineRes.rows;
 
             // УНИВЕРСАЛЬНАЯ ФОРМУЛА САЛЬДО ERP:
@@ -2047,7 +2070,88 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             let advanceTouchedOrders = false;
             await withTransaction(pool, async (client) => {
                 if (category) category = await resolveCategoryAlias(client, category);
-                if (employee_mode === 'instant_expense' && counterparty_id) {
+                if (employee_mode === 'settlement' && counterparty_id) {
+                    const cpRes = await client.query(
+                        'SELECT id, name, employee_id, is_employee FROM counterparties WHERE id = $1',
+                        [counterparty_id]
+                    );
+                    if (!cpRes.rows.length) throw new Error('Контрагент не найден');
+                    const cp = cpRes.rows[0];
+                    const employeeId = cp.employee_id || null;
+                    if (!employeeId || !cp.is_employee) {
+                        throw new Error('Режим "Личные взаиморасчеты" доступен только для контрагента-сотрудника');
+                    }
+                    if (type !== 'income' && type !== 'expense') {
+                        throw new Error('Для режима "Личные взаиморасчеты" допустим только доход/расход');
+                    }
+
+                    if (type === 'income') {
+                        category = resolveIncomeCategoryByContext({ category, description, paymentMethod: method });
+                        await ensureIncomeCategories(client);
+                    } else {
+                        category = resolveExpenseCategoryByContext({ category, description, paymentMethod: method });
+                        await ensureExpenseCategories(client);
+                    }
+                    await ensureCategoryExists(client, category, type === 'income' ? 'income' : 'expense', null, null);
+
+                    const amountAbs = Number(new Big(amount || 0).abs().toFixed(2));
+                    const txAuthorId = req.user ? req.user.id : null;
+                    const txSystemType = type === 'expense' ? 'salary_adjustment_cash_out' : 'salary_adjustment_cash_in';
+                    const txRes = await client.query(
+                        `
+                        INSERT INTO transactions
+                            (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, employee_id, source_module, system_type, transaction_date, cost_group_override, user_id)
+                        VALUES
+                            ($1, $2, $3, $4, $5, $6, $7, $8, 'salary', $9, $10, $11, $12)
+                        RETURNING id
+                    `,
+                        [
+                            amountAbs,
+                            type,
+                            category,
+                            description,
+                            method,
+                            account_id || null,
+                            counterparty_id,
+                            employeeId,
+                            txSystemType,
+                            finalDate,
+                            cost_group_override || null,
+                            txAuthorId
+                        ]
+                    );
+                    const txId = txRes.rows[0].id;
+
+                    const accRes = account_id ? await client.query('SELECT type FROM accounts WHERE id = $1', [account_id]) : { rows: [] };
+                    const accType = accRes.rows[0]?.type || null;
+                    const postingMode = accType === 'cash' ? 'cash' : (accType ? 'bank' : 'none');
+                    const monthStr = String(finalDate).slice(0, 7);
+                    const adjAmount = type === 'expense' ? -amountAbs : amountAbs;
+                    const adjDesc = description || `Личный взаиморасчет (${cp.name})`;
+                    const adjRes = await client.query(
+                        `
+                        INSERT INTO salary_adjustments
+                            (employee_id, month_str, amount, description, counterparty_id, linked_transaction_id, cash_posting_mode, cash_account_id, operation_kind, source_module)
+                        VALUES
+                            ($1, $2, $3, $4, $5, $6, $7, $8, 'manual_correction', 'finance')
+                        RETURNING id
+                    `,
+                        [
+                            employeeId,
+                            monthStr,
+                            adjAmount,
+                            adjDesc,
+                            counterparty_id,
+                            txId,
+                            postingMode,
+                            account_id || null
+                        ]
+                    );
+                    await client.query(
+                        'UPDATE transactions SET salary_adjustment_id = $1 WHERE id = $2',
+                        [adjRes.rows[0].id, txId]
+                    );
+                } else if (employee_mode === 'instant_expense' && counterparty_id) {
                     await ensureTransferCategories(client);
                     const cpRes = await client.query('SELECT name, employee_id FROM counterparties WHERE id = $1', [counterparty_id]);
                     if (cpRes.rows.length === 0) throw new Error('Сотрудник не найден');
@@ -2453,10 +2557,33 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
         try {
             await withTransaction(pool, async (client) => {
-                const txRes = await client.query('SELECT amount, linked_order_id, transaction_type FROM transactions WHERE id = $1', [id]);
+                const txRes = await client.query(
+                    'SELECT amount, linked_order_id, transaction_type, source_module, system_type FROM transactions WHERE id = $1',
+                    [id]
+                );
                 if (txRes.rows.length === 0) throw new Error("Транзакция не найдена");
                 const oldTx = txRes.rows[0];
                 const delta = Number(new Big(req.body.amount).minus(oldTx.amount).toFixed(2));
+                let resolvedEmployeeId = null;
+
+                if (counterparty_id) {
+                    const cpRes = await client.query(
+                        `SELECT employee_id
+                         FROM counterparties
+                         WHERE id = $1`,
+                        [counterparty_id]
+                    );
+                    resolvedEmployeeId = cpRes.rows[0]?.employee_id || null;
+                }
+
+                let nextSystemType = oldTx.system_type || null;
+                let nextSourceModule = oldTx.source_module || null;
+                if (!resolvedEmployeeId && nextSystemType && String(nextSystemType).startsWith('salary_')) {
+                    nextSystemType = null;
+                }
+                if (!resolvedEmployeeId && nextSourceModule === 'salary') {
+                    nextSourceModule = 'manual';
+                }
 
                 if (oldTx.linked_order_id && delta !== 0 && oldTx.transaction_type === 'income') {
                     await client.query(`
@@ -2469,9 +2596,30 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
                 await client.query(`
                     UPDATE transactions 
-                    SET description = $1, amount = $2, category = $3, account_id = $4, counterparty_id = $5, transaction_date = $6, cost_group_override = $7
-                    WHERE id = $8
-                `, [description, amount, category, account_id || null, counterparty_id || null, transaction_date, cost_group_override || null, id]);
+                    SET description = $1,
+                        amount = $2,
+                        category = $3,
+                        account_id = $4,
+                        counterparty_id = $5,
+                        employee_id = $6,
+                        transaction_date = $7,
+                        cost_group_override = $8,
+                        source_module = $9,
+                        system_type = $10
+                    WHERE id = $11
+                `, [
+                    description,
+                    amount,
+                    category,
+                    account_id || null,
+                    counterparty_id || null,
+                    resolvedEmployeeId,
+                    transaction_date,
+                    cost_group_override || null,
+                    nextSourceModule,
+                    nextSystemType,
+                    id
+                ]);
 
                 // Синхронизация с модулем зарплаты
                 await client.query(`

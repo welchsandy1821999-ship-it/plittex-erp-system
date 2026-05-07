@@ -139,6 +139,11 @@ plittex-erp/
 - Склад: **остатки** из `inventory_movements` (и связанных правил), не фиктивная «таблица баланса».
 - Критичные сценарии: **транзакции БД** `withTransaction` в роутерах.
 - Схема БД и миграции — по принятому в проекте процессу; канон **`.antigravity/db_protocol.md`**.
+- Связка **редактирование заказа ↔ склад ↔ финансы**:
+  - `routes/sales.js` (`PUT /api/sales/orders/:id`) выполняет транзакционный rollback/reapply резервов в `inventory_movements` и `client_order_items`;
+  - при смене контрагента перепривязывает только order-linked проводки в `transactions` (строго по `linked_order_id` + `oldCounterpartyId`);
+  - после редактирования пересчитывает `client_orders.paid_amount/pending_debt` от связанных `transactions` и эмитит `inventory_updated/sales_updated/finance_updated`;
+  - клиентский режим редактирования в `public/js/sales.js` сохраняет корзину при смене клиента (в edit-mode) и открывает предзаполненную форму.
 
 ---
 

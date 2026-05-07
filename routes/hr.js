@@ -47,6 +47,23 @@ async function resolveEmployeeFinanceLinks(client, employeeId) {
 // === ОСНОВНОЙ ЭКСПОРТ РОУТЕРА ===
 
 module.exports = function (pool, withTransaction) {
+    async function recalcAccountBalances(client, accountIds = []) {
+        const unique = Array.from(new Set((accountIds || []).map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0)));
+        if (!unique.length) return;
+        await client.query(
+            `
+            UPDATE accounts a
+            SET balance = ROUND(COALESCE((
+                SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) -
+                       SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END)
+                FROM transactions t
+                WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
+            ), 0), 2)
+            WHERE a.id = ANY($1::int[])
+        `,
+            [unique]
+        );
+    }
 
 
     // 2. КОРРЕКТИРОВКИ (ГСМ, Займы)
@@ -55,68 +72,128 @@ module.exports = function (pool, withTransaction) {
             employee_id,
             month_str,
             amount,
+            category,
             description,
+            date,
+            transaction_date,
+            account_id,
             counterparty_id,
             cash_posting_mode,
             cash_account_id,
-            operation_kind,
-            source_module
+            operation_kind
         } = req.body || {};
         try {
+            const explicitDateForMonth = String(transaction_date || date || '').trim();
+            const effectiveMonthStr = String(month_str || '').trim() || (explicitDateForMonth ? explicitDateForMonth.slice(0, 7) : '');
             // 🛡️ ЗАЩИТА №2: Не даем добавлять ГСМ/Займы в закрытый месяц
-            if (await isMonthClosed(pool, month_str)) {
+            if (effectiveMonthStr && await isMonthClosed(pool, effectiveMonthStr)) {
                 return res.status(403).json({ error: "Нельзя добавлять операции в закрытый месяц." });
             }
 
             const safeAmount = new Big(amount || 0).toFixed(2);
-            const postingMode = ['none', 'cash', 'bank', 'imprest'].includes(String(cash_posting_mode || '').toLowerCase())
+            const explicitDate = explicitDateForMonth;
+            const normalizedMonthStr = effectiveMonthStr;
+            const safeCategory = String(category || '').trim().substring(0, 255);
+            const effectiveDate = explicitDate
+                ? new Date(explicitDate).toISOString()
+                : (normalizedMonthStr ? new Date(`${normalizedMonthStr}-01T12:00:00`).toISOString() : new Date().toISOString());
+            let postingMode = ['none', 'cash', 'bank', 'imprest'].includes(String(cash_posting_mode || '').toLowerCase())
                 ? String(cash_posting_mode || '').toLowerCase()
                 : 'none';
             const opKind = String(operation_kind || 'manual_correction').trim().substring(0, 32) || 'manual_correction';
-            const srcModule = String(source_module || 'salary').trim().substring(0, 32) || 'salary';
+            const srcModule = 'salary';
 
             await withTransaction(pool, async (client) => {
                 const links = await resolveEmployeeFinanceLinks(client, employee_id);
                 const cpId = counterparty_id || links.counterpartyId || null;
-                const cashAccId = postingMode === 'none' ? null : (cash_account_id || null);
-
+                if (!cpId) {
+                    throw new Error('Для сотрудника не найден связанный контрагент (counterparty_id).');
+                }
+                const effectiveDescription = safeCategory ? `${safeCategory}: ${description}` : description;
+                let cashAccId = null;
+                if (postingMode !== 'none') {
+                    cashAccId = cash_account_id || account_id || null;
+                }
                 if (postingMode !== 'none' && !cashAccId) {
-                    throw new Error('Для проведения по кассе укажите счет (cash_account_id).');
+                    const defAccRes = await client.query(
+                        `SELECT id, type
+                         FROM accounts
+                         WHERE type IN ('cash', 'bank')
+                         ORDER BY CASE WHEN type = 'cash' THEN 0 ELSE 1 END, id ASC
+                         LIMIT 1`
+                    );
+                    if (defAccRes.rows.length > 0) {
+                        cashAccId = defAccRes.rows[0].id;
+                    }
+                }
+                if (postingMode === 'none') {
+                    cashAccId = null;
                 }
 
-                const insAdj = await client.query(
-                    `INSERT INTO salary_adjustments
-                        (employee_id, month_str, amount, description, counterparty_id, linked_transaction_id, cash_posting_mode, cash_account_id, operation_kind, source_module)
-                     VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9)
-                     RETURNING id`,
-                    [employee_id, month_str, safeAmount, description, cpId, postingMode, cashAccId, opKind, srcModule]
+                const catColRes = await client.query(
+                    `SELECT 1
+                     FROM information_schema.columns
+                     WHERE table_schema = 'public'
+                       AND table_name = 'salary_adjustments'
+                       AND column_name = 'category'
+                     LIMIT 1`
                 );
+                const hasAdjCategory = catColRes.rows.length > 0;
+                const insAdj = hasAdjCategory
+                    ? await client.query(
+                        `INSERT INTO salary_adjustments
+                            (employee_id, month_str, amount, category, description, counterparty_id, linked_transaction_id, cash_posting_mode, cash_account_id, operation_kind, source_module)
+                         VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, $9, $10)
+                         RETURNING id`,
+                        [employee_id, normalizedMonthStr, safeAmount, safeCategory || null, description, cpId, postingMode, cashAccId, opKind, srcModule]
+                    )
+                    : await client.query(
+                        `INSERT INTO salary_adjustments
+                            (employee_id, month_str, amount, description, counterparty_id, linked_transaction_id, cash_posting_mode, cash_account_id, operation_kind, source_module)
+                         VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, $8, $9)
+                         RETURNING id`,
+                        [employee_id, normalizedMonthStr, safeAmount, effectiveDescription, cpId, postingMode, cashAccId, opKind, srcModule]
+                    );
                 const adjustmentId = insAdj.rows[0].id;
 
-                if (postingMode !== 'none') {
-                    const accRes = await client.query('SELECT id, type FROM accounts WHERE id = $1', [cashAccId]);
-                    if (accRes.rows.length === 0) throw new Error('Счет для кассового движения не найден');
+                const amountBig = new Big(safeAmount);
+                if (amountBig.eq(0)) return;
 
-                    const method = accRes.rows[0].type === 'cash' ? 'Наличные (Касса)' : 'Безналичный расчет';
-                    const amountBig = new Big(safeAmount);
-                    const txType = amountBig.gte(0) ? 'expense' : 'income';
-                    const txAmount = amountBig.abs().toFixed(2);
-                    const txCategory = txType === 'expense' ? HR_SALARY_EXPENSE_CATEGORY : 'Возврат подотчетных средств';
-                    const txSystemType = txType === 'expense' ? 'salary_adjustment_cash_out' : 'salary_adjustment_cash_in';
-                    const authorId = req.user ? req.user.id : null;
-                    const transRes = await client.query(
-                        `INSERT INTO transactions
-                            (account_id, counterparty_id, employee_id, salary_adjustment_id, amount, transaction_type, category, description, payment_method, source_module, system_type, transaction_date, user_id)
-                         VALUES
-                            ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'salary', $10, NOW(), $11)
-                         RETURNING id`,
-                        [cashAccId, cpId, employee_id, adjustmentId, txAmount, txType, txCategory, description, method, txSystemType, authorId]
-                    );
-                    await client.query(
-                        'UPDATE salary_adjustments SET linked_transaction_id = $1 WHERE id = $2',
-                        [transRes.rows[0].id, adjustmentId]
-                    );
+                let accType = null;
+                if (cashAccId) {
+                    const accRes = await client.query('SELECT id, type FROM accounts WHERE id = $1', [cashAccId]);
+                    if (accRes.rows.length > 0) {
+                        accType = accRes.rows[0].type;
+                    } else {
+                        cashAccId = null;
+                    }
                 }
+
+                const method = accType === 'cash' ? 'Наличные (Касса)' : 'Безналичный расчет';
+                // Для money-origin в формуле сальдо:
+                // income увеличивает их платежи (theirPayments) и уменьшает наш долг;
+                // expense увеличивает наши платежи (ourPayments) и увеличивает долг сотрудника перед нами.
+                // Поэтому начисление сотруднику (+) должно быть income, удержание (-) — expense.
+                const txType = amountBig.gte(0) ? 'income' : 'expense';
+                const txAmount = amountBig.abs().toFixed(2);
+                const txCategory = safeCategory || (txType === 'expense' ? HR_SALARY_EXPENSE_CATEGORY : 'Возврат подотчетных средств');
+                const txSystemType = postingMode === 'none'
+                    ? 'salary_period_adjustment'
+                    : (txType === 'expense' ? 'salary_adjustment_cash_out' : 'salary_adjustment_cash_in');
+                const authorId = req.user ? req.user.id : null;
+
+                const transRes = await client.query(
+                    `INSERT INTO transactions
+                        (account_id, counterparty_id, employee_id, salary_adjustment_id, amount, transaction_type, category, description, payment_method, source_module, system_type, transaction_date, user_id)
+                     VALUES
+                        ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'salary', $10, $11, $12)
+                     RETURNING id`,
+                    [cashAccId, cpId, employee_id, adjustmentId, txAmount, txType, txCategory, effectiveDescription, method, txSystemType, effectiveDate, authorId]
+                );
+                await client.query(
+                    'UPDATE salary_adjustments SET linked_transaction_id = $1 WHERE id = $2',
+                    [transRes.rows[0].id, adjustmentId]
+                );
             });
 
             res.json({ success: true });
@@ -146,7 +223,15 @@ module.exports = function (pool, withTransaction) {
                 const linkedTransactionId = adj.rows[0]?.linked_transaction_id || null;
                 await client.query(`UPDATE salary_adjustments SET is_deleted = true WHERE id = $1`, [req.params.id]);
                 if (linkedTransactionId) {
+                    const txRes = await client.query(
+                        'SELECT id, account_id FROM transactions WHERE id = $1 LIMIT 1',
+                        [linkedTransactionId]
+                    );
                     await client.query('UPDATE transactions SET is_deleted = true WHERE id = $1', [linkedTransactionId]);
+                    const affectedAccountId = txRes.rows[0]?.account_id || null;
+                    if (affectedAccountId) {
+                        await recalcAccountBalances(client, [affectedAccountId]);
+                    }
                 }
             });
             await auditLog(pool, req, 'salary_adjustment_delete', 'salary_adjustment', Number(req.params.id), `reason=${reason}`);
@@ -542,10 +627,10 @@ module.exports = function (pool, withTransaction) {
                     const cpRes = await client.query('SELECT id FROM counterparties WHERE employee_id = $1 LIMIT 1', [b.employee_id]);
                     if (cpRes.rows.length > 0) {
                         const cpId = cpRes.rows[0].id;
+                        const closeAuthorId = req.user ? req.user.id : null;
 
                         // 1. Начисление ЗП
                         if (b.accrued && parseFloat(b.accrued) > 0) {
-                            const closeAuthorId = req.user ? req.user.id : null;
                             await client.query(`
                                 INSERT INTO transactions 
                                 (amount, transaction_type, category, description, counterparty_id, employee_id, account_id, payment_method, source_module, system_type, generation_batch_id, transaction_date, user_id)
@@ -573,6 +658,83 @@ module.exports = function (pool, withTransaction) {
                                 (amount, transaction_type, category, description, counterparty_id, employee_id, account_id, payment_method, source_module, system_type, generation_batch_id, transaction_date, user_id)
                                 VALUES ($1, $2, $3, $4, $5, $6, NULL, 'Взаимозачет', 'salary', 'salary_period_adjustment', $7, (date_trunc('month', $8::date) + interval '1 month' - interval '1 second')::timestamp, $9)
                             `, [Math.abs(adj).toFixed(2), tType, tCat, 'Доп. корректировки за период: ' + monthStr, cpId, b.employee_id, closeBatchId, `${monthStr}-01`, closeAuthorId]);
+                        }
+
+                        // 4. Авто-перенос незакрытого подотчета в зарплату (удержание) при закрытии месяца
+                        const imprestRes = await client.query(
+                            `SELECT id, COALESCE(balance, 0)::numeric AS balance
+                             FROM accounts
+                             WHERE employee_id = $1
+                               AND (account_role = 'imprest' OR type = 'imprest')
+                             ORDER BY id ASC
+                             LIMIT 1`,
+                            [b.employee_id]
+                        );
+                        if (imprestRes.rows.length > 0) {
+                            const imprestAccountId = imprestRes.rows[0].id;
+                            const imprestDebt = parseFloat(imprestRes.rows[0].balance || 0);
+                            if (imprestDebt > 0.0001) {
+                                const deductionAmount = Number(imprestDebt.toFixed(2));
+                                const txRes = await client.query(
+                                    `
+                                    INSERT INTO transactions
+                                        (amount, transaction_type, category, description, counterparty_id, employee_id, account_id, payment_method, source_module, system_type, generation_batch_id, transaction_date, user_id)
+                                    VALUES
+                                        ($1, 'expense', 'Удержание из ЗП', $2, $3, $4, $5, 'Взаимозачет', 'salary', 'salary_imprest_deduction', $6, (date_trunc('month', $7::date) + interval '1 month' - interval '1 second')::timestamp, $8)
+                                    RETURNING id
+                                `,
+                                    [
+                                        deductionAmount,
+                                        `Автоперенос подотчета в ЗП за период: ${monthStr}`,
+                                        cpId,
+                                        b.employee_id,
+                                        imprestAccountId,
+                                        closeBatchId,
+                                        `${monthStr}-01`,
+                                        closeAuthorId
+                                    ]
+                                );
+
+                                const adjRes = await client.query(
+                                    `
+                                    INSERT INTO salary_adjustments
+                                        (employee_id, month_str, amount, description, counterparty_id, linked_transaction_id, cash_posting_mode, cash_account_id, operation_kind, source_module)
+                                    VALUES
+                                        ($1, $2, $3, $4, $5, $6, 'imprest', $7, 'imprest_settlement', 'salary')
+                                    RETURNING id
+                                `,
+                                    [
+                                        b.employee_id,
+                                        monthStr,
+                                        -deductionAmount,
+                                        `Удержание неотчитанного подотчета за период: ${monthStr}`,
+                                        cpId,
+                                        txRes.rows[0].id,
+                                        imprestAccountId
+                                    ]
+                                );
+
+                                await client.query(
+                                    'UPDATE transactions SET salary_adjustment_id = $1 WHERE id = $2',
+                                    [adjRes.rows[0].id, txRes.rows[0].id]
+                                );
+
+                                // Баланс подотчетного счета должен обнулиться после удержания
+                                await client.query(
+                                    `
+                                    UPDATE accounts a
+                                    SET balance = ROUND(COALESCE((
+                                        SELECT SUM(CASE WHEN t.transaction_type = 'income' THEN t.amount ELSE 0 END) -
+                                               SUM(CASE WHEN t.transaction_type = 'expense' THEN t.amount ELSE 0 END)
+                                        FROM transactions t
+                                        WHERE t.account_id = a.id
+                                          AND COALESCE(t.is_deleted, false) = false
+                                    ), 0), 2)
+                                    WHERE a.id = $1
+                                `,
+                                    [imprestAccountId]
+                                );
+                            }
                         }
                     }
                 }
@@ -621,11 +783,21 @@ module.exports = function (pool, withTransaction) {
                     UPDATE transactions
                     SET is_deleted = true
                     WHERE source_module = 'salary'
-                      AND system_type IN ('salary_accrual', 'salary_tax_withhold', 'salary_period_adjustment')
+                      AND system_type IN ('salary_accrual', 'salary_tax_withhold', 'salary_period_adjustment', 'salary_imprest_deduction')
                       AND transaction_date >= $1::date
                       AND transaction_date < ($1::date + interval '1 month')
                       AND COALESCE(is_deleted, false) = false
                 `, [`${monthStr}-01`]);
+
+                await client.query(
+                    `UPDATE salary_adjustments
+                     SET is_deleted = true
+                     WHERE month_str = $1
+                       AND source_module = 'salary'
+                       AND operation_kind = 'imprest_settlement'
+                       AND COALESCE(is_deleted, false) = false`,
+                    [monthStr]
+                );
 
                 // В) Удаление блокировок из архива закрытых периодов
                 await client.query(`DELETE FROM closed_periods WHERE period_str = $1 AND module = 'salary'`, [monthStr]);

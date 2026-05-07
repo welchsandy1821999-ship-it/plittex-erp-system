@@ -242,7 +242,8 @@ window.onClientChange = async function () {
     // Если менеджер сменил клиента, а в корзине уже лежат товары, 
     // мы жестко очищаем корзину. Это предотвратит продажу по чужому прайсу 
     // (например, если первый клиент был дилером, а второй - розничным).
-    if (typeof cart !== 'undefined' && cart.length > 0 && !window.isSalesOrderEditInitialLoad) {
+    const isEditMode = Boolean(window.editingOrderId);
+    if (typeof cart !== 'undefined' && cart.length > 0 && !window.isSalesOrderEditInitialLoad && !isEditMode) {
         clearOrderForm(); // 🚀 ПОЛНАЯ ОЧИСТКА ВСЕХ ПОЛЕЙ И КОРЗИНЫ
         UI.toast('Внимание! Корзина и данные доставки очищены из-за смены контрагента', 'warning');
         // После полной очистки клиент уже сброшен: не продолжаем загрузку профиля/договоров
@@ -1741,22 +1742,28 @@ window.processCheckout = async function () {
 
     // Собираем данные (учитывая все проверки)
     // 🛡️ SECURITY: user_id НЕ передаётся — сервер берёт из JWT
+    const toSafeNumber = (value, fallback = 0) => {
+        const normalized = String(value ?? '').replace(',', '.').trim();
+        if (!normalized) return fallback;
+        const parsed = Number.parseFloat(normalized);
+        return Number.isFinite(parsed) ? parsed : fallback;
+    };
     const payload = {
         counterparty_id: client_id,
         items: cart.map(i => ({
             id: i.id,
-            qty: i.qty,
-            price: i.price * (1 - (i.discount || 0) / 100),
+            qty: toSafeNumber(i.qty, 0),
+            price: toSafeNumber(i.price, 0) * (1 - (toSafeNumber(i.discount, 0)) / 100),
             warehouse_id: i.warehouseId,
             allow_production: i.allowProduction
         })),
         payment_method: paymentMethod,
         account_id: accountId,
-        advance_amount: advanceAmount,
-        discount: document.getElementById('sale-discount').value || 0,
+        advance_amount: toSafeNumber(advanceAmount, 0),
+        discount: toSafeNumber(document.getElementById('sale-discount')?.value, 0),
         driver: document.getElementById('sale-driver')?.value || null,
         auto: document.getElementById('sale-auto')?.value || null,
-        offset_amount: offsetAmount || 0,
+        offset_amount: toSafeNumber(offsetAmount, 0),
         contract_id: document.getElementById('sale-contract').value || null,
         delivery_address: (() => {
             const deliveryType = document.querySelector('input[name="sale_delivery_type"]:checked');
@@ -1765,9 +1772,9 @@ window.processCheckout = async function () {
             }
             return document.getElementById('sale-delivery-address').value;
         })(),
-        logistics_cost: logisticsCost,
+        logistics_cost: toSafeNumber(logisticsCost, 0),
         planned_shipment_date: plannedDateStr,
-        pallets_qty: document.getElementById('sale-pallets').value || 0,
+        pallets_qty: toSafeNumber(document.getElementById('sale-pallets')?.value, 0),
         poa_info: poa_info, // Передаем проверенную информацию
         order_date: document.getElementById('sale-order-date')?.value || new Date().toISOString().split('T')[0]
     };
@@ -2055,6 +2062,7 @@ function renderBlankOrdersTable() {
                 <div class="sales-order-actions-row">
                     ${offsetBtn}
                     <button class="btn btn-outline sales-btn-sm sales-btn-sm-info" onclick="openInvoiceModal('${o.doc_number}', ${debtAmt > 0 ? debtAmt : totalAmt})" title="Счет на оплату">🖨️ Счет</button>
+                    <button class="btn btn-outline sales-btn-sm text-primary border-primary" onclick="loadOrderForEdit(${o.id})" title="Редактировать заказ">✏️ Редакт.</button>
                     <button class="btn btn-outline sales-btn-sm sales-btn-sm-info" onclick="openOrderManager(${o.id})">⚙️ Управл.</button>
                     <button class="btn btn-outline sales-btn-sm sales-btn-sm-danger" onclick="confirmDeleteOrder(${o.id}, '${o.doc_number}')" title="Отменить и удалить заказ">❌</button>
                 </div>
@@ -4662,6 +4670,16 @@ window.doExecuteReserveTransfer = async function(donorCoiId, recipientCoiId, qty
 // === РЕДАКТИРОВАНИЕ ЗАКАЗА ===
 // ==========================================
 window.editingOrderId = null;
+function salesFormatDateForInputLocal(value) {
+    if (!value) return '';
+    const raw = String(value).trim();
+    const dateMatch = raw.match(/^\d{4}-\d{2}-\d{2}/);
+    if (dateMatch) return dateMatch[0];
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return raw.split('T')[0] || '';
+    const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+}
 
 window.loadOrderForEdit = async function(orderId) {
     try {
@@ -4677,6 +4695,17 @@ window.loadOrderForEdit = async function(orderId) {
         // Меняем заголовки
         const titleEl = document.getElementById('checkout-title');
         if (titleEl) titleEl.innerHTML = '✏️ Редактирование заказа ' + order.doc_number + ' <button class="btn btn-outline sales-btn-xs-cancel" onclick="clearOrderForm()">✖ Отмена</button>';
+        const cardHead = titleEl ? titleEl.closest('.sales-card-head') : null;
+        if (cardHead) {
+            let editBanner = document.getElementById('editing-order-banner');
+            if (!editBanner) {
+                editBanner = document.createElement('div');
+                editBanner.id = 'editing-order-banner';
+                editBanner.className = 'bg-warning-lt border-warning p-10 border-radius-6 mb-10 font-13 text-warning';
+                cardHead.prepend(editBanner);
+            }
+            editBanner.innerHTML = `⚠️ Режим редактирования заказа <b>${order.doc_number}</b>. Изменения будут сохранены в существующий документ.`;
+        }
         
         document.getElementById('btn-checkout-save').innerHTML = '💾 Сохранить изменения';
         
@@ -4743,9 +4772,24 @@ window.loadOrderForEdit = async function(orderId) {
         const logCost = parseFloat(order.logistics_cost) || 0;
         if (!isPickup) {
             document.getElementById('sale-logistics-cost').value = String(logCost);
+        } else {
+            document.getElementById('sale-logistics-cost').value = '0';
         }
         const btnVal = document.getElementById('sale-poa-comment');
         if (btnVal) btnVal.value = order.contract_info || ''; // Используется для комментариев
+        const paymentMethodEl = document.getElementById('sale-payment-method');
+        if (paymentMethodEl) {
+            paymentMethodEl.value = String(order.payment_method || 'debt');
+            if (typeof toggleSalePayment === 'function') toggleSalePayment();
+        }
+        const accountEl = document.getElementById('sale-account');
+        if (accountEl && order.account_id) {
+            salesSetSelectValueSafe(accountEl, String(order.account_id));
+        }
+        const advanceEl = document.getElementById('sale-advance-amount');
+        if (advanceEl) {
+            advanceEl.value = Number(order.paid_amount || 0) > 0 ? String(Number(order.paid_amount || 0)) : '';
+        }
         
         if (order.planned_shipment_date) {
             document.getElementById('sale-planned-date').value = order.planned_shipment_date.split('T')[0];
@@ -4754,9 +4798,7 @@ window.loadOrderForEdit = async function(orderId) {
         // ДАТА ДОКУМЕНТА! 
         const dateInput = document.getElementById('sale-order-date');
         if (dateInput && order.created_at) {
-            // Конвертируем из ISO в YYYY-MM-DD
-            const dStr = order.created_at.split('T')[0];
-            dateInput.value = dStr;
+            dateInput.value = salesFormatDateForInputLocal(order.created_at);
         }
 
         renderCart();

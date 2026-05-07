@@ -1114,6 +1114,16 @@
                 <label>Сумма (₽):</label><input type="number" id="adj-amount" class="input-modern" placeholder="Например: -5000 или 2000">
                 <span class="font-11 text-muted">Используйте <b>минус</b> для удержания (ГСМ, Займ) и <b>плюс</b> для начисления.</span>
             </div>
+            <div class="form-group mb-10">
+                <label>Категория:</label>
+                <select id="adj-category" class="input-modern">
+                    <option value="Премия">Премия</option>
+                    <option value="Штраф">Штраф</option>
+                    <option value="Удержание">Удержание</option>
+                    <option value="Компенсация">Компенсация</option>
+                    <option value="Прочее" selected>Прочее</option>
+                </select>
+            </div>
             <div class="form-group"><label>Основание:</label><input type="text" id="adj-desc" class="input-modern" placeholder="Топливная карта №123"></div>
             <button class="btn btn-blue w-100 mt-15" onclick="saveAdjustment(${empId}, '${monthStr}')">Сохранить операцию</button>
         </div>
@@ -1122,10 +1132,11 @@
     }
     window.saveAdjustment = async function (empId, monthStr) {
         const amount = parseFloat(document.getElementById('adj-amount').value);
+        const category = (document.getElementById('adj-category')?.value || 'Прочее').trim();
         const desc = document.getElementById('adj-desc').value.trim();
         if (!amount || !desc) return UI.toast('Заполните сумму и комментарий!', 'error');
         try {
-            await API.post('/api/salary/adjustments', { employee_id: empId, month_str: monthStr, amount, description: desc });
+            await API.post('/api/salary/adjustments', { employee_id: empId, month_str: monthStr, amount, category, description: desc });
             if (true) {
                 UI.closeModal(); UI.toast('Операция сохранена', 'success'); loadMonthlyTimesheet();
             }

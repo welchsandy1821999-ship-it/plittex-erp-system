@@ -21,6 +21,9 @@ const { auditLog } = require('../utils/db_init');
 
 const USER_ROLES = new Set(['admin', 'manager', 'accountant', 'finance', 'buh', 'bukh']);
 
+// In-memory mutex: защита от параллельных VACUUM-запусков в одном Node.js процессе
+let isVacuumRunning = false;
+
 module.exports = function (pool) {
     // Все маршруты требуют роль admin
     router.use(requireAdmin);
@@ -39,7 +42,7 @@ module.exports = function (pool) {
         }
 
         const files = fs.readdirSync(backupDir)
-            .filter(f => f.startsWith('erp-backup-') && f.endsWith('.sql'))
+            .filter(f => f.startsWith('erp-backup-') && (f.endsWith('.backup') || f.endsWith('.sql')))
             .map(f => {
                 const stat = fs.statSync(path.join(backupDir, f));
                 return {
@@ -54,17 +57,25 @@ module.exports = function (pool) {
     });
 
     /**
-     * POST /api/admin/backups/create — Ручной запуск бэкапа
+     * POST /api/admin/backups/create — Ручной запуск бэкапа (дожидаться завершения pg_dump).
      */
-    router.post('/backups/create', (req, res) => {
+    router.post('/backups/create', async (req, res) => {
         try {
             const { runBackup } = require('../utils/backup');
-            runBackup();
-            logger.info(`💾 [ADMIN] Ручной бэкап запущен пользователем ${req.user.username}`);
-            res.json({ success: true, message: 'Бэкап запущен. Проверьте список через 30 секунд.' });
+            const result = await runBackup();
+            logger.info(`💾 [ADMIN] Ручной бэкап завершён пользователем ${req.user.username}: ${result.fileName}`);
+            res.json({
+                success: true,
+                fileName: result.fileName,
+                sizeKB: result.sizeKB,
+                skipped: Boolean(result.skipped),
+                message: result.skipped
+                    ? `Бэкап за сегодня уже есть: ${result.fileName}`
+                    : `Бэкап создан: ${result.fileName}`
+            });
         } catch (err) {
-            logger.error(`Ошибка запуска бэкапа: ${err.message}`);
-            res.status(500).json({ error: 'Не удалось запустить бэкап' });
+            logger.error(`Ошибка бэкапа: ${err.message}`);
+            res.status(500).json({ error: err.message || 'Не удалось создать бэкап' });
         }
     });
 
@@ -73,8 +84,11 @@ module.exports = function (pool) {
      */
     router.get('/backups/download/:name', (req, res) => {
         const fileName = req.params.name;
-        // Защита от path traversal
+        // Защита от path traversal и посторонних файлов в каталоге backups
         if (fileName.includes('..') || fileName.includes('/') || fileName.includes('\\')) {
+            return res.status(400).json({ error: 'Недопустимое имя файла' });
+        }
+        if (!/^erp-backup-\d{4}-\d{2}-\d{2}\.(backup|sql)$/.test(fileName)) {
             return res.status(400).json({ error: 'Недопустимое имя файла' });
         }
         const filePath = path.join(__dirname, '..', 'backups', fileName);
@@ -122,7 +136,11 @@ module.exports = function (pool) {
             try {
                 const backupDir = path.join(__dirname, '..', 'backups');
                 if (fs.existsSync(backupDir)) {
-                    const files = fs.readdirSync(backupDir).filter(f => f.endsWith('.sql'));
+                    const files = fs.readdirSync(backupDir).filter(
+                        f =>
+                            (f.startsWith('erp-backup-') && f.endsWith('.backup')) ||
+                            (f.startsWith('erp-backup-') && f.endsWith('.sql'))
+                    );
                     const totalSize = files.reduce((sum, f) => {
                         try { return sum + fs.statSync(path.join(backupDir, f)).size; } catch { return sum; }
                     }, 0);
@@ -371,21 +389,103 @@ module.exports = function (pool) {
      * POST /api/admin/cron/vacuum — Ручной запуск VACUUM ANALYZE
      */
     router.post('/cron/vacuum', async (req, res) => {
+        if (isVacuumRunning) {
+            return res.status(409).json({
+                success: false,
+                error: 'Обслуживание БД уже выполняется. Дождитесь завершения текущего запуска.'
+            });
+        }
+
+        isVacuumRunning = true;
+
         let client;
+        const startedAt = new Date();
+        const tables = [
+            'inventory_movements',
+            'transactions',
+            'client_orders',
+            'client_order_items',
+            'production_batches',
+            'invoices'
+        ];
+        const tableResults = [];
         try {
             client = await pool.connect();
             logger.info(`🧹 [ADMIN] Ручной VACUUM запущен — ${req.user.username}`);
 
-            await client.query('VACUUM ANALYZE inventory_movements');
-            await client.query('VACUUM ANALYZE transactions');
+            for (const table of tables) {
+                const t0 = Date.now();
+                try {
+                    // VACUUM нельзя параметризовать как идентификатор через $1,
+                    // поэтому используем whitelist из жёстко заданного массива tables.
+                    await client.query(`VACUUM ANALYZE ${table}`);
+                    tableResults.push({
+                        table,
+                        ok: true,
+                        durationMs: Date.now() - t0
+                    });
+                } catch (e) {
+                    tableResults.push({
+                        table,
+                        ok: false,
+                        durationMs: Date.now() - t0,
+                        error: e.message
+                    });
+                    throw e;
+                }
+            }
 
-            logger.info(`✅ [ADMIN] Ручной VACUUM завершён.`);
-            res.json({ success: true, message: 'VACUUM ANALYZE завершён успешно.' });
+            const finishedAt = new Date();
+            const durationMs = finishedAt.getTime() - startedAt.getTime();
+
+            await auditLog(
+                pool,
+                req,
+                'db_maintenance_vacuum',
+                'system',
+                null,
+                `VACUUM ANALYZE: ok; tables=${tables.join(', ')}; durationMs=${durationMs}`
+            );
+
+            logger.info(`✅ [ADMIN] Ручной VACUUM завершён за ${durationMs}ms.`);
+            res.json({
+                success: true,
+                message: 'VACUUM ANALYZE завершён успешно.',
+                startedAt: startedAt.toISOString(),
+                finishedAt: finishedAt.toISOString(),
+                durationMs,
+                tables: tableResults
+            });
         } catch (err) {
+            const finishedAt = new Date();
+            const durationMs = finishedAt.getTime() - startedAt.getTime();
+
             logger.error(`VACUUM error: ${err.message}`);
-            res.status(500).json({ error: 'Ошибка VACUUM: ' + err.message });
+
+            try {
+                await auditLog(
+                    pool,
+                    req,
+                    'db_maintenance_vacuum',
+                    'system',
+                    null,
+                    `VACUUM ANALYZE: error=${err.message}; processed=${tableResults.length}/${tables.length}; durationMs=${durationMs}`
+                );
+            } catch (e) {
+                logger.error(`VACUUM auditLog error: ${e.message}`);
+            }
+
+            res.status(500).json({
+                success: false,
+                error: err.message,
+                startedAt: startedAt.toISOString(),
+                finishedAt: finishedAt.toISOString(),
+                durationMs,
+                tables: tableResults
+            });
         } finally {
             if (client) client.release();
+            isVacuumRunning = false;
         }
     });
 
