@@ -915,6 +915,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     NULL as order_doc_number,
                     NULL as order_id,
                     NULL as batch_status,
+                    NULL::numeric as reserve_qty_by_batch,
                     SUM(m.quantity) as total 
                 `;
                 groupPart = `
@@ -925,8 +926,8 @@ module.exports = function (pool, getWhId, withTransaction) {
                 selectPart = `
                     m.item_id, i.name as item_name, i.unit, 
                     m.warehouse_id, w.name as warehouse_name, w.type as warehouse_type,
-                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE m.batch_id END as batch_id, 
-                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE b.batch_number END as batch_number, 
+                    CASE WHEN w.type = 'materials' THEN NULL ELSE m.batch_id END as batch_id, 
+                    CASE WHEN w.type = 'materials' THEN NULL ELSE b.batch_number END as batch_number, 
                     CASE WHEN w.type = 'reserve' THEN m.linked_order_item_id ELSE NULL END as linked_order_item_id,
                     CASE WHEN w.type = 'reserve' THEN co.doc_number ELSE NULL END as order_doc_number,
                     CASE WHEN w.type = 'reserve' THEN co.id ELSE NULL END as order_id,
@@ -935,14 +936,15 @@ module.exports = function (pool, getWhId, withTransaction) {
                     CASE WHEN w.type = 'reserve' THEN coi.qty_ordered ELSE NULL END as order_qty_ordered,
                     CASE WHEN w.type = 'reserve' THEN coi.qty_reserved ELSE NULL END as order_qty_reserved,
                     CASE WHEN w.type = 'reserve' THEN coi.qty_shipped ELSE NULL END as order_qty_shipped,
-                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE b.status END as batch_status,
+                    CASE WHEN w.type = 'materials' THEN NULL ELSE b.status END as batch_status,
+                    MAX(COALESCE(rb.reserve_qty, 0)) as reserve_qty_by_batch,
                     SUM(m.quantity) as total
                 `;
                 groupPart = `
                     m.item_id, i.name, i.unit, 
                     m.warehouse_id, w.name, w.type,
-                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE m.batch_id END, 
-                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE b.batch_number END,
+                    CASE WHEN w.type = 'materials' THEN NULL ELSE m.batch_id END, 
+                    CASE WHEN w.type = 'materials' THEN NULL ELSE b.batch_number END,
                     CASE WHEN w.type = 'reserve' THEN m.linked_order_item_id ELSE NULL END,
                     CASE WHEN w.type = 'reserve' THEN co.doc_number ELSE NULL END,
                     CASE WHEN w.type = 'reserve' THEN co.id ELSE NULL END,
@@ -951,7 +953,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     CASE WHEN w.type = 'reserve' THEN coi.qty_ordered ELSE NULL END,
                     CASE WHEN w.type = 'reserve' THEN coi.qty_reserved ELSE NULL END,
                     CASE WHEN w.type = 'reserve' THEN coi.qty_shipped ELSE NULL END,
-                    CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE b.status END
+                    CASE WHEN w.type = 'materials' THEN NULL ELSE b.status END
                 `;
             }
 
@@ -962,6 +964,19 @@ module.exports = function (pool, getWhId, withTransaction) {
                 JOIN items i ON m.item_id = i.id
                 JOIN warehouses w ON m.warehouse_id = w.id
                 LEFT JOIN production_batches b ON m.batch_id = b.id
+                LEFT JOIN (
+                    SELECT
+                        rm.item_id,
+                        COALESCE(rm.batch_id, -1) as batch_key,
+                        SUM(rm.quantity) as reserve_qty
+                    FROM inventory_movements rm
+                    JOIN warehouses rw ON rw.id = rm.warehouse_id
+                    ${as_of_date
+                        ? "WHERE rw.type = 'reserve' AND rm.movement_date::date <= $1::date"
+                        : "WHERE rw.type = 'reserve'"}
+                    GROUP BY rm.item_id, COALESCE(rm.batch_id, -1)
+                ) rb ON rb.item_id = m.item_id
+                   AND rb.batch_key = COALESCE(CASE WHEN w.type = 'materials' THEN NULL ELSE m.batch_id END, -1)
                 LEFT JOIN client_order_items coi ON w.type = 'reserve' AND m.linked_order_item_id = coi.id
                 LEFT JOIN client_orders co ON coi.order_id = co.id
                 LEFT JOIN counterparties cp ON co.counterparty_id = cp.id
