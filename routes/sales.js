@@ -1295,7 +1295,21 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
     // ------------------------------------------------------------------
     router.put('/api/sales/orders/:id', requireAdmin, async (req, res) => {
         const orderId = req.params.id;
-        const { items, counterparty_id, discount, created_at, order_date, logistics_cost, delivery_address, comment, specification_id } = req.body;
+        const {
+            items,
+            counterparty_id,
+            discount,
+            created_at,
+            order_date,
+            logistics_cost,
+            delivery_address,
+            comment,
+            specification_id,
+            payment_method,
+            advance_amount,
+            offset_amount,
+            account_id
+        } = req.body;
         
         try {
             await withTransaction(pool, async (client) => {
@@ -1317,11 +1331,15 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 const safeDiscount = toSafeNumber(discount, 0);
                 const safeLogistics = toSafeNumber(logistics_cost, 0);
                 const safeSpecificationId = toSafeInt(specification_id, null);
+                const safeAdvanceAmount = Math.max(0, toSafeNumber(advance_amount, 0));
+                const safeOffsetRequested = Math.max(0, toSafeNumber(offset_amount, 0));
+                const safeAccountId = toSafeInt(account_id, null);
                 if (!safeCounterpartyId) throw new Error('Не выбран корректный контрагент');
 
                 const checkRes = await client.query('SELECT * FROM client_orders WHERE id = $1 FOR UPDATE', [orderId]);
                 if (checkRes.rows.length === 0) throw new Error('Заказ не найден');
                 const order = checkRes.rows[0];
+                const safePaymentMethod = String(payment_method || '').trim() || String(order.payment_method || 'debt').trim();
                 
                 if (order.status === 'completed' || order.status === 'cancelled') {
                     throw new Error('Нельзя редактировать закрытый или отмененный заказ');
@@ -1548,7 +1566,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     logger.info(`[sales.edit] Rebound tx rows for order #${orderId}: ${txRebindRes.rowCount}`);
                 }
 
-                // 6) Пересчет итоговой суммы и финансового баланса заказа.
+                // 6) Пересчет итоговой суммы заказа.
                 const parsedDiscount = new Big(safeDiscount || 0);
                 const parsedLogistics = new Big(safeLogistics || 0);
 
@@ -1557,19 +1575,102 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 calcTotalBig = calcTotalBig.plus(parsedLogistics);
                 calculatedTotal = Number(calcTotalBig.toFixed(2));
 
-                const linkedIncomeRes = await client.query(
+                // 6.1) Финансовый срез по уже существующим проводкам заказа.
+                const paidNetRes = await client.query(
                     `
-                    SELECT COALESCE(SUM(amount), 0) AS paid
+                    SELECT
+                        COALESCE(SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END), 0) AS income_total,
+                        COALESCE(SUM(CASE WHEN transaction_type = 'expense' AND category = 'Возврат средств покупателю' THEN amount ELSE 0 END), 0) AS refund_total
                     FROM transactions
                     WHERE linked_order_id = $1
-                      AND transaction_type = 'income'
                       AND COALESCE(is_deleted, false) = false
                     `,
                     [orderId]
                 );
-                const paidAmt = new Big(toSafeNumber(linkedIncomeRes.rows[0]?.paid, 0));
-                const safePaidAmount = toSafeNumber(paidAmt.toFixed(2), 0);
-                const newDebtBig2 = calcTotalBig.minus(paidAmt);
+                const incomeTotal = new Big(toSafeNumber(paidNetRes.rows[0]?.income_total, 0));
+                const refundTotal = new Big(toSafeNumber(paidNetRes.rows[0]?.refund_total, 0));
+                const currentPaid = incomeTotal.minus(refundTotal);
+
+                if (calcTotalBig.lt(currentPaid)) {
+                    throw new Error('Сумма измененного заказа меньше уже внесенной оплаты. Оформите возврат средств клиенту отдельной финансовой операцией перед редактированием.');
+                }
+
+                let targetPaid = currentPaid;
+                if (safePaymentMethod === 'paid') {
+                    targetPaid = calcTotalBig;
+                } else if (safePaymentMethod === 'partial') {
+                    targetPaid = currentPaid.plus(new Big(safeAdvanceAmount));
+                    if (targetPaid.gt(calcTotalBig)) targetPaid = calcTotalBig;
+                } else if (safePaymentMethod === 'debt') {
+                    targetPaid = currentPaid;
+                } else {
+                    throw new Error('Некорректный способ оплаты при редактировании заказа.');
+                }
+
+                let delta = targetPaid.minus(currentPaid);
+                if (delta.lt(0)) {
+                    throw new Error('Сумма измененного заказа меньше уже внесенной оплаты. Оформите возврат средств клиенту отдельной финансовой операцией перед редактированием.');
+                }
+
+                const cpMetaRes = await client.query(
+                    `
+                    SELECT c.id, c.name, c.employee_id, e.full_name AS employee_name
+                    FROM counterparties c
+                    LEFT JOIN employees e ON e.id = c.employee_id
+                    WHERE c.id = $1
+                `,
+                    [safeCounterpartyId]
+                );
+                const cpMeta = cpMetaRes.rows[0] || {};
+                const isEmployeeCounterparty = Boolean(cpMeta.employee_id);
+                let offsetApplied = new Big(0);
+                if (isEmployeeCounterparty && safeOffsetRequested > 0 && delta.gt(0)) {
+                    offsetApplied = new Big(safeOffsetRequested);
+                    if (offsetApplied.gt(delta)) offsetApplied = delta;
+                }
+                const incomeDelta = delta.minus(offsetApplied);
+
+                const touchedAccountIds = [];
+                if (incomeDelta.gt(0)) {
+                    const accountForIncome = safeAccountId || toSafeInt(order.account_id, null);
+                    if (!accountForIncome) {
+                        throw new Error('Для доплаты при редактировании укажите кассу/банк.');
+                    }
+                    await client.query(
+                        `INSERT INTO transactions
+                            (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, user_id, linked_order_id, source_module, transaction_date)
+                         VALUES
+                            ($1, 'income', 'Продажа продукции', $2, 'Сразу', $3, $4, $5, $6, 'sales', NOW())`,
+                        [Number(incomeDelta.toFixed(2)), `Доплата по заказу ${docNumber} (редактирование)`, accountForIncome, safeCounterpartyId, req.user?.id || null, orderId]
+                    );
+                    touchedAccountIds.push(accountForIncome);
+                }
+
+                if (offsetApplied.gt(0) && isEmployeeCounterparty) {
+                    const offsetAmountNum = Number(offsetApplied.toFixed(2));
+                    const salaryDesc = `Выдача аванса (продукцией) по заказу ${docNumber} (редактирование)`;
+                    const advanceExpenseRes = await client.query(
+                        `INSERT INTO transactions
+                            (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, employee_id, salary_adjustment_id, user_id, linked_order_id, source_module, system_type, transaction_date)
+                         VALUES
+                            ($1, 'expense', 'Зарплата и Авансы', $2, 'Взаимозачет', NULL, $3, $4, NULL, $5, $6, 'sales', 'salary_payment', NOW())
+                         RETURNING id`,
+                        [offsetAmountNum, salaryDesc, safeCounterpartyId, cpMeta.employee_id, req.user?.id || null, orderId]
+                    );
+                    await client.query(
+                        `INSERT INTO salary_payments (employee_id, amount, payment_date, payment_type, description, account_id, linked_transaction_id)
+                         VALUES ($1, $2, CURRENT_DATE, 'advance', $3, NULL, $4)`,
+                        [cpMeta.employee_id, offsetAmountNum, `${salaryDesc} [продукцией] (${cpMeta.employee_name || cpMeta.name || 'Сотрудник'})`, advanceExpenseRes.rows[0].id]
+                    );
+                }
+
+                if (touchedAccountIds.length > 0) {
+                    await recalcAccountBalances(client, touchedAccountIds);
+                }
+
+                const finalPaid = currentPaid.plus(incomeDelta).plus(offsetApplied);
+                const safePaidAmount = toSafeNumber(finalPaid.toFixed(2), 0);
+                const newDebtBig2 = calcTotalBig.minus(finalPaid);
                 const safePendingDebt = toSafeNumber((newDebtBig2.lt(0) ? new Big(0) : newDebtBig2).toFixed(2), 0);
                 const safeTotalAmount = toSafeNumber(calculatedTotal, 0);
                 const safeDiscountForSql = toSafeNumber(parsedDiscount.toFixed(2), 0);

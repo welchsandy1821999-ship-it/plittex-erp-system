@@ -1783,6 +1783,9 @@ window.processCheckout = async function () {
         
         let result;
         if (window.editingOrderId) {
+            if (paymentMethod !== 'debt') {
+                UI.toast('При сохранении будет проведена только дельта доплаты по заказу.', 'info');
+            }
             // Совместимость с API редактирования: для него дата заказа хранится в created_at.
             const editPayload = { ...payload, created_at: payload.order_date };
             result = await API.put('/api/sales/orders/' + window.editingOrderId, editPayload);
