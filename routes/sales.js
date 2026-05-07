@@ -42,6 +42,43 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
         return fallback;
     }
 
+    async function allocateFifoBatches(client, itemId, warehouseId, requiredQty) {
+        const need = Number(new Big(requiredQty || 0).round(4));
+        if (need <= 0) return [];
+
+        const rowsRes = await client.query(
+            `
+            SELECT batch_id, COALESCE(SUM(quantity), 0) AS available
+            FROM inventory_movements
+            WHERE item_id = $1
+              AND warehouse_id = $2
+            GROUP BY batch_id
+            HAVING COALESCE(SUM(quantity), 0) > 0
+            ORDER BY MIN(COALESCE(movement_date, created_at)) ASC, batch_id ASC
+            `,
+            [itemId, warehouseId]
+        );
+
+        let remaining = need;
+        const plan = [];
+        for (const row of rowsRes.rows) {
+            if (remaining <= 0) break;
+            const available = Number(new Big(row.available || 0).round(4));
+            if (available <= 0) continue;
+            const qty = Number(new Big(Math.min(remaining, available)).round(4));
+            if (qty <= 0) continue;
+            plan.push({ batch_id: row.batch_id, qty });
+            remaining = Number(new Big(remaining).minus(qty).round(4));
+        }
+
+        if (remaining > 0.0001) {
+            throw new Error(
+                `Недостаточно товара для FIFO-списания: item_id=${itemId}, warehouse_id=${warehouseId}, требуется=${need}, нехватка=${remaining.toFixed(4)}`
+            );
+        }
+        return plan;
+    }
+
     async function recalcAccountBalances(client, accountIds = []) {
         const unique = Array.from(new Set((accountIds || []).map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0)));
         if (!unique.length) return;
@@ -714,8 +751,11 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                             // Пишем стандартными типами, чтобы отчеты и аудит не путались:
                             // - reserve_expense: списание со свободного склада
                             // - reserve_receipt: приход в резерв
-                            await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id, movement_date) VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6, $7)`, [item.item_id, -shortfall, `Авто-перевод в резерв при отгрузке`, finishedWhId, user_id || null, item.coi_id, finalShipDate]);
-                            await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id, movement_date) VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6, $7)`, [item.item_id, shortfall, `Авто-добор из свободных остатков`, reserveWhId, user_id || null, item.coi_id, finalShipDate]);
+                            const transferFifo = await allocateFifoBatches(client, item.item_id, finishedWhId, shortfall);
+                            for (const part of transferFifo) {
+                                await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id, movement_date) VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6, $7, $8)`, [item.item_id, -part.qty, `Авто-перевод в резерв при отгрузке`, finishedWhId, part.batch_id, user_id || null, item.coi_id, finalShipDate]);
+                                await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id, movement_date) VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6, $7, $8)`, [item.item_id, part.qty, `Авто-добор из свободных остатков`, reserveWhId, part.batch_id, user_id || null, item.coi_id, finalShipDate]);
+                            }
                             
                             // Также корректируем qty_reserved в client_order_items, и убираем из дефицита (qty_production)
                             await client.query(`UPDATE client_order_items SET qty_reserved = COALESCE(qty_reserved, 0) + $1, qty_production = GREATEST(COALESCE(qty_production, 0) - $1, 0) WHERE id = $2`, [shortfall, item.coi_id]);
@@ -730,11 +770,14 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     }
 
                     // ✅ Всё проверено — выполняем списание и обновление
-                    await client.query(
-                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id, movement_date, shipment_doc_number)
-                         VALUES ($1, $2, 'sales_shipment', $3, $4, $5, $6, $7, $8)`,
-                        [item.item_id, -item.qty, desc, reserveWhId, user_id || null, item.coi_id, finalShipDate, docNum]
-                    );
+                    const shipFifo = await allocateFifoBatches(client, item.item_id, reserveWhId, item.qty);
+                    for (const part of shipFifo) {
+                        await client.query(
+                            `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id, movement_date, shipment_doc_number)
+                             VALUES ($1, $2, 'sales_shipment', $3, $4, $5, $6, $7, $8, $9)`,
+                            [item.item_id, -part.qty, desc, reserveWhId, part.batch_id, user_id || null, item.coi_id, finalShipDate, docNum]
+                        );
+                    }
                     await client.query(
                         `UPDATE client_order_items SET qty_shipped = COALESCE(qty_shipped, 0) + $1 WHERE id = $2`,
                         [item.qty, item.coi_id]
@@ -1245,17 +1288,21 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 for (const coi of reservedItems.rows) {
                     const qty = parseFloat(coi.qty_reserved);
                     if (qty <= 0.0001) continue;
+                    await lockStockPair(client, coi.item_id, reserveWhId, finishedWhId);
+                    const fifo = await allocateFifoBatches(client, coi.item_id, reserveWhId, qty);
                     // Возвращаем со склада резерва → склад ГП
-                    await client.query(
-                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id)
-                         VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6)`,
-                        [coi.item_id, -qty, `Возврат резерва (force-close): ${docNumber}`, reserveWhId, req.user.id || null, coi.id]
-                    );
-                    await client.query(
-                        `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id)
-                         VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6)`,
-                        [coi.item_id, qty, `Возврат резерва (force-close): ${docNumber}`, finishedWhId, req.user.id || null, coi.id]
-                    );
+                    for (const part of fifo) {
+                        await client.query(
+                            `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id)
+                             VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6, $7)`,
+                            [coi.item_id, -part.qty, `Возврат резерва (force-close): ${docNumber}`, reserveWhId, part.batch_id, req.user.id || null, coi.id]
+                        );
+                        await client.query(
+                            `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id)
+                             VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6, $7)`,
+                            [coi.item_id, part.qty, `Возврат резерва (force-close): ${docNumber}`, finishedWhId, part.batch_id, req.user.id || null, coi.id]
+                        );
+                    }
                 }
 
                 // Удаляем плановое производство
@@ -1458,16 +1505,19 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         const newProduction = Math.max(0, needReserve - newReserved);
 
                         if (newReserved > 0.0001) {
-                            await client.query(
-                                `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id)
-                                 VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6)`,
-                                [itemId, -newReserved, `Заказ (Резерв): ${docNumber}`, finishedWhId, req.user.id || null, existingRow.id]
-                            );
-                            await client.query(
-                                `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id)
-                                 VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6)`,
-                                [itemId, newReserved, `Заказ (Резерв): ${docNumber}`, reserveWhId, req.user.id || null, existingRow.id]
-                            );
+                            const reserveFifo = await allocateFifoBatches(client, itemId, finishedWhId, newReserved);
+                            for (const part of reserveFifo) {
+                                await client.query(
+                                    `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id)
+                                     VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6, $7)`,
+                                    [itemId, -part.qty, `Заказ (Резерв): ${docNumber}`, finishedWhId, part.batch_id, req.user.id || null, existingRow.id]
+                                );
+                                await client.query(
+                                    `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id)
+                                     VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6, $7)`,
+                                    [itemId, part.qty, `Заказ (Резерв): ${docNumber}`, reserveWhId, part.batch_id, req.user.id || null, existingRow.id]
+                                );
+                            }
                         }
 
                         await client.query(
@@ -1517,16 +1567,19 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
                         if (reserve > 0.0001) {
                             const newCoiId = newCoiRes.rows[0].id;
-                            await client.query(
-                                `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id)
-                                 VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6)`,
-                                [itemId, -reserve, `Заказ (Резерв): ${docNumber}`, finishedWhId, req.user.id || null, newCoiId]
-                            );
-                            await client.query(
-                                `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id, linked_order_item_id)
-                                 VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6)`,
-                                [itemId, reserve, `Заказ (Резерв): ${docNumber}`, reserveWhId, req.user.id || null, newCoiId]
-                            );
+                            const reserveFifo = await allocateFifoBatches(client, itemId, finishedWhId, reserve);
+                            for (const part of reserveFifo) {
+                                await client.query(
+                                    `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id)
+                                     VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6, $7)`,
+                                    [itemId, -part.qty, `Заказ (Резерв): ${docNumber}`, finishedWhId, part.batch_id, req.user.id || null, newCoiId]
+                                );
+                                await client.query(
+                                    `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id)
+                                     VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6, $7)`,
+                                    [itemId, part.qty, `Заказ (Резерв): ${docNumber}`, reserveWhId, part.batch_id, req.user.id || null, newCoiId]
+                                );
+                            }
                         }
                     }
                 }
