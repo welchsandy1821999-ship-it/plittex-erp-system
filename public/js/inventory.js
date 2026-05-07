@@ -1742,7 +1742,7 @@ window.renderReserveTargetOrders = function() {
     }
     sel.innerHTML = '<option value="">Выберите заказ...</option>' + rows.map((o) => {
         const reserved = Number(o.qty_reserved || 0);
-        const need = Number(o.qty_need_reserve || 0);
+        const need = Math.max(0, Number(o.qty_need_reserve || 0));
         const rem = Number(o.qty_remaining || 0);
         const status = formatReserveOrderStatus(o.order_status);
         return `<option value="${o.id}">${Utils.escapeHtml(o.doc_number || 'Заказ')} | ${Utils.escapeHtml(o.client_name || '—')} | ${Utils.escapeHtml(status)} | Осталось: ${rem} | Нужно в резерв: ${need} | В резерве: ${reserved}</option>`;

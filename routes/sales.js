@@ -779,7 +779,10 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         );
                     }
                     await client.query(
-                        `UPDATE client_order_items SET qty_shipped = COALESCE(qty_shipped, 0) + $1 WHERE id = $2`,
+                        `UPDATE client_order_items
+                         SET qty_shipped = COALESCE(qty_shipped, 0) + $1,
+                             qty_reserved = GREATEST(COALESCE(qty_reserved, 0) - $1, 0)
+                         WHERE id = $2`,
                         [item.qty, item.coi_id]
                     );
 
