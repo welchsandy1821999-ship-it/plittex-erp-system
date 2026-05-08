@@ -3104,11 +3104,11 @@ window.openOrderManager = async function (orderId) {
                     <td class="padding-8 td-center text-primary font-bold">${reserved}</td>
                     <td class="padding-8 td-center text-danger font-bold">${production}</td>
                     <td class="sales-ship-td-center">
-                        <input type="number" class="input-modern ship-qty-input"
+                        <input type="number" class="input-modern ship-qty-input w-70 td-center border-primary font-bold"
                                data-coi-id="${i.id}" data-item-id="${i.item_id}" 
                                max="${remainText}" value="${Math.min(remainText, reserved)}" 
-                               ${remainText <= 0 ? 'disabled' : ''} 
-                               class="w-70 td-center border-primary font-bold">
+                               ${remainText <= 0 ? 'disabled' : ''}
+                               onfocus="this.select()">
                     </td>
                 </tr>
             `;
