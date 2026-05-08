@@ -690,17 +690,63 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             let allCompleted = true;
 
             await withTransaction(pool, async (client) => {
+                const orderRes = await client.query(
+                    `SELECT id, counterparty_id, doc_number
+                     FROM client_orders
+                     WHERE id = $1
+                     FOR UPDATE`,
+                    [orderId]
+                );
+                if (orderRes.rows.length === 0) throw new Error('Заказ не найден');
+                const order = orderRes.rows[0];
+                const counterpartyId = Number(order.counterparty_id || 0);
+                if (!counterpartyId) throw new Error('Для заказа не определен контрагент');
+
                 docNum = await getNextDocNumber(client, 'УТ', 'inventory_movements', 'description');
-                let desc = `${docNum} | Частичная отгрузка по Заказу`;
+
+                /** Epsilon: «полное закрытие заказа» и сравнение остатков к отгрузке (устойчивость к float / numeric). */
+                const SHIP_COMPLETION_EPSILON = 0.001;
+
+                const allCoiRes = await client.query(
+                    `
+                    SELECT id,
+                           COALESCE(qty_ordered, 0)::numeric AS qty_ordered,
+                           COALESCE(qty_shipped, 0)::numeric AS qty_shipped
+                    FROM client_order_items
+                    WHERE order_id = $1
+                    FOR UPDATE
+                    `,
+                    [orderId]
+                );
+                const deltaByCoiId = new Map();
+                for (const it of items_to_ship || []) {
+                    const cid = Number(it.coi_id);
+                    const q = Number(it.qty);
+                    if (!Number.isFinite(cid) || cid <= 0 || !Number.isFinite(q) || q <= 0) continue;
+                    deltaByCoiId.set(cid, (deltaByCoiId.get(cid) || 0) + q);
+                }
+                let hasRemainingAfterThisShipment = false;
+                for (const row of allCoiRes.rows) {
+                    const cid = Number(row.id);
+                    const ordered = new Big(String(row.qty_ordered ?? 0));
+                    const shippedSoFar = new Big(String(row.qty_shipped ?? 0));
+                    const delta = new Big(deltaByCoiId.get(cid) || 0);
+                    const remainingAfter = ordered.minus(shippedSoFar).minus(delta);
+                    if (remainingAfter.gt(SHIP_COMPLETION_EPSILON)) {
+                        hasRemainingAfterThisShipment = true;
+                        break;
+                    }
+                }
+                const descPrefix = hasRemainingAfterThisShipment ? 'Частичная отгрузка по Заказу' : 'Полная отгрузка по Заказу';
+                let desc = `${docNum} | ${descPrefix}`;
                 if (driver || auto) desc += ` | Транспорт: ${auto || '-'} (Водитель: ${driver || '-'})`;
                 if (poa_info) desc += ` | ${poa_info}`;
+                let shippedQtyBig = new Big(0);
+                let insertedShipmentsCount = 0;
 
                 if (pallets && parseInt(pallets) > 0) {
                     desc += ` | Поддоны: ${pallets} шт.`;
-                    const orderClientRes = await client.query(`SELECT counterparty_id FROM client_orders WHERE id = $1`, [orderId]);
-                    if (orderClientRes.rows.length > 0) {
-                        await client.query(`UPDATE counterparties SET pallets_balance = COALESCE(pallets_balance, 0) + $1 WHERE id = $2`, [parseInt(pallets), orderClientRes.rows[0].counterparty_id]);
-                    }
+                    await client.query(`UPDATE counterparties SET pallets_balance = COALESCE(pallets_balance, 0) + $1 WHERE id = $2`, [parseInt(pallets), counterpartyId]);
                 }
 
                 const reserveWhId = await getWhId(client, 'reserve');
@@ -751,7 +797,13 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                             // Пишем стандартными типами, чтобы отчеты и аудит не путались:
                             // - reserve_expense: списание со свободного склада
                             // - reserve_receipt: приход в резерв
-                            const transferFifo = await allocateFifoBatches(client, item.item_id, finishedWhId, shortfall);
+                            let transferFifo = [];
+                            try {
+                                transferFifo = await allocateFifoBatches(client, item.item_id, finishedWhId, shortfall);
+                            } catch (e) {
+                                logger.warn(`FIFO fallback for transfer item ${item.item_id}: ${e.message}`);
+                                transferFifo = [{ batch_id: null, qty: shortfall }];
+                            }
                             for (const part of transferFifo) {
                                 await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id, movement_date) VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6, $7, $8)`, [item.item_id, -part.qty, `Авто-перевод в резерв при отгрузке`, finishedWhId, part.batch_id, user_id || null, item.coi_id, finalShipDate]);
                                 await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id, movement_date) VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6, $7, $8)`, [item.item_id, part.qty, `Авто-добор из свободных остатков`, reserveWhId, part.batch_id, user_id || null, item.coi_id, finalShipDate]);
@@ -770,14 +822,24 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     }
 
                     // ✅ Всё проверено — выполняем списание и обновление
-                    const shipFifo = await allocateFifoBatches(client, item.item_id, reserveWhId, item.qty);
+                    let shipFifo = [];
+                    try {
+                        shipFifo = await allocateFifoBatches(client, item.item_id, reserveWhId, item.qty);
+                    } catch (e) {
+                        logger.warn(`FIFO fallback for shipment item ${item.item_id}: ${e.message}`);
+                        shipFifo = [{ batch_id: null, qty: item.qty }];
+                    }
+                    let itemShippedBig = new Big(0);
                     for (const part of shipFifo) {
                         await client.query(
                             `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id, movement_date, shipment_doc_number)
                              VALUES ($1, $2, 'sales_shipment', $3, $4, $5, $6, $7, $8, $9)`,
                             [item.item_id, -part.qty, desc, reserveWhId, part.batch_id, user_id || null, item.coi_id, finalShipDate, docNum]
                         );
+                        itemShippedBig = itemShippedBig.plus(new Big(part.qty || 0));
+                        insertedShipmentsCount++;
                     }
+                    shippedQtyBig = shippedQtyBig.plus(itemShippedBig);
                     await client.query(
                         `UPDATE client_order_items
                          SET qty_shipped = COALESCE(qty_shipped, 0) + $1,
@@ -806,10 +868,20 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     }
                 }
 
-                const checkRes = await client.query(`SELECT qty_ordered, COALESCE(qty_shipped, 0) as qty_shipped FROM client_order_items WHERE order_id = $1`, [orderId]);
-                for (let row of checkRes.rows) {
-                    if (new Big(row.qty_shipped || 0).lt(row.qty_ordered || 0)) { allCompleted = false; break; }
+                if (insertedShipmentsCount === 0 || shippedQtyBig.lte(SHIP_COMPLETION_EPSILON)) {
+                    throw new Error('Отгрузка прервана: не создано ни одного движения склада.');
                 }
+
+                const remainingRes = await client.query(
+                    `
+                    SELECT COUNT(*)::int AS cnt
+                    FROM client_order_items
+                    WHERE order_id = $1
+                      AND (COALESCE(qty_ordered, 0) - COALESCE(qty_shipped, 0)) > $2
+                    `,
+                    [orderId, SHIP_COMPLETION_EPSILON]
+                );
+                allCompleted = Number(remainingRes.rows[0]?.cnt || 0) === 0;
 
                 if (allCompleted) {
                     await client.query(`UPDATE client_orders SET status = 'completed' WHERE id = $1`, [orderId]);
@@ -1284,28 +1356,46 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 const docNumber = order.doc_number || `#${orderId}`;
 
                 const reservedItems = await client.query(
-                    'SELECT id, item_id, qty_reserved FROM client_order_items WHERE order_id = $1 AND qty_reserved > 0',
+                    'SELECT id, item_id, qty_reserved, qty_ordered, COALESCE(qty_shipped, 0) as qty_shipped FROM client_order_items WHERE order_id = $1',
                     [orderId]
                 );
 
+                let totalNewOrdered = new Big(0);
+
                 for (const coi of reservedItems.rows) {
                     const qty = parseFloat(coi.qty_reserved);
-                    if (qty <= 0.0001) continue;
-                    await lockStockPair(client, coi.item_id, reserveWhId, finishedWhId);
-                    const fifo = await allocateFifoBatches(client, coi.item_id, reserveWhId, qty);
-                    // Возвращаем со склада резерва → склад ГП
-                    for (const part of fifo) {
-                        await client.query(
-                            `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id)
-                             VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6, $7)`,
-                            [coi.item_id, -part.qty, `Возврат резерва (force-close): ${docNumber}`, reserveWhId, part.batch_id, req.user.id || null, coi.id]
-                        );
-                        await client.query(
-                            `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id)
-                             VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6, $7)`,
-                            [coi.item_id, part.qty, `Возврат резерва (force-close): ${docNumber}`, finishedWhId, part.batch_id, req.user.id || null, coi.id]
-                        );
+                    if (qty > 0.0001) {
+                        await lockStockPair(client, coi.item_id, reserveWhId, finishedWhId);
+                        let fifo = [];
+                        try {
+                            fifo = await allocateFifoBatches(client, coi.item_id, reserveWhId, qty);
+                        } catch (e) {
+                            logger.warn(`FIFO fallback for force-close item ${coi.item_id}: ${e.message}`);
+                            fifo = [{ batch_id: null, qty }];
+                        }
+                        // Возвращаем со склада резерва → склад ГП
+                        for (const part of fifo) {
+                            await client.query(
+                                `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id)
+                                 VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6, $7)`,
+                                [coi.item_id, -part.qty, `Возврат резерва (force-close): ${docNumber}`, reserveWhId, part.batch_id, req.user.id || null, coi.id]
+                            );
+                            await client.query(
+                                `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id)
+                                 VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6, $7)`,
+                                [coi.item_id, part.qty, `Возврат резерва (force-close): ${docNumber}`, finishedWhId, part.batch_id, req.user.id || null, coi.id]
+                            );
+                        }
                     }
+
+                    // 2. Отрезаем хвост: qty_ordered = qty_shipped
+                    const shipped = parseFloat(coi.qty_shipped);
+                    totalNewOrdered = totalNewOrdered.plus(shipped);
+                    
+                    await client.query(
+                        'UPDATE client_order_items SET qty_ordered = $1, qty_reserved = 0, qty_production = 0 WHERE id = $2',
+                        [shipped, coi.id]
+                    );
                 }
 
                 // Удаляем плановое производство
@@ -1316,16 +1406,6 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         [coiIds]
                     );
                 }
-
-                // Обнуляем счётчики
-                await client.query(
-                    'UPDATE client_order_items SET qty_reserved = 0, qty_production = 0 WHERE order_id = $1',
-                    [orderId]
-                );
-
-                // 2. НЕ обнуляем и не удаляем позиции:
-                // принудительное закрытие фиксирует текущую редакцию заказа, а не только отгруженный хвост.
-                // Это позволяет корректно хранить согласованный итог (например, было 9 -> изменили на 7 -> закрыли как 7).
 
                 // 3. Пересчитываем ИТОГОВУЮ СУММУ ЗАКАЗА (total_amount)
                 const itemsRes = await client.query('SELECT qty_ordered, price FROM client_order_items WHERE order_id = $1', [orderId]);
@@ -1348,13 +1428,15 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 const newDebt = Number((newDebtBig.lt(0) ? new Big(0) : newDebtBig).toFixed(2));
 
                 // 5. Обновляем статус заказа
+                const newStatus = totalNewOrdered.lte(0.0001) ? 'cancelled' : 'completed';
+
                 await client.query(`
                     UPDATE client_orders 
-                    SET status = 'completed', 
-                        total_amount = $1, 
-                        pending_debt = $2 
-                    WHERE id = $3
-                `, [newTotal, newDebt, orderId]);
+                    SET status = $1, 
+                        total_amount = $2, 
+                        pending_debt = $3 
+                    WHERE id = $4
+                `, [newStatus, newTotal, newDebt, orderId]);
             });
 
             const io = req.app.get('io');
