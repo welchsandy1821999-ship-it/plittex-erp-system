@@ -306,6 +306,26 @@ tr:hover {
     z-index: 10000 !important;
 }
 
+/* Второй уровень: CRM / детализация поверх #app-modal */
+#app-modal-tier-2 {
+    z-index: 10010 !important;
+}
+
+#app-modal-tier-2 .modal-content {
+    max-width: 1000px;
+    width: 95%;
+}
+
+/* Карточка движения: глобальный оверлей над tier-1, под подтверждениями при эскалации #app-modal */
+#modal-item-history.modal-shell-global {
+    z-index: 10011 !important;
+}
+
+/* Подтверждения в #app-modal поверх открытого tier-2 */
+#app-modal.app-modal-over-tier2 {
+    z-index: 10020 !important;
+}
+
 .modal-overlay.active {
     display: flex !important;
     opacity: 1;

@@ -1,5 +1,35 @@
     <script>
         const UI = {
+            _elevateAppModalIfTier2Visible: () => {
+                const tier2 = document.getElementById('app-modal-tier-2');
+                const app = document.getElementById('app-modal');
+                if (tier2 && app && tier2.classList.contains('active')) {
+                    app.classList.add('app-modal-over-tier2');
+                }
+            },
+            showModalTier2: (title, htmlBody, buttonsHtml) => {
+                const modal = document.getElementById('app-modal-tier-2');
+                if (!modal) return;
+                const t = document.getElementById('app-modal-tier-2-title');
+                const b = document.getElementById('app-modal-tier-2-body');
+                const f = document.getElementById('app-modal-tier-2-footer');
+                if (t) t.innerHTML = title;
+                if (b) b.innerHTML = htmlBody;
+                if (f) f.innerHTML = buttonsHtml || '';
+                modal.classList.remove('d-none');
+                modal.classList.add('active');
+            },
+            closeModalTier2: () => {
+                const modal = document.getElementById('app-modal-tier-2');
+                if (modal) {
+                    modal.classList.remove('active', 'reports-batch-modal-front', 'reports-batch-card-modal-front');
+                    modal.classList.add('d-none');
+                    modal.style.removeProperty('display');
+                    modal.style.removeProperty('z-index');
+                }
+                const app = document.getElementById('app-modal');
+                if (app) app.classList.remove('app-modal-over-tier2');
+            },
             toast: (msg, type = 'success') => {
                 const container = document.getElementById('toast-container');
                 const toast = document.createElement('div');
@@ -14,6 +44,7 @@
                 }, 4000);
             },
             showModal: (title, htmlBody, buttonsHtml) => {
+                UI._elevateAppModalIfTier2Visible();
                 const modal = document.getElementById('app-modal');
                 if (!modal) return;
                 document.getElementById('app-modal-title').innerHTML = title;
@@ -30,6 +61,9 @@
                     targetModal.classList.remove('reports-batch-modal-front', 'reports-batch-card-modal-front');
                     targetModal.style.removeProperty('display');
                     targetModal.style.removeProperty('z-index');
+                    if (!id || id === 'app-modal') {
+                        document.getElementById('app-modal')?.classList.remove('app-modal-over-tier2');
+                    }
                 }
             },
             confirm: (msg, onConfirm) => {
@@ -139,6 +173,9 @@
                     else if (typeof editClient === 'function') editClient(id);
                     break;
                 case 'employee': if (typeof editWorker === 'function') editWorker(id); break;
+                case 'item_movement':
+                    if (typeof openItemHistory === 'function') openItemHistory(id, 'all');
+                    break;
                 case 'nomenclature':
                     if (typeof UI !== 'undefined' && typeof UI.closeModal === 'function') UI.closeModal();
                     if (typeof window.switchModule === 'function') window.switchModule('ref-mod');
@@ -214,6 +251,7 @@
                 } catch (e) { }
             }
             if (typeof UI !== 'undefined' && UI.closeModal) UI.closeModal();
+            if (typeof UI !== 'undefined' && UI.closeModalTier2) UI.closeModalTier2();
             const savedModule = localStorage.getItem('activeModuleId') || 'dashboard-mod';
             let navItem = document.querySelector(`.nav-item[onclick*="${savedModule}"]`);
             if (!navItem) navItem = document.querySelector('.nav-item.active');
@@ -243,7 +281,20 @@
         });
 
         document.addEventListener('click', (e) => {
-            if (e.target.classList.contains('modal-overlay')) { e.target.classList.remove('active'); e.target.classList.add('d-none'); e.target.style.removeProperty('display'); }
+            if (!e.target.classList.contains('modal-overlay')) return;
+            const id = e.target.id;
+            if (id === 'modal-item-history') {
+                if (typeof closeItemHistory === 'function') closeItemHistory();
+                else { e.target.classList.remove('active'); e.target.classList.add('d-none'); e.target.style.removeProperty('display'); }
+                return;
+            }
+            if (id === 'app-modal-tier-2') {
+                if (typeof UI !== 'undefined' && typeof UI.closeModalTier2 === 'function') UI.closeModalTier2();
+                return;
+            }
+            e.target.classList.remove('active');
+            e.target.classList.add('d-none');
+            e.target.style.removeProperty('display');
         });
 
         window.getCssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();

@@ -2044,7 +2044,6 @@ window.reportsOpenBatchFromDrilldown = function(batchId) {
 window.reportsOpenItemCard = function(itemId) {
     const id = Number(itemId || 0);
     if (!id) return;
-    if (typeof window.switchModule === 'function') window.switchModule('stock-mod');
     let tries = 0;
     const run = () => {
         tries += 1;
@@ -2056,9 +2055,9 @@ window.reportsOpenItemCard = function(itemId) {
             setTimeout(run, 160);
             return;
         }
-        UI.toast(`Не удалось открыть историю материала #${id} на складе`, 'warning');
+        UI.toast(`Не удалось открыть историю материала #${id}`, 'warning');
     };
-    setTimeout(run, 180);
+    setTimeout(run, 50);
 };
 
 window.reportsOpenFinanceCategoryInDashboard = function(categoryName) {

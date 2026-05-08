@@ -2404,7 +2404,7 @@ function renderHistoryTable() {
 
     tbody.innerHTML = filtered.map(h => {
         // 🚀 НОВОЕ: Умный поиск цены (бэкенд может называть её по-разному)
-        const rowSumRaw = (h.amount ?? h.total_amount ?? h.total_sum ?? h.sum);
+        const rowSumRaw = (h.amount ?? h.calculated_shipment_amount ?? h.total_amount ?? h.total_sum ?? h.sum);
         const rowSum = Number(rowSumRaw);
         const sumText = Number.isFinite(rowSum) && rowSum > 0 ? rowSum.toLocaleString('ru-RU') + ' ₽' : '-';
         const qtyNum = Number(h.total_qty);
@@ -4348,7 +4348,7 @@ window.openOrderDetails = async function (orderId) {
             itemsHtml += `
                 <tr>
                     <td class="p-8 border-bottom border-surface-alt">
-                        ${item.item_id ? `<span class="entity-link" onclick="window.app.openEntity('nomenclature', ${item.item_id})">${Utils.escapeHtml(item.name)}</span>` : Utils.escapeHtml(item.name)}
+                        ${item.item_id ? `<span class="entity-link" onclick="window.app.openEntity('item_movement', ${item.item_id})">${Utils.escapeHtml(item.name)}</span>` : Utils.escapeHtml(item.name)}
                     </td>
                     <td class="p-8 border-bottom border-surface-alt text-center font-bold">${ordered} ${item.unit}</td>
                     <td class="p-8 border-bottom border-surface-alt text-center font-bold ${colorClass}">${shipped}</td>

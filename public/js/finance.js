@@ -3204,7 +3204,7 @@
             </div>
         `;
 
-            UI.showModal(`Карточка: ${cp.name}`, html, `<button class="btn btn-outline" onclick="openCounterpartiesModal()">🔙 Назад к списку</button>`);
+            UI.showModalTier2(`Карточка: ${cp.name}`, html, `<button class="btn btn-outline" onclick="UI.closeModalTier2()">🔙 Закрыть</button>`);
         } catch (e) {
             console.error(e);
             UI.toast('Ошибка загрузки', 'error');
