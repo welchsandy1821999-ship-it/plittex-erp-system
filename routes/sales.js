@@ -42,6 +42,13 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
         return fallback;
     }
 
+    /** Склад-донор свободного остатка для строки заказа: как при checkout (payload warehouse_id), иначе ГП. */
+    function resolveStockDonorWarehouseId(stockSourceWarehouseId, finishedWarehouseId) {
+        const w = Number(stockSourceWarehouseId);
+        if (Number.isInteger(w) && w > 0) return w;
+        return finishedWarehouseId;
+    }
+
     async function allocateFifoBatches(client, itemId, warehouseId, requiredQty) {
         const need = Number(new Big(requiredQty || 0).round(4));
         if (need <= 0) return [];
@@ -472,9 +479,9 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     
                     // Сначала создаём позицию заказа, чтобы получить её ID
                     const itemRes = await client.query(`
-                        INSERT INTO client_order_items (order_id, item_id, qty_ordered, qty_reserved, qty_production, price) 
-                        VALUES ($1, $2, $3, 0, 0, $4) RETURNING id
-                    `, [orderId, item.id, item.qty, item.price]);
+                        INSERT INTO client_order_items (order_id, item_id, qty_ordered, qty_reserved, qty_production, price, stock_source_warehouse_id) 
+                        VALUES ($1, $2, $3, 0, 0, $4, $5) RETURNING id
+                    `, [orderId, item.id, item.qty, item.price, whId]);
                     const coi_id = itemRes.rows[0].id;
 
                     const stockRes = await client.query(`
@@ -753,11 +760,11 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 const finishedWhId = await getWhId(client, 'finished');
                 for (let item of items_to_ship) {
                     if (item.qty <= 0) continue;
-                    await lockStockPair(client, item.item_id, reserveWhId, finishedWhId);
 
                     // 🔒 ШАГ 1: Блокируем позицию заказа (Row-Level Lock)
                     const coiRes = await client.query(
-                        `SELECT id, item_id, qty_ordered, COALESCE(qty_shipped, 0) as qty_shipped, unit_cost_snapshot
+                        `SELECT id, item_id, qty_ordered, COALESCE(qty_shipped, 0) as qty_shipped, unit_cost_snapshot,
+                                stock_source_warehouse_id
                          FROM client_order_items WHERE id = $1 FOR UPDATE`,
                         [item.coi_id]
                     );
@@ -765,6 +772,9 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         throw new Error(`Позиция заказа #${item.coi_id} не найдена.`);
                     }
                     const coi = coiRes.rows[0];
+                    const donorWhId = resolveStockDonorWarehouseId(coi.stock_source_warehouse_id, finishedWhId);
+                    await lockStockPair(client, item.item_id, reserveWhId, donorWhId);
+
                     const remaining = parseFloat(coi.qty_ordered) - parseFloat(coi.qty_shipped);
                     if (item.qty > remaining) {
                         throw new Error(
@@ -786,26 +796,26 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         // АВТО-ДОБОР: Если в резерве не хватает, смотрим на Склад №4 (Свободные остатки)
                         const shortfall = parseFloat(new Big(item.qty).minus(reserveBalance).toFixed(4));
                         
-                        const finishedRes = await client.query(
+                        const donorStockRes = await client.query(
                             `SELECT COALESCE(SUM(quantity), 0) as balance FROM inventory_movements WHERE item_id = $1 AND warehouse_id = $2`,
-                            [item.item_id, finishedWhId]
+                            [item.item_id, donorWhId]
                         );
-                        let finishedBalance = parseFloat(finishedRes.rows[0].balance);
+                        let donorBalance = parseFloat(donorStockRes.rows[0].balance);
 
-                        if (finishedBalance >= shortfall) {
-                            // Автоматически переносим недостаницу со Склада №4 в резерв.
+                        if (donorBalance >= shortfall) {
+                            // Автоматически переносим недостаток со склада-донора строки заказа (как при оформлении: warehouse корзины / ГП) в резерв.
                             // Пишем стандартными типами, чтобы отчеты и аудит не путались:
-                            // - reserve_expense: списание со свободного склада
+                            // - reserve_expense: списание со свободного склада (donorWhId)
                             // - reserve_receipt: приход в резерв
                             let transferFifo = [];
                             try {
-                                transferFifo = await allocateFifoBatches(client, item.item_id, finishedWhId, shortfall);
+                                transferFifo = await allocateFifoBatches(client, item.item_id, donorWhId, shortfall);
                             } catch (e) {
                                 logger.warn(`FIFO fallback for transfer item ${item.item_id}: ${e.message}`);
                                 transferFifo = [{ batch_id: null, qty: shortfall }];
                             }
                             for (const part of transferFifo) {
-                                await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id, movement_date) VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6, $7, $8)`, [item.item_id, -part.qty, `Авто-перевод в резерв при отгрузке`, finishedWhId, part.batch_id, user_id || null, item.coi_id, finalShipDate]);
+                                await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id, movement_date) VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6, $7, $8)`, [item.item_id, -part.qty, `Авто-перевод в резерв при отгрузке`, donorWhId, part.batch_id, user_id || null, item.coi_id, finalShipDate]);
                                 await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id, movement_date) VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6, $7, $8)`, [item.item_id, part.qty, `Авто-добор из свободных остатков`, reserveWhId, part.batch_id, user_id || null, item.coi_id, finalShipDate]);
                             }
                             
@@ -816,7 +826,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         } else {
                             throw new Error(
                                 `Недостаточно товара для отгрузки (позиция #${coi.id}). ` +
-                                `Требуется: ${item.qty}, в резерве: ${reserveBalance}, на складе свободно: ${finishedBalance}.`
+                                `Требуется: ${item.qty}, в резерве: ${reserveBalance}, на складе-доноре (${donorWhId}): ${donorBalance}.`
                             );
                         }
                     }

@@ -105,6 +105,11 @@ async function initSystemTables(pool) {
         await pool.query(`CREATE INDEX IF NOT EXISTS idx_inv_mov_doc_num ON inventory_movements(shipment_doc_number) WHERE shipment_doc_number IS NOT NULL`);
         // Миграция: поле default_layer в items — единая точка истины для авто-суггестии слоя при добавлении сырья
         await pool.query(`ALTER TABLE items ADD COLUMN IF NOT EXISTS default_layer VARCHAR(20) DEFAULT 'main'`);
+
+        // Заказы: склад-донор свободного остатка для строки (как при checkout: item.warehouse_id || ГП).
+        await pool.query(
+            `ALTER TABLE client_order_items ADD COLUMN IF NOT EXISTS stock_source_warehouse_id INTEGER REFERENCES warehouses(id)`
+        );
         // Предзаполнение: упаковочные материалы
         await pool.query(`
             UPDATE items SET default_layer = 'packaging'
