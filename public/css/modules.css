@@ -15049,6 +15049,14 @@ td.sales-ship-td-center {
     text-align: center;
 }
 
+input.input-modern.ship-qty-input {
+    width: 96px;
+    min-width: 96px;
+    max-width: 100%;
+    box-sizing: border-box;
+    text-align: center;
+}
+
 .form-grid.sales-ship-poa-grid {
     grid-column: 1 / -1;
 }
