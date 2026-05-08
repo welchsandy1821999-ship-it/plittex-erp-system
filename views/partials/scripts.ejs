@@ -140,11 +140,11 @@
                     break;
                 case 'employee': if (typeof editWorker === 'function') editWorker(id); break;
                 case 'nomenclature':
-                    if (typeof editReference === 'function') editReference(id);
-                    else {
-                        if (typeof window.switchModule === 'function') window.switchModule('ref-mod');
-                        setTimeout(() => { if (typeof editReference === 'function') editReference(id); }, 180);
-                    }
+                    if (typeof UI !== 'undefined' && typeof UI.closeModal === 'function') UI.closeModal();
+                    if (typeof window.switchModule === 'function') window.switchModule('ref-mod');
+                    setTimeout(() => {
+                        if (typeof editReference === 'function') editReference(id);
+                    }, 200);
                     break;
                 case 'equipment': if (typeof editEquipment === 'function') editEquipment(id); break;
                 case 'recipe': if (typeof editRecipe === 'function') editRecipe(id); break;
