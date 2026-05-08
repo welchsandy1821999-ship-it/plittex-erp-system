@@ -2632,11 +2632,37 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     // РЕДАКТИРОВАНИЕ ДВИЖЕНИЯ (PUT /api/inventory/movement/:id)
     // ------------------------------------------------------------------
+    const MOVEMENT_EDIT_DEMOLDING_FORBIDDEN_MSG = 'Редактирование связанных производственных операций запрещено. Пожалуйста, сделайте Откат (удаление) всей операции распалубки и проведите её заново.';
+
     router.put('/api/inventory/movement/:id', requireAdmin, async (req, res) => {
         const movementId = req.params.id;
         const { movement_date, description } = req.body;
-        
+
         try {
+            const demoldBlock = await pool.query(
+                `
+                SELECT m.id
+                FROM inventory_movements m
+                WHERE m.id = $1
+                  AND (
+                        (
+                            m.transaction_id IS NOT NULL
+                            AND EXISTS (
+                                SELECT 1
+                                FROM inventory_movements x
+                                WHERE x.transaction_id = m.transaction_id
+                                  AND x.movement_type = 'wip_expense'
+                            )
+                        )
+                        OR m.movement_type = 'wip_expense'
+                  )
+                `,
+                [movementId]
+            );
+            if (demoldBlock.rows.length > 0) {
+                return res.status(400).json({ error: MOVEMENT_EDIT_DEMOLDING_FORBIDDEN_MSG });
+            }
+
             await withTransaction(pool, async (client) => {
                 const movRes = await client.query('SELECT transaction_id, batch_id, movement_date FROM inventory_movements WHERE id = $1', [movementId]);
                 if (movRes.rows.length === 0) throw new Error('Запись не найдена');
@@ -2680,6 +2706,9 @@ module.exports = function (pool, getWhId, withTransaction) {
             res.json({ success: true, message: 'Запись успешно обновлена' });
         } catch (err) {
             logger.error(err);
+            if (err && err.message === 'Запись не найдена') {
+                return res.status(404).json({ error: err.message });
+            }
             res.status(500).json({ error: 'Ошибка обновления движения.' });
         }
     });

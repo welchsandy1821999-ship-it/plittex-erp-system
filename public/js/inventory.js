@@ -1416,6 +1416,9 @@ window.saveMovementEdit = async function() {
         if (typeof loadTable === 'function') loadTable();
     } catch (e) {
         console.error(e);
+        const msg = e && e.message ? String(e.message) : 'Не удалось сохранить изменения';
+        if (typeof UI !== 'undefined' && typeof UI.toast === 'function') UI.toast(msg, 'error');
+        else alert(msg);
     }
 };
 
