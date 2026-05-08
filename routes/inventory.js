@@ -48,6 +48,12 @@ module.exports = function (pool, getWhId, withTransaction) {
         return fallback;
     }
 
+    function formatOrderLabel(docNumber, orderItemId) {
+        if (docNumber && String(docNumber).trim()) return String(docNumber).trim();
+        if (orderItemId) return `позиция #${orderItemId}`;
+        return 'неизвестный заказ';
+    }
+
     async function internalRebalanceReserves(client) {
         const reserveWhId = await getWhId(client, 'reserve');
         const finishedWhId = await getWhId(client, 'finished');
@@ -2538,17 +2544,39 @@ module.exports = function (pool, getWhId, withTransaction) {
                     // === ПЕРЕБРОСКА НА ДРУГОЙ ЗАКАЗ: WH7(old) -> WH7(new) ===
                     if (!targetOrderItemId) throw new Error('Не указана целевая позиция заказа.');
 
+                    const fromOrderRes = linkedOrderItemId
+                        ? await client.query(
+                            `SELECT co.doc_number
+                             FROM client_order_items coi
+                             JOIN client_orders co ON co.id = coi.order_id
+                             WHERE coi.id = $1
+                             LIMIT 1`,
+                            [linkedOrderItemId]
+                        )
+                        : { rows: [] };
+                    const toOrderRes = await client.query(
+                        `SELECT co.doc_number
+                         FROM client_order_items coi
+                         JOIN client_orders co ON co.id = coi.order_id
+                         WHERE coi.id = $1
+                         LIMIT 1`,
+                        [targetOrderItemId]
+                    );
+                    const fromOrderLabel = formatOrderLabel(fromOrderRes.rows[0]?.doc_number, linkedOrderItemId);
+                    const toOrderLabel = formatOrderLabel(toOrderRes.rows[0]?.doc_number, targetOrderItemId);
+                    const transferInfo = `Инфо: Перенос резерва с заказа ${fromOrderLabel} на заказ ${toOrderLabel}`;
+
                     // Списание со старого резерва
                     await client.query(
                         `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, linked_order_item_id)
-                         VALUES ($1, $2, 'reserve_transfer_out', $3, $4, $5, $6)`,
-                        [itemId, -Number(qtyFixed), 'Переброска резерва', reserveWhId, batchId || null, linkedOrderItemId || null]
+                         VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6)`,
+                        [itemId, -Number(qtyFixed), transferInfo, reserveWhId, batchId || null, linkedOrderItemId || null]
                     );
                     // Приход на новый резерв
                     await client.query(
                         `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, linked_order_item_id)
-                         VALUES ($1, $2, 'reserve_transfer_in', $3, $4, $5, $6)`,
-                        [itemId, Number(qtyFixed), 'Переброска резерва', reserveWhId, batchId || null, targetOrderItemId]
+                         VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6)`,
+                        [itemId, Number(qtyFixed), transferInfo, reserveWhId, batchId || null, targetOrderItemId]
                     );
 
                     // Синхронизация qty_reserved у ОБОИХ заказов

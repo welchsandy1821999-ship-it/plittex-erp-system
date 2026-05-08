@@ -150,6 +150,13 @@ const pool = new Pool({
     statement_timeout: 30000        // Убивать запросы длиннее 30с
 });
 
+// Гарантируем UTF-8 для каждой новой сессии Postgres.
+pool.on('connect', (client) => {
+    client.query("SET client_encoding TO 'UTF8'").catch((err) => {
+        logger.error(`❌ Не удалось установить client_encoding=UTF8: ${err.message}`);
+    });
+});
+
 pool.on('error', (err) => {
     logger.error(`🚨 Непредвиденная ошибка в пуле соединений БД: ${err.message}`);
 });

@@ -701,6 +701,19 @@ function renderInventoryTable() {
                 }
             });
             reserveRows = Array.from(groupedByOrder.values());
+            // Сортировка: группировка по номеру заказа, вторично по наименованию.
+            // Это нужно для UX: позиции одного заказа идут подряд.
+            reserveRows.sort((a, b) => {
+                const aOrder = String(a.order_doc_number || a.order_id || '');
+                const bOrder = String(b.order_doc_number || b.order_id || '');
+                if (aOrder !== bOrder) return aOrder.localeCompare(bOrder, 'ru', { numeric: true });
+                const aName = String(a.item_name || '');
+                const bName = String(b.item_name || '');
+                if (aName !== bName) return aName.localeCompare(bName, 'ru', { numeric: true });
+                const aCoi = String(a.linked_order_item_id || '');
+                const bCoi = String(b.linked_order_item_id || '');
+                return aCoi.localeCompare(bCoi, 'ru', { numeric: true });
+            });
         }
     }
     const sourceRows = isReserveView
@@ -815,6 +828,10 @@ function renderInventoryTable() {
         return;
     }
 
+    // Группировка строк в Складе №7 (По отдельным заказам) — по текущей странице.
+    // Важно: счетчик групп сбрасываем при переходе на другую страницу.
+    let prevOrderKey = null;
+    let groupIndex = 0;
     paginated.forEach(item => {
         let actionHtml = '';
         let qtyHtml = '';
@@ -899,7 +916,17 @@ function renderInventoryTable() {
                 <div class="inv-reserve-order-metrics" title="Заказ: ${orderQty.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} | Отгружено: ${orderShipped.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} | В резерве по заказу: ${orderReserved.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} | Нужно: ${orderNeedReserve.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}">Заказ: ${orderQty.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} | Отгружено: ${orderShipped.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} | В резерве по заказу: ${orderReserved.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} | Нужно: ${orderNeedReserve.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}</div>
                 <div class="inv-reserve-order-metrics" title="Склад №4 свободно: ${freeQty.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} | Склад №7 в резерве: ${reserveTotal.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}">Склад №4 свободно: ${freeQty.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} | Склад №7 в резерве: ${reserveTotal.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}</div>`
                 : '<span class="badge inv-wh-badge">Без привязки к заказу</span>';
-            const rowClass = orderNeedReserve > 0.0001 ? 'inv-reserve-row inv-reserve-row--deficit' : 'inv-reserve-row';
+            const orderKey = String(item.order_id || item.order_doc_number || '');
+            const isGroupStart = orderKey !== prevOrderKey;
+            if (isGroupStart) groupIndex += 1;
+            prevOrderKey = orderKey;
+            const groupClass = groupIndex % 2 === 0 ? 'inv-reserve-group-even' : 'inv-reserve-group-odd';
+            const rowClass = [
+                'inv-reserve-row',
+                groupClass,
+                isGroupStart ? 'inv-reserve-group-start' : '',
+                orderNeedReserve > 0.0001 ? 'inv-reserve-row--deficit' : ''
+            ].filter(Boolean).join(' ');
             const itemNameTitle = Utils.escapeHtml(item.item_name);
             tbody.innerHTML += `
             <tr class="${rowClass}">

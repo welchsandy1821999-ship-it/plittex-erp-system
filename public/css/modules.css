@@ -4008,6 +4008,19 @@
     vertical-align: middle;
 }
 
+#stock-mod #inventory-table .inv-reserve-row.inv-reserve-group-start td {
+    border-top: 2px solid color-mix(in srgb, var(--border) 72%, var(--primary) 28%);
+}
+
+/* Чередование фона по ГРУППЕ заказа (не по строкам). Не применяем к дефицитным строкам. */
+#stock-mod #inventory-table .inv-reserve-row.inv-reserve-group-even:not(.inv-reserve-row--deficit) td {
+    background: color-mix(in srgb, var(--surface) 96%, var(--primary) 4%);
+}
+
+#stock-mod #inventory-table .inv-reserve-row.inv-reserve-group-odd:not(.inv-reserve-row--deficit) td {
+    background: var(--surface);
+}
+
 #stock-mod #inventory-table .inv-reserve-row--deficit td {
     background: color-mix(in srgb, var(--danger) 5%, var(--surface) 95%);
 }
