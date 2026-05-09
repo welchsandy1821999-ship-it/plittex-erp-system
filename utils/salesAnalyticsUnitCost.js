@@ -91,9 +91,9 @@ async function buildSalesAnalyticsUnitCostData(pool, itemIds = [], options = {})
     const histRes = await pool.query(
         `
         SELECT id, product_id,
-               COALESCE(NULLIF(actual_good_qty, 0), planned_quantity, 0) AS effective_qty,
+               COALESCE(NULLIF(actual_good_qty, 0), 0) AS effective_qty,
                ((COALESCE(machine_amort_cost, 0) + COALESCE(mold_amort_cost, 0))
-                / NULLIF(COALESCE(NULLIF(actual_good_qty, 0), planned_quantity, 0), 0)) AS unit_amort
+                / NULLIF(COALESCE(NULLIF(actual_good_qty, 0), 0), 0)) AS unit_amort
         FROM (
             SELECT pb.*,
                    ROW_NUMBER() OVER (

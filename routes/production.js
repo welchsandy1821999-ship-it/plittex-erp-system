@@ -288,7 +288,7 @@ module.exports = function (pool, getWhId, withTransaction) {
         try {
             const result = await pool.query(`
                 SELECT created_at::date as date, batch_number, i.name as product_name,
-                       ((pb.mat_cost_total + COALESCE(pb.labor_cost_total, 0) + COALESCE(pb.overhead_cost_total, 0)) / NULLIF(pb.planned_quantity, 0)) as planned_unit_cost,
+                       ((pb.mat_cost_total + COALESCE(pb.labor_cost_total, 0) + COALESCE(pb.overhead_cost_total, 0)) / NULLIF(pb.actual_good_qty, 0)) as planned_unit_cost,
                        ((pb.mat_cost_total + COALESCE(pb.labor_cost_total, 0) + COALESCE(pb.overhead_cost_total, 0)) / NULLIF(pb.actual_good_qty, 0)) as actual_unit_cost
                 FROM production_batches pb LEFT JOIN items i ON pb.product_id = i.id
                 WHERE pb.status = 'completed' ORDER BY pb.created_at ASC LIMIT 30
@@ -1278,7 +1278,9 @@ module.exports = function (pool, getWhId, withTransaction) {
                     COALESCE(SUM(CASE WHEN movement_type = 'markdown_receipt'
                                       AND quantity > 0 THEN quantity END), 0) AS grade2,
                     COALESCE(SUM(CASE WHEN movement_type = 'scrap_receipt'
-                                      AND quantity > 0 THEN quantity END), 0) AS scrap
+                                      AND quantity > 0 THEN quantity END), 0) AS scrap,
+                    COALESCE(SUM(CASE WHEN movement_type = 'tech_loss_receipt'
+                                      AND quantity > 0 THEN quantity END), 0) AS tech_loss
                 FROM inventory_movements
                 WHERE batch_id = $1
             `, [batchId]);
@@ -1307,6 +1309,8 @@ module.exports = function (pool, getWhId, withTransaction) {
             // 5. Собираем метрики по каждому материалу
             const goodQty = Number(batch.actual_good_qty || 0);
             const scrapTotal = Number(output.scrap || 0);
+            const grade2Total = Number(output.grade2 || 0);
+            const techLossTotal = Number(output.tech_loss || 0);
             const recipeMap = new Map(recipeRes.rows.map(r => [Number(r.material_id), r]));
             const factMap = new Map(factRes.rows.map(r => [Number(r.item_id), r]));
             const allIds = new Set([...recipeMap.keys(), ...factMap.keys()]);
@@ -1324,9 +1328,10 @@ module.exports = function (pool, getWhId, withTransaction) {
                 // План = рецепт × фактический годный выход 1 сорта
                 const planGoodQty = qtyPerUnit * goodQty;
                 // Расход на брак = рецепт × количество брака
-                const scrapQty = qtyPerUnit * scrapTotal;
+                const scrapQty = qtyPerUnit * (scrapTotal + grade2Total);
+                const techLossQty = qtyPerUnit * techLossTotal;
                 // Неучтённые потери = факт - план_на_годные - план_на_брак
-                const unaccountedQty = Math.max(0, factQty - planGoodQty - scrapQty);
+                const unaccountedQty = Math.max(0, factQty - planGoodQty - scrapQty - techLossQty);
 
                 materials.push({
                     item_id: matId,
@@ -1340,6 +1345,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     fact_cost: Number(new Big(factCost).round(2)),
                     plan_good_cost: Number(new Big(planGoodQty).times(unitPrice).round(2)),
                     scrap_loss_cost: Number(new Big(scrapQty).times(unitPrice).round(2)),
+                    tech_loss_cost: Number(new Big(techLossQty).times(unitPrice).round(2)),
                     unaccounted_loss_cost: Number(new Big(unaccountedQty).times(unitPrice).round(2)),
                 });
             }
@@ -1348,6 +1354,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             const totalFactCost = materials.reduce((s, m) => s + m.fact_cost, 0);
             const totalPlanCost = materials.reduce((s, m) => s + m.plan_good_cost, 0);
             const totalScrapLoss = materials.reduce((s, m) => s + m.scrap_loss_cost, 0);
+            const totalTechLoss = materials.reduce((s, m) => s + m.tech_loss_cost, 0);
             const totalUnaccounted = materials.reduce((s, m) => s + m.unaccounted_loss_cost, 0);
             const plannedQty = Number(batch.planned_quantity || 0);
 
@@ -1361,7 +1368,8 @@ module.exports = function (pool, getWhId, withTransaction) {
                     actual_good_qty: goodQty,
                     grade2_qty: Number(output.grade2 || 0),
                     scrap_qty: scrapTotal,
-                    total_output: goodQty + Number(output.grade2 || 0) + scrapTotal,
+                    tech_loss_qty: techLossTotal,
+                    total_output: goodQty + Number(output.grade2 || 0) + scrapTotal + techLossTotal,
                     yield_pct: plannedQty > 0 ? Number(new Big(goodQty).div(plannedQty).times(100).round(1)) : 0,
                 },
                 materials,
@@ -1369,7 +1377,8 @@ module.exports = function (pool, getWhId, withTransaction) {
                     fact_cost: Number(new Big(totalFactCost).round(2)),
                     plan_good_cost: Number(new Big(totalPlanCost).round(2)),
                     scrap_loss_cost: Number(new Big(totalScrapLoss).round(2)),
-                    unaccounted_loss_cost: Number(new Big(totalUnaccounted).round(2)),
+                    tech_loss_cost: Number(new Big(totalTechLoss).round(2)),
+                    unaccounted_loss_cost: Number(new Big(totalUnaccounted + totalTechLoss).round(2)),
                     total_deviation: Number(new Big(totalFactCost - totalPlanCost).round(2)),
                     amortization: Number(new Big(Number(batch.machine_amort_cost || 0)).plus(Number(batch.mold_amort_cost || 0)).round(2)),
                 }
@@ -1398,7 +1407,9 @@ module.exports = function (pool, getWhId, withTransaction) {
                         COALESCE(SUM(CASE WHEN movement_type = 'markdown_receipt'
                                           AND quantity > 0 THEN quantity END), 0) AS grade2,
                         COALESCE(SUM(CASE WHEN movement_type = 'scrap_receipt'
-                                          AND quantity > 0 THEN quantity END), 0) AS scrap
+                                          AND quantity > 0 THEN quantity END), 0) AS scrap,
+                        COALESCE(SUM(CASE WHEN movement_type = 'tech_loss_receipt'
+                                          AND quantity > 0 THEN quantity END), 0) AS tech_loss
                     FROM inventory_movements m
                     WHERE m.batch_id IS NOT NULL
                     GROUP BY m.batch_id
@@ -1416,6 +1427,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     COALESCE(pb.actual_good_qty, 0) AS actual_good_qty,
                     COALESCE(bo.grade2, 0) AS grade2_qty,
                     COALESCE(bo.scrap, 0) AS scrap_qty,
+                    COALESCE(bo.tech_loss, 0) AS tech_loss_qty,
                     COALESCE(bc.fact_cost, 0) AS fact_cost,
                     COALESCE(pb.machine_amort_cost, 0) + COALESCE(pb.mold_amort_cost, 0) AS amort_cost,
                     CASE WHEN pb.planned_quantity > 0
@@ -1440,6 +1452,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 b.yield_pct = Number(b.yield_pct || 0);
                 b.actual_good_qty = Number(b.actual_good_qty || 0);
                 b.scrap_qty = Number(b.scrap_qty || 0);
+                b.tech_loss_qty = Number(b.tech_loss_qty || 0);
                 b.planned_quantity = Number(b.planned_quantity || 0);
                 totalFactCost += b.fact_cost;
                 if (b.planned_quantity > 0) { totalYieldSum += b.yield_pct; yieldCount++; }
@@ -1458,13 +1471,16 @@ module.exports = function (pool, getWhId, withTransaction) {
                 for (const r of recipeRes.rows) recipeMap.set(Number(r.product_id), Number(r.recipe_cost_per_unit || 0));
             }
 
-            let totalScrapLoss = 0, totalUnaccounted = 0;
+            let totalScrapLoss = 0, totalTechLoss = 0, totalUnaccounted = 0;
             for (const b of batches) {
                 const recipeCostPerUnit = recipeMap.get(b.product_id) || 0;
                 b.plan_good_cost = Number(new Big(recipeCostPerUnit).times(b.actual_good_qty).round(2));
-                b.scrap_loss_cost = Number(new Big(recipeCostPerUnit).times(b.scrap_qty).round(2));
-                b.unaccounted_loss_cost = Number(new Big(Math.max(0, b.fact_cost - b.plan_good_cost - b.scrap_loss_cost)).round(2));
+                b.scrap_loss_cost = Number(new Big(recipeCostPerUnit).times(Number(b.scrap_qty || 0) + Number(b.grade2_qty || 0)).round(2));
+                b.tech_loss_cost = Number(new Big(recipeCostPerUnit).times(b.tech_loss_qty).round(2));
+                const residual = Math.max(0, b.fact_cost - b.plan_good_cost - b.scrap_loss_cost - b.tech_loss_cost);
+                b.unaccounted_loss_cost = Number(new Big(residual + b.tech_loss_cost).round(2));
                 totalScrapLoss += b.scrap_loss_cost;
+                totalTechLoss += b.tech_loss_cost;
                 totalUnaccounted += b.unaccounted_loss_cost;
             }
 
@@ -1475,6 +1491,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     avg_yield_pct: yieldCount > 0 ? Number(new Big(totalYieldSum / yieldCount).round(1)) : 0,
                     total_fact_cost: Number(new Big(totalFactCost).round(2)),
                     total_scrap_loss: Number(new Big(totalScrapLoss).round(2)),
+                    total_tech_loss: Number(new Big(totalTechLoss).round(2)),
                     total_unaccounted_loss: Number(new Big(totalUnaccounted).round(2)),
                 },
                 batches: batches.map(b => ({
@@ -1486,8 +1503,10 @@ module.exports = function (pool, getWhId, withTransaction) {
                     actual_good_qty: b.actual_good_qty,
                     yield_pct: b.yield_pct,
                     scrap_qty: b.scrap_qty,
+                    tech_loss_qty: b.tech_loss_qty,
                     fact_cost: b.fact_cost,
                     scrap_loss_cost: b.scrap_loss_cost,
+                    tech_loss_cost: b.tech_loss_cost,
                     unaccounted_loss_cost: b.unaccounted_loss_cost,
                 }))
             });

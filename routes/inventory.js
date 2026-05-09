@@ -769,7 +769,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 if (m.warehouse_id === dryingWh && m.movement_type === 'wip_expense' && qty < 0) totalOut += Math.abs(qty);
                 if (m.warehouse_id === finishedWh && m.movement_type === 'finished_receipt' && qty > 0) grade1 += qty;
                 if (m.warehouse_id === markdownWh && m.movement_type === 'markdown_receipt' && qty > 0) grade2 += qty;
-                if (m.warehouse_id === defectWh && m.movement_type === 'defect_receipt' && qty > 0) scrap += qty;
+                if (m.warehouse_id === defectWh && ['defect_receipt', 'scrap_receipt', 'tech_loss_receipt'].includes(m.movement_type) && qty > 0) scrap += qty;
             }
 
             const remaining = Math.max(totalIn - totalOut, 0);
@@ -802,7 +802,8 @@ module.exports = function (pool, getWhId, withTransaction) {
             const moldCost = parseFloat(batch.mold_amort_cost) || 0;
             const totalCost = matCost + machineCost + moldCost;
             const plannedQty = parseFloat(batch.planned_quantity) || 1;
-            const unitCost = totalCost / plannedQty;
+            const actualGoodQty = parseFloat(batch.actual_good_qty) || 0;
+            const unitCost = actualGoodQty > 0 ? (totalCost / actualGoodQty) : 0;
 
             res.json({
                 batch: {
@@ -1613,19 +1614,36 @@ module.exports = function (pool, getWhId, withTransaction) {
                 const safeScrap = Number(new Big(scrapQty || 0).round(2));
                 const reportedQty = Number(new Big(safeGood).plus(safeGrade2).plus(safeScrap).round(2));
                 let rebalanceNeeded = false;
-
-                // ✅ FIX (п.3): Жесткое обнуление — isComplete списывает весь реальный остаток из БД
-                const totalRemoved = isComplete ? realWipBalance : reportedQty;
+                let effectiveWipBalance = Number(new Big(realWipBalance).round(4));
 
                 // Защита от перерасхода (только для частичной распалубки)
-                if (!isComplete && totalRemoved > realWipBalance) {
+                if (!isComplete && reportedQty > realWipBalance) {
                     throw new Error(
-                        `Невозможно списать ${totalRemoved} ед. из сушилки (партия #${batchId}). ` +
+                        `Невозможно списать ${reportedQty} ед. из сушилки (партия #${batchId}). ` +
                         `Реальный остаток: ${realWipBalance} ед. Возможно, другой пользователь уже провел распалубку.`
                     );
                 }
 
                 const trId = randomUUID();
+                // При принудительном закрытии устраняем дельту между реальным остатком сырца и введёнными выходами.
+                // +delta => тех.потери в утиль (склад defect), -delta => корректирующий приход в сушилку перед списанием.
+                if (isComplete) {
+                    const delta = new Big(realWipBalance).minus(reportedQty).round(4);
+                    if (delta.gt(0.0001)) {
+                        await client.query(`
+                            INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, movement_date, transaction_id)
+                            VALUES ($1, $2, 'tech_loss_receipt', $3, $4, $5, $6, COALESCE($7, NOW()), $8)
+                        `, [tileId, Number(delta), 'Распалубка: технологические потери (автодельта при закрытии)', defectWh, batchId, userId, movementDate || null, trId]);
+                    } else if (delta.lt(-0.0001)) {
+                        const extra = delta.times(-1).round(4);
+                        await client.query(`
+                            INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, movement_date, transaction_id)
+                            VALUES ($1, $2, 'wip_adjustment_receipt', $3, $4, $5, $6, COALESCE($7, NOW()), $8)
+                        `, [tileId, Number(extra), 'Распалубка: корректировка излишка сырца перед закрытием', dryingWh, batchId, userId, movementDate || null, trId]);
+                        effectiveWipBalance = Number(new Big(effectiveWipBalance).plus(extra).round(4));
+                    }
+                }
+                const totalRemoved = isComplete ? effectiveWipBalance : reportedQty;
 
                 await client.query(`
                     INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, movement_date, transaction_id)
@@ -1786,8 +1804,15 @@ module.exports = function (pool, getWhId, withTransaction) {
                     `, [safeGood, batchId]);
                 }
 
-                if (isComplete && batchId) {
-                    await client.query(`UPDATE production_batches SET status = 'completed' WHERE id = $1`, [batchId]);
+                if (batchId) {
+                    const postBalanceRes = await client.query(`
+                        SELECT COALESCE(SUM(quantity), 0) AS drying_balance
+                        FROM inventory_movements
+                        WHERE batch_id = $1 AND warehouse_id = $2
+                    `, [batchId, dryingWh]);
+                    const postDryingBalance = Number(postBalanceRes.rows[0]?.drying_balance || 0);
+                    const nextStatus = postDryingBalance > 0.0001 ? 'in_drying' : 'completed';
+                    await client.query(`UPDATE production_batches SET status = $1 WHERE id = $2`, [nextStatus, batchId]);
                 }
                 if (rebalanceNeeded) {
                     await internalRebalanceReserves(client);
