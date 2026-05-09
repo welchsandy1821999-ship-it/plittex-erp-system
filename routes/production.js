@@ -1273,8 +1273,9 @@ module.exports = function (pool, getWhId, withTransaction) {
             // 2. Фактический выход по сортам (из inventory_movements)
             const outputRes = await pool.query(`
                 SELECT
-                    COALESCE(SUM(CASE WHEN movement_type IN ('finished_receipt','reserve_receipt')
-                                      AND quantity > 0 THEN quantity END), 0) AS grade1,
+                    COALESCE(SUM(CASE WHEN movement_type = 'finished_receipt' AND quantity > 0 THEN quantity
+                                      WHEN movement_type = 'reserve_receipt' AND transaction_id IS NOT NULL AND quantity > 0 THEN quantity
+                                      ELSE 0 END), 0) AS grade1,
                     COALESCE(SUM(CASE WHEN movement_type = 'markdown_receipt'
                                       AND quantity > 0 THEN quantity END), 0) AS grade2,
                     COALESCE(SUM(CASE WHEN movement_type = 'scrap_receipt'
@@ -1402,8 +1403,9 @@ module.exports = function (pool, getWhId, withTransaction) {
             const result = await pool.query(`
                 WITH batch_output AS (
                     SELECT m.batch_id,
-                        COALESCE(SUM(CASE WHEN movement_type IN ('finished_receipt','reserve_receipt')
-                                          AND quantity > 0 THEN quantity END), 0) AS grade1,
+                        COALESCE(SUM(CASE WHEN movement_type = 'finished_receipt' AND quantity > 0 THEN quantity
+                                          WHEN movement_type = 'reserve_receipt' AND transaction_id IS NOT NULL AND quantity > 0 THEN quantity
+                                          ELSE 0 END), 0) AS grade1,
                         COALESCE(SUM(CASE WHEN movement_type = 'markdown_receipt'
                                           AND quantity > 0 THEN quantity END), 0) AS grade2,
                         COALESCE(SUM(CASE WHEN movement_type = 'scrap_receipt'
