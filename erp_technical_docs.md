@@ -207,6 +207,7 @@
 
 - Многошаговые записи в БД — в одной SQL-транзакции.
 - Где в модели предусмотрено — **soft delete** (`is_deleted` в транзакциях и т.п.).
+- Для отката распалубки (`DELETE /api/inventory/movement/:id`) статус партии в `production_batches.status` пересчитывается **детерминированно** после удаления движений: по фактическому остатку партии на складе сушилки (`SUM(quantity)` по `inventory_movements` для `batch_id` + `warehouse_id=drying`). Если остаток `> 0` — `in_drying`, если `= 0` — `completed`.
 - Схема БД: **`.antigravity/db_protocol.md`**.
 
 ---

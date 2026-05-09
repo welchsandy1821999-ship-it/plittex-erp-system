@@ -2741,6 +2741,8 @@ module.exports = function (pool, getWhId, withTransaction) {
                 }
 
                 const movements = targetMovementsRes.rows;
+                const affectedBatchIds = new Set();
+                const dryingWh = await getWhId(client, 'drying');
 
                 for (const mov of movements) {
                     const qtyAbs = Math.abs(parseFloat(mov.quantity || 0));
@@ -2787,9 +2789,10 @@ module.exports = function (pool, getWhId, withTransaction) {
                             SET actual_good_qty = GREATEST(COALESCE(actual_good_qty, 0) - $1, 0)
                             WHERE id = $2
                         `, [parseFloat(mov.quantity), mov.batch_id]);
-                        
-                        // We also revert status from completed if we deleted the demolding
-                        await client.query(`UPDATE production_batches SET status = 'in_drying' WHERE id = $1`, [mov.batch_id]);
+                    }
+
+                    if (mov.batch_id) {
+                        affectedBatchIds.add(Number(mov.batch_id));
                     }
                 }
 
@@ -2797,6 +2800,21 @@ module.exports = function (pool, getWhId, withTransaction) {
                 const idsToDelete = movements.map(m => m.id);
                 if (idsToDelete.length > 0) {
                     await client.query('DELETE FROM inventory_movements WHERE id = ANY($1)', [idsToDelete]);
+                }
+
+                for (const batchId of affectedBatchIds) {
+                    const balanceRes = await client.query(`
+                        SELECT COALESCE(SUM(quantity), 0) AS drying_balance
+                        FROM inventory_movements
+                        WHERE batch_id = $1 AND warehouse_id = $2
+                    `, [batchId, dryingWh]);
+                    const dryingBalance = parseFloat(balanceRes.rows[0]?.drying_balance || 0);
+                    const nextStatus = dryingBalance > 0 ? 'in_drying' : 'completed';
+                    await client.query(`
+                        UPDATE production_batches
+                        SET status = $1
+                        WHERE id = $2
+                    `, [nextStatus, batchId]);
                 }
             });
             
