@@ -12788,7 +12788,9 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     --reports-panel-top: 0px;
     --reports-filter-gap-y: 10px;
     --reports-filter-gap-x: 12px;
-    --reports-extra-field-basis: 168px;
+    /* Строка 2: ограничение ширины полей без растягивания на весь экран */
+    --reports-extra-field-max-width: 300px;
+    --reports-extra-field-basis: 200px;
     --reports-actions-min: 260px;
 }
 
@@ -12823,28 +12825,40 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     min-width: 0;
 }
 
-/* Вторая полоса фильтров: одинаковая для всех отчётов — flex с переносами (2 ряда на широком экране, 3+ при сужении) */
+/* Строка 2: только контекстные фильтры (без кнопок). Слева, без растягивания на всю ширину. */
 #reports-mod #reports-extra-filters.reports-filter-row--extra {
     display: flex;
     flex-wrap: wrap;
-    align-items: flex-end;
+    align-items: flex-start;
+    justify-content: flex-start;
     gap: var(--reports-filter-gap-y) var(--reports-filter-gap-x);
 }
 
 #reports-mod #reports-extra-filters.reports-filter-row--extra > .form-group {
-    flex: 1 1 var(--reports-extra-field-basis);
+    flex: 0 1 var(--reports-extra-field-basis);
     min-width: 0;
-    max-width: 100%;
+    max-width: min(100%, var(--reports-extra-field-max-width));
 }
 
-#reports-mod #reports-extra-filters.reports-filter-row--extra > .reports-actions-slot {
-    flex: 5 1 var(--reports-actions-min);
-    min-width: min(100%, var(--reports-actions-min));
-    max-width: 100%;
+#reports-mod.reports-type-sales_analytics #reports-extra-filters.reports-filter-row--extra > .form-group {
+    flex: 0 1 148px;
+    max-width: min(100%, var(--reports-extra-field-max-width));
 }
 
-#reports-mod.reports-type-sales_analytics #reports-extra-filters.reports-filter-row--extra > .form-group:not(.reports-actions-slot) {
-    flex: 1 1 140px;
+/* Строка 3: действия по всей ширине карточки, прижатие вправо */
+#reports-mod .reports-filter-footer {
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+}
+
+#reports-mod #reports-extra-filters.reports-filter-row--extra .form-group .ts-wrapper {
+    max-width: 100%;
 }
 
 .reports-filters-grid .form-group {
@@ -13118,10 +13132,10 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
 }
 
 .reports-actions-slot .reports-filter-actions {
-    width: 100%;
+    width: auto;
     max-width: 100%;
     display: flex;
-    justify-content: flex-start;
+    justify-content: flex-end;
     align-items: center;
     gap: 8px;
     min-height: 34px;
@@ -13131,9 +13145,12 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     flex-wrap: wrap;
     row-gap: 8px;
     box-sizing: border-box;
-    overflow-x: auto;
-    overflow-y: visible;
-    -webkit-overflow-scrolling: touch;
+}
+
+#reports-mod .reports-filter-footer .reports-actions-slot {
+    margin-bottom: 0;
+    flex: 0 1 auto;
+    max-width: 100%;
 }
 
 .reports-actions-slot .reports-actions-label {
@@ -13157,7 +13174,6 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     margin-left: 0;
     justify-content: flex-end;
     flex: 0 1 auto;
-    margin-left: auto;
     min-width: 0;
     max-width: 100%;
 }
@@ -13936,17 +13952,16 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     #reports-mod .reports-filter-row--primary > .form-group {
         min-width: 0;
     }
-    /* Слот действий — отдельная полоса: не сжимать кнопки с фильтрами в одну линию */
-    #reports-mod #reports-extra-filters.reports-filter-row--extra > .reports-actions-slot {
-        flex: 1 1 100%;
-        min-width: 0;
+    #reports-mod .reports-filter-footer {
+        justify-content: stretch;
     }
-    .reports-actions-slot .reports-filter-actions {
-        display: flex;
-        flex-wrap: wrap;
+    #reports-mod .reports-filter-footer .reports-actions-slot {
+        width: 100%;
+        max-width: none;
+    }
+    .reports-filter-footer .reports-actions-slot .reports-filter-actions {
         justify-content: flex-start;
-        align-items: center;
-        gap: 8px;
+        width: 100%;
     }
     .reports-filter-actions-main,
     .reports-filter-actions-presets {
@@ -13984,8 +13999,8 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     .reports-runs-filters {
         grid-template-columns: 1fr;
     }
-    .reports-actions-slot .reports-filter-actions .btn,
-    .reports-actions-slot .reports-filter-actions .reports-preset-select {
+    .reports-filter-footer .reports-actions-slot .reports-filter-actions .btn,
+    .reports-filter-footer .reports-actions-slot .reports-filter-actions .reports-preset-select {
         width: 100%;
         max-width: none;
     }
