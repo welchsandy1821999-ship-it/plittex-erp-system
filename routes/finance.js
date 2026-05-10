@@ -3928,6 +3928,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 LEFT JOIN total_stock s ON i.id = s.item_id 
                 LEFT JOIN reservations r ON i.id = r.item_id
                 WHERE i.min_stock > 0 
+                  AND COALESCE(i.item_type, 'material') != 'product'
                   AND (COALESCE(s.physical_qty, 0) - COALESCE(r.reserved_qty, 0)) < i.min_stock
                 ORDER BY (i.min_stock - (COALESCE(s.physical_qty, 0) - COALESCE(r.reserved_qty, 0))) DESC 
                 LIMIT 15

@@ -232,6 +232,10 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 // синхронизируем qty_shipped и создаём shipment_reversal
                 if (order_id && items && items.length > 0) {
                     const reserveWhId = await getWhId(client, 'reserve');
+                    
+                    try { await client.query(`ALTER TABLE client_order_items ADD COLUMN qty_returned numeric DEFAULT 0`); } catch(e) {}
+                    try { await client.query(`ALTER TABLE client_orders ADD COLUMN has_returns boolean DEFAULT false`); } catch(e) {}
+                    
                     for (let item of items) {
                         const returnQty = parseFloat(item.qty) || 0;
                         // Находим позицию заказа по item_id
@@ -244,9 +248,9 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                             const currentShipped = parseFloat(coi.qty_shipped) || 0;
                             if (currentShipped > 0) {
                                 const deduct = Math.min(returnQty, currentShipped);
-                                // Уменьшаем qty_shipped
+                                // Уменьшаем qty_shipped и увеличиваем qty_returned
                                 await client.query(
-                                    `UPDATE client_order_items SET qty_shipped = GREATEST(qty_shipped - $1, 0) WHERE id = $2`,
+                                    `UPDATE client_order_items SET qty_shipped = GREATEST(qty_shipped - $1, 0), qty_returned = COALESCE(qty_returned, 0) + $1 WHERE id = $2`,
                                     [deduct, coi.id]
                                 );
                                 // Создаём компенсирующее движение shipment_reversal
@@ -258,6 +262,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                             }
                         }
                     }
+
+                    await client.query(`UPDATE client_orders SET has_returns = true WHERE id = $1`, [order_id]);
 
                     // Проверяем полный ли возврат → меняем статус заказа
                     const shippedRes = await client.query(
@@ -294,7 +300,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         if (order_id) {
                             await client.query(`
                                 UPDATE client_orders 
-                                SET pending_debt = pending_debt + $1 
+                                SET total_amount = GREATEST(total_amount - $1, 0),
+                                    pending_debt = GREATEST(pending_debt - $1, 0)
                                 WHERE id = $2
                             `, [refundAmountNum, order_id]);
                         }

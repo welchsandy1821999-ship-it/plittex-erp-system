@@ -3720,34 +3720,16 @@ window.openReturnModal = async function () {
                 
                 <div class="form-group">
                     <label>Заказ (основание):</label>
-                    <select id="ret-order" class="input-modern">
+                    <select id="ret-order" class="input-modern" onchange="window.loadOrderDetailsForReturn(this.value)">
                         <option value="">-- Выберите клиента сначала --</option>
                     </select>
                 </div>
 
                 <div class="bg-surface-hover p-10 border-radius-6 border dashed mb-15">
-                    <h4 class="m-0 mb-10 text-muted">🧱 Возврат продукции (если есть)</h4>
-                    <div class="form-grid gap-10 align-end sales-return-prod-grid">
-                        <div class="form-group m-0">
-                            <label>Товар:</label>
-                            <select id="ret-item" class="input-modern">
-                                <option value="">-- Выберите товар --</option>
-                                ${Object.values(salesProductsInfo).map(p => `<option value="${p.id}" data-price="${p.price || p.current_price || p.base_price || 0}">${p.name}</option>`).join('')}
-                            </select>
-                        </div>
-                        <div class="form-group m-0"><label>Кол-во:</label><input type="number" id="ret-qty" class="input-modern" min="0"></div>
-                        <div class="form-group m-0"><label>На какой склад:</label>
-                            <select id="ret-wh" class="input-modern">
-                                <option value="4">🟢 №4 (Годная продукция)</option>
-                                <option value="5">🟡 №5 (Уценка/Брак)</option>
-                            </select>
-                        </div>
+                    <h4 class="m-0 mb-10 text-muted">🧱 Возврат продукции</h4>
+                    <div id="ret-order-items-container" class="font-13 text-muted">
+                        Выберите заказ для загрузки списка товаров...
                     </div>
-                    <button class="btn btn-outline w-100 mt-10 font-12" onclick="addReturnItem()">➕ Добавить в список возврата</button>
-                    
-                    <table class="table-modern w-100 mt-10 font-13">
-                        <tbody id="ret-items-table"></tbody>
-                    </table>
                 </div>
 
                 <div class="form-grid gap-10 sales-two-cols mb-15">
@@ -3831,6 +3813,85 @@ window.renderReturnCart = function () {
     `).join('');
 };
 
+window.loadOrderDetailsForReturn = async function (orderId) {
+    const container = document.getElementById('ret-order-items-container');
+    if (!container) return;
+    
+    if (!orderId) {
+        container.innerHTML = 'Выберите заказ для загрузки списка товаров...';
+        window.currentOrderItemsForReturn = [];
+        return;
+    }
+    
+    try {
+        container.innerHTML = 'Загрузка...';
+        const data = await API.get('/api/sales/orders/' + orderId);
+        window.currentOrderItemsForReturn = data.items || [];
+        
+        if (window.currentOrderItemsForReturn.length === 0) {
+            container.innerHTML = 'В этом заказе нет товаров.';
+            return;
+        }
+        
+        let html = `
+            <table class="table-modern w-100">
+                <thead>
+                    <tr>
+                        <th>Товар</th>
+                        <th>Отгружено</th>
+                        <th>Цена</th>
+                        <th style="width: 100px;">Вернуть</th>
+                        <th>На склад</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+        
+        window.currentOrderItemsForReturn.forEach((item, idx) => {
+            const maxReturn = parseFloat(item.qty_shipped) || 0;
+            html += `
+                <tr>
+                    <td>${Utils.escapeHtml(item.name)}</td>
+                    <td>${maxReturn} ${Utils.escapeHtml(item.unit || 'шт')}</td>
+                    <td>${item.price} ₽</td>
+                    <td>
+                        <input type="number" class="input-modern p-5 text-center ret-item-qty" 
+                               data-idx="${idx}" data-id="${item.item_id}" data-price="${item.price}" data-max="${maxReturn}"
+                               min="0" max="${maxReturn}" placeholder="0" oninput="window.calcReturnTotal()">
+                    </td>
+                    <td>
+                        <select class="input-modern p-5 ret-item-wh" data-idx="${idx}">
+                            <option value="4">🟢 №4 (ГП)</option>
+                            <option value="5">🟡 №5 (Уценка)</option>
+                        </select>
+                    </td>
+                </tr>
+            `;
+        });
+        
+        html += `</tbody></table>`;
+        container.innerHTML = html;
+        window.calcReturnTotal();
+    } catch (e) {
+        console.error('Ошибка загрузки деталей заказа', e);
+        container.innerHTML = '<span class="text-danger">Ошибка загрузки товаров заказа</span>';
+    }
+};
+
+window.calcReturnTotal = function() {
+    let total = 0;
+    document.querySelectorAll('.ret-item-qty').forEach(input => {
+        const qty = parseFloat(input.value) || 0;
+        const max = parseFloat(input.getAttribute('data-max')) || 0;
+        if (qty > max) input.value = max;
+        const finalQty = parseFloat(input.value) || 0;
+        const price = parseFloat(input.getAttribute('data-price')) || 0;
+        total += finalQty * price;
+    });
+    const amountInput = document.getElementById('ret-amount');
+    if (amountInput) amountInput.value = total.toFixed(2);
+};
+
 window.executeReturn = async function () {
     const clientId = document.getElementById('ret-client').value;
     const orderId = document.getElementById('ret-order').value;
@@ -3842,13 +3903,29 @@ window.executeReturn = async function () {
 
     if (!clientId) return UI.toast('Выберите клиента!', 'warning');
     if (!orderId) return UI.toast('Выберите заказ (основание возврата)!', 'warning');
-    if (window.returnCart.length === 0 && pallets === 0 && refundAmt === 0) {
+    
+    const returnItems = [];
+    document.querySelectorAll('.ret-item-qty').forEach(input => {
+        const qty = parseFloat(input.value) || 0;
+        if (qty > 0) {
+            const idx = input.getAttribute('data-idx');
+            const whSelect = document.querySelector(`.ret-item-wh[data-idx="${idx}"]`);
+            returnItems.push({
+                id: input.getAttribute('data-id'),
+                qty: qty,
+                price: input.getAttribute('data-price'),
+                warehouse_id: whSelect ? whSelect.value : 4
+            });
+        }
+    });
+
+    if (returnItems.length === 0 && pallets === 0 && refundAmt === 0) {
         return UI.toast('Укажите хотя бы что-то для возврата (товар, поддоны или сумму)!', 'warning');
     }
     if (method === 'cash' && refundAmt > 0 && !accId) return UI.toast('Выберите кассу для выдачи денег!', 'warning');
 
     try {
-        const data = await API.post('/api/sales/returns', { order_id: orderId, counterparty_id: clientId, items: window.returnCart, pallets_returned: pallets, refund_amount: refundAmt, refund_method: method, account_id: accId, reason: reason });
+        const data = await API.post('/api/sales/returns', { order_id: orderId, counterparty_id: clientId, items: returnItems, pallets_returned: pallets, refund_amount: refundAmt, refund_method: method, account_id: accId, reason: reason });
         UI.closeModal();
         UI.toast(`✅ Возврат ${data.docNum} успешно оформлен!`, 'success');
         loadSalesData(false);

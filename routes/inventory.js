@@ -296,7 +296,7 @@ module.exports = function (pool, getWhId, withTransaction) {
         const recipeRes = await client.query(`
             SELECT r.quantity_per_unit, i.id, i.name, i.current_price, i.category
             FROM recipes r
-            JOIN items i ON r.material_id = i.id
+            JOIN items i ON r.material_id = i.id AND COALESCE(i.is_deleted, false) = false
             WHERE r.product_id = $1
         `, [productIdForRecipe]);
 
@@ -382,7 +382,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE b.batch_number END as batch_number,
                     SUM(m.quantity) as total 
                 FROM inventory_movements m
-                JOIN items i ON m.item_id = i.id
+                JOIN items i ON m.item_id = i.id AND COALESCE(i.is_deleted, false) = false
                 JOIN warehouses w ON m.warehouse_id = w.id
                 LEFT JOIN production_batches b ON m.batch_id = b.id
                 ${queryOptions}
@@ -510,7 +510,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     CASE WHEN w.type IN ('materials', 'reserve') THEN NULL ELSE b.batch_number END as batch_number,
                     SUM(m.quantity) as total 
                 FROM inventory_movements m
-                JOIN items i ON m.item_id = i.id
+                JOIN items i ON m.item_id = i.id AND COALESCE(i.is_deleted, false) = false
                 JOIN warehouses w ON m.warehouse_id = w.id
                 LEFT JOIN production_batches b ON m.batch_id = b.id
                 ${queryOptions}
@@ -720,7 +720,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     pb.batch_number,
                     im.batch_id
                 FROM inventory_movements im
-                JOIN items i ON im.item_id = i.id
+                JOIN items i ON im.item_id = i.id AND COALESCE(i.is_deleted, false) = false
                 LEFT JOIN production_batches pb ON im.batch_id = pb.id
                 WHERE im.warehouse_id = $1 AND im.movement_date::date = $2::date
                 ORDER BY im.movement_date DESC
@@ -745,7 +745,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             const batchRes = await pool.query(`
                 SELECT pb.*, i.name as product_name, i.unit as product_unit
                 FROM production_batches pb
-                JOIN items i ON pb.product_id = i.id
+                JOIN items i ON pb.product_id = i.id AND COALESCE(i.is_deleted, false) = false
                 WHERE pb.id = $1
             `, [batchId]);
             if (batchRes.rows.length === 0) return res.status(404).json({ error: 'Партия не найдена' });
@@ -758,7 +758,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     im.warehouse_id, w.name as warehouse_name, w.type as warehouse_type,
                     i.name as item_name, i.unit
                 FROM inventory_movements im
-                JOIN items i ON im.item_id = i.id
+                JOIN items i ON im.item_id = i.id AND COALESCE(i.is_deleted, false) = false
                 LEFT JOIN warehouses w ON im.warehouse_id = w.id
                 WHERE im.batch_id = $1
                 ORDER BY im.movement_date ASC
@@ -770,7 +770,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 SELECT i.name, i.unit, SUM(ABS(im.quantity)) as qty,
                     SUM(ABS(im.quantity) * CASE WHEN im.unit_price > 0 THEN im.unit_price ELSE i.current_price END) as cost
                 FROM inventory_movements im
-                JOIN items i ON im.item_id = i.id
+                JOIN items i ON im.item_id = i.id AND COALESCE(i.is_deleted, false) = false
                 WHERE im.batch_id = $1 AND im.movement_type IN ('production_expense', 'production_draft')
                 GROUP BY i.name, i.unit ORDER BY cost DESC
             `, [batchId]);
@@ -885,7 +885,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     c.name as supplier_name, 
                     (m.amount / NULLIF(m.quantity, 0)) as price
                 FROM inventory_movements m
-                JOIN items i ON m.item_id = i.id
+                JOIN items i ON m.item_id = i.id AND COALESCE(i.is_deleted, false) = false
                 LEFT JOIN counterparties c ON m.supplier_id = c.id
                 WHERE m.movement_type = 'purchase' 
                   AND to_char(m.movement_date, 'YYYY-MM-DD') = $1
@@ -969,7 +969,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                         i.current_price,
                         SUM(m.quantity) as balance
                     FROM inventory_movements m
-                    JOIN items i ON m.item_id = i.id
+                    JOIN items i ON m.item_id = i.id AND COALESCE(i.is_deleted, false) = false
                     JOIN warehouses w ON m.warehouse_id = w.id
                     WHERE w.type NOT IN ('defect')
                     GROUP BY m.warehouse_id, w.name, m.item_id, i.name, i.current_price
@@ -1078,7 +1078,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 SELECT 
                     ${selectPart}
                 FROM inventory_movements m
-                JOIN items i ON m.item_id = i.id
+                JOIN items i ON m.item_id = i.id AND COALESCE(i.is_deleted, false) = false
                 JOIN warehouses w ON m.warehouse_id = w.id
                 LEFT JOIN production_batches b ON m.batch_id = b.id
                 LEFT JOIN (
@@ -1243,7 +1243,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     m.unit_price as unit_price,
                     m.amount as amount
                 FROM inventory_movements m
-                LEFT JOIN items i ON m.item_id = i.id
+                LEFT JOIN items i ON m.item_id = i.id AND COALESCE(i.is_deleted, false) = false
                 LEFT JOIN warehouses w ON m.warehouse_id = w.id
                 LEFT JOIN production_batches b ON m.batch_id = b.id
                 LEFT JOIN client_orders o ON m.order_id = o.id
@@ -2307,7 +2307,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     im.amount, 
                     to_char(im.movement_date, 'YYYY-MM-DD') as purchase_date
                 FROM inventory_movements im
-                JOIN items i ON im.item_id = i.id
+                JOIN items i ON im.item_id = i.id AND COALESCE(i.is_deleted, false) = false
                 LEFT JOIN counterparties c ON im.supplier_id = c.id
                 WHERE im.movement_type = 'purchase'
                   AND (i.name ILIKE $1 OR c.name ILIKE $1 OR c.inn ILIKE $1)
