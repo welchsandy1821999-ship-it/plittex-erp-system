@@ -222,7 +222,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 if (items && items.length > 0) {
                     for (let item of items) {
                         if (new Big(item.qty || 0).lte(0)) throw new Error(`Количество возвращаемого товара должно быть больше нуля!`);
-                        const whId = item.warehouse_id || defaultFinishedWhId;
+                        const rawWh = item.warehouse_id != null && item.warehouse_id !== '' ? Number(item.warehouse_id) : NaN;
+                        const whId = Number.isFinite(rawWh) && rawWh > 0 ? rawWh : defaultFinishedWhId;
                         await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id) VALUES ($1, $2, 'customer_return', $3, $4, $5)`, [item.id, item.qty, desc, whId, user_id || null]);
                         await client.query(`INSERT INTO customer_return_items (return_id, item_id, quantity, price, warehouse_id) VALUES ($1, $2, $3, $4, $5)`, [returnId, item.id, item.qty, item.price, whId]);
                     }
@@ -232,9 +233,14 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 // синхронизируем qty_shipped и создаём shipment_reversal
                 if (order_id && items && items.length > 0) {
                     const reserveWhId = await getWhId(client, 'reserve');
-                    
-                    try { await client.query(`ALTER TABLE client_order_items ADD COLUMN qty_returned numeric DEFAULT 0`); } catch(e) {}
-                    try { await client.query(`ALTER TABLE client_orders ADD COLUMN has_returns boolean DEFAULT false`); } catch(e) {}
+                    /* Идемпотентно и без ошибки «column already exists»: иначе PG помечает транзакцию как aborted,
+                       а пустой catch в JS не откатывает транзакцию — следующий запрос падает. */
+                    await client.query(
+                        `ALTER TABLE client_order_items ADD COLUMN IF NOT EXISTS qty_returned numeric DEFAULT 0`
+                    );
+                    await client.query(
+                        `ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS has_returns boolean DEFAULT false`
+                    );
                     
                     for (let item of items) {
                         const returnQty = parseFloat(item.qty) || 0;
@@ -315,7 +321,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 ? itemsArr.map((it) => `item ${it.id}: ${it.qty} × ${it.price} ₽ (склад ${it.warehouse_id || '—'})`).join('; ')
                 : 'без товарных позиций (возможны только поддоны/сумма)';
             const auditMsg = `Возврат по заказу #${order_id || '—'}; документ ${docNum}; суммы: ${refundAmtLog} ₽ (${refund_method || '—'}); поддоны: ${parseInt(String(pallets_returned || 0), 10) || 0}; позиции: ${posStr}${reason ? `; причина: ${reason}` : ''}`;
-            await auditLog(pool, req, 'sales_return_complete', 'client_order', order_id ? Number(order_id) : null, auditMsg);
+            await auditLog(pool, req, 'sales_return', 'client_order', order_id ? Number(order_id) : null, auditMsg);
             logger.info(`[sales_return] ${auditMsg}`);
 
             const io = req.app.get('io');
@@ -324,7 +330,10 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
             res.json({ success: true, docNum, message: 'Возврат оформлен' });
         } catch (err) {
-            logger.error(err);
+            logger.error(
+                `POST /api/sales/returns: ${err.message} (pg_code=${err.code || 'n/a'}, detail=${err.detail || 'n/a'}, constraint=${err.constraint || 'n/a'})`
+            );
+            if (err.stack) logger.error(err.stack);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
         }
     });
