@@ -204,6 +204,22 @@ pg_restore ... --no-owner --no-privileges ...
 
 Кодировка: приложение ожидает UTF‑8 (`web.js` выставляет `client_encoding`). Дамп желательно в UTF‑8.
 
+### Владение объектами и права приложения (обязательно проверить)
+
+Если дамп восстанавливали от имени **`postgres`**, а в `.env` указана роль **`plittex`**, приложение при старте выполняет `initSystemTables()` (`utils/db_init.js`): `ALTER TABLE`, `CREATE INDEX` на существующих таблицах. Без прав владельца возможны ошибки в логах PM2:
+
+- `must be owner of table report_runs`
+- `permission denied for table users`
+
+После импорта выполните от суперпользователя Postgres (имена базы и роли замените на свои из `.env`):
+
+```sql
+\c your_database_name
+REASSIGN OWNED BY postgres TO plittex;
+```
+
+Если владелец объектов не `postgres`, сначала посмотрите `tableowner` в `pg_tables`, затем примените `REASSIGN OWNED BY <старый_владелец> TO plittex;`. Подробнее и про колонку `is_deleted` — файл **`docs/deployment/http500-after-postgres-migration-TODO.md`**.
+
 ---
 
 ## Фаза 8: точечное изменение `.env` на сервере
