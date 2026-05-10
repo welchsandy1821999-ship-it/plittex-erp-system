@@ -11,6 +11,7 @@ const { validateTransaction, validateTransactionEdit, validateTransfer, validate
 const { allocateUnlinkedClientIncome } = require('../utils/allocateClientAdvance');
 const { money, reconcileOrderSettlement } = require('../utils/orderSettlement');
 const { recalcAccountBalances } = require('../utils/accountBalances');
+const { sendNotify, escapeHtml, formatMoney } = require('../utils/telegram');
 
 // 🚀 Единая функция поиска документов в тексте (Защита от опечаток)
 function extractDocNumber(description) {
@@ -2323,6 +2324,18 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                         suggestReconcile = { counterparty_id, open_debt: openDebt, order_count: orderCount };
                     }
                 } catch (_) { /* не критично */ }
+            }
+
+            // 🚨 Алерт на крупный расход
+            if (type === 'expense' && Number(amount) >= 100000) {
+                let cpName = '';
+                if (counterparty_id) {
+                    try {
+                        const cpRes = await pool.query('SELECT name FROM counterparties WHERE id = $1', [counterparty_id]);
+                        if (cpRes.rows.length > 0) cpName = cpRes.rows[0].name;
+                    } catch (e) { /* ignore */ }
+                }
+                sendNotify(`💸 <b>Крупный расход!</b>\nСумма: ${formatMoney(amount)} ₽\nКонтрагент: ${escapeHtml(cpName || 'Не указан')}\nНазначение: ${escapeHtml(description || 'Не указано')}`);
             }
 
             res.json({ success: true, message: 'Операция сохранена', suggest_reconcile: suggestReconcile || undefined });

@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const logger = require('./logger');
 const { runBackup } = require('./backup');
+const { sendNotify, escapeHtml } = require('./telegram');
 
 /**
  * @param {import('pg').Pool} pool — тот же пул, что в web.js (DB_USER, DB_HOST, DB_NAME, DB_PASSWORD, DB_PORT).
@@ -14,6 +15,7 @@ const initCronJobs = (pool) => {
         logger.info('💾 [CRON] Запуск ежедневного бэкапа БД...');
         runBackup().catch((err) => {
             logger.error(`❌ [CRON] Бэкап БД завершился с ошибкой: ${err.message}`);
+            sendNotify(`🚨 <b>ОШИБКА БЭКАПА БД!</b>\nНочной бэкап не был создан.\nДетали: ${escapeHtml(err.message)}`);
         });
     });
 

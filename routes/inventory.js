@@ -43,7 +43,14 @@ module.exports = function (pool, getWhId, withTransaction) {
 
     function mapInventoryDbError(err, fallback) {
         if (err && (err.code === '23514' || err.code === 'P0001')) {
-            return err.message || fallback;
+            const msg = err.message || fallback;
+            if (msg && msg.includes('Недостаточно остатка на складе')) {
+                const match = msg.match(/item_id=(\d+).*?итог=([-\d.]+)/);
+                const itemId = match ? match[1] : 'неизвестно';
+                const finalQty = match ? match[2] : 'неизвестно';
+                sendNotify(`⚠️ <b>КРИТИЧЕСКИЙ ОСТАТОК (Guardrail)</b>\nФизический остаток упал ниже нуля!\nТовар ID: ${itemId}\nТекущий остаток: ${finalQty}`);
+            }
+            return msg;
         }
         return fallback;
     }
@@ -89,6 +96,18 @@ module.exports = function (pool, getWhId, withTransaction) {
 
             let need = new Big(d.qty_need || 0);
             if (need.lte(0.0001)) continue;
+
+            // Идемпотентность: не гоняем пару «готовая → резерв», если на резерве уже
+            // не меньше недостаёта по строке заказа (защита от повторных вызовов / гонок).
+            const physRes = await client.query(
+                `SELECT COALESCE(SUM(quantity), 0)::numeric AS bal
+                 FROM inventory_movements
+                 WHERE item_id = $1 AND warehouse_id = $2 AND linked_order_item_id = $3`,
+                [itemId, reserveWhId, coiId]
+            );
+            const physicalReserve = new Big(String(physRes.rows[0].bal || '0'));
+            const lineNeed = new Big(String(d.qty_need || '0'));
+            if (physicalReserve.gte(lineNeed.minus(0.0001))) continue;
 
             const fifoRes = await client.query(`
                 SELECT
