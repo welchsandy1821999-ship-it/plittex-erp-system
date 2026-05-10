@@ -321,6 +321,11 @@ tr:hover {
     z-index: 10011 !important;
 }
 
+/* Вложенная модалка (напр. «Детали заказа») поверх карточки движения — см. UI.showModal в scripts.ejs */
+#app-modal.app-modal-over-item-history.active {
+    z-index: 10050 !important;
+}
+
 /* Подтверждения в #app-modal поверх открытого tier-2 */
 #app-modal.app-modal-over-tier2 {
     z-index: 10020 !important;

@@ -47,6 +47,12 @@
                 UI._elevateAppModalIfTier2Visible();
                 const modal = document.getElementById('app-modal');
                 if (!modal) return;
+                const itemHistory = document.getElementById('modal-item-history');
+                if (itemHistory && itemHistory.classList.contains('active')) {
+                    modal.classList.add('app-modal-over-item-history');
+                } else {
+                    modal.classList.remove('app-modal-over-item-history');
+                }
                 document.getElementById('app-modal-title').innerHTML = title;
                 document.getElementById('app-modal-body').innerHTML = htmlBody;
                 document.getElementById('app-modal-footer').innerHTML = buttonsHtml;
@@ -63,6 +69,7 @@
                     targetModal.style.removeProperty('z-index');
                     if (!id || id === 'app-modal') {
                         document.getElementById('app-modal')?.classList.remove('app-modal-over-tier2');
+                        document.getElementById('app-modal')?.classList.remove('app-modal-over-item-history');
                     }
                 }
             },
@@ -161,6 +168,7 @@
                 if (moduleId === 'equipment-mod' && typeof loadEquipment === 'function') loadEquipment();
                 if (moduleId === 'dashboard-mod' && typeof initDashboard === 'function') initDashboard();
                 if (moduleId === 'admin-mod' && typeof initAdmin === 'function') initAdmin();
+                if (moduleId === 'docs-registry-mod' && typeof window.docsRegFinishPeriodUi === 'function') window.docsRegFinishPeriodUi();
             } catch (err) { console.error(err); }
         };
 
