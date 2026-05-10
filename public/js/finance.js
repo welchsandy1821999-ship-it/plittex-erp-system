@@ -3101,16 +3101,21 @@
             const cp = data.info;
             const transHtml = data.transactions.map(t => {
                 const isMoney = t.origin === 'money';
+                const cat = String(t.category || '').trim();
                 const isIncome = t.transaction_type === 'income';
+                const isReturnCompensation =
+                    isMoney &&
+                    (cat === 'Возврат: компенсация долга' ||
+                        cat === 'Возврат средств покупателю');
 
                 // Иконка: монета для денег, коробка для товара
                 const icon = isMoney ? '💰' : '📦';
 
                 // Цвет суммы:
-                // Для денег: зеленый (+ нам заплатили), красный (- мы заплатили)
+                // Для денег: зеленый (+ нам заплатили / уменьшение долга при возврате), красный (- прочие выплаты)
                 // Для товара: красный (+ мы отгрузили товар = уменьшили свой склад/увеличили долг клиента)
-                let amountColor = isIncome ? 'var(--success)' : 'var(--danger)';
-                let sign = isIncome ? '+' : '-';
+                let amountColor = isIncome || isReturnCompensation ? 'var(--success)' : 'var(--danger)';
+                let sign = isIncome || isReturnCompensation ? '+' : '-';
 
                 return `
             <div class="crm-tx-row">

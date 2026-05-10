@@ -272,7 +272,11 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         // 🚀 ИСПРАВЛЕНИЕ 2: НДС по глобальным настройкам
                         // Переходим на динамический делитель (100 + ставка)
                         const vatAmount = Number(refundAmountBig.times(ERP_CONFIG.vatRate).div(100 + ERP_CONFIG.vatRate).round(2));
-                        await client.query(`INSERT INTO transactions (amount, transaction_type, category, description, vat_amount, payment_method, account_id, counterparty_id, user_id, linked_order_id) VALUES ($1, 'expense', 'Возврат средств покупателю', $2, $3, 'Сразу', $4, $5, $6, $7)`, [refundAmountNum, desc, vatAmount, account_id, counterparty_id, user_id || null, order_id || null]);
+                        await client.query(
+                            `INSERT INTO transactions (amount, transaction_type, category, description, vat_amount, payment_method, account_id, counterparty_id, user_id, linked_order_id, source_module)
+                             VALUES ($1, 'expense', 'Возврат средств покупателю', $2, $3, 'Сразу', $4, $5, $6, $7, 'sales')`,
+                            [refundAmountNum, desc, vatAmount, account_id, counterparty_id, user_id || null, order_id || null]
+                        );
 
                         await client.query(`
                             UPDATE accounts a 
@@ -293,6 +297,12 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                                 WHERE id = $2
                             `, [refundAmountNum, order_id]);
                         }
+                        // Строка в «Финансовой истории» контрагента: уменьшение долга без выдачи наличных
+                        await client.query(
+                            `INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, user_id, linked_order_id, source_module)
+                             VALUES ($1, 'income', 'Возврат: компенсация долга', $2, 'Сразу', NULL, $3, $4, $5, 'sales')`,
+                            [refundAmountNum, desc, counterparty_id, user_id || null, order_id || null]
+                        );
                     }
                 }
             });
@@ -1683,8 +1693,11 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 const paidNetRes = await client.query(
                     `
                     SELECT
-                        COALESCE(SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END), 0) AS income_total,
-                        COALESCE(SUM(CASE WHEN transaction_type = 'expense' AND category = 'Возврат средств покупателю' THEN amount ELSE 0 END), 0) AS refund_total
+                        COALESCE(SUM(CASE WHEN transaction_type = 'income'
+                              AND TRIM(category) IS DISTINCT FROM 'Возврат: компенсация долга'
+                              THEN amount ELSE 0 END), 0) AS income_total,
+                        COALESCE(SUM(CASE WHEN transaction_type = 'expense' AND category = 'Возврат средств покупателю' THEN amount ELSE 0 END), 0) AS refund_total,
+                        COALESCE(SUM(CASE WHEN transaction_type = 'income' AND TRIM(category) = 'Возврат: компенсация долга' THEN amount ELSE 0 END), 0) AS debt_comp_total
                     FROM transactions
                     WHERE linked_order_id = $1
                       AND COALESCE(is_deleted, false) = false
@@ -1693,7 +1706,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 );
                 const incomeTotal = new Big(toSafeNumber(paidNetRes.rows[0]?.income_total, 0));
                 const refundTotal = new Big(toSafeNumber(paidNetRes.rows[0]?.refund_total, 0));
-                const currentPaid = incomeTotal.minus(refundTotal);
+                const debtCompTotal = new Big(toSafeNumber(paidNetRes.rows[0]?.debt_comp_total, 0));
+                const currentPaid = incomeTotal.minus(refundTotal).minus(debtCompTotal);
 
                 if (calcTotalBig.lt(currentPaid)) {
                     throw new Error('Сумма измененного заказа меньше уже внесенной оплаты. Оформите возврат средств клиенту отдельной финансовой операцией перед редактированием.');

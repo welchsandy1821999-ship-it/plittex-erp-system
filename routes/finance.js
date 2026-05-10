@@ -1375,8 +1375,15 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     if (item.transaction_type === 'expense') ourShipments = ourShipments.plus(amt);
                     else theirShipments = theirShipments.plus(amt);
                 } else if (item.origin === 'money') {
-                    if (item.transaction_type === 'expense') ourPayments = ourPayments.plus(amt);
-                    else theirPayments = theirPayments.plus(amt);
+                    /* Возврат наличных клиенту — по смыслу взаиморасчётов уменьшает дебиторку (как зачёт в пользу клиента),
+                       а не «оплата от нас» в том же знаке, что усиливает баланс в пользу «нам должны». */
+                    if (item.transaction_type === 'expense' && String(item.category || '').trim() === 'Возврат средств покупателю') {
+                        theirPayments = theirPayments.plus(amt);
+                    } else if (item.transaction_type === 'expense') {
+                        ourPayments = ourPayments.plus(amt);
+                    } else {
+                        theirPayments = theirPayments.plus(amt);
+                    }
                 }
             });
 
