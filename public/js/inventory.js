@@ -2406,10 +2406,14 @@ window.openItemHistory = async function(itemId, warehouseId) {
     document.getElementById('history-table-foot').innerHTML = '';
     
     const whFilter = document.getElementById('history-warehouse-filter');
-    if (warehouseId && warehouseId !== 'all') {
-        whFilter.value = warehouseId;
-    } else {
-        whFilter.value = 'all';
+    if (whFilter) {
+        const n = warehouseId != null && warehouseId !== '' && warehouseId !== 'all' ? Number(warehouseId) : NaN;
+        if (Number.isFinite(n) && n > 0) {
+            const opt = whFilter.querySelector(`option[value="${n}"]`);
+            whFilter.value = opt ? String(n) : 'all';
+        } else {
+            whFilter.value = 'all';
+        }
     }
     
     // Загружаем полный справочник товаров для умного поиска

@@ -1455,7 +1455,9 @@ function reportsRender(data) {
             }
             if ((reportType === 'osv_materials' || reportType === 'osv_products') && c.key === 'item' && itemId > 0) {
                 const label = Utils.escapeHtml(raw ?? '');
-                return `<td class="${commonClass}"><button type="button" class="reports-cell-link reports-cell-link-main" data-item-id="${itemId}" title="${label}">${label}</button></td>`;
+                const whAttr = warehouseId > 0 ? ` data-warehouse-id="${warehouseId}"` : '';
+                const ufgr = reportType === 'osv_products' && r.unifiedFgReservePool === true ? ' data-unified-fg-reserve="1"' : '';
+                return `<td class="${commonClass}"><button type="button" class="reports-cell-link reports-cell-link-main" data-item-id="${itemId}"${whAttr}${ufgr} title="${label}">${label}</button></td>`;
             }
             if (reportType === 'inventory_register' && c.key === 'item' && itemId > 0) {
                 const label = Utils.escapeHtml(raw ?? '');
@@ -2255,14 +2257,19 @@ window.reportsOpenBatchFromDrilldown = function(batchId) {
     UI.toast(`Откройте партию #${id} в модуле «Склад»`, 'info');
 };
 
-window.reportsOpenItemCard = function(itemId) {
+window.reportsOpenItemCard = function(itemId, warehouseId) {
     const id = Number(itemId || 0);
     if (!id) return;
+    const wh = warehouseId != null && warehouseId !== '' ? Number(warehouseId) : 0;
     let tries = 0;
     const run = () => {
         tries += 1;
         if (typeof window.openItemHistory === 'function') {
-            window.openItemHistory(id, 'all');
+            if (Number.isFinite(wh) && wh > 0) {
+                window.openItemHistory(id, wh);
+            } else {
+                window.openItemHistory(id, 'all');
+            }
             return;
         }
         if (tries < 12) {
@@ -3088,7 +3095,8 @@ window.reportsBindTableLinks = function() {
             return;
         }
         if ((reportType === 'osv_materials' || reportType === 'osv_products' || reportType === 'inventory_register') && itemId > 0) {
-            reportsOpenItemCard(itemId);
+            const whFromBtn = Number(btn.getAttribute('data-warehouse-id') || 0);
+            reportsOpenItemCard(itemId, whFromBtn > 0 ? whFromBtn : undefined);
             return;
         }
         if (!cpId) return;
