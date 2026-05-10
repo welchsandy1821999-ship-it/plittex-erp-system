@@ -703,16 +703,22 @@ module.exports = {
 
     /** POST /api/sales/returns — возврат от клиента */
     validateReturn: (req, res, next) => {
-        const { order_id, items } = req.body;
+        const { order_id, items, pallets_returned, refund_amount } = req.body;
         const errors = [];
 
         if (!order_id || isNaN(parseInt(order_id))) {
             errors.push('Не указан заказ (order_id).');
         }
 
-        if (!items || !Array.isArray(items) || items.length === 0) {
-            errors.push('Список возвращаемых позиций пуст.');
-        } else {
+        const hasItems = items && Array.isArray(items) && items.length > 0;
+        const hasPallets = parseInt(pallets_returned) > 0;
+        const hasRefund = parseFloat(refund_amount) > 0;
+
+        if (!hasItems && !hasPallets && !hasRefund) {
+            errors.push('Укажите хотя бы что-то для возврата (товар, поддоны или сумму).');
+        }
+
+        if (hasItems) {
             for (let i = 0; i < items.length; i++) {
                 const item = items[i];
                 if (!item.id || isNaN(parseInt(item.id))) {
@@ -1086,6 +1092,9 @@ module.exports = {
             }
             if (filters.includeTaxes !== undefined && typeof filters.includeTaxes !== 'boolean') {
                 errors.push('filters.includeTaxes должен быть boolean.');
+            }
+            if (filters.includeReserves !== undefined && typeof filters.includeReserves !== 'boolean') {
+                errors.push('filters.includeReserves должен быть boolean.');
             }
             if (filters.taxRate !== undefined) {
                 const taxRate = Number(filters.taxRate);

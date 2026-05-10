@@ -1835,6 +1835,25 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
 
     // ------------------------------------------------------------------
+    // ПОЛУЧЕНИЕ ЗАКАЗОВ КЛИЕНТА ДЛЯ ВОЗВРАТА
+    // ------------------------------------------------------------------
+    router.get('/api/sales/client-orders/:clientId', async (req, res) => {
+        try {
+            const clientId = req.params.clientId;
+            const result = await pool.query(`
+                SELECT id, doc_number, status, total_amount, created_at
+                FROM client_orders
+                WHERE counterparty_id = $1 AND COALESCE(is_deleted, false) = false
+                ORDER BY created_at DESC
+            `, [clientId]);
+            res.json(result.rows);
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Ошибка сервера' });
+        }
+    });
+
+    // ------------------------------------------------------------------
     // ЗАДАЧА №9: УМНЫЙ ПОИСК ЗАКАЗОВ (Авто, Водитель, Телефон, Имя)
     // ------------------------------------------------------------------
     router.get('/api/sales/orders', async (req, res) => {
@@ -1845,7 +1864,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             let query = `
                 WITH cp_completed AS (
                     SELECT counterparty_id, COALESCE(SUM(total_amount), 0) as total
-                    FROM client_orders WHERE status = 'completed'
+                    FROM client_orders WHERE status = 'completed' AND COALESCE(is_deleted, false) = false
                     GROUP BY counterparty_id
                 ),
                 cp_tx_expense AS (
@@ -1865,12 +1884,12 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 ),
                 cp_pending_allocated AS (
                     SELECT counterparty_id, COALESCE(SUM(paid_amount), 0) as total
-                    FROM client_orders WHERE status IN ('pending', 'processing')
+                    FROM client_orders WHERE status IN ('pending', 'processing') AND COALESCE(is_deleted, false) = false
                     GROUP BY counterparty_id
                 ),
                 cp_pending_debt AS (
                     SELECT counterparty_id, COALESCE(SUM(pending_debt), 0) as total
-                    FROM client_orders WHERE status != 'cancelled'
+                    FROM client_orders WHERE status != 'cancelled' AND COALESCE(is_deleted, false) = false
                     GROUP BY counterparty_id
                 ),
                 order_items_agg AS (
@@ -2276,9 +2295,9 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
     router.get('/api/sales/analytics', async (req, res) => {
         try {
-            const topItems = await pool.query(`SELECT i.name, SUM(coi.qty_ordered) as total_qty, SUM(coi.qty_ordered * coi.price) as total_sum FROM client_order_items coi JOIN items i ON coi.item_id = i.id JOIN client_orders co ON coi.order_id = co.id WHERE co.status != 'cancelled' GROUP BY i.name ORDER BY total_sum DESC LIMIT 5`);
-            const topClients = await pool.query(`SELECT c.name, SUM(co.total_amount) as total_sum FROM client_orders co JOIN counterparties c ON co.counterparty_id = c.id WHERE co.status != 'cancelled' GROUP BY c.name ORDER BY total_sum DESC LIMIT 5`);
-            const monthRevenue = await pool.query(`SELECT SUM(total_amount) as total FROM client_orders WHERE EXTRACT(MONTH FROM created_at) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE) AND status != 'cancelled'`);
+            const topItems = await pool.query(`SELECT i.name, SUM(coi.qty_ordered) as total_qty, SUM(coi.qty_ordered * coi.price) as total_sum FROM client_order_items coi JOIN items i ON coi.item_id = i.id JOIN client_orders co ON coi.order_id = co.id WHERE co.status != 'cancelled' AND COALESCE(co.is_deleted, false) = false GROUP BY i.name ORDER BY total_sum DESC LIMIT 5`);
+            const topClients = await pool.query(`SELECT c.name, SUM(co.total_amount) as total_sum FROM client_orders co JOIN counterparties c ON co.counterparty_id = c.id WHERE co.status != 'cancelled' AND COALESCE(co.is_deleted, false) = false GROUP BY c.name ORDER BY total_sum DESC LIMIT 5`);
+            const monthRevenue = await pool.query(`SELECT SUM(total_amount) as total FROM client_orders WHERE EXTRACT(MONTH FROM created_at) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE) AND status != 'cancelled' AND COALESCE(is_deleted, false) = false`);
             res.json({ topItems: topItems.rows, topClients: topClients.rows, monthRevenue: monthRevenue.rows[0].total || 0 });
         } catch (err) {
             logger.error(err);

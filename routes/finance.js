@@ -3869,7 +3869,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                         o.counterparty_id,
                         GREATEST(0, COALESCE(o.total_amount, 0) - COALESCE(o.paid_amount, 0))::numeric AS pending_debt
                     FROM client_orders o
-                    WHERE o.status IS DISTINCT FROM 'cancelled'
+                    WHERE o.status IS DISTINCT FROM 'cancelled' AND COALESCE(o.is_deleted, false) = false
                 )
                 SELECT COALESCE(SUM(ocd.pending_debt), 0)::numeric AS total_debt
                 FROM order_contract_due ocd
@@ -3886,7 +3886,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                         o.created_at,
                         GREATEST(0, COALESCE(o.total_amount, 0) - COALESCE(o.paid_amount, 0))::numeric AS pending_debt
                     FROM client_orders o
-                    WHERE o.status IS DISTINCT FROM 'cancelled'
+                    WHERE o.status IS DISTINCT FROM 'cancelled' AND COALESCE(o.is_deleted, false) = false
                 )
                 SELECT
                     ocd.id,

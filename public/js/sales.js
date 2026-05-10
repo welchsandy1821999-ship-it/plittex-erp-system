@@ -14,19 +14,11 @@ let historyPage = 1;
 let historySearch = '';
 let historyPagination = { page: 1, totalPages: 1, total: 0, limit: 5 };
 
-let histPeriodType = 'all'; // За всё время
-let histPeriodValue = new Date().getMonth() + 1;
-let histYear = new Date().getFullYear();
-let histSpecificDate = new Date().toISOString().split('T')[0];
-let histCustomStart = ''; 
-let histCustomEnd = '';   
 let historyDateRange = { start: '', end: '' };
-let histPeriodOffset = 0; // смещение от текущего для ◀▶ навигации
-
-// Период дедлайна для вкладки «Управление заказами»
-let boPeriodType  = 'all'; // 'all' | 'day' | 'week' | 'month' | 'quarter' | 'year'
-let boPeriodOffset = 0;   // смещение от текущего
 let boDeadlineRange = { start: '', end: '' };
+
+window.__salesBoPeriodPickers = { periodPicker: null, customRangePicker: null };
+window.__salesHistPeriodPickers = { periodPicker: null, customRangePicker: null };
 
 /** Для API.get: контрагент удалён в другой вкладке / 404 с бэкенда. */
 function isCounterpartyNotFoundError(e) {
@@ -108,7 +100,8 @@ function initSales() {
 
 
 
-    renderHistoryPeriodUI();
+    if (typeof window.salesBoInitPeriodStrip === 'function') window.salesBoInitPeriodStrip();
+    if (typeof window.salesHistInitPeriodStrip === 'function') window.salesHistInitPeriodStrip();
     loadSalesData(true);
     loadSalesHistory();
     if (typeof loadActiveOrders === 'function') loadActiveOrders();
@@ -126,9 +119,17 @@ window.switchSalesTab = function (tabId, btn) {
     if (tab) tab.classList.add('active');
     if (btn) btn.classList.add('active');
 
-    // Подгружаем данные при переходе на вкладку
-    if (tabId === 'tab-active-orders' && typeof loadActiveOrders === 'function') loadActiveOrders();
-    if (tabId === 'tab-history' && typeof loadSalesHistory === 'function') loadSalesHistory();
+    // Подгружаем данные при переходе на вкладку; период пересобираем после показа (Flatpickr/позиция)
+    if (tabId === 'tab-active-orders') {
+        const boIds = salesPeriodFieldIds('sales-bo');
+        if (document.getElementById(boIds.fg)) salesPeriodFinishUi(boIds, window.__salesBoPeriodPickers);
+        if (typeof loadActiveOrders === 'function') loadActiveOrders();
+    }
+    if (tabId === 'tab-history') {
+        const hIds = salesPeriodFieldIds('sales-hist');
+        if (document.getElementById(hIds.fg)) salesPeriodFinishUi(hIds, window.__salesHistPeriodPickers);
+        if (typeof loadSalesHistory === 'function') loadSalesHistory();
+    }
 };
 
 // === ЗАГРУЗКА КАСС/БАНКОВ ===
@@ -2169,105 +2170,497 @@ window.executeDeleteOrder = async function (orderId) {
 };
 
 // ==========================================
-// === ИСТОРИЯ ОТГРУЗОК (АРХИВ) ===
+// === ИСТОРИЯ ОТГРУЗОК (АРХИВ) + ПЕРИОД (как fin/dashboard) ===
 // ==========================================
 
-/** Вычисляет { label, start, end } для архивного периода */
-function computeHistPeriod(type, offset) {
-    const now = new Date();
-    const MONTHS = ['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'];
-    const fmtD = (d) => d.toLocaleDateString('ru-RU', { day:'2-digit', month:'short' });
-    const isoD = (d) => d.toISOString().slice(0, 10);
-    const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-    if (type === 'all') return { label: 'Всё время', start: '', end: '' };
-    if (type === 'day') {
-        const d = new Date(now); d.setDate(d.getDate() + offset);
-        return { label: d.toLocaleDateString('ru-RU', { day:'2-digit', month:'long', year:'numeric' }), start: isoD(d), end: isoD(d) };
-    }
-    if (type === 'week') {
-        const d = new Date(now); d.setDate(d.getDate() + offset * 7);
-        const day = d.getDay() || 7;
-        const mon = new Date(d); mon.setDate(d.getDate() - day + 1);
-        const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
-        return { label: `${fmtD(mon)} — ${fmtD(sun)}`, start: isoD(mon), end: isoD(sun) };
-    }
-    if (type === 'month') {
-        const t = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-        const s = new Date(t.getFullYear(), t.getMonth(), 1);
-        const e = new Date(t.getFullYear(), t.getMonth() + 1, 0);
-        return { label: `${cap(MONTHS[t.getMonth()])} ${t.getFullYear()}`, start: isoD(s), end: isoD(e) };
-    }
-    if (type === 'quarter') {
-        const q0 = Math.floor(now.getMonth() / 3) + offset;
-        const year = now.getFullYear() + Math.floor(q0 / 4);
-        const q = ((q0 % 4) + 4) % 4;
-        const s = new Date(year, q * 3, 1);
-        const e = new Date(year, q * 3 + 3, 0);
-        return { label: `Q${q + 1} ${year} (${fmtD(s)}–${fmtD(e)})`, start: isoD(s), end: isoD(e) };
-    }
-    if (type === 'year') {
-        const y = now.getFullYear() + offset;
-        return { label: `${y} год`, start: `${y}-01-01`, end: `${y}-12-31` };
-    }
-    return { label: 'Всё время', start: '', end: '' };
+const SALES_PERIOD_ALL_FROM = '1900-01-01';
+
+function salesPeriodFieldIds(prefix) {
+    return {
+        prefix,
+        fg: `${prefix}-fg-period`,
+        navBlock: `${prefix}-period-nav-block`,
+        display: `${prefix}-period-display`,
+        prevBtn: `${prefix}-period-prev-btn`,
+        nextBtn: `${prefix}-period-next-btn`,
+        iconBtn: `${prefix}-period-icon-btn`,
+        customRange: `${prefix}-custom-range`,
+        mode: `${prefix}-period-mode`,
+        anchor: `${prefix}-date-anchor`,
+        from: `${prefix}-date-from`,
+        to: `${prefix}-date-to`,
+    };
 }
 
+function salesPeriodTodayStr() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+function salesPeriodMonthStartStr() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}-01`;
+}
+
+function salesPeriodFmtYmd(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+function salesPeriodDisplayRu(d) {
+    return d.toLocaleDateString('ru-RU');
+}
+
+function salesPeriodMonthNameRu(d) {
+    return d.toLocaleDateString('ru-RU', { month: 'long' });
+}
+
+function salesPeriodNormalizeRangeOrder(ids) {
+    const fromEl = document.getElementById(ids.from);
+    const toEl = document.getElementById(ids.to);
+    if (!fromEl || !toEl) return;
+    const a = String(fromEl.value || '').trim();
+    const b = String(toEl.value || '').trim();
+    if (!a || !b) return;
+    if (a > b) {
+        fromEl.value = b;
+        toEl.value = a;
+    }
+}
+
+function salesGetAnchorDate(ids) {
+    const v = document.getElementById(ids.anchor)?.value || salesPeriodTodayStr();
+    const d = new Date(`${v}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? new Date() : d;
+}
+
+/** Диапазон для фильтров/API: для «Все время» — пустые строки */
+function salesPeriodHarvestRange(ids) {
+    const mode = document.getElementById(ids.mode)?.value || 'all_time';
+    if (mode === 'all_time') return { start: '', end: '' };
+    let dateFrom = String(document.getElementById(ids.from)?.value || '').trim() || salesPeriodMonthStartStr();
+    let dateTo = String(document.getElementById(ids.to)?.value || '').trim() || salesPeriodTodayStr();
+    if (dateFrom > dateTo) {
+        const t = dateFrom;
+        dateFrom = dateTo;
+        dateTo = t;
+    }
+    return { start: dateFrom, end: dateTo };
+}
+
+function salesPeriodCommit(prefix) {
+    const ids = salesPeriodFieldIds(prefix);
+    const r = salesPeriodHarvestRange(ids);
+    if (prefix === 'sales-bo') {
+        boDeadlineRange = r;
+        applyOrderFilters();
+        return;
+    }
+    historyDateRange = r;
+    historyPage = 1;
+    loadSalesHistory();
+}
+
+function salesPeriodToggleLayout(ids) {
+    const mode = document.getElementById(ids.mode)?.value || 'all_time';
+    const fg = document.getElementById(ids.fg);
+    const nav = document.getElementById(ids.navBlock);
+    const customInp = document.getElementById(ids.customRange);
+    const isCustom = mode === 'custom';
+    if (fg) fg.classList.toggle('reports-period-is-custom', isCustom);
+    if (nav) nav.classList.toggle('d-none', isCustom);
+    if (customInp) customInp.classList.toggle('d-none', !isCustom);
+}
+
+function salesPeriodRefreshDisplay(ids) {
+    const displayEl = document.getElementById(ids.display);
+    const mode = document.getElementById(ids.mode)?.value || 'all_time';
+    const anchor = salesGetAnchorDate(ids);
+    const prevBtn = document.getElementById(ids.prevBtn);
+    const nextBtn = document.getElementById(ids.nextBtn);
+    const pickerBtn = document.getElementById(ids.iconBtn);
+    if (!displayEl) return;
+    const nonNavMode = mode === 'all_time' || mode === 'custom';
+    if (prevBtn) prevBtn.disabled = nonNavMode;
+    if (nextBtn) nextBtn.disabled = nonNavMode;
+    if (pickerBtn) pickerBtn.disabled = mode === 'all_time';
+    if (prevBtn) prevBtn.title = nonNavMode
+        ? (mode === 'all_time' ? 'Недоступно в режиме «Все время»' : 'Назад недоступно в режиме «Свой диапазон»')
+        : 'Назад';
+    if (nextBtn) nextBtn.title = nonNavMode
+        ? (mode === 'all_time' ? 'Недоступно в режиме «Все время»' : 'Вперёд недоступно в режиме «Свой диапазон»')
+        : 'Вперёд';
+    if (pickerBtn) pickerBtn.title = mode === 'all_time'
+        ? 'Недоступно в режиме «Все время»'
+        : 'Выбрать дату';
+    if (mode === 'all_time') {
+        displayEl.value = 'Все время';
+        return;
+    }
+    if (mode === 'custom') {
+        const fromStr = String(document.getElementById(ids.from)?.value || '').trim();
+        const toStr = String(document.getElementById(ids.to)?.value || '').trim();
+        const fd = fromStr ? new Date(`${fromStr}T00:00:00`) : null;
+        const td = toStr ? new Date(`${toStr}T00:00:00`) : null;
+        if (fd && td && !Number.isNaN(fd.getTime()) && !Number.isNaN(td.getTime())) {
+            displayEl.value = `${salesPeriodDisplayRu(fd)} — ${salesPeriodDisplayRu(td)}`;
+            return;
+        }
+    }
+    if (mode === 'day') {
+        displayEl.value = salesPeriodDisplayRu(anchor);
+        return;
+    }
+    if (mode === 'month') {
+        const label = salesPeriodMonthNameRu(anchor);
+        displayEl.value = `${label.charAt(0).toUpperCase()}${label.slice(1)} ${anchor.getFullYear()}`;
+        return;
+    }
+    if (mode === 'quarter') {
+        const q = Math.floor(anchor.getMonth() / 3) + 1;
+        displayEl.value = `${q} квартал ${anchor.getFullYear()}`;
+        return;
+    }
+    if (mode === 'year') {
+        const now = new Date();
+        displayEl.value = anchor.getFullYear() === now.getFullYear() ? `YTD ${anchor.getFullYear()}` : String(anchor.getFullYear());
+        return;
+    }
+    displayEl.value = salesPeriodDisplayRu(anchor);
+}
+
+function salesPeriodSyncFromInputs(ids, pickersRef) {
+    const fromRaw = String(document.getElementById(ids.from)?.value || '').trim();
+    const toRaw = String(document.getElementById(ids.to)?.value || '').trim();
+    const from = fromRaw || salesPeriodMonthStartStr();
+    const to = toRaw || salesPeriodTodayStr();
+    const fromDate = new Date(`${from}T00:00:00`);
+    const toDate = new Date(`${to}T00:00:00`);
+    if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) return;
+    let mode = 'custom';
+    if (from === SALES_PERIOD_ALL_FROM) mode = 'all_time';
+    else if (from === to) mode = 'day';
+    else if (fromDate.getMonth() === toDate.getMonth() && fromDate.getFullYear() === toDate.getFullYear()
+        && fromDate.getDate() === 1 && toDate.getDate() === new Date(toDate.getFullYear(), toDate.getMonth() + 1, 0).getDate()) mode = 'month';
+    else if (fromDate.getFullYear() === toDate.getFullYear() && fromDate.getMonth() === 0 && fromDate.getDate() === 1
+        && toDate.getMonth() === 11 && toDate.getDate() === 31) mode = 'year';
+    else {
+        const qStartMonth = Math.floor(fromDate.getMonth() / 3) * 3;
+        const qEnd = new Date(fromDate.getFullYear(), qStartMonth + 3, 0);
+        if (fromDate.getFullYear() === qEnd.getFullYear()
+            && fromDate.getMonth() === qStartMonth && fromDate.getDate() === 1
+            && toDate.getMonth() === qEnd.getMonth() && toDate.getDate() === qEnd.getDate()) mode = 'quarter';
+        else mode = 'custom';
+    }
+    const anchorEl = document.getElementById(ids.anchor);
+    const modeEl = document.getElementById(ids.mode);
+    if (anchorEl) anchorEl.value = salesPeriodFmtYmd(toDate);
+    if (modeEl) modeEl.value = mode;
+    salesPeriodFinishUi(ids, pickersRef);
+}
+
+function salesPeriodApplyFromMode(ids, pickersRef, mode, anchorDate, shouldCommitAfter) {
+    const dateRaw = anchorDate instanceof Date ? anchorDate : salesGetAnchorDate(ids);
+    const safeMode = ['day', 'month', 'quarter', 'year', 'custom', 'all_time'].includes(mode) ? mode : 'all_time';
+    const fromEl = document.getElementById(ids.from);
+    const toEl = document.getElementById(ids.to);
+    const anchorEl = document.getElementById(ids.anchor);
+    const modeEl = document.getElementById(ids.mode);
+
+    if (safeMode === 'custom') {
+        salesPeriodNormalizeRangeOrder(ids);
+        const toVal = String(toEl?.value || '').trim() || salesPeriodTodayStr();
+        if (modeEl) modeEl.value = 'custom';
+        if (anchorEl) anchorEl.value = toVal;
+        salesPeriodFinishUi(ids, pickersRef);
+        if (shouldCommitAfter) salesPeriodCommit(ids.prefix);
+        return;
+    }
+
+    let anchor = new Date(dateRaw.getFullYear(), dateRaw.getMonth(), dateRaw.getDate());
+    let from = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+    let to = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+    if (safeMode === 'all_time') {
+        const now = new Date();
+        anchor = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        from = new Date(`${SALES_PERIOD_ALL_FROM}T00:00:00`);
+        to = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    } else if (safeMode === 'month') {
+        anchor = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+        from = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+        to = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
+    } else if (safeMode === 'quarter') {
+        const qStartMonth = Math.floor(anchor.getMonth() / 3) * 3;
+        anchor = new Date(anchor.getFullYear(), qStartMonth, 1);
+        from = new Date(anchor.getFullYear(), qStartMonth, 1);
+        to = new Date(anchor.getFullYear(), qStartMonth + 3, 0);
+    } else if (safeMode === 'year') {
+        const now = new Date();
+        anchor = new Date(anchor.getFullYear(), 0, 1);
+        from = new Date(anchor.getFullYear(), 0, 1);
+        if (anchor.getFullYear() === now.getFullYear()) {
+            to = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        } else {
+            to = new Date(anchor.getFullYear(), 11, 31);
+        }
+    }
+
+    if (fromEl) fromEl.value = salesPeriodFmtYmd(from);
+    if (toEl) toEl.value = salesPeriodFmtYmd(to);
+    if (anchorEl) anchorEl.value = salesPeriodFmtYmd(anchor);
+    if (modeEl) modeEl.value = safeMode;
+    salesPeriodFinishUi(ids, pickersRef);
+    if (shouldCommitAfter) salesPeriodCommit(ids.prefix);
+}
+
+function salesPeriodRebuildPickers(ids, pickersRef) {
+    const anchorEl = document.getElementById(ids.anchor);
+    const displayEl = document.getElementById(ids.display);
+    const mode = document.getElementById(ids.mode)?.value || 'all_time';
+    const st = pickersRef;
+
+    if (st.periodPicker && typeof st.periodPicker.destroy === 'function') {
+        st.periodPicker.destroy();
+        st.periodPicker = null;
+    }
+    if (st.customRangePicker && typeof st.customRangePicker.destroy === 'function') {
+        st.customRangePicker.destroy();
+        st.customRangePicker = null;
+    }
+    if (typeof flatpickr === 'undefined') return;
+
+    if (mode === 'custom') {
+        const el = document.getElementById(ids.customRange);
+        if (!el) return;
+        const fromStr = String(document.getElementById(ids.from)?.value || '').trim() || salesPeriodMonthStartStr();
+        const toStr = String(document.getElementById(ids.to)?.value || '').trim() || salesPeriodTodayStr();
+        const locale = (window.flatpickr && window.flatpickr.l10ns && window.flatpickr.l10ns.ru) ? window.flatpickr.l10ns.ru : 'ru';
+        st.customRangePicker = flatpickr(el, {
+            locale,
+            mode: 'range',
+            dateFormat: 'Y-m-d',
+            altInput: true,
+            altFormat: 'd.m.Y',
+            altInputClass: 'input-modern reports-custom-range-alt',
+            allowInput: false,
+            disableMobile: false,
+            appendTo: document.body,
+            defaultDate: [fromStr, toStr],
+            onChange(selectedDates, dateStr, instance) {
+                if (!selectedDates || selectedDates.length !== 2) return;
+                const fromElInner = document.getElementById(ids.from);
+                const toElInner = document.getElementById(ids.to);
+                const anchorElInner = document.getElementById(ids.anchor);
+                const from = instance.formatDate(selectedDates[0], 'Y-m-d');
+                const innerTo = instance.formatDate(selectedDates[1], 'Y-m-d');
+                if (fromElInner) fromElInner.value = from;
+                if (toElInner) toElInner.value = innerTo;
+                if (anchorElInner) anchorElInner.value = innerTo;
+                salesPeriodNormalizeRangeOrder(ids);
+                const modeElInner = document.getElementById(ids.mode);
+                if (modeElInner) modeElInner.value = 'custom';
+                setTimeout(() => {
+                    salesPeriodSyncFromInputs(ids, pickersRef);
+                    salesPeriodCommit(ids.prefix);
+                }, 0);
+            }
+        });
+        return;
+    }
+
+    if (!anchorEl || !displayEl || mode === 'all_time') return;
+
+    const locale = (window.flatpickr && window.flatpickr.l10ns && window.flatpickr.l10ns.ru) ? window.flatpickr.l10ns.ru : 'ru';
+    st.periodPicker = flatpickr(anchorEl, {
+        locale,
+        dateFormat: 'Y-m-d',
+        defaultDate: salesGetAnchorDate(ids),
+        clickOpens: false,
+        allowInput: false,
+        positionElement: displayEl,
+        appendTo: document.body,
+        disableMobile: true,
+        onChange: (selectedDates) => {
+            if (!selectedDates || !selectedDates.length) return;
+            const picked = selectedDates[0];
+            const selMode = document.getElementById(ids.mode)?.value || 'day';
+            queueMicrotask(() => salesPeriodApplyFromMode(ids, pickersRef, selMode, picked, true));
+        }
+    });
+}
+
+function salesPeriodFinishUi(ids, pickersRef) {
+    salesPeriodToggleLayout(ids);
+    salesPeriodRebuildPickers(ids, pickersRef);
+    salesPeriodRefreshDisplay(ids);
+}
+
+function salesBoInitInner() {
+    const ids = salesPeriodFieldIds('sales-bo');
+    const from = document.getElementById(ids.from);
+    const to = document.getElementById(ids.to);
+    const modeEl = document.getElementById(ids.mode);
+    const anchorEl = document.getElementById(ids.anchor);
+    if (!from || !to || !modeEl || !anchorEl) return;
+
+    const fromEmpty = String(from.value || '').trim() === '';
+    const toEmpty = String(to.value || '').trim() === '';
+
+    if (fromEmpty && toEmpty && (modeEl.value === 'all_time' || !modeEl.value)) {
+        modeEl.value = 'all_time';
+        salesPeriodApplyFromMode(ids, window.__salesBoPeriodPickers, 'all_time', new Date(), false);
+        boDeadlineRange = salesPeriodHarvestRange(ids);
+        return;
+    }
+    if (fromEmpty && toEmpty && modeEl.value && modeEl.value !== 'all_time') {
+        from.value = salesPeriodMonthStartStr();
+        to.value = salesPeriodTodayStr();
+        anchorEl.value = to.value;
+        salesPeriodSyncFromInputs(ids, window.__salesBoPeriodPickers);
+        boDeadlineRange = salesPeriodHarvestRange(ids);
+        return;
+    }
+    salesPeriodFinishUi(ids, window.__salesBoPeriodPickers);
+    boDeadlineRange = salesPeriodHarvestRange(ids);
+}
+
+function salesHistInitInner() {
+    const ids = salesPeriodFieldIds('sales-hist');
+    const from = document.getElementById(ids.from);
+    const to = document.getElementById(ids.to);
+    const modeEl = document.getElementById(ids.mode);
+    const anchorEl = document.getElementById(ids.anchor);
+    if (!from || !to || !modeEl || !anchorEl) return;
+
+    const fromEmpty = String(from.value || '').trim() === '';
+    const toEmpty = String(to.value || '').trim() === '';
+
+    if (fromEmpty && toEmpty && (modeEl.value === 'all_time' || !modeEl.value)) {
+        modeEl.value = 'all_time';
+        salesPeriodApplyFromMode(ids, window.__salesHistPeriodPickers, 'all_time', new Date(), false);
+        historyDateRange = salesPeriodHarvestRange(ids);
+        return;
+    }
+    if (fromEmpty && toEmpty && modeEl.value && modeEl.value !== 'all_time') {
+        from.value = salesPeriodMonthStartStr();
+        to.value = salesPeriodTodayStr();
+        anchorEl.value = to.value;
+        salesPeriodSyncFromInputs(ids, window.__salesHistPeriodPickers);
+        historyDateRange = salesPeriodHarvestRange(ids);
+        return;
+    }
+    salesPeriodFinishUi(ids, window.__salesHistPeriodPickers);
+    historyDateRange = salesPeriodHarvestRange(ids);
+}
+
+window.salesBoInitPeriodStrip = function () {
+    salesBoInitInner();
+};
+
+window.salesHistInitPeriodStrip = function () {
+    salesHistInitInner();
+};
+
+window.salesBoOnPeriodModeChange = function () {
+    const ids = salesPeriodFieldIds('sales-bo');
+    const mode = document.getElementById(ids.mode)?.value || 'all_time';
+    salesPeriodApplyFromMode(ids, window.__salesBoPeriodPickers, mode, salesGetAnchorDate(ids), true);
+};
+
+window.salesBoOnPeriodAnchorChange = window.salesBoOnPeriodModeChange;
+
+window.salesBoShiftPeriod = function (delta) {
+    const ids = salesPeriodFieldIds('sales-bo');
+    const base = salesGetAnchorDate(ids);
+    const mode = document.getElementById(ids.mode)?.value || 'all_time';
+    if (mode === 'all_time' || mode === 'custom') return;
+    const step = Number(delta || 0);
+    if (mode === 'month') base.setMonth(base.getMonth() + step);
+    else if (mode === 'quarter') base.setMonth(base.getMonth() + (3 * step));
+    else if (mode === 'year') base.setFullYear(base.getFullYear() + step);
+    else base.setDate(base.getDate() + step);
+    salesPeriodApplyFromMode(ids, window.__salesBoPeriodPickers, mode, base, true);
+};
+
+window.salesBoOpenPeriodPicker = function () {
+    const ids = salesPeriodFieldIds('sales-bo');
+    const mode = document.getElementById(ids.mode)?.value || 'all_time';
+    if (mode === 'all_time') return;
+    if (mode === 'custom') {
+        const cr = window.__salesBoPeriodPickers.customRangePicker;
+        if (cr) { cr.open(); return; }
+        const el = document.getElementById(ids.customRange);
+        if (el) el.click();
+        return;
+    }
+    const picker = window.__salesBoPeriodPickers.periodPicker;
+    if (picker) {
+        picker.setDate(salesGetAnchorDate(ids), false);
+        picker.open();
+        return;
+    }
+    const input = document.getElementById(ids.anchor);
+    if (!input) return;
+    if (typeof input.showPicker === 'function') input.showPicker();
+    else input.click();
+};
+
+window.salesHistOnPeriodModeChange = function () {
+    const ids = salesPeriodFieldIds('sales-hist');
+    const mode = document.getElementById(ids.mode)?.value || 'all_time';
+    salesPeriodApplyFromMode(ids, window.__salesHistPeriodPickers, mode, salesGetAnchorDate(ids), true);
+};
+
+window.salesHistOnPeriodAnchorChange = window.salesHistOnPeriodModeChange;
+
+window.salesHistShiftPeriod = function (delta) {
+    const ids = salesPeriodFieldIds('sales-hist');
+    const base = salesGetAnchorDate(ids);
+    const mode = document.getElementById(ids.mode)?.value || 'all_time';
+    if (mode === 'all_time' || mode === 'custom') return;
+    const step = Number(delta || 0);
+    if (mode === 'month') base.setMonth(base.getMonth() + step);
+    else if (mode === 'quarter') base.setMonth(base.getMonth() + (3 * step));
+    else if (mode === 'year') base.setFullYear(base.getFullYear() + step);
+    else base.setDate(base.getDate() + step);
+    salesPeriodApplyFromMode(ids, window.__salesHistPeriodPickers, mode, base, true);
+};
+
+window.salesHistOpenPeriodPicker = function () {
+    const ids = salesPeriodFieldIds('sales-hist');
+    const mode = document.getElementById(ids.mode)?.value || 'all_time';
+    if (mode === 'all_time') return;
+    if (mode === 'custom') {
+        const cr = window.__salesHistPeriodPickers.customRangePicker;
+        if (cr) { cr.open(); return; }
+        const el = document.getElementById(ids.customRange);
+        if (el) el.click();
+        return;
+    }
+    const picker = window.__salesHistPeriodPickers.periodPicker;
+    if (picker) {
+        picker.setDate(salesGetAnchorDate(ids), false);
+        picker.open();
+        return;
+    }
+    const input = document.getElementById(ids.anchor);
+    if (!input) return;
+    if (typeof input.showPicker === 'function') input.showPicker();
+    else input.click();
+};
+
+/** Совместимость: UI статичный в sales.ejs */
 window.renderHistoryPeriodUI = function () {
-    const { label } = computeHistPeriod(histPeriodType, histPeriodOffset);
-    const disabled = histPeriodType === 'all' ? ' disabled' : '';
-    const title = 'Нажмите: Всё → День → Неделя → Месяц → Квартал → Год';
-    const html = `
-        <button class="sales-period-arrow"${disabled} onclick="histShiftPeriod(-1)" title="Предыдущий">◀</button>
-        <span class="sales-period-label" onclick="histCyclePeriodType()" title="${title}">${label}</span>
-        <button class="sales-period-arrow"${disabled} onclick="histShiftPeriod(1)" title="Следующий">▶</button>
-    `;
-    document.querySelectorAll('#hist-date-filter-container').forEach(c => { c.innerHTML = html; });
-};
-
-
-
-
-/** Стрелки ◀▶ архива */
-window.histShiftPeriod = function (dir) {
-    if (histPeriodType === 'all') {
-        histPeriodType = 'month'; histPeriodOffset = dir === 1 ? 0 : -1;
-    } else {
-        histPeriodOffset += dir;
-    }
-    const { start, end } = computeHistPeriod(histPeriodType, histPeriodOffset);
-    historyDateRange = { start, end };
-    renderHistoryPeriodUI();
-    historyPage = 1;
-    loadSalesHistory();
-};
-
-/** Клик по label — цикл: всё → день → неделя → месяц → квартал → год → всё */
-window.histCyclePeriodType = function () {
-    const cycle = ['all', 'day', 'week', 'month', 'quarter', 'year'];
-    const idx = cycle.indexOf(histPeriodType);
-    histPeriodType = cycle[(idx + 1) % cycle.length];
-    histPeriodOffset = 0;
-    const { start, end } = computeHistPeriod(histPeriodType, 0);
-    historyDateRange = { start, end };
-    renderHistoryPeriodUI();
-    historyPage = 1;
-    loadSalesHistory();
-};
-
-window.applyHistoryPeriod = function (field, value) {
-    if (field === 'type') {
-        histPeriodType = value;
-        histPeriodOffset = 0; // сброс при смене типа
-    }
-    else if (field === 'date') { histSpecificDate = value; }
-    else if (field === 'value') { histPeriodValue = parseInt(value); }
-    else if (field === 'year') { histYear = parseInt(value); }
-
-    const { start, end } = computeHistPeriod(histPeriodType, histPeriodOffset);
-    historyDateRange = { start, end };
-    renderHistoryPeriodUI();
-    historyPage = 1;
-    loadSalesHistory();
+    const ids = salesPeriodFieldIds('sales-hist');
+    if (!document.getElementById(ids.fg)) return;
+    salesPeriodFinishUi(ids, window.__salesHistPeriodPickers);
 };
 
 window.applyHistoryFilters = function() {
@@ -2283,13 +2676,9 @@ window.resetHistoryFilters = function() {
         if (clientSelect.tomselect) clientSelect.tomselect.setValue('', true);
         else clientSelect.value = '';
     }
-    histPeriodType = 'all';
-    histPeriodOffset = 0;
-    historyDateRange = { start: '', end: '' };
-    renderHistoryPeriodUI();
-    historyPage = 1;
+    const histIds = salesPeriodFieldIds('sales-hist');
+    salesPeriodApplyFromMode(histIds, window.__salesHistPeriodPickers, 'all_time', new Date(), true);
     historyPagination = { page: 1, totalPages: 1, total: 0, limit: 5 };
-    loadSalesHistory();
 };
 
 function populateHistoryClientFilter(historyData) {
@@ -3290,6 +3679,30 @@ window.salesToggleRetMethod = function (methodSelect) {
     g.classList.toggle('d-none', v !== 'cash');
 };
 
+window.loadClientOrdersForReturn = async function (clientId) {
+    const orderSelect = document.getElementById('ret-order');
+    if (!orderSelect) return;
+    
+    if (!clientId) {
+        orderSelect.innerHTML = '<option value="">-- Выберите клиента сначала --</option>';
+        if (orderSelect.tomselect) orderSelect.tomselect.sync();
+        return;
+    }
+    
+    try {
+        const orders = await API.get('/api/sales/client-orders/' + clientId);
+        let options = '<option value="">-- Выберите заказ --</option>';
+        orders.forEach(o => {
+            options += `<option value="${o.id}">${o.doc_number} (от ${new Date(o.created_at).toLocaleDateString('ru-RU')} - ${o.status})</option>`;
+        });
+        orderSelect.innerHTML = options;
+        if (orderSelect.tomselect) orderSelect.tomselect.sync();
+    } catch (e) {
+        console.error('Ошибка загрузки заказов клиента', e);
+        UI.toast('Не удалось загрузить заказы клиента', 'error');
+    }
+};
+
 window.openReturnModal = async function () {
     try {
         const clients = await API.get('/api/counterparties');
@@ -3302,7 +3715,14 @@ window.openReturnModal = async function () {
             <div class="p-10">
                 <div class="form-group">
                     <label>От кого возврат (Клиент):</label>
-                    <select id="ret-client" class="input-modern">${clientOptions}</select>
+                    <select id="ret-client" class="input-modern" onchange="window.loadClientOrdersForReturn(this.value)">${clientOptions}</select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Заказ (основание):</label>
+                    <select id="ret-order" class="input-modern">
+                        <option value="">-- Выберите клиента сначала --</option>
+                    </select>
                 </div>
 
                 <div class="bg-surface-hover p-10 border-radius-6 border dashed mb-15">
@@ -3369,7 +3789,7 @@ window.openReturnModal = async function () {
         `);
 
         setTimeout(() => {
-            ['ret-client', 'ret-item', 'ret-wh', 'ret-method', 'ret-account'].forEach(id => {
+            ['ret-client', 'ret-order', 'ret-item', 'ret-wh', 'ret-method', 'ret-account'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el && !el.tomselect) new TomSelect(el, { plugins: ['clear_button'], dropdownParent: 'body' });
             });
@@ -3413,6 +3833,7 @@ window.renderReturnCart = function () {
 
 window.executeReturn = async function () {
     const clientId = document.getElementById('ret-client').value;
+    const orderId = document.getElementById('ret-order').value;
     const pallets = parseInt(document.getElementById('ret-pallets').value) || 0;
     const refundAmt = parseFloat(document.getElementById('ret-amount').value) || 0;
     const method = document.getElementById('ret-method').value;
@@ -3420,13 +3841,14 @@ window.executeReturn = async function () {
     const reason = document.getElementById('ret-reason').value.trim();
 
     if (!clientId) return UI.toast('Выберите клиента!', 'warning');
+    if (!orderId) return UI.toast('Выберите заказ (основание возврата)!', 'warning');
     if (window.returnCart.length === 0 && pallets === 0 && refundAmt === 0) {
         return UI.toast('Укажите хотя бы что-то для возврата (товар, поддоны или сумму)!', 'warning');
     }
     if (method === 'cash' && refundAmt > 0 && !accId) return UI.toast('Выберите кассу для выдачи денег!', 'warning');
 
     try {
-        const data = await API.post('/api/sales/returns', { counterparty_id: clientId, items: window.returnCart, pallets_returned: pallets, refund_amount: refundAmt, refund_method: method, account_id: accId, reason: reason });
+        const data = await API.post('/api/sales/returns', { order_id: orderId, counterparty_id: clientId, items: window.returnCart, pallets_returned: pallets, refund_amount: refundAmt, refund_method: method, account_id: accId, reason: reason });
         UI.closeModal();
         UI.toast(`✅ Возврат ${data.docNum} успешно оформлен!`, 'success');
         loadSalesData(false);
@@ -4113,10 +4535,8 @@ window.resetOrderFilters = function () {
     document.querySelectorAll('#bo-status-chips .sales-chip').forEach(btn => {
         btn.classList.toggle('sales-chip--active', btn.dataset.value === '');
     });
-    // Сброс периода дедлайна
-    boPeriodType = 'all'; boPeriodOffset = 0; boDeadlineRange = { start: '', end: '' };
-    boUpdatePeriodLabel();
-    applyOrderFilters();
+    const boIds = salesPeriodFieldIds('sales-bo');
+    salesPeriodApplyFromMode(boIds, window.__salesBoPeriodPickers, 'all_time', new Date(), true);
 };
 
 /** Установить статус оплаты через pill-chip и hidden input */
@@ -4128,84 +4548,6 @@ window.setBoPillStatus = function (val) {
     });
     applyOrderFilters();
 };
-
-/** Обновляет label навигационного календаря дедлайнов */
-window.boUpdatePeriodLabel = function () {
-    const lbl = document.getElementById('bo-period-label');
-    if (!lbl) return;
-
-    const now = new Date();
-    const MONTHS = ['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'];
-    const MONTHS_GEN = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
-    const fmtD = (d) => d.toLocaleDateString('ru-RU', { day:'2-digit', month:'short' });
-    const isoD = (d) => d.toISOString().slice(0, 10);
-
-    if (boPeriodType === 'all') {
-        lbl.textContent = 'Всё время';
-        boDeadlineRange = { start: '', end: '' };
-        return;
-    }
-
-    if (boPeriodType === 'day') {
-        const d = new Date(now); d.setDate(d.getDate() + boPeriodOffset);
-        lbl.textContent = d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' });
-        boDeadlineRange = { start: isoD(d), end: isoD(d) };
-    }
-    else if (boPeriodType === 'week') {
-        const d = new Date(now); d.setDate(d.getDate() + boPeriodOffset * 7);
-        const day = d.getDay() || 7;
-        const mon = new Date(d); mon.setDate(d.getDate() - day + 1);
-        const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
-        lbl.textContent = `${fmtD(mon)} — ${fmtD(sun)}`;
-        boDeadlineRange = { start: isoD(mon), end: isoD(sun) };
-    }
-    else if (boPeriodType === 'month') {
-        const t = new Date(now.getFullYear(), now.getMonth() + boPeriodOffset, 1);
-        const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-        lbl.textContent = `${cap(MONTHS[t.getMonth()])} ${t.getFullYear()}`;
-        const s = new Date(t.getFullYear(), t.getMonth(), 1);
-        const e = new Date(t.getFullYear(), t.getMonth() + 1, 0);
-        boDeadlineRange = { start: isoD(s), end: isoD(e) };
-    }
-    else if (boPeriodType === 'quarter') {
-        const q0 = Math.floor(now.getMonth() / 3) + boPeriodOffset;
-        const year = now.getFullYear() + Math.floor(q0 / 4);
-        const q = ((q0 % 4) + 4) % 4;
-        const qNum = q + 1;
-        const s = new Date(year, q * 3, 1);
-        const e = new Date(year, q * 3 + 3, 0);
-        lbl.textContent = `Q${qNum} ${year} (${fmtD(s)}–${fmtD(e)})`;
-        boDeadlineRange = { start: isoD(s), end: isoD(e) };
-    }
-    else if (boPeriodType === 'year') {
-        const y = now.getFullYear() + boPeriodOffset;
-        lbl.textContent = `${y} год`;
-        boDeadlineRange = { start: `${y}-01-01`, end: `${y}-12-31` };
-    }
-};
-
-/** Стрелки ◀▶ — навигация внутри текущего режима */
-window.boShiftPeriod = function (dir) {
-    if (boPeriodType === 'all') {
-        boPeriodType = 'month'; boPeriodOffset = (dir === 1 ? 0 : -1);
-    } else {
-        boPeriodOffset += dir;
-    }
-    boUpdatePeriodLabel();
-    applyOrderFilters();
-};
-
-/** Клик по label — цикл: всё → день → неделя → месяц → квартал → год → всё */
-window.boTogglePeriodType = function () {
-    const cycle = ['all', 'day', 'week', 'month', 'quarter', 'year'];
-    const idx = cycle.indexOf(boPeriodType);
-    boPeriodType = cycle[(idx + 1) % cycle.length];
-    boPeriodOffset = 0;
-    boUpdatePeriodLabel();
-    applyOrderFilters();
-};
-
-
 
 // === CRM ВОРОНКА (КАНБАН) ===
 
