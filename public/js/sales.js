@@ -2040,6 +2040,10 @@ function renderBlankOrdersTable() {
             offsetBtn = `<button class="btn btn-outline sales-btn-sm sales-btn-sm-success" onclick="offsetOrderAdvance('${o.doc_number}', ${offsetAmount})" title="Зачесть аванс в счет заказа">💸 Зачесть</button>`;
         }
 
+        const returnBadge = (o.has_returns === true || o.has_returns === 't')
+            ? '<span class="font-11 text-warning ml-5" title="По заказу зарегистрированы возвраты">↩️ Возврат</span>'
+            : '';
+
         // --- РЕНДЕР СТРОКИ (ШАГ 4: entity-links) ---
         return `
         <tr class="sales-order-row">
@@ -2048,7 +2052,7 @@ function renderBlankOrdersTable() {
                 <span class="sales-order-deadline">до ${o.deadline || 'Не указан'}</span>
             </td>
             <td>
-                <span class="sales-order-doc-link entity-link" onclick="window.app.openEntity('document_order', ${o.id})">${o.doc_number}</span><br>
+                <span class="sales-order-doc-link entity-link" onclick="window.app.openEntity('document_order', ${o.id})">${o.doc_number}</span>${returnBadge}<br>
                 <span class="sales-order-amount">${totalAmt.toLocaleString('ru-RU')} ₽</span>
             </td>
             <td class="valign-top">
@@ -4666,9 +4670,13 @@ window.renderKanbanBoard = function () {
         card.draggable = true;
         card.dataset.id = order.id;
 
+        const kbReturnBadge = (order.has_returns === true || order.has_returns === 't')
+            ? '<span class="font-11 text-warning ml-5" title="По заказу были возвраты">↩️</span>'
+            : '';
+
         card.innerHTML = `
             <div class="kanban-card-header">
-                <span>${order.id ? `<span class="entity-link" onclick="window.app.openEntity('document_order', ${order.id})">${order.doc_number}</span>` : order.doc_number}</span>
+                <span>${order.id ? `<span class="entity-link" onclick="window.app.openEntity('document_order', ${order.id})">${order.doc_number}</span>${kbReturnBadge}` : order.doc_number}</span>
                 <span title="Дедлайн">⏳ ${order.deadline || order.date_formatted}</span>
             </div>
             <div class="kanban-card-client">
@@ -4776,6 +4784,37 @@ window.openOrderDetails = async function (orderId) {
         });
         itemsHtml += `</tbody></table>`;
 
+        const retLines = items.filter((it) => parseFloat(it.qty_returned || 0) > 0.0001);
+        let returnsSection = '';
+        if (order.has_returns === true || order.has_returns === 't') {
+            if (retLines.length) {
+                let retRows = '';
+                retLines.forEach((it) => {
+                    const q = parseFloat(it.qty_returned || 0);
+                    retRows += `<tr>
+                        <td class="p-8 border-bottom border-surface-alt">${it.item_id ? `<span class="entity-link" onclick="window.app.openEntity('item_movement', ${it.item_id})">${Utils.escapeHtml(it.name)}</span>` : Utils.escapeHtml(it.name)}</td>
+                        <td class="p-8 border-bottom border-surface-alt text-center font-bold">${q.toLocaleString('ru-RU', { maximumFractionDigits: 4 })} ${Utils.escapeHtml(it.unit || '')}</td>
+                    </tr>`;
+                });
+                returnsSection = `
+            <h4 class="m-0 mb-10 text-warning">↩️ История возвратов</h4>
+            <div class="bg-surface-hover p-12 border-radius-8 border border-surface-alt mb-15">
+                <table class="table-modern w-100 m-0">
+                    <thead class="bg-surface-hover text-left">
+                        <tr>
+                            <th class="p-8 border-bottom">Товар</th>
+                            <th class="p-8 border-bottom text-center">Возвращено</th>
+                        </tr>
+                    </thead>
+                    <tbody>${retRows}</tbody>
+                </table>
+            </div>`;
+            } else {
+                returnsSection = `
+            <div class="bg-surface-hover p-12 border-radius-8 border border-surface-alt mb-15 font-13 text-muted">↩️ История возвратов: по заказу отмечен возврат; количества по строкам уточняются в учёте.</div>`;
+            }
+        }
+
         // Формируем тело модального окна
         const htmlBody = `
             <div class="mb-15 bg-surface-hover p-15 border-radius-8 border font-14">
@@ -4786,6 +4825,7 @@ window.openOrderDetails = async function (orderId) {
                 <div class="mb-8"><strong>💰 Сумма заказа:</strong> <span class="text-main font-bold">${parseFloat(order.total_amount).toLocaleString()} ₽</span></div>
                 <div class="m-0"><strong>📅 Плановая отгрузка:</strong> ${order.planned_shipment_date ? new Date(order.planned_shipment_date).toLocaleDateString() : 'Не указана'}</div>
             </div>
+            ${returnsSection}
             <h4 class="m-0 mb-10 text-muted">📦 Состав заказа:</h4>
             ${itemsHtml}
         `;

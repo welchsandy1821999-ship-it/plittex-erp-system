@@ -6,9 +6,13 @@
         </div>
         
         <div class="flex-row gap-10 items-end flex-wrap justify-end inv-toolbar">
-            <div class="form-group prod-header-datepicker mb-0 min-w-160 inv-toolbar-date">
+            <div class="form-group prod-header-datepicker mb-0 inv-toolbar-date inv-stock-date-field">
                 <label class="label-sm text-muted">Остатки на дату:</label>
-                <input type="text" id="inventory-date-filter" class="input-modern prod-date-input" placeholder="Сегодня">
+                <div class="inv-date-nav-row flex-row gap-5 align-center">
+                    <button type="button" class="btn btn-outline btn-sm inv-date-shift-btn" onclick="inventoryShiftFilterDate(-1)" title="Предыдущий день" aria-label="Предыдущий день">◀</button>
+                    <input type="text" id="inventory-date-filter" class="input-modern prod-date-input inv-date-filter-native" placeholder="Сегодня">
+                    <button type="button" class="btn btn-outline btn-sm inv-date-shift-btn" onclick="inventoryShiftFilterDate(1)" title="Следующий день" aria-label="Следующий день">▶</button>
+                </div>
             </div>
             
             <button class="btn btn-outline hide-in-audit inv-toolbar-btn" onclick="openSiftingModal()">Просеивание</button>
@@ -60,6 +64,12 @@
         <button class="btn btn-outline filter-btn" onclick="applyWarehouseFilter('5', this)">Склад №5 (Уценка и Брак)</button>
         <button class="btn btn-outline filter-btn" onclick="applyWarehouseFilter('6', this)">Склад №6 (Утиль)</button>
         <button class="btn btn-outline filter-btn inv-reserve-btn" onclick="applyWarehouseFilter('7', this)">🔒 Склад №7 (Резервы)</button>
+    </div>
+    <div id="inv-merge-fg-controls" class="inv-reserve-controls mb-10 hide-in-audit inv-hidden">
+        <label class="flex-row items-center cursor-pointer gap-5 mb-0 text-main font-13" title="Суммарный остаток по готовой продукции и резерву (как «Единая площадка»); внутренние перераспределения 4↔7 обнуляются в сумме">
+            <input type="checkbox" id="inv-merge-fg-reserve-check" onchange="onMergeFgReserveChange()" class="cursor-pointer">
+            Объединить с резервом (4+7)
+        </label>
     </div>
     <div id="inv-finished-controls" class="inv-reserve-controls mb-10 inv-hidden hide-in-audit">
         <label class="flex-row items-center cursor-pointer gap-5 mb-0 text-main font-13" title="Показывать разбивку остатков по партиям для Склада №4">

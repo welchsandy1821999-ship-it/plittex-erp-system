@@ -41,14 +41,24 @@ module.exports = function (pool, getWhId, withTransaction) {
         }
     }
 
-    function mapInventoryDbError(err, fallback) {
+    async function mapInventoryDbError(err, fallback) {
         if (err && (err.code === '23514' || err.code === 'P0001')) {
             const msg = err.message || fallback;
             if (msg && msg.includes('Недостаточно остатка на складе')) {
                 const match = msg.match(/item_id=(\d+).*?итог=([-\d.]+)/);
-                const itemId = match ? match[1] : 'неизвестно';
+                const itemId = match ? match[1] : '';
                 const finalQty = match ? match[2] : 'неизвестно';
-                sendNotify(`⚠️ <b>ПОПЫТКА СПИСАНИЯ В МИНУС</b>\nGuardrail заблокировал операцию!\nТовар ID: ${itemId}\nОстаток при попытке: ${finalQty}`);
+                let itemName = '';
+                if (itemId) {
+                    try {
+                        const nameRes = await pool.query('SELECT name FROM items WHERE id = $1', [itemId]);
+                        if (nameRes.rows[0]) itemName = String(nameRes.rows[0].name || '');
+                    } catch (e) { /* ignore */ }
+                }
+                const nameLine = itemName
+                    ? `Товар: ${escapeHtml(itemName)} (ID: ${escapeHtml(itemId)})`
+                    : `Товар: — (ID: ${escapeHtml(itemId || 'неизвестно')})`;
+                sendNotify(`⚠️ <b>ПОПЫТКА СПИСАНИЯ В МИНУС</b>\nGuardrail заблокировал операцию!\n${nameLine}\nОстаток при попытке: ${finalQty}`);
             }
             return msg;
         }
@@ -1354,7 +1364,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             res.json({ success: true, message: 'Успешно перемещено' });
         } catch (err) {
             logger.error(err);
-            res.status(400).json({ error: mapInventoryDbError(err, 'Внутренняя ошибка сервера. Обратитесь к администратору.') });
+            res.status(400).json({ error: await mapInventoryDbError(err, 'Внутренняя ошибка сервера. Обратитесь к администратору.') });
         }
     });
 
@@ -1558,7 +1568,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             res.json({ success: true, message: 'Инвентаризация завершена успешно' });
         } catch (err) {
             logger.error(err);
-            res.status(400).json({ error: mapInventoryDbError(err, 'Внутренняя ошибка сервера. Обратитесь к администратору.') });
+            res.status(400).json({ error: await mapInventoryDbError(err, 'Внутренняя ошибка сервера. Обратитесь к администратору.') });
         }
     });
 
@@ -1950,7 +1960,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             res.json({ success: true, message: 'Успешно утилизировано' });
         } catch (err) {
             logger.error(err);
-            res.status(400).json({ error: mapInventoryDbError(err, 'Внутренняя ошибка сервера. Обратитесь к администратору.') });
+            res.status(400).json({ error: await mapInventoryDbError(err, 'Внутренняя ошибка сервера. Обратитесь к администратору.') });
         }
     });
 
@@ -2645,7 +2655,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             res.json({ success: true, message: action === 'release' ? 'Резерв снят, товар возвращён на Склад №4' : 'Резерв переброшен на другой заказ' });
         } catch (err) {
             logger.error(err);
-            res.status(400).json({ error: mapInventoryDbError(err, err.message || 'Ошибка управления резервом') });
+            res.status(400).json({ error: await mapInventoryDbError(err, err.message || 'Ошибка управления резервом') });
         }
     });
 
@@ -2869,7 +2879,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             res.json({ success: true, message: 'Записи успешно удалены' });
         } catch (err) {
             logger.error(err);
-            res.status(400).json({ error: mapInventoryDbError(err, err.message || 'Ошибка удаления.') });
+            res.status(400).json({ error: await mapInventoryDbError(err, err.message || 'Ошибка удаления.') });
         }
     });
 

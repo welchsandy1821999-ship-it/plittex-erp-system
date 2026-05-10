@@ -23,6 +23,11 @@ let reserveFilters = {
     preset: 'none'
 };
 let reserveRebalanceInFlight = false;
+/** Суммировать остатки склада готовой продукции и резерва (4+7) одной строкой на товар. */
+let mergeFinishedWithReserve = false;
+try {
+    mergeFinishedWithReserve = localStorage.getItem('invMergeFgReserve') === '1';
+} catch (_) {}
 
 function applyInventoryDensity() {
     const mod = document.getElementById('stock-mod');
@@ -141,6 +146,78 @@ function syncFinishedControlsVisibility() {
     const show = currentWarehouseFilter === '4' && !isAuditMode;
     panel.classList.toggle('inv-hidden', !show);
 }
+
+function syncMergeFgControlsVisibility() {
+    const wrap = document.getElementById('inv-merge-fg-controls');
+    if (!wrap) return;
+    const show = !isAuditMode && (currentWarehouseFilter === 'all' || currentWarehouseFilter === '4');
+    wrap.classList.toggle('inv-hidden', !show);
+}
+
+function buildReserveQtyByItemFromAllInventory() {
+    const m = {};
+    (allInventory || []).forEach((r) => {
+        if (String(r.warehouse_type) === 'reserve') {
+            const k = String(r.item_id);
+            m[k] = (m[k] || 0) + Number(r.total || 0);
+        }
+    });
+    return m;
+}
+
+/**
+ * Для фильтра «Все склады»: одна строка на товар по ГП+резерв.
+ * Сумма по физическим движениям: внутренние перераспределения 4↔7 дают ноль в сумме двух складов.
+ */
+function mergeFinishedReservePoolRows(rows) {
+    const pool = [];
+    const rest = [];
+    for (const r of rows || []) {
+        const t = String(r.warehouse_type || '');
+        if (t === 'finished' || t === 'reserve') pool.push(r);
+        else rest.push(r);
+    }
+    const byItem = new Map();
+    for (const r of pool) {
+        const k = String(r.item_id);
+        if (!byItem.has(k)) {
+            byItem.set(k, {
+                ...r,
+                warehouse_name: 'ГП + Резерв (4+7)',
+                warehouse_type: 'finished',
+                batch_id: null,
+                batch_number: '—',
+                linked_order_item_id: null,
+                order_doc_number: null,
+                order_id: null,
+                order_client_name: null,
+                order_status: null,
+                order_qty_ordered: null,
+                order_qty_reserved: null,
+                order_qty_shipped: null,
+                reserve_qty_by_batch: 0,
+                total: 0
+            });
+        }
+        const agg = byItem.get(k);
+        agg.total = Number(agg.total || 0) + Number(r.total || 0);
+        agg.reserve_qty_by_batch = Number(agg.reserve_qty_by_batch || 0) + Number(r.reserve_qty_by_batch || 0);
+    }
+    const merged = Array.from(byItem.values()).sort((a, b) =>
+        String(a.item_name || '').localeCompare(String(b.item_name || ''), 'ru')
+    );
+    return rest.concat(merged);
+}
+
+window.onMergeFgReserveChange = function () {
+    const chk = document.getElementById('inv-merge-fg-reserve-check');
+    mergeFinishedWithReserve = Boolean(chk && chk.checked);
+    try {
+        localStorage.setItem('invMergeFgReserve', mergeFinishedWithReserve ? '1' : '0');
+    } catch (_) {}
+    currentPage = 1;
+    renderInventoryTable();
+};
 
 async function triggerReserveRebalance(btnEl) {
     if (reserveRebalanceInFlight) return;
@@ -314,6 +391,51 @@ let inventoryDatePicker = null;
 window.dryingReceiptDates = [];
 window.dryingExpenseDates = [];
 
+function initInventoryDatePickerIfNeeded() {
+    const dateEl = document.getElementById('inventory-date-filter');
+    if (!dateEl || inventoryDatePicker || typeof flatpickr === 'undefined') return;
+    inventoryDatePicker = flatpickr(dateEl, {
+        dateFormat: 'Y-m-d',
+        altInput: true,
+        altFormat: 'd.m.Y',
+        altInputClass: 'input-modern inv-date-flat-alt',
+        locale: 'ru',
+        defaultDate: new Date(),
+        onChange: function (_selectedDates, _dateStr, _instance) {
+            loadTable();
+            if (currentWarehouseFilter === '3') loadDryingHistory();
+        },
+        onDayCreate: function (dObj, dStr, fp, dayElem) {
+            const year = dayElem.dateObj.getFullYear();
+            const month = String(dayElem.dateObj.getMonth() + 1).padStart(2, '0');
+            const day = String(dayElem.dateObj.getDate()).padStart(2, '0');
+            const dateStr = `${year}-${month}-${day}`;
+
+            if (window.dryingReceiptDates && window.dryingReceiptDates.includes(dateStr)) {
+                dayElem.innerHTML += '<span class="inv-cal-dot-receipt"></span>';
+            }
+            if (window.dryingExpenseDates && window.dryingExpenseDates.includes(dateStr)) {
+                dayElem.innerHTML += '<span class="inv-cal-dot-expense"></span>';
+            }
+        }
+    });
+    void updateInventoryCalendarMarks();
+}
+
+/** Смена выбранной даты остатков на ±1 день (локальная дата, без UTC-смещения). */
+window.inventoryShiftFilterDate = function (delta) {
+    const step = Number(delta || 0);
+    if (!step) return;
+    initInventoryDatePickerIfNeeded();
+    if (!inventoryDatePicker) return;
+    const src = inventoryDatePicker.selectedDates[0]
+        ? new Date(inventoryDatePicker.selectedDates[0])
+        : new Date();
+    const base = new Date(src.getFullYear(), src.getMonth(), src.getDate());
+    base.setDate(base.getDate() + step);
+    inventoryDatePicker.setDate(base, true);
+};
+
 // Функция загрузки дат событий сушилки для календаря
 window.updateInventoryCalendarMarks = async function () {
     try {
@@ -326,34 +448,7 @@ window.updateInventoryCalendarMarks = async function () {
 
 function loadTable() {
     applyInventoryDensity();
-    // Инициализация календаря если еще нет
-    const dateEl = document.getElementById('inventory-date-filter');
-    if (dateEl && !inventoryDatePicker && typeof flatpickr !== 'undefined') {
-        inventoryDatePicker = flatpickr(dateEl, { 
-            dateFormat: "Y-m-d", altInput: true, altFormat: "d.m.Y", locale: "ru", defaultDate: new Date(),
-            onChange: function(selectedDates, dateStr, instance) {
-                // При смене даты сразу загружаем новые данные
-                loadTable();
-                // Обновляем историю сушилки, если открыта её вкладка
-                if (currentWarehouseFilter === '3') loadDryingHistory();
-            },
-            onDayCreate: function (dObj, dStr, fp, dayElem) {
-                const year = dayElem.dateObj.getFullYear();
-                const month = String(dayElem.dateObj.getMonth() + 1).padStart(2, '0');
-                const day = String(dayElem.dateObj.getDate()).padStart(2, '0');
-                const dateStr = `${year}-${month}-${day}`;
-
-                if (window.dryingReceiptDates && window.dryingReceiptDates.includes(dateStr)) {
-                    dayElem.innerHTML += '<span class="inv-cal-dot-receipt"></span>';
-                }
-                if (window.dryingExpenseDates && window.dryingExpenseDates.includes(dateStr)) {
-                    dayElem.innerHTML += '<span class="inv-cal-dot-expense"></span>';
-                }
-            }
-        });
-        // Загружаем даты сразу после инициализации календаря
-        updateInventoryCalendarMarks();
-    }
+    initInventoryDatePickerIfNeeded();
 
     let params = [];
     if (inventoryDatePicker && inventoryDatePicker.selectedDates.length > 0) {
@@ -449,6 +544,7 @@ function applyWarehouseFilter(id, btn) {
     currentWarehouseFilter = id;
     syncReserveControlsVisibility();
     syncFinishedControlsVisibility();
+    syncMergeFgControlsVisibility();
     document.querySelectorAll('#stock-mod .filter-btn').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');
     renderInventoryTable();
@@ -481,6 +577,7 @@ function syncAuditUI(auditEnabled) {
         document.querySelectorAll('#stock-mod .dropdown-menu').forEach((menu) => menu.classList.add('inv-hidden'));
     }
     syncFinishedControlsVisibility();
+    syncMergeFgControlsVisibility();
 }
 
 window.toggleAuditMode = function () {
@@ -593,6 +690,10 @@ function renderInventoryTable() {
     const isReserveView = currentWarehouseFilter === '7';
     syncReserveControlsVisibility();
     syncFinishedControlsVisibility();
+    syncMergeFgControlsVisibility();
+
+    const mergeChkEl = document.getElementById('inv-merge-fg-reserve-check');
+    if (mergeChkEl) mergeChkEl.checked = mergeFinishedWithReserve;
 
     // Динамический заголовок: Склад №7 показывает колонку "Заказ"
     if (thead) {
@@ -652,11 +753,16 @@ function renderInventoryTable() {
         return true;
     });
 
+    let nonReserveWorking = filtered;
+    if (!isReserveView && mergeFinishedWithReserve && currentWarehouseFilter === 'all') {
+        nonReserveWorking = mergeFinishedReservePoolRows(filtered);
+    }
+    const reserveSumByItem = buildReserveQtyByItemFromAllInventory();
+
     if (isReserveView) {
         syncReserveSelectors(filtered);
     }
 
-    const totalItems = filtered.length;
     let reserveRows = filtered;
     if (isReserveView) {
         reserveRows = filtered.filter((r) => {
@@ -719,8 +825,26 @@ function renderInventoryTable() {
     const sourceRows = isReserveView
         ? reserveRows
         : (currentWarehouseFilter === '4'
-            ? processInventoryForView(filtered, showFinishedBatches, subtractFinishedReserves)
-            : filtered);
+            ? (() => {
+                const effBatches = mergeFinishedWithReserve ? false : showFinishedBatches;
+                const effSubtract = subtractFinishedReserves && !mergeFinishedWithReserve;
+                const processed = processInventoryForView(filtered, effBatches, effSubtract);
+                if (!mergeFinishedWithReserve) return processed;
+                return processed.map((r) => {
+                    if (String(r.warehouse_type) !== 'finished') return r;
+                    const add = Number(reserveSumByItem[String(r.item_id)] || 0);
+                    if (add <= 0.00001) return r;
+                    const base = Number(r.total || 0);
+                    const sum = base + add;
+                    return {
+                        ...r,
+                        warehouse_name: `${r.warehouse_name || 'Готовая продукция'} + резерв`,
+                        total: sum,
+                        display_qty: Number(sum.toFixed(4))
+                    };
+                });
+            })()
+            : nonReserveWorking);
     const pagesBy = Math.ceil(sourceRows.length / itemsPerPage) || 1;
     if (currentPage > pagesBy) currentPage = pagesBy;
     const startIdx = (currentPage - 1) * itemsPerPage;
