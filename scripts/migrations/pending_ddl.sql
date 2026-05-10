@@ -49,3 +49,6 @@ CREATE INDEX IF NOT EXISTS idx_tx_reg_source_tag ON transactions(reg_source_tag,
 CREATE INDEX IF NOT EXISTS idx_inv_report_date_wh_item ON inventory_movements(movement_date, warehouse_id, item_id);
 CREATE INDEX IF NOT EXISTS idx_inv_report_created_wh_item ON inventory_movements(created_at, warehouse_id, item_id);
 CREATE INDEX IF NOT EXISTS idx_inv_reg_source_tag ON inventory_movements(reg_source_tag, movement_date);
+
+-- --- Номенклатура: склад по умолчанию (2 сорт / markdown и др.) — маршрут резерва без ручного выбора ---
+ALTER TABLE items ADD COLUMN IF NOT EXISTS default_warehouse_id INT REFERENCES warehouses(id) ON DELETE SET NULL;

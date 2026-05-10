@@ -44,11 +44,45 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
         return fallback;
     }
 
-    /** Склад-донор свободного остатка для строки заказа: как при checkout (payload warehouse_id), иначе ГП. */
+    /**
+     * Склад-донор для отгрузки: берём stock_source_warehouse_id из строки заказа (в т.ч. markdown / 2 сорт).
+     * Только если в строке NULL — подставляем finished (исторические данные).
+     */
     function resolveStockDonorWarehouseId(stockSourceWarehouseId, finishedWarehouseId) {
         const w = Number(stockSourceWarehouseId);
         if (Number.isInteger(w) && w > 0) return w;
         return finishedWarehouseId;
+    }
+
+    /** Приоритет: склад из запроса → default_warehouse_id номенклатуры → склад ГП. */
+    function resolveOrderLineSourceWarehouseId(payloadWarehouseId, itemDefaultWarehouseId, finishedWarehouseId) {
+        const raw = payloadWarehouseId != null && payloadWarehouseId !== '' ? Number(payloadWarehouseId) : NaN;
+        if (Number.isFinite(raw) && raw > 0) return raw;
+        const def = Number(itemDefaultWarehouseId);
+        if (Number.isFinite(def) && def > 0) return def;
+        return finishedWarehouseId;
+    }
+
+    /** После rollback резервов в PUT: донор из строки, иначе каталог, иначе ГП. */
+    function resolveLineDonorForReapply(stockSourceWarehouseId, itemDefaultWarehouseId, finishedWarehouseId) {
+        const w = Number(stockSourceWarehouseId);
+        if (Number.isInteger(w) && w > 0) return w;
+        return resolveOrderLineSourceWarehouseId(null, itemDefaultWarehouseId, finishedWarehouseId);
+    }
+
+    async function loadItemsDefaultWarehouseMap(client, itemIds) {
+        const ids = [...new Set((itemIds || []).map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
+        if (ids.length === 0) return new Map();
+        const res = await client.query(
+            `SELECT id, default_warehouse_id FROM items WHERE id = ANY($1::int[])`,
+            [ids]
+        );
+        const m = new Map();
+        for (const row of res.rows) {
+            const v = row.default_warehouse_id;
+            m.set(Number(row.id), v != null ? Number(v) : null);
+        }
+        return m;
     }
 
     async function allocateFifoBatches(client, itemId, warehouseId, requiredQty) {
@@ -219,11 +253,15 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 }
 
                 const defaultFinishedWhId = await getWhId(client, 'finished');
+                const returnDefaultWhMap = await loadItemsDefaultWarehouseMap(client, (items || []).map((it) => it.id));
                 if (items && items.length > 0) {
                     for (let item of items) {
                         if (new Big(item.qty || 0).lte(0)) throw new Error(`Количество возвращаемого товара должно быть больше нуля!`);
-                        const rawWh = item.warehouse_id != null && item.warehouse_id !== '' ? Number(item.warehouse_id) : NaN;
-                        const whId = Number.isFinite(rawWh) && rawWh > 0 ? rawWh : defaultFinishedWhId;
+                        const whId = resolveOrderLineSourceWarehouseId(
+                            item.warehouse_id,
+                            returnDefaultWhMap.get(Number(item.id)),
+                            defaultFinishedWhId
+                        );
                         await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, user_id) VALUES ($1, $2, 'customer_return', $3, $4, $5)`, [item.id, item.qty, desc, whId, user_id || null]);
                         await client.query(`INSERT INTO customer_return_items (return_id, item_id, quantity, price, warehouse_id) VALUES ($1, $2, $3, $4, $5)`, [returnId, item.id, item.qty, item.price, whId]);
                     }
@@ -410,10 +448,15 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 const orderId = orderRes.rows[0].id;
                 const reserveWhId = await getWhId(client, 'reserve');
                 const defaultFinishedWhId = await getWhId(client, 'finished');
+                const defaultWarehouseByItem = await loadItemsDefaultWarehouseMap(client, items.map((it) => it.id));
 
                 for (let item of items) {
                     await client.query(`SELECT id FROM items WHERE id = $1 FOR UPDATE`, [item.id]);
-                    const whId = item.warehouse_id || defaultFinishedWhId;
+                    const whId = resolveOrderLineSourceWarehouseId(
+                        item.warehouse_id,
+                        defaultWarehouseByItem.get(Number(item.id)),
+                        defaultFinishedWhId
+                    );
                     await lockStockPair(client, item.id, whId, reserveWhId);
                     
                     // Сначала создаём позицию заказа, чтобы получить её ID
@@ -1496,17 +1539,27 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 if (normalizedItems.length === 0) {
                     throw new Error('Заказ должен содержать хотя бы одну позицию с количеством > 0');
                 }
-                
+
+                const defaultWarehouseByItem = await loadItemsDefaultWarehouseMap(client, normalizedItems.map((x) => x.id));
+
                 for (const newItem of normalizedItems) {
                     const itemId = newItem.id;
                     const newQty = newItem.qty;
                     const price = newItem.price;
-                    await lockStockPair(client, itemId, finishedWhId, reserveWhId);
+
+                    const existingRow = currentItems.find((i) => parseInt(i.item_id, 10) === itemId);
+                    const donorWhId = existingRow
+                        ? resolveLineDonorForReapply(
+                              existingRow.stock_source_warehouse_id,
+                              defaultWarehouseByItem.get(itemId),
+                              finishedWhId
+                          )
+                        : resolveOrderLineSourceWarehouseId(null, defaultWarehouseByItem.get(itemId), finishedWhId);
+
+                    await lockStockPair(client, itemId, donorWhId, reserveWhId);
 
                     calculatedTotal += (newQty * price);
-                    
-                    const existingRow = currentItems.find(i => parseInt(i.item_id) === itemId);
-                    
+
                     if (existingRow) {
                         // Товар уже был в заказе: не даем опустить qty ниже уже отгруженного.
                         const shipped = parseFloat(existingRow.qty_shipped || 0);
@@ -1521,7 +1574,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                             FROM inventory_movements
                             WHERE item_id = $1 AND warehouse_id = $2
                             `,
-                            [itemId, finishedWhId]
+                            [itemId, donorWhId]
                         );
                         const physicalQty = parseFloat(stockRes.rows[0]?.q || 0);
 
@@ -1539,12 +1592,12 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         const newProduction = Math.max(0, needReserve - newReserved);
 
                         if (newReserved > 0.0001) {
-                            const reserveFifo = await allocateFifoBatches(client, itemId, finishedWhId, newReserved);
+                            const reserveFifo = await allocateFifoBatches(client, itemId, donorWhId, newReserved);
                             for (const part of reserveFifo) {
                                 await client.query(
                                     `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id)
                                      VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6, $7)`,
-                                    [itemId, -part.qty, `Заказ (Резерв): ${docNumber}`, finishedWhId, part.batch_id, req.user.id || null, existingRow.id]
+                                    [itemId, -part.qty, `Заказ (Резерв): ${docNumber}`, donorWhId, part.batch_id, req.user.id || null, existingRow.id]
                                 );
                                 await client.query(
                                     `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id)
@@ -1560,10 +1613,11 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                             SET qty_ordered = $1,
                                 price = $2,
                                 qty_reserved = $3,
-                                qty_production = $4
+                                qty_production = $4,
+                                stock_source_warehouse_id = $6
                             WHERE id = $5
                             `,
-                            [newQty, price, newReserved, newProduction, existingRow.id]
+                            [newQty, price, newReserved, newProduction, existingRow.id, donorWhId]
                         );
                     } else {
                         // Новая позиция в заказе.
@@ -1573,7 +1627,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                             FROM inventory_movements
                             WHERE item_id = $1 AND warehouse_id = $2
                             `,
-                            [itemId, finishedWhId]
+                            [itemId, donorWhId]
                         );
                         const physicalQty = parseFloat(stockRes.rows[0]?.q || 0);
 
@@ -1592,21 +1646,21 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
                         const newCoiRes = await client.query(
                             `
-                            INSERT INTO client_order_items (order_id, item_id, qty_ordered, qty_reserved, qty_production, price, qty_shipped)
-                            VALUES ($1, $2, $3, $4, $5, $6, 0)
+                            INSERT INTO client_order_items (order_id, item_id, qty_ordered, qty_reserved, qty_production, price, qty_shipped, stock_source_warehouse_id)
+                            VALUES ($1, $2, $3, $4, $5, $6, 0, $7)
                             RETURNING id
                             `,
-                            [orderId, itemId, newQty, reserve, productionNeed, price]
+                            [orderId, itemId, newQty, reserve, productionNeed, price, donorWhId]
                         );
 
                         if (reserve > 0.0001) {
                             const newCoiId = newCoiRes.rows[0].id;
-                            const reserveFifo = await allocateFifoBatches(client, itemId, finishedWhId, reserve);
+                            const reserveFifo = await allocateFifoBatches(client, itemId, donorWhId, reserve);
                             for (const part of reserveFifo) {
                                 await client.query(
                                     `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id)
                                      VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6, $7)`,
-                                    [itemId, -part.qty, `Заказ (Резерв): ${docNumber}`, finishedWhId, part.batch_id, req.user.id || null, newCoiId]
+                                    [itemId, -part.qty, `Заказ (Резерв): ${docNumber}`, donorWhId, part.batch_id, req.user.id || null, newCoiId]
                                 );
                                 await client.query(
                                     `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id)
