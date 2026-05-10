@@ -229,14 +229,11 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     }
                 }
 
-                // 🔗 АРХИТЕКТУРНЫЙ ФИК: Если возврат привязан к заказу —
-                // синхронизируем qty_shipped и создаём shipment_reversal
+                // 🔗 Привязка к заказу: корректируем qty_shipped / qty_returned в позициях заказа.
+                // Физический приход товара — только одно движение customer_return на склад из UI (цикл выше).
                 if (order_id && items && items.length > 0) {
-                    const reserveWhId = await getWhId(client, 'reserve');
-
                     for (let item of items) {
                         const returnQty = parseFloat(item.qty) || 0;
-                        // Находим позицию заказа по item_id
                         const coiRes = await client.query(
                             `SELECT id, qty_shipped FROM client_order_items WHERE order_id = $1 AND item_id = $2 LIMIT 1`,
                             [order_id, item.id]
@@ -246,16 +243,9 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                             const currentShipped = parseFloat(coi.qty_shipped) || 0;
                             if (currentShipped > 0) {
                                 const deduct = Math.min(returnQty, currentShipped);
-                                // Уменьшаем qty_shipped и увеличиваем qty_returned
                                 await client.query(
                                     `UPDATE client_order_items SET qty_shipped = GREATEST(qty_shipped - $1, 0), qty_returned = COALESCE(qty_returned, 0) + $1 WHERE id = $2`,
                                     [deduct, coi.id]
-                                );
-                                // Создаём компенсирующее движение shipment_reversal
-                                await client.query(
-                                    `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, linked_order_item_id, user_id)
-                                     VALUES ($1, $2, 'shipment_reversal', $3, $4, $5, $6)`,
-                                    [item.id, deduct, `Возврат (авто-реверс): ${docNum}`, reserveWhId, coi.id, user_id || null]
                                 );
                             }
                         }
