@@ -233,15 +233,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 // синхронизируем qty_shipped и создаём shipment_reversal
                 if (order_id && items && items.length > 0) {
                     const reserveWhId = await getWhId(client, 'reserve');
-                    /* Идемпотентно и без ошибки «column already exists»: иначе PG помечает транзакцию как aborted,
-                       а пустой catch в JS не откатывает транзакцию — следующий запрос падает. */
-                    await client.query(
-                        `ALTER TABLE client_order_items ADD COLUMN IF NOT EXISTS qty_returned numeric DEFAULT 0`
-                    );
-                    await client.query(
-                        `ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS has_returns boolean DEFAULT false`
-                    );
-                    
+
                     for (let item of items) {
                         const returnQty = parseFloat(item.qty) || 0;
                         // Находим позицию заказа по item_id

@@ -281,22 +281,8 @@ async function ensureExpenseCategories(client) {
     }
 }
 
-async function ensureCategoryAliasesTable(client) {
-    await client.query(`
-        CREATE TABLE IF NOT EXISTS category_aliases (
-            id SERIAL PRIMARY KEY,
-            old_name VARCHAR(255) NOT NULL,
-            old_name_norm VARCHAR(255) NOT NULL,
-            target_name VARCHAR(255) NOT NULL,
-            is_active BOOLEAN NOT NULL DEFAULT true,
-            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-            updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-        )
-    `);
-    await client.query(`
-        CREATE UNIQUE INDEX IF NOT EXISTS category_aliases_old_name_norm_uq
-            ON category_aliases (old_name_norm)
-    `);
+async function ensureCategoryAliasesTable(_client) {
+    /* CREATE TABLE category_aliases: scripts/migrations/pending_ddl.sql */
 }
 
 async function upsertCategoryAlias(client, oldName, targetName) {

@@ -112,31 +112,7 @@ function isAdmin(user) {
 }
 
 async function initReportsInfra(pool) {
-    await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reg_is_posted BOOLEAN`);
-    await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reg_is_primary_doc BOOLEAN`);
-    await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reg_document_no VARCHAR(120)`);
-    await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reg_document_date DATE`);
-    await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reg_source_tag VARCHAR(40)`);
-    await pool.query(`UPDATE transactions SET reg_is_posted = true WHERE reg_is_posted IS NULL`);
-    await pool.query(`UPDATE transactions SET reg_is_primary_doc = false WHERE reg_is_primary_doc IS NULL`);
-    await pool.query(`UPDATE transactions SET reg_source_tag = 'legacy' WHERE reg_source_tag IS NULL OR TRIM(reg_source_tag) = ''`);
-
-    await pool.query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS reg_is_posted BOOLEAN`);
-    await pool.query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS reg_is_primary_doc BOOLEAN`);
-    await pool.query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS reg_document_no VARCHAR(120)`);
-    await pool.query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS reg_document_date DATE`);
-    await pool.query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS reg_source_tag VARCHAR(40)`);
-    await pool.query(`ALTER TABLE inventory_movements ADD COLUMN IF NOT EXISTS unit_price NUMERIC(14,4)`);
-    await pool.query(`UPDATE inventory_movements SET reg_is_posted = true WHERE reg_is_posted IS NULL`);
-    await pool.query(`UPDATE inventory_movements SET reg_is_primary_doc = false WHERE reg_is_primary_doc IS NULL`);
-    await pool.query(`UPDATE inventory_movements SET reg_source_tag = 'legacy' WHERE reg_source_tag IS NULL OR TRIM(reg_source_tag) = ''`);
-
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_tx_report_date_type ON transactions(transaction_date, transaction_type)`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_tx_report_account ON transactions(account_id, transaction_date)`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_tx_reg_source_tag ON transactions(reg_source_tag, transaction_date)`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_inv_report_date_wh_item ON inventory_movements(movement_date, warehouse_id, item_id)`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_inv_report_created_wh_item ON inventory_movements(created_at, warehouse_id, item_id)`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_inv_reg_source_tag ON inventory_movements(reg_source_tag, movement_date)`);
+    /* DDL/индексы и backfill reg_*: scripts/migrations/pending_ddl.sql */
 }
 
 function reportDateExpr(alias = 'm') {
