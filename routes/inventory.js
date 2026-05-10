@@ -48,7 +48,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 const match = msg.match(/item_id=(\d+).*?итог=([-\d.]+)/);
                 const itemId = match ? match[1] : 'неизвестно';
                 const finalQty = match ? match[2] : 'неизвестно';
-                sendNotify(`⚠️ <b>КРИТИЧЕСКИЙ ОСТАТОК (Guardrail)</b>\nФизический остаток упал ниже нуля!\nТовар ID: ${itemId}\nТекущий остаток: ${finalQty}`);
+                sendNotify(`⚠️ <b>ПОПЫТКА СПИСАНИЯ В МИНУС</b>\nGuardrail заблокировал операцию!\nТовар ID: ${itemId}\nОстаток при попытке: ${finalQty}`);
             }
             return msg;
         }

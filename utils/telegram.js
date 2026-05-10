@@ -105,6 +105,11 @@ function formatMoney(val) {
 function sendNotify(message, options = {}) {
     if (!bot || !chatId) return undefined;
 
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const currentTime = `${pad(now.getDate())}.${pad(now.getMonth() + 1)}.${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    message = String(message ?? '') + '\n\n🕒 ' + currentTime;
+
     const payload = { parse_mode: 'HTML', ...options };
     return bot.sendMessage(chatId, message, payload)
         .then((sent) => {
