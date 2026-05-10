@@ -12788,10 +12788,20 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     --reports-panel-top: 0px;
     --reports-filter-gap-y: 10px;
     --reports-filter-gap-x: 12px;
-    /* Строка 2: ограничение ширины полей без растягивания на весь экран */
-    --reports-extra-field-max-width: 300px;
-    --reports-extra-field-basis: 200px;
+    --reports-filter-rows-gap: 14px;
+    --reports-extra-field-basis: 168px;
+    /* Мягкий потолок ширины одного фильтра: не расползается на всю строку из-за flex-grow */
+    --reports-extra-field-max-width: 320px;
     --reports-actions-min: 260px;
+    /* Совпадает с .reports-filters-grid-main: выравниваем 2-ю строку фильтров на ОСВ */
+    --reports-primary-grid-columns:
+        minmax(220px, 1.2fr) minmax(220px, 1.2fr) minmax(210px, 1fr) minmax(360px, 1.6fr);
+}
+
+#reports-mod .reports-filters-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--reports-filter-rows-gap);
 }
 
 .reports-actions {
@@ -12818,47 +12828,112 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
 }
 
 .reports-filters-grid-main {
-    grid-template-columns: minmax(220px, 1.2fr) minmax(220px, 1.2fr) minmax(210px, 1fr) minmax(360px, 1.6fr);
+    grid-template-columns: var(--reports-primary-grid-columns);
 }
 
 #reports-mod .reports-filter-row--primary {
     min-width: 0;
 }
 
-/* Строка 2: только контекстные фильтры (без кнопок). Слева, без растягивания на всю ширину. */
+/* Строка 2: фильтры + блок действий в одной полосе. Без огромного flex-grow у действий —
+   блок кнопок прижимается margin-left:auto к правому краю текущего ряда. */
 #reports-mod #reports-extra-filters.reports-filter-row--extra {
     display: flex;
     flex-wrap: wrap;
-    align-items: flex-start;
+    align-items: flex-end;
     justify-content: flex-start;
     gap: var(--reports-filter-gap-y) var(--reports-filter-gap-x);
 }
 
-#reports-mod #reports-extra-filters.reports-filter-row--extra > .form-group {
-    flex: 0 1 var(--reports-extra-field-basis);
+#reports-mod #reports-extra-filters.reports-filter-row--extra > .form-group:not(.reports-actions-slot) {
+    flex: 1 1 var(--reports-extra-field-basis);
     min-width: 0;
     max-width: min(100%, var(--reports-extra-field-max-width));
 }
 
-#reports-mod.reports-type-sales_analytics #reports-extra-filters.reports-filter-row--extra > .form-group {
-    flex: 0 1 148px;
-    max-width: min(100%, var(--reports-extra-field-max-width));
-}
-
-/* Строка 3: действия по всей ширине карточки, прижатие вправо */
-#reports-mod .reports-filter-footer {
-    width: 100%;
-    box-sizing: border-box;
-    margin-top: 14px;
-    padding-top: 12px;
-    border-top: 1px solid var(--border);
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-}
-
-#reports-mod #reports-extra-filters.reports-filter-row--extra .form-group .ts-wrapper {
+#reports-mod #reports-extra-filters.reports-filter-row--extra > .form-group:not(.reports-actions-slot) .ts-wrapper {
     max-width: 100%;
+}
+
+#reports-mod.reports-type-sales_analytics #reports-extra-filters.reports-filter-row--extra > .form-group:not(.reports-actions-slot) {
+    flex: 1 1 140px;
+}
+
+#reports-mod #reports-extra-filters.reports-filter-row--extra > .reports-actions-slot {
+    flex: 0 1 auto;
+    min-width: min(100%, var(--reports-actions-min));
+    max-width: 100%;
+    margin-left: auto;
+}
+
+/* Вторая строка фильтров под верхнюю 4-колоночную сетку (≥981px): контрагенты / деньги / продукция —
+   действия в колонках 3–4; материалы и реестр движений — три поля в колонках 1–3, действия в кол. 4. */
+@media (min-width: 981px) {
+    #reports-mod.reports-type-osv_counterparties #reports-extra-filters.reports-filter-row--extra,
+    #reports-mod.reports-type-osv_cash_accounts #reports-extra-filters.reports-filter-row--extra,
+    #reports-mod.reports-type-osv_materials #reports-extra-filters.reports-filter-row--extra,
+    #reports-mod.reports-type-osv_products #reports-extra-filters.reports-filter-row--extra,
+    #reports-mod.reports-type-inventory_register #reports-extra-filters.reports-filter-row--extra {
+        display: grid;
+        grid-template-columns: var(--reports-primary-grid-columns);
+        column-gap: 12px;
+        row-gap: var(--reports-filter-gap-y);
+        align-items: end;
+    }
+
+    #reports-mod.reports-type-osv_counterparties #reports-extra-filters > .form-group:not(.reports-actions-slot),
+    #reports-mod.reports-type-osv_cash_accounts #reports-extra-filters > .form-group:not(.reports-actions-slot),
+    #reports-mod.reports-type-osv_materials #reports-extra-filters > .form-group:not(.reports-actions-slot),
+    #reports-mod.reports-type-osv_products #reports-extra-filters > .form-group:not(.reports-actions-slot),
+    #reports-mod.reports-type-inventory_register #reports-extra-filters > .form-group:not(.reports-actions-slot) {
+        flex: initial;
+        max-width: none;
+    }
+
+    #reports-mod.reports-type-osv_counterparties #reports-extra-filters > .reports-actions-slot,
+    #reports-mod.reports-type-osv_cash_accounts #reports-extra-filters > .reports-actions-slot,
+    #reports-mod.reports-type-osv_products #reports-extra-filters > .reports-actions-slot {
+        grid-column: 3 / 5;
+        grid-row: 1;
+        align-self: end;
+        margin-left: 0;
+        justify-self: stretch;
+        flex: unset;
+        min-width: 0;
+        max-width: none;
+    }
+
+    #reports-mod.reports-type-osv_materials #reports-extra-filters > .reports-actions-slot,
+    #reports-mod.reports-type-inventory_register #reports-extra-filters > .reports-actions-slot {
+        grid-column: 4 / 5;
+        grid-row: 1;
+        align-self: end;
+        margin-left: 0;
+        justify-self: stretch;
+        flex: unset;
+        min-width: 0;
+        max-width: none;
+    }
+
+    #reports-mod.reports-type-osv_counterparties #reports-extra-filters > .reports-actions-slot .reports-filter-actions,
+    #reports-mod.reports-type-osv_cash_accounts #reports-extra-filters > .reports-actions-slot .reports-filter-actions,
+    #reports-mod.reports-type-osv_materials #reports-extra-filters > .reports-actions-slot .reports-filter-actions,
+    #reports-mod.reports-type-osv_products #reports-extra-filters > .reports-actions-slot .reports-filter-actions,
+    #reports-mod.reports-type-inventory_register #reports-extra-filters > .reports-actions-slot .reports-filter-actions {
+        justify-content: space-between;
+        width: 100%;
+        max-width: none;
+    }
+
+    #reports-mod.reports-type-osv_counterparties #reports-extra-filters > .reports-actions-slot .reports-filter-actions-presets,
+    #reports-mod.reports-type-osv_cash_accounts #reports-extra-filters > .reports-actions-slot .reports-filter-actions-presets,
+    #reports-mod.reports-type-osv_materials #reports-extra-filters > .reports-actions-slot .reports-filter-actions-presets,
+    #reports-mod.reports-type-osv_products #reports-extra-filters > .reports-actions-slot .reports-filter-actions-presets,
+    #reports-mod.reports-type-inventory_register #reports-extra-filters > .reports-actions-slot .reports-filter-actions-presets {
+        margin-left: 0;
+        justify-content: flex-end;
+        flex-shrink: 0;
+    }
 }
 
 .reports-filters-grid .form-group {
@@ -13132,7 +13207,7 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
 }
 
 .reports-actions-slot .reports-filter-actions {
-    width: auto;
+    width: 100%;
     max-width: 100%;
     display: flex;
     justify-content: flex-end;
@@ -13145,12 +13220,6 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     flex-wrap: wrap;
     row-gap: 8px;
     box-sizing: border-box;
-}
-
-#reports-mod .reports-filter-footer .reports-actions-slot {
-    margin-bottom: 0;
-    flex: 0 1 auto;
-    max-width: 100%;
 }
 
 .reports-actions-slot .reports-actions-label {
@@ -13171,11 +13240,11 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
 }
 
 .reports-filter-actions-presets {
-    margin-left: 0;
     justify-content: flex-end;
     flex: 0 1 auto;
     min-width: 0;
     max-width: 100%;
+    margin-left: auto;
 }
 
 .reports-actions-slot .reports-filter-actions-presets {
@@ -13952,14 +14021,12 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     #reports-mod .reports-filter-row--primary > .form-group {
         min-width: 0;
     }
-    #reports-mod .reports-filter-footer {
-        justify-content: stretch;
-    }
-    #reports-mod .reports-filter-footer .reports-actions-slot {
+    #reports-mod #reports-extra-filters > .reports-actions-slot {
         width: 100%;
         max-width: none;
+        margin-left: 0;
     }
-    .reports-filter-footer .reports-actions-slot .reports-filter-actions {
+    #reports-mod #reports-extra-filters > .reports-actions-slot .reports-filter-actions {
         justify-content: flex-start;
         width: 100%;
     }
@@ -13999,8 +14066,8 @@ body.dark-theme .alert-warning { background: rgba(217, 119, 6, 0.1); border-colo
     .reports-runs-filters {
         grid-template-columns: 1fr;
     }
-    .reports-filter-footer .reports-actions-slot .reports-filter-actions .btn,
-    .reports-filter-footer .reports-actions-slot .reports-filter-actions .reports-preset-select {
+    #reports-mod #reports-extra-filters > .reports-actions-slot .reports-filter-actions .btn,
+    #reports-mod #reports-extra-filters > .reports-actions-slot .reports-filter-actions .reports-preset-select {
         width: 100%;
         max-width: none;
     }
