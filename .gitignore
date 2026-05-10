@@ -19,6 +19,14 @@ yarn-debug.log*
 yarn-error.log*
 *.log
 
+# временные/черновые данные
+*.tmp
+*.temp
+.cache/
+
+# выгрузки в корне репозитория (отчёты, CSV и т.п.)
+/*.csv
+
 # === 5. БАЗЫ ДАННЫХ И БЭКАПЫ ===
 db_backups/
 backups/
