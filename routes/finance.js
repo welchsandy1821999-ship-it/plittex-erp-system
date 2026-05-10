@@ -10,6 +10,7 @@ const { requireAdmin, requirePlannedPlanManage, authenticateToken } = require('.
 const { validateTransaction, validateTransactionEdit, validateTransfer, validateCounterparty, validateInvoice, validateAccount, validateAccountEdit, validateCategory, validateCorrection, validatePayment, validatePlannedExpense, validatePlannedPay, validateCostGroup } = require('../middleware/validator');
 const { allocateUnlinkedClientIncome } = require('../utils/allocateClientAdvance');
 const { money, reconcileOrderSettlement } = require('../utils/orderSettlement');
+const { recalcAccountBalances } = require('../utils/accountBalances');
 
 // 🚀 Единая функция поиска документов в тексте (Защита от опечаток)
 function extractDocNumber(description) {
@@ -445,23 +446,7 @@ async function revertPlannedExpenseOnTxDelete(client, plannedId, txAmount) {
 }
 
 module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
-    async function recalcAccountBalances(client, accountIds = []) {
-        const unique = Array.from(new Set((accountIds || []).map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0)));
-        if (!unique.length) return;
-        await client.query(
-            `
-            UPDATE accounts a
-            SET balance = ROUND(COALESCE((
-                SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) -
-                       SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END)
-                FROM transactions t
-                WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
-            ), 0), 2)
-            WHERE a.id = ANY($1::int[])
-        `,
-            [unique]
-        );
-    }
+    // recalcAccountBalances импортирован из utils/accountBalances.js
 
     async function softDeleteTransactionWithRollback(client, txId) {
         const txRes = await client.query(

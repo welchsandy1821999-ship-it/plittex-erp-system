@@ -15,6 +15,7 @@ const {
 const { estimatePalletsFromRecipes } = require('../utils/palletRecipeEstimate');
 const { buildSalesAnalyticsUnitCostData } = require('../utils/salesAnalyticsUnitCost');
 const { getCounterpartyBalance } = require('../utils/counterpartyBalance');
+const { recalcAccountBalances } = require('../utils/accountBalances');
 
 const { requireAdmin } = require('../middleware/auth');
 const { validateCheckout, validateReturn, validateShipment, validateTransferReserve, validateOrderStatus } = require('../middleware/validator');
@@ -87,24 +88,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
         return plan;
     }
 
-    async function recalcAccountBalances(client, accountIds = []) {
-        const unique = Array.from(new Set((accountIds || []).map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0)));
-        if (!unique.length) return;
-        await client.query(
-            `
-            UPDATE accounts a
-            SET balance = ROUND(COALESCE((
-                SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) -
-                       SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END)
-                FROM transactions t
-                WHERE t.account_id = a.id
-                  AND COALESCE(t.is_deleted, false) = false
-            ), 0), 2)
-            WHERE a.id = ANY($1::int[])
-        `,
-            [unique]
-        );
-    }
+    // recalcAccountBalances импортирован из utils/accountBalances.js
 
     async function getPreferredAdvanceAccountId(client, counterpartyId) {
         if (!counterpartyId) return null;

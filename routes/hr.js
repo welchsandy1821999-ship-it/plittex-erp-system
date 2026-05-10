@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const { requireAdmin } = require('../middleware/auth');
 const { validateSalaryAdjustment, validateTimesheetCell, validateMassBonus, validateSalaryPay } = require('../middleware/validator');
 const { auditLog } = require('../utils/db_init');
+const { recalcAccountBalances } = require('../utils/accountBalances');
 
 /** Статья ДДС для выплат из «Кадры» — должна совпадать с `transaction_categories` (SSoT), иначе снова появится «дикая» статья. */
 const HR_SALARY_EXPENSE_CATEGORY = 'Зарплата и Авансы';
@@ -47,23 +48,7 @@ async function resolveEmployeeFinanceLinks(client, employeeId) {
 // === ОСНОВНОЙ ЭКСПОРТ РОУТЕРА ===
 
 module.exports = function (pool, withTransaction) {
-    async function recalcAccountBalances(client, accountIds = []) {
-        const unique = Array.from(new Set((accountIds || []).map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0)));
-        if (!unique.length) return;
-        await client.query(
-            `
-            UPDATE accounts a
-            SET balance = ROUND(COALESCE((
-                SELECT SUM(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END) -
-                       SUM(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END)
-                FROM transactions t
-                WHERE t.account_id = a.id AND COALESCE(t.is_deleted, false) = false
-            ), 0), 2)
-            WHERE a.id = ANY($1::int[])
-        `,
-            [unique]
-        );
-    }
+    // recalcAccountBalances импортирован из utils/accountBalances.js
 
 
     // 2. КОРРЕКТИРОВКИ (ГСМ, Займы)
@@ -720,20 +705,7 @@ module.exports = function (pool, withTransaction) {
                                 );
 
                                 // Баланс подотчетного счета должен обнулиться после удержания
-                                await client.query(
-                                    `
-                                    UPDATE accounts a
-                                    SET balance = ROUND(COALESCE((
-                                        SELECT SUM(CASE WHEN t.transaction_type = 'income' THEN t.amount ELSE 0 END) -
-                                               SUM(CASE WHEN t.transaction_type = 'expense' THEN t.amount ELSE 0 END)
-                                        FROM transactions t
-                                        WHERE t.account_id = a.id
-                                          AND COALESCE(t.is_deleted, false) = false
-                                    ), 0), 2)
-                                    WHERE a.id = $1
-                                `,
-                                    [imprestAccountId]
-                                );
+                                await recalcAccountBalances(client, [imprestAccountId]);
                             }
                         }
                     }

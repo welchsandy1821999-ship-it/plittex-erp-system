@@ -13,6 +13,19 @@ const KB = {
     REFRESH: '🔄 Обновить данные'
 };
 
+/** Штамп времени МСК для футера ответов бота */
+function getFooterTime() {
+    const now = new Date();
+    const msk = new Date(now.getTime() + (3 * 60 * 60 * 1000) - (now.getTimezoneOffset() * 60 * 1000));
+    const dd = String(msk.getUTCDate()).padStart(2, '0');
+    const mm = String(msk.getUTCMonth() + 1).padStart(2, '0');
+    const yy = msk.getUTCFullYear();
+    const hh = String(msk.getUTCHours()).padStart(2, '0');
+    const mi = String(msk.getUTCMinutes()).padStart(2, '0');
+    const ss = String(msk.getUTCSeconds()).padStart(2, '0');
+    return `\n\n🕒 <i>Актуально на: ${dd}.${mm}.${yy} ${hh}:${mi}:${ss}</i>`;
+}
+
 const LEGACY = {
     BALANCE: '💰 Баланс кассы',
     CEMENT: '📦 Остаток цемента',
@@ -129,14 +142,14 @@ async function buildCementMessage(pool) {
     res.rows.forEach((r) => {
         reply += `• ${escapeHtml(r.name)}: ${parseFloat(r.total).toLocaleString()} кг\n`;
     });
-    return reply;
+    return reply + getFooterTime();
 }
 
 async function buildSalesTodayMessage(pool) {
     const res = await pool.query(
         `SELECT SUM(total_amount) as total, COUNT(*) as cnt FROM client_orders WHERE created_at::date = CURRENT_DATE AND status != 'cancelled' AND COALESCE(is_deleted, false) = false`
     );
-    return `📈 <b>Сегодня:</b>\n\nЗаказов: ${res.rows[0]?.cnt || 0}\nСумма: ${parseFloat(res.rows[0]?.total || 0).toLocaleString()} ₽`;
+    return `📈 <b>Сегодня:</b>\n\nЗаказов: ${res.rows[0]?.cnt || 0}\nСумма: ${parseFloat(res.rows[0]?.total || 0).toLocaleString()} ₽` + getFooterTime();
 }
 
 async function buildOrdersInWorkMessage(pool) {
@@ -156,7 +169,7 @@ async function buildOrdersInWorkMessage(pool) {
         reply += `• <b>${escapeHtml(row.doc_number)}</b> — ${escapeHtml(row.status)}\n`;
         reply += `  сумма ${formatMoney(row.total_amount || 0)} ₽, долг ${formatMoney(row.pending_debt || 0)} ₽\n`;
     });
-    return reply;
+    return reply + getFooterTime();
 }
 
 /**
@@ -185,7 +198,8 @@ async function buildCounterpartyBalanceMessage(pool, row) {
         `<b>👤 ${name}</b> (контрагент)\n\n` +
         `Взаиморасчёт: <b>${formatMoney(balNum)} ₽</b>\n` +
         `(${balNum >= 0 ? 'должны нам' : 'должны мы'})\n\n` +
-        `Суммарный <b>pending_debt</b> по неотменённым заказам: <b>${formatMoney(pendNum)} ₽</b>`
+        `Суммарный <b>pending_debt</b> по неотменённым заказам: <b>${formatMoney(pendNum)} ₽</b>` +
+        getFooterTime()
     );
 }
 
