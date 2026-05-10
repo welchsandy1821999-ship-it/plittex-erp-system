@@ -11,6 +11,17 @@ BEGIN
         RETURN OLD;
     END IF;
 
+    /* Обновление только цен/прочих полей без смены пары товар–склад–количество: не перепроверяем остаток
+       (иначе backfill unit_price и правки метаданных падают на исторически «минусовых» списаниях). */
+    IF TG_OP = 'UPDATE' THEN
+        IF OLD.item_id IS NOT DISTINCT FROM NEW.item_id
+           AND OLD.warehouse_id IS NOT DISTINCT FROM NEW.warehouse_id
+           AND OLD.quantity IS NOT DISTINCT FROM NEW.quantity
+        THEN
+            RETURN NEW;
+        END IF;
+    END IF;
+
     IF NEW.quantity IS NULL OR NEW.quantity >= 0 THEN
         RETURN NEW;
     END IF;

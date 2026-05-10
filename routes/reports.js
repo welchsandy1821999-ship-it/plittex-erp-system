@@ -202,7 +202,54 @@ async function buildInventoryValuationCoverage(pool, period = null, warehouseTyp
     return { rows, totals };
 }
 
+/** Пары (item_id, warehouse_id), у которых в выбранном периоде накопленный остаток уходил в минус (хронология по дате движения). */
+async function auditHistoricalNegativeBalanceInPeriod(pool, period, warehouseTypes = null) {
+    const whFilter =
+        Array.isArray(warehouseTypes) && warehouseTypes.length ? ' AND w.type = ANY($3::text[])' : '';
+    const params = [period.fromTs, period.toTs];
+    if (whFilter) params.push(warehouseTypes);
+    const sql = `
+        WITH mv AS (
+            SELECT m.id, m.item_id, m.warehouse_id, m.quantity,
+                   COALESCE(m.movement_date, m.created_at) AS ts
+            FROM inventory_movements m
+            INNER JOIN warehouses w ON w.id = m.warehouse_id
+            WHERE 1 = 1${whFilter}
+        ),
+        ord AS (
+            SELECT mv.id, mv.item_id, mv.warehouse_id, mv.ts,
+                   SUM(mv.quantity) OVER (
+                       PARTITION BY mv.item_id, mv.warehouse_id
+                       ORDER BY mv.ts, mv.id
+                       ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                   ) AS run_bal
+            FROM mv
+        )
+        SELECT DISTINCT ord.item_id, ord.warehouse_id
+        FROM ord
+        WHERE ord.run_bal < -0.0001
+          AND ord.ts >= $1::timestamp
+          AND ord.ts <= $2::timestamp
+        ORDER BY ord.item_id, ord.warehouse_id
+        LIMIT 500
+    `;
+    const res = await pool.query(sql, params);
+    return (res.rows || []).map((r) => ({
+        item_id: Number(r.item_id || 0),
+        warehouse_id: Number(r.warehouse_id || 0)
+    }));
+}
+
 async function backfillInventoryUnitPrice(pool, period, apply = false, warehouseTypes = null) {
+    const negativePairs = await auditHistoricalNegativeBalanceInPeriod(pool, period, warehouseTypes);
+    if (negativePairs.length) {
+        console.warn(
+            '[reports] inventory valuation backfill: historical negative running balance in period (sample):',
+            negativePairs.slice(0, 40),
+            negativePairs.length > 40 ? `(+${negativePairs.length - 40} more)` : ''
+        );
+    }
+
     const params = [period.fromTs, period.toTs];
     let where = `WHERE ${reportDateExpr('m')} >= $1::timestamp AND ${reportDateExpr('m')} <= $2::timestamp AND NULLIF(m.unit_price, 0) IS NULL`;
     if (Array.isArray(warehouseTypes) && warehouseTypes.length) {
@@ -234,7 +281,8 @@ async function backfillInventoryUnitPrice(pool, period, apply = false, warehouse
                 id: Number(r.id || 0),
                 movement_type: r.movement_type,
                 resolved_price: Number(r.resolved_price || 0)
-            }))
+            })),
+            negative_balance_pairs: negativePairs
         };
     }
     /* FROM не может ссылаться на целевой алиас m в ON (PostgreSQL: missing FROM-clause entry for table "m").
@@ -258,7 +306,7 @@ async function backfillInventoryUnitPrice(pool, period, apply = false, warehouse
         : ''}
     `;
     const upd = await pool.query(updateSql, params);
-    return { mode: 'apply', updated_rows: upd.rowCount || 0 };
+    return { mode: 'apply', updated_rows: upd.rowCount || 0, negative_balance_pairs: negativePairs };
 }
 
 async function buildCounterpartyDrilldown(pool, params = {}) {
