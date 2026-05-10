@@ -2791,6 +2791,17 @@ function getMovementTypeName(type) {
 // ИНТЕКРАКТИВНЫЕ КАРТОЧКИ (ДОСЬЕ И ПАРТИИ)
 // ------------------------------------------------------------------
 
+/** Поднимает оверлей над #modal-item-history (карточка движения, z-index 10011), если она открыта */
+function elevateModalOverItemHistory(modalEl) {
+    if (!modalEl) return;
+    const hist = document.getElementById('modal-item-history');
+    if (hist && hist.classList.contains('active')) {
+        modalEl.classList.add('modal-over-item-history');
+    } else {
+        modalEl.classList.remove('modal-over-item-history');
+    }
+}
+
 
 
 window.openBatchStatsModal = async function(batchId, batchNum) {
@@ -2803,6 +2814,7 @@ window.openBatchStatsModal = async function(batchId, batchNum) {
     modal.classList.remove('reports-batch-modal-front', 'reports-batch-card-modal-front');
     modal.classList.remove('d-none');
     modal.classList.add('active');
+    elevateModalOverItemHistory(modal);
     
     document.getElementById('batch-stats-title').innerText = "Информация о партии №" + batchNum;
     const body = document.getElementById('batch-stats-body');
@@ -2883,6 +2895,7 @@ window.openBatchCard = async function(batchId) {
     modal.classList.remove('reports-batch-modal-front', 'reports-batch-card-modal-front');
     modal.classList.remove('d-none');
     modal.classList.add('active');
+    elevateModalOverItemHistory(modal);
 
     try {
         const data = await API.get(`/api/inventory/batch/${batchId}/card`);
