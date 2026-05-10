@@ -4,7 +4,7 @@
 const Big = require('big.js');
 const logger = require('../utils/logger');
 const { escapeHtml, formatMoney, NOTIFY_CB, getNotifySnapshot } = require('../utils/telegram');
-const { getCounterpartyBalanceForDisplay } = require('../utils/counterpartyBalance');
+const { getCounterpartyBalance } = require('../utils/counterpartyBalance');
 
 const KB = {
     REPORTS: '📊 Отчеты',
@@ -160,15 +160,29 @@ async function buildOrdersInWorkMessage(pool) {
 }
 
 /**
- * Упрощённый взаиморасчёт — единая формула из utils/counterpartyBalance.js.
+ * Взаиморасчёт контрагента (Presentation Layer).
+ * Data: getCounterpartyBalance (shared-утилита).
+ * Дополнительные данные (имя, pending_debt) и форматирование — здесь.
  */
 async function buildCounterpartyBalanceMessage(pool, row) {
     const cpId = row.id;
-    const { balance, pendingDebt, name } = await getCounterpartyBalanceForDisplay(pool, cpId);
-    const balNum = Number(balance);
-    const pendNum = Number(pendingDebt);
+    const name = escapeHtml(row.name || '');
+
+    const { realBalance } = await getCounterpartyBalance(pool, cpId);
+    const balNum = Number(realBalance.toFixed(2));
+
+    const debtRes = await pool.query(
+        `SELECT COALESCE(SUM(pending_debt), 0) as d
+         FROM client_orders
+         WHERE counterparty_id = $1
+           AND status NOT IN ('cancelled','returned')
+           AND COALESCE(is_deleted, false) = false`,
+        [cpId]
+    );
+    const pendNum = Number(new Big(debtRes.rows[0]?.d || 0).toFixed(2));
+
     return (
-        `<b>👤 ${escapeHtml(name)}</b> (контрагент)\n\n` +
+        `<b>👤 ${name}</b> (контрагент)\n\n` +
         `Взаиморасчёт: <b>${formatMoney(balNum)} ₽</b>\n` +
         `(${balNum >= 0 ? 'должны нам' : 'должны мы'})\n\n` +
         `Суммарный <b>pending_debt</b> по неотменённым заказам: <b>${formatMoney(pendNum)} ₽</b>`

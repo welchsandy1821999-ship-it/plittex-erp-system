@@ -92,45 +92,6 @@ async function getCounterpartyBalance(dbClient, cpId) {
     return { realBalance, totalAdvance, freeAdvance, raw: b, isEmployee };
 }
 
-/**
- * Упрощённая обёртка для отображения (Telegram, виджеты, дашборд).
- * Не требует транзакционного клиента — принимает pool.
- *
- * @param {import('pg').Pool} pool
- * @param {number|string} cpId
- * @returns {Promise<{ balance: string, pendingDebt: string, isEmployee: boolean, name: string }>}
- */
-async function getCounterpartyBalanceForDisplay(pool, cpId) {
-    const cpRes = await pool.query(
-        'SELECT id, name, employee_id, is_employee FROM counterparties WHERE id = $1 LIMIT 1',
-        [cpId]
-    );
-    if (cpRes.rows.length === 0) {
-        throw new Error('Контрагент не найден');
-    }
-    const cp = cpRes.rows[0];
-
-    const { realBalance, isEmployee } = await getCounterpartyBalance(pool, cpId);
-
-    const debtRes = await pool.query(
-        `SELECT COALESCE(SUM(pending_debt), 0) as d
-         FROM client_orders
-         WHERE counterparty_id = $1
-           AND status NOT IN ('cancelled','returned')
-           AND COALESCE(is_deleted, false) = false`,
-        [cpId]
-    );
-    const pendingDebt = new Big(debtRes.rows[0]?.d || 0);
-
-    return {
-        balance: realBalance.toFixed(2),
-        pendingDebt: pendingDebt.toFixed(2),
-        isEmployee,
-        name: cp.name || ''
-    };
-}
-
 module.exports = {
-    getCounterpartyBalance,
-    getCounterpartyBalanceForDisplay
+    getCounterpartyBalance
 };
