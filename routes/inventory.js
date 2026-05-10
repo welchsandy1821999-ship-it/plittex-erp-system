@@ -399,7 +399,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             if (mode === 'blind') {
                 // В слепом бланке добираем пустые/нулевые позиции (если склад не указан или = сырье/готовая)
                 // Но проще всего добавить все товары
-                const allItems = await pool.query("SELECT id, name, unit FROM items");
+                const allItems = await pool.query("SELECT id, name, unit FROM items WHERE COALESCE(is_deleted, false) = false");
                 // TODO: Если выбран склад №4, добавим все готовые товары с нулевым остатком
             }
 
@@ -522,7 +522,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             `, params);
 
             // Добираем все позиции из базы (вписываем их как 0 остаток для 4 и 5 склада)
-            const allItems = await pool.query("SELECT id, name, unit FROM items");
+            const allItems = await pool.query("SELECT id, name, unit FROM items WHERE COALESCE(is_deleted, false) = false");
             let dataMap = new Map();
             
             result.rows.forEach(r => {
@@ -957,7 +957,7 @@ module.exports = function (pool, getWhId, withTransaction) {
     // ------------------------------------------------------------------
     router.get('/api/inventory/valuation', async (req, res) => {
         try {
-            // Динамически выбираем склады для оценки: все, кроме брака (defect) и резерва (reserve)
+            // Динамически выбираем склады для оценки: все, кроме брака (defect)
             // Исключаем отрицательное количество из подсчета стоимости через GREATEST(balance, 0)
             const result = await pool.query(`
                 WITH item_balances AS (
@@ -971,7 +971,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                     FROM inventory_movements m
                     JOIN items i ON m.item_id = i.id
                     JOIN warehouses w ON m.warehouse_id = w.id
-                    WHERE w.type NOT IN ('defect', 'reserve')
+                    WHERE w.type NOT IN ('defect')
                     GROUP BY m.warehouse_id, w.name, m.item_id, i.name, i.current_price
                     HAVING SUM(m.quantity) <> 0
                 )
@@ -2014,7 +2014,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 // ----------------------------------------------
 
                 // Находим account_id затронутых транзакций ДО удаления
-                const affectedTxRes = await client.query(`SELECT DISTINCT account_id FROM transactions WHERE source_module = 'purchase' AND description LIKE $1 AND account_id IS NOT NULL`, [`%движение склада #${purchaseId})%`]);
+                const affectedTxRes = await client.query(`SELECT DISTINCT account_id FROM transactions WHERE source_module = 'purchase' AND description LIKE $1 AND account_id IS NOT NULL AND COALESCE(is_deleted, false) = false`, [`%движение склада #${purchaseId})%`]);
                 const affectedAccountIds = affectedTxRes.rows.map(r => r.account_id);
 
                 await client.query(`DELETE FROM transactions WHERE source_module = 'purchase' AND description LIKE $1`, [`%движение склада #${purchaseId})%`]);

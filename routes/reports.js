@@ -2524,9 +2524,9 @@ async function buildReport(pool, payload) {
 
 async function buildReportOptions(pool, userId = null) {
     const [counterparties, accounts, items, movementTypes, regSourcesTx, regSourcesInv, settingsRes, financeSettingsRes, presetsRes] = await Promise.all([
-        pool.query(`SELECT id, name FROM counterparties ORDER BY name ASC LIMIT 1000`),
-        pool.query(`SELECT id, name FROM accounts ORDER BY name ASC LIMIT 200`),
-        pool.query(`SELECT id, name FROM items ORDER BY name ASC LIMIT 3000`),
+        pool.query(`SELECT id, name FROM counterparties WHERE COALESCE(is_deleted, false) = false ORDER BY name ASC LIMIT 1000`),
+        pool.query(`SELECT id, name FROM accounts WHERE COALESCE(is_deleted, false) = false ORDER BY name ASC LIMIT 200`),
+        pool.query(`SELECT id, name FROM items WHERE COALESCE(is_deleted, false) = false ORDER BY name ASC LIMIT 3000`),
         pool.query(`SELECT DISTINCT movement_type FROM inventory_movements ORDER BY movement_type ASC LIMIT 500`),
         pool.query(`SELECT DISTINCT COALESCE(NULLIF(TRIM(reg_source_tag), ''), 'legacy') AS source_tag FROM transactions ORDER BY source_tag ASC LIMIT 300`),
         pool.query(`SELECT DISTINCT COALESCE(NULLIF(TRIM(reg_source_tag), ''), 'legacy') AS source_tag FROM inventory_movements ORDER BY source_tag ASC LIMIT 300`),
