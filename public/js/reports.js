@@ -14,6 +14,7 @@ window.__reportsState = {
     runsLoadTimer: null,
     density: 'compact',
     periodPicker: null,
+    customRangePicker: null,
     stickyResizeBound: false,
     filterHeightObserver: null,
     salesAnalyticsActiveTab: 'summary',
@@ -60,6 +61,26 @@ function reportsTodayStr() {
     return `${y}-${m}-${d}`;
 }
 
+function reportsMonthStartStr() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}-01`;
+}
+
+function reportsNormalizeDateRangeOrder() {
+    const fromEl = document.getElementById('reports-date-from');
+    const toEl = document.getElementById('reports-date-to');
+    if (!fromEl || !toEl) return;
+    const a = String(fromEl.value || '').trim();
+    const b = String(toEl.value || '').trim();
+    if (!a || !b) return;
+    if (a > b) {
+        fromEl.value = b;
+        toEl.value = a;
+    }
+}
+
 function reportsDateStr(d) {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -83,9 +104,122 @@ function reportsGetAnchorDate() {
 
 const REPORTS_ALL_TIME_FROM = '1900-01-01';
 
+function reportsTogglePeriodLayout() {
+    const mode = document.getElementById('reports-period-mode')?.value || 'day';
+    const fg = document.getElementById('reports-fg-period');
+    const nav = document.getElementById('reports-period-nav-block');
+    const customInp = document.getElementById('reports-custom-range');
+    const isCustom = mode === 'custom';
+    if (fg) fg.classList.toggle('reports-period-is-custom', isCustom);
+    if (nav) nav.classList.toggle('d-none', isCustom);
+    if (customInp) customInp.classList.toggle('d-none', !isCustom);
+}
+
+function reportsRebuildPeriodPickers() {
+    const anchorEl = document.getElementById('reports-date-anchor');
+    const displayEl = document.getElementById('reports-period-display');
+    const mode = document.getElementById('reports-period-mode')?.value || 'day';
+
+    if (window.__reportsState.periodPicker && typeof window.__reportsState.periodPicker.destroy === 'function') {
+        window.__reportsState.periodPicker.destroy();
+        window.__reportsState.periodPicker = null;
+    }
+    if (window.__reportsState.customRangePicker && typeof window.__reportsState.customRangePicker.destroy === 'function') {
+        window.__reportsState.customRangePicker.destroy();
+        window.__reportsState.customRangePicker = null;
+    }
+    if (typeof flatpickr === 'undefined') return;
+
+    if (mode === 'custom') {
+        const el = document.getElementById('reports-custom-range');
+        if (!el) return;
+        const fromStr = String(document.getElementById('reports-date-from')?.value || '').trim() || reportsMonthStartStr();
+        const toStr = String(document.getElementById('reports-date-to')?.value || '').trim() || reportsTodayStr();
+        const locale = (window.flatpickr && window.flatpickr.l10ns && window.flatpickr.l10ns.ru) ? window.flatpickr.l10ns.ru : 'ru';
+        window.__reportsState.customRangePicker = flatpickr(el, {
+            locale,
+            mode: 'range',
+            dateFormat: 'Y-m-d',
+            altInput: true,
+            altFormat: 'd.m.Y',
+            altInputClass: 'input-modern reports-custom-range-alt',
+            allowInput: false,
+            disableMobile: false,
+            appendTo: document.body,
+            defaultDate: [fromStr, toStr],
+            onChange(selectedDates, dateStr, instance) {
+                if (!selectedDates || selectedDates.length !== 2) return;
+                const fromEl = document.getElementById('reports-date-from');
+                const toEl = document.getElementById('reports-date-to');
+                const anchorElInner = document.getElementById('reports-date-anchor');
+                const from = instance.formatDate(selectedDates[0], 'Y-m-d');
+                const to = instance.formatDate(selectedDates[1], 'Y-m-d');
+                if (fromEl) fromEl.value = from;
+                if (toEl) toEl.value = to;
+                if (anchorElInner) anchorElInner.value = to;
+                reportsNormalizeDateRangeOrder();
+                setTimeout(() => {
+                    reportsSyncPeriodUiFromInputs();
+                    window.__reportsState.page = 1;
+                    reportsLoadPreview();
+                }, 0);
+            }
+        });
+        return;
+    }
+
+    if (!anchorEl || !displayEl || mode === 'all_time') return;
+
+    const locale = (window.flatpickr && window.flatpickr.l10ns && window.flatpickr.l10ns.ru) ? window.flatpickr.l10ns.ru : 'ru';
+    window.__reportsState.periodPicker = flatpickr(anchorEl, {
+        locale,
+        dateFormat: 'Y-m-d',
+        defaultDate: reportsGetAnchorDate(),
+        clickOpens: false,
+        allowInput: false,
+        positionElement: displayEl,
+        appendTo: document.body,
+        disableMobile: true,
+        onChange: (selectedDates) => {
+            if (!selectedDates || !selectedDates.length) return;
+            const selMode = document.getElementById('reports-period-mode')?.value || 'day';
+            const picked = selectedDates[0];
+            queueMicrotask(() => reportsApplyPeriodFromMode(selMode, picked, true));
+        }
+    });
+}
+
+function reportsSyncPeriodPickersAndDisplay() {
+    reportsTogglePeriodLayout();
+    reportsRebuildPeriodPickers();
+    reportsRefreshPeriodDisplay();
+}
+
+function reportsFinishPeriodUiUpdate(shouldLoad = true) {
+    reportsSyncPeriodPickersAndDisplay();
+    if (shouldLoad) {
+        window.__reportsState.page = 1;
+        reportsLoadPreview();
+    }
+}
+
 function reportsApplyPeriodFromMode(mode, anchorDate, shouldLoad = true) {
     const dateRaw = anchorDate instanceof Date ? anchorDate : reportsGetAnchorDate();
-    const safeMode = ['day', 'month', 'quarter', 'year', 'all_time'].includes(mode) ? mode : 'day';
+    const safeMode = ['day', 'month', 'quarter', 'year', 'custom', 'all_time'].includes(mode) ? mode : 'day';
+    const fromEl = document.getElementById('reports-date-from');
+    const toEl = document.getElementById('reports-date-to');
+    const anchorEl = document.getElementById('reports-date-anchor');
+    const modeEl = document.getElementById('reports-period-mode');
+
+    if (safeMode === 'custom') {
+        reportsNormalizeDateRangeOrder();
+        const toVal = String(toEl?.value || '').trim() || reportsTodayStr();
+        if (modeEl) modeEl.value = 'custom';
+        if (anchorEl) anchorEl.value = toVal;
+        reportsFinishPeriodUiUpdate(shouldLoad);
+        return;
+    }
+
     let anchor = new Date(dateRaw.getFullYear(), dateRaw.getMonth(), dateRaw.getDate());
     let from = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
     let to = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
@@ -113,40 +247,41 @@ function reportsApplyPeriodFromMode(mode, anchorDate, shouldLoad = true) {
             to = new Date(anchor.getFullYear(), 11, 31);
         }
     }
-    const fromEl = document.getElementById('reports-date-from');
-    const toEl = document.getElementById('reports-date-to');
-    const anchorEl = document.getElementById('reports-date-anchor');
-    const modeEl = document.getElementById('reports-period-mode');
     if (fromEl) fromEl.value = reportsDateStr(from);
     if (toEl) toEl.value = reportsDateStr(to);
     if (anchorEl) anchorEl.value = reportsDateStr(anchor);
     if (modeEl) modeEl.value = safeMode;
-    reportsRefreshPeriodDisplay();
-    if (shouldLoad) {
-        window.__reportsState.page = 1;
-        reportsLoadPreview();
-    }
+    reportsFinishPeriodUiUpdate(shouldLoad);
 }
 
 function reportsSyncPeriodUiFromInputs() {
-    const from = document.getElementById('reports-date-from')?.value || reportsTodayStr();
-    const to = document.getElementById('reports-date-to')?.value || reportsTodayStr();
+    const fromRaw = String(document.getElementById('reports-date-from')?.value || '').trim();
+    const toRaw = String(document.getElementById('reports-date-to')?.value || '').trim();
+    const from = fromRaw || reportsMonthStartStr();
+    const to = toRaw || reportsTodayStr();
     const fromDate = new Date(`${from}T00:00:00`);
     const toDate = new Date(`${to}T00:00:00`);
     if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) return;
-    let mode = 'day';
+    let mode = 'custom';
     if (from === REPORTS_ALL_TIME_FROM) mode = 'all_time';
     else if (from === to) mode = 'day';
     else if (fromDate.getMonth() === toDate.getMonth() && fromDate.getFullYear() === toDate.getFullYear()
         && fromDate.getDate() === 1 && toDate.getDate() === new Date(toDate.getFullYear(), toDate.getMonth() + 1, 0).getDate()) mode = 'month';
     else if (fromDate.getFullYear() === toDate.getFullYear() && fromDate.getMonth() === 0 && fromDate.getDate() === 1 && toDate.getMonth() === 11 && toDate.getDate() === 31) mode = 'year';
-    else if (fromDate.getMonth() === 0 && fromDate.getDate() === 1) mode = 'year';
+    else {
+        const qStartMonth = Math.floor(fromDate.getMonth() / 3) * 3;
+        const qEnd = new Date(fromDate.getFullYear(), qStartMonth + 3, 0);
+        if (fromDate.getFullYear() === qEnd.getFullYear()
+            && fromDate.getMonth() === qStartMonth && fromDate.getDate() === 1
+            && toDate.getMonth() === qEnd.getMonth() && toDate.getDate() === qEnd.getDate()) mode = 'quarter';
+        else mode = 'custom';
+    }
     const anchor = to;
     const anchorEl = document.getElementById('reports-date-anchor');
     const modeEl = document.getElementById('reports-period-mode');
     if (anchorEl) anchorEl.value = anchor;
     if (modeEl) modeEl.value = mode;
-    reportsRefreshPeriodDisplay();
+    reportsSyncPeriodPickersAndDisplay();
 }
 
 function reportsRefreshPeriodDisplay() {
@@ -155,18 +290,34 @@ function reportsRefreshPeriodDisplay() {
     const anchor = reportsGetAnchorDate();
     const prevBtn = document.getElementById('reports-period-prev-btn');
     const nextBtn = document.getElementById('reports-period-next-btn');
-    const pickerBtn = document.querySelector('.reports-period-icon-btn');
+    const pickerBtn = document.getElementById('reports-period-icon-btn');
     if (!displayEl) return;
-    const allTimeMode = mode === 'all_time';
-    if (prevBtn) prevBtn.disabled = allTimeMode;
-    if (nextBtn) nextBtn.disabled = allTimeMode;
-    if (pickerBtn) pickerBtn.disabled = allTimeMode;
-    if (prevBtn) prevBtn.title = allTimeMode ? 'Недоступно в режиме "Все время"' : 'Назад';
-    if (nextBtn) nextBtn.title = allTimeMode ? 'Недоступно в режиме "Все время"' : 'Вперед';
-    if (pickerBtn) pickerBtn.title = allTimeMode ? 'Недоступно в режиме "Все время"' : 'Выбрать дату';
-    if (allTimeMode) {
+    const nonNavMode = mode === 'all_time' || mode === 'custom';
+    if (prevBtn) prevBtn.disabled = nonNavMode;
+    if (nextBtn) nextBtn.disabled = nonNavMode;
+    if (pickerBtn) pickerBtn.disabled = mode === 'all_time';
+    if (prevBtn) prevBtn.title = nonNavMode
+        ? (mode === 'all_time' ? 'Недоступно в режиме "Все время"' : 'Назад недоступно в режиме «Свой диапазон»')
+        : 'Назад';
+    if (nextBtn) nextBtn.title = nonNavMode
+        ? (mode === 'all_time' ? 'Недоступно в режиме "Все время"' : 'Вперед недоступно в режиме «Свой диапазон»')
+        : 'Вперед';
+    if (pickerBtn) pickerBtn.title = mode === 'all_time'
+        ? 'Недоступно в режиме "Все время"'
+        : 'Выбрать дату';
+    if (mode === 'all_time') {
         displayEl.value = 'Все время';
         return;
+    }
+    if (mode === 'custom') {
+        const fromStr = String(document.getElementById('reports-date-from')?.value || '').trim();
+        const toStr = String(document.getElementById('reports-date-to')?.value || '').trim();
+        const fd = fromStr ? new Date(`${fromStr}T00:00:00`) : null;
+        const td = toStr ? new Date(`${toStr}T00:00:00`) : null;
+        if (fd && td && !Number.isNaN(fd.getTime()) && !Number.isNaN(td.getTime())) {
+            displayEl.value = `${reportsDisplayDate(fd)} — ${reportsDisplayDate(td)}`;
+            return;
+        }
     }
     if (mode === 'day') {
         displayEl.value = reportsDisplayDate(anchor);
@@ -193,6 +344,16 @@ function reportsRefreshPeriodDisplay() {
 window.reportsOpenPeriodPicker = function() {
     const mode = document.getElementById('reports-period-mode')?.value || 'day';
     if (mode === 'all_time') return;
+    if (mode === 'custom') {
+        const cr = window.__reportsState.customRangePicker;
+        if (cr) {
+            cr.open();
+            return;
+        }
+        const el = document.getElementById('reports-custom-range');
+        if (el) el.click();
+        return;
+    }
     const picker = window.__reportsState.periodPicker;
     if (picker) {
         picker.setDate(reportsGetAnchorDate(), false);
@@ -218,7 +379,7 @@ window.reportsOnPeriodAnchorChange = function() {
 window.reportsShiftPeriod = function(delta) {
     const base = reportsGetAnchorDate();
     const mode = document.getElementById('reports-period-mode')?.value || 'day';
-    if (mode === 'all_time') return;
+    if (mode === 'all_time' || mode === 'custom') return;
     const step = Number(delta || 0);
     if (mode === 'month') base.setMonth(base.getMonth() + step);
     else if (mode === 'quarter') base.setMonth(base.getMonth() + (3 * step));
@@ -242,8 +403,13 @@ window.reportsShiftDay = function(delta) {
 
 function reportsBuildPayload() {
     const reportType = document.getElementById('reports-type')?.value || 'osv_counterparties';
-    const dateFrom = document.getElementById('reports-date-from')?.value || reportsTodayStr();
-    const dateTo = document.getElementById('reports-date-to')?.value || reportsTodayStr();
+    let dateFrom = String(document.getElementById('reports-date-from')?.value || '').trim() || reportsMonthStartStr();
+    let dateTo = String(document.getElementById('reports-date-to')?.value || '').trim() || reportsTodayStr();
+    if (dateFrom > dateTo) {
+        const t = dateFrom;
+        dateFrom = dateTo;
+        dateTo = t;
+    }
     const accountingMode = document.getElementById('reports-accounting-mode')?.value || 'managerial';
     const printTemplateVersion = document.getElementById('reports-print-template-version')?.value || 'v1';
     const filters = {
@@ -267,6 +433,11 @@ function reportsBuildPayload() {
     filters.includeReturns = Boolean(document.getElementById('reports-filter-include-returns')?.checked);
     filters.includeOverhead = Boolean(document.getElementById('reports-filter-include-overhead')?.checked);
     filters.includeTaxes = Boolean(document.getElementById('reports-filter-include-taxes')?.checked);
+    if (reportType === 'osv_products') {
+        filters.includeReserves = Boolean(document.getElementById('reports-filter-include-reserves')?.checked);
+        const separateWarehouses = Boolean(document.getElementById('reports-filter-separate-warehouses')?.checked);
+        if (separateWarehouses) filters.mergeWarehouses = false;
+    }
     if (reportType !== 'sales_analytics') {
         delete filters.topN;
         delete filters.forecastHorizon;
@@ -276,6 +447,10 @@ function reportsBuildPayload() {
         delete filters.overheadRate;
         delete filters.includeTaxes;
         delete filters.taxRate;
+    }
+    if (reportType !== 'osv_products') {
+        delete filters.includeReserves;
+        delete filters.mergeWarehouses;
     }
     if (reportType === 'sales_analytics') {
         delete filters.warehouseType;
@@ -940,6 +1115,19 @@ function reportsSyncFixedColgroup(colgroup, reportType, cols) {
         ].join('');
         return;
     }
+    if (reportType === 'osv_products' && Array.isArray(cols) && cols.length === 12) {
+        colgroup.innerHTML = [
+            '<col class="reports-col-stock-main">',
+            '<col class="reports-col-stock-warehouse">',
+            '<col class="reports-col-stock-unit">',
+            '<col class="reports-col-stock-num"><col class="reports-col-stock-num">',
+            '<col class="reports-col-stock-num"><col class="reports-col-stock-num">',
+            '<col class="reports-col-stock-num"><col class="reports-col-stock-num">',
+            '<col class="reports-col-stock-num">',
+            '<col class="reports-col-stock-num"><col class="reports-col-stock-num">'
+        ].join('');
+        return;
+    }
     if (reportType === 'turnover_finance' && Array.isArray(cols) && cols.length === 4) {
         colgroup.innerHTML = [
             '<col class="reports-col-turnover-type">',
@@ -1274,7 +1462,8 @@ function reportsRender(data) {
                 return `<td class="${commonClass}"><button type="button" class="reports-cell-link reports-cell-link-main" data-item-id="${itemId}" title="${label}">${label}</button></td>`;
             }
             if ((reportType === 'osv_materials' || reportType === 'osv_products') && numericCols[idx] && itemId > 0 && warehouseId > 0) {
-                return `<td class="${commonClass}"><button type="button" class="reports-cell-link reports-num-link${valueClass}" data-item-id="${itemId}" data-warehouse-id="${warehouseId}" data-col-key="${Utils.escapeHtml(c.key)}" data-col-label="${Utils.escapeHtml(c.label)}">${renderedValue}</button></td>`;
+                const ufgr = reportType === 'osv_products' && r.unifiedFgReservePool === true ? ' data-unified-fg-reserve="1"' : '';
+                return `<td class="${commonClass}"><button type="button" class="reports-cell-link reports-num-link${valueClass}" data-item-id="${itemId}" data-warehouse-id="${warehouseId}"${ufgr} data-col-key="${Utils.escapeHtml(c.key)}" data-col-label="${Utils.escapeHtml(c.label)}">${renderedValue}</button></td>`;
             }
             if (reportType === 'inventory_register' && c.key === 'movement_type') {
                 return `<td class="${commonClass}">${Utils.escapeHtml(reportsStockMovementLabel(raw || ''))}</td>`;
@@ -1410,7 +1599,14 @@ function reportsRender(data) {
         const allWarnings = warnings.concat(preflightBlock);
         if (allWarnings.length) {
             warning.classList.remove('d-none');
-            warning.innerHTML = allWarnings.map((w) => `<div>${Utils.escapeHtml(w)}</div>`).join('');
+            warning.innerHTML = allWarnings.map((w) => {
+                const text = Utils.escapeHtml(w);
+                /* Guardrail #4: кнопка backfill */
+                if (String(w).includes('backfill') && String(w).includes('5%')) {
+                    return `<div>${text} <button class="btn btn-outline btn-sm ml-8" onclick="reportsRunBackfill()" style="vertical-align:middle">Запустить пересчёт цен</button></div>`;
+                }
+                return `<div>${text}</div>`;
+            }).join('');
         } else {
             warning.classList.add('d-none');
             warning.textContent = '';
@@ -1546,6 +1742,8 @@ function reportsApplyFilterVisibility() {
         'reports-filter-account-movement': ['osv_cash_accounts'],
         'reports-filter-stock-balance': ['osv_materials', 'osv_products'],
         'reports-filter-stock-valuation': ['osv_materials', 'osv_products'],
+        'reports-filter-include-reserves': ['osv_products'],
+        'reports-fg-separate-warehouses': ['osv_products'],
         'reports-filter-item': ['osv_materials', 'osv_products', 'inventory_register', 'sales_analytics'],
         'reports-filter-warehouse': ['inventory_register', 'osv_products'],
         'reports-filter-movement-type': ['inventory_register'],
@@ -1574,8 +1772,11 @@ function reportsApplyFilterVisibility() {
         else {
             fg.classList.add('reports-hidden');
             if (el.type === 'checkbox') {
+                if (id === 'reports-filter-include-reserves') el.checked = false;
+                else {
                 const isIncludeTaxes = id === 'reports-filter-include-taxes';
                 el.checked = !isIncludeTaxes;
+                }
             } else {
                 el.value = Object.prototype.hasOwnProperty.call(resetValueById, id) ? resetValueById[id] : '';
             }
@@ -1651,7 +1852,8 @@ function reportsStockMovementLabel(code) {
         shipment_reversal: 'Отмена отгрузки',
         manual_adjustment: 'Ручная корректировка',
         adjustment: 'Корректировка',
-        revision: 'Ревизия'
+        revision: 'Ревизия',
+        client_order_reserve: 'Резерв по заказу (не отгружено)'
     };
     const key = String(code || '').trim();
     if (!key) return 'Операция';
@@ -1804,7 +2006,7 @@ window.reportsOpenAccountDrilldown = async function(accountId, colKey, colLabel)
     }
 };
 
-window.reportsOpenStockDrilldown = async function(itemId, warehouseId, colKey, colLabel) {
+window.reportsOpenStockDrilldown = async function(itemId, warehouseId, colKey, colLabel, drillOpts = {}) {
     const payload = window.__reportsState.lastPayload || reportsBuildPayload();
     if (!itemId || !warehouseId || !payload?.dateFrom || !payload?.dateTo) return;
     try {
@@ -1815,6 +2017,13 @@ window.reportsOpenStockDrilldown = async function(itemId, warehouseId, colKey, c
             dateTo: String(payload.dateTo),
             metric: String(colKey || '')
         });
+        if (payload.reportType === 'osv_products') {
+            qs.set('commercialTurnover', '1');
+        }
+        if (drillOpts.unifiedFgReservePool) qs.set('unifiedFgReservePool', '1');
+        if (payload.reportType === 'osv_products' && payload.filters?.includeReserves === true) {
+            qs.set('includeReserves', 'true');
+        }
         const data = await API.get(`/api/reports/stock-drilldown?${qs.toString()}`);
         const rows = Array.isArray(data.rows) ? data.rows : [];
         const renderBatchCell = (r) => {
@@ -1828,7 +2037,12 @@ window.reportsOpenStockDrilldown = async function(itemId, warehouseId, colKey, c
             const linkedOrderId = Number(r.linkedOrderId || 0);
             const linkedOrderDoc = String(r.linkedOrderDoc || '').trim();
             const movementCode = String(r.type || '').toLowerCase();
-            if (linkedOrderId > 0) {
+            if (movementCode === 'client_order_reserve' && linkedOrderId > 0) {
+                const docLabel = Utils.escapeHtml(linkedOrderDoc ? `ЗК ${linkedOrderDoc}` : `Заказ №${linkedOrderId}`);
+                parts.push(
+                    `<a href="/sales/orders/${linkedOrderId}" class="reports-cell-link" onclick="event.preventDefault(); if (window.app && window.app.openEntity) window.app.openEntity('document_order', ${linkedOrderId}); return false;">${docLabel}</a>`
+                );
+            } else if (linkedOrderId > 0) {
                 const kind = movementCode === 'sales_shipment' || movementCode === 'shipment_reversal' ? 'Отгрузка' : 'Заказ';
                 const suffix = linkedOrderDoc ? ` ${Utils.escapeHtml(linkedOrderDoc)}` : ` #${linkedOrderId}`;
                 parts.push(`<button type="button" class="reports-cell-link" onclick="if (window.app && window.app.openEntity) window.app.openEntity('document_order', ${linkedOrderId})">${kind}${suffix}</button>`);
@@ -1855,7 +2069,7 @@ window.reportsOpenStockDrilldown = async function(itemId, warehouseId, colKey, c
                 <div class="mb-10">
                     <div><strong>Номенклатура:</strong> ${Utils.escapeHtml(data.itemName || '')}</div>
                     <div><strong>Склад:</strong> ${Utils.escapeHtml(data.warehouseName || '')}</div>
-                    <div class="text-muted font-12">Показаны движения ${Utils.escapeHtml(reportsDrilldownRangeLabel(data.rangeMode))}. Найдено: ${Utils.escapeHtml(rows.length)}</div>
+                    <div class="text-muted font-12">Показаны движения ${Utils.escapeHtml(reportsDrilldownRangeLabel(data.rangeMode))}. Найдено: ${Utils.escapeHtml(rows.length)}${data.includeReservesMerged ? '. В списке — физический расход и неотгруженное по активным заказам (ссылки на заказы).' : ''}</div>
                 </div>
                 <div class="reports-preview-scroll">
                     <table class="data-table reports-drilldown-table">
@@ -2224,6 +2438,27 @@ window.reportsExportCsv = async function() {
     }
 };
 
+/* Guardrail #4: Кнопка пересчёта исторических цен (backfill) */
+window.reportsRunBackfill = async function() {
+    if (!confirm('Запустить пересчёт исторических цен (backfill)?\n\nЭто обновит unit_price у движений, где он отсутствует. Операция безопасна и обратима.')) return;
+    try {
+        const payload = reportsBuildPayload();
+        const body = {
+            dateFrom: payload.dateFrom,
+            dateTo: payload.dateTo,
+            apply: true,
+            warehouseTypes: ['finished', 'reserve', 'markdown']
+        };
+        const data = await API.post('/api/reports/inventory-valuation-backfill', body);
+        const updated = data?.updated_rows ?? data?.rows_to_update ?? 0;
+        UI.toast(`Пересчёт завершён: обновлено ${updated} строк`, 'success');
+        /* Перезагрузить отчёт для актуализации данных */
+        setTimeout(() => reportsLoadPreview(), 500);
+    } catch (err) {
+        UI.toast(`Ошибка backfill: ${err.message || err}`, 'error');
+    }
+};
+
 window.reportsExportXlsx = async function() {
     try {
         await reportsDownload('/api/reports/export/xlsx', 'xlsx');
@@ -2253,9 +2488,8 @@ window.initReports = function() {
     const to = document.getElementById('reports-date-to');
     const modeEl = document.getElementById('reports-period-mode');
     if (modeEl && !modeEl.value) modeEl.value = 'day';
-    if (from && !from.value) from.value = reportsTodayStr();
-    if (to && !to.value) to.value = reportsTodayStr();
-    reportsInitPeriodPicker();
+    if (from && String(from.value || '').trim() === '') from.value = reportsMonthStartStr();
+    if (to && String(to.value || '').trim() === '') to.value = reportsTodayStr();
     reportsSyncPeriodUiFromInputs();
     const savedDensity = (() => {
         try { return localStorage.getItem('reportsDensity') || 'compact'; } catch (_) { return 'compact'; }
@@ -2292,32 +2526,6 @@ window.initReports = function() {
             });
     }
 };
-
-function reportsInitPeriodPicker() {
-    const anchorEl = document.getElementById('reports-date-anchor');
-    const displayEl = document.getElementById('reports-period-display');
-    if (!anchorEl || !displayEl || typeof flatpickr === 'undefined') return;
-    if (window.__reportsState.periodPicker && typeof window.__reportsState.periodPicker.destroy === 'function') {
-        window.__reportsState.periodPicker.destroy();
-        window.__reportsState.periodPicker = null;
-    }
-    const locale = (window.flatpickr && window.flatpickr.l10ns && window.flatpickr.l10ns.ru) ? window.flatpickr.l10ns.ru : 'ru';
-    window.__reportsState.periodPicker = flatpickr(anchorEl, {
-        locale,
-        dateFormat: 'Y-m-d',
-        defaultDate: reportsGetAnchorDate(),
-        clickOpens: false,
-        allowInput: false,
-        positionElement: displayEl,
-        appendTo: document.body,
-        disableMobile: true,
-        onChange: (selectedDates, dateStr) => {
-            if (!selectedDates || !selectedDates.length) return;
-            const mode = document.getElementById('reports-period-mode')?.value || 'day';
-            reportsApplyPeriodFromMode(mode, selectedDates[0], true);
-        }
-    });
-}
 
 window.reportsLoadRuns = async function() {
     try {
@@ -2431,6 +2639,10 @@ window.reportsReplayRun = function(runId) {
     if (includeOverheadEl) includeOverheadEl.checked = p?.filters?.includeOverhead !== false;
     const includeTaxesEl = document.getElementById('reports-filter-include-taxes');
     if (includeTaxesEl) includeTaxesEl.checked = p?.filters?.includeTaxes === true;
+    const includeReservesReplay = document.getElementById('reports-filter-include-reserves');
+    if (includeReservesReplay) includeReservesReplay.checked = p?.filters?.includeReserves === true;
+    const separateWarehousesReplay = document.getElementById('reports-filter-separate-warehouses');
+    if (separateWarehousesReplay) separateWarehousesReplay.checked = p?.filters?.mergeWarehouses === false;
     reportsSetSelectValue('reports-filter-analytics-tab', p?.filters?.analyticsTab || 'summary');
     window.__reportsState.salesAnalyticsActiveTab = String(p?.filters?.analyticsTab || 'summary');
     const regExcludeReserve = p?.filters?.regExcludeReserve;
@@ -2719,6 +2931,10 @@ window.reportsApplyPreset = function(id) {
     if (includeOverheadEl) includeOverheadEl.checked = p?.filters?.includeOverhead !== false;
     const includeTaxesEl = document.getElementById('reports-filter-include-taxes');
     if (includeTaxesEl) includeTaxesEl.checked = p?.filters?.includeTaxes === true;
+    const includeReservesPreset = document.getElementById('reports-filter-include-reserves');
+    if (includeReservesPreset) includeReservesPreset.checked = p?.filters?.includeReserves === true;
+    const separateWarehousesPreset = document.getElementById('reports-filter-separate-warehouses');
+    if (separateWarehousesPreset) separateWarehousesPreset.checked = p?.filters?.mergeWarehouses === false;
     reportsSetSelectValue('reports-filter-analytics-tab', p.filters?.analyticsTab || 'summary');
     window.__reportsState.salesAnalyticsActiveTab = String(p.filters?.analyticsTab || 'summary');
     const regExcludeReserve = p?.filters?.regExcludeReserve;
@@ -2834,7 +3050,9 @@ window.reportsBindTableLinks = function() {
                 return;
             }
             if ((reportType === 'osv_materials' || reportType === 'osv_products' || reportType === 'inventory_register') && itemId > 0 && warehouseId > 0) {
-                reportsOpenStockDrilldown(itemId, warehouseId, metricKey, metricLabel);
+                reportsOpenStockDrilldown(itemId, warehouseId, metricKey, metricLabel, {
+                    unifiedFgReservePool: reportType === 'osv_products' && btn.getAttribute('data-unified-fg-reserve') === '1'
+                });
                 return;
             }
             if (reportType === 'turnover_finance' && financeCategory) {

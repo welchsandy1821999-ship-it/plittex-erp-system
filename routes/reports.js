@@ -16,6 +16,13 @@ const REPORT_TYPES = new Set([
     'sales_analytics'
 ]);
 
+/** Внутренние складские перемещения в резерв не входят в коммерческий «Приход/Расход» ОСВ по продукции. */
+const PRODUCT_OSV_COMMERCIAL_PERIOD_RESERVE_EXCLUSION_SQL =
+    ` AND m.movement_type NOT IN ('reserve_expense', 'reserve_receipt', 'reserve_release_expense', 'reserve_release_receipt', 'reserve_transfer_in', 'reserve_transfer_out')`;
+
+/** Имя синтетического склада после слия finished + reserve (Единая площадка). */
+const OSV_PRODUCT_FG_RESERVE_POOL_LABEL = 'Готовая продукция + Резерв';
+
 function toIsoDateStart(s) {
     const d = new Date(`${s}T00:00:00`);
     return Number.isNaN(d.getTime()) ? null : d.toISOString();
@@ -516,13 +523,43 @@ async function buildAccountDrilldown(pool, params = {}) {
     };
 }
 
+function mapStockDrilldownPgRow(r) {
+    const ts = r.event_ts ? new Date(r.event_ts).getTime() : 0;
+    return {
+        _sortTs: ts,
+        date: r.event_ts ? new Date(r.event_ts).toLocaleDateString('ru-RU') : '',
+        type: String(r.movement_type || ''),
+        quantity: Number(r.quantity || 0),
+        warehouse: r.warehouse_name || '',
+        batchId: Number(r.batch_id || 0),
+        batch: r.batch_number || '',
+        linkedOrderItemId: Number(r.linked_order_item_id || 0),
+        linkedOrderId: Number(r.linked_order_id || 0),
+        linkedOrderDoc: r.linked_order_doc || '',
+        source: r.movement_type || '',
+        note: r.note || ''
+    };
+}
+
 async function buildStockDrilldown(pool, params = {}) {
     const itemId = Number(params.itemId || 0);
     const warehouseId = Number(params.warehouseId || 0);
+    const unifiedFgReservePool =
+        Boolean(params.unifiedFgReservePool) ||
+        String(params.unifiedFgReservePool || '').toLowerCase() === 'true' ||
+        String(params.unifiedFgReservePool || '').toLowerCase() === '1';
     if (!itemId || !warehouseId) throw new Error('Некорректная номенклатура или склад');
     const dateFrom = String(params.dateFrom || '');
     const dateTo = String(params.dateTo || '');
     const metric = String(params.metric || '').toLowerCase();
+    const commercialTurnover =
+        Boolean(params.commercialTurnover) ||
+        String(params.commercialTurnover || '').toLowerCase() === 'true' ||
+        String(params.commercialTurnover || '').toLowerCase() === '1';
+    const includeReserves =
+        Boolean(params.includeReserves) ||
+        String(params.includeReserves || '').toLowerCase() === 'true' ||
+        String(params.includeReserves || '').toLowerCase() === '1';
     const fromTs = toIsoDateStart(dateFrom);
     const toTs = toIsoDateEnd(dateTo);
     if (!fromTs || !toTs) throw new Error('Некорректный период');
@@ -530,29 +567,45 @@ async function buildStockDrilldown(pool, params = {}) {
     let rangeMode = 'all_time';
     let whereDate = `1=1`;
     let whereQty = '';
-    const values = [itemId, warehouseId];
+    const values = [itemId];
+    if (!unifiedFgReservePool) values.push(warehouseId);
+
+    const whMovePredicate = unifiedFgReservePool
+        ? `m.warehouse_id IN (SELECT id FROM warehouses WHERE type IN ('finished', 'reserve'))`
+        : `m.warehouse_id = $2::int`;
+
     if (metric.startsWith('opening_')) {
         rangeMode = 'opening';
-        whereDate = `COALESCE(m.movement_date, m.created_at) < $3::timestamp`;
         values.push(fromTs);
+        const ni = values.length;
+        whereDate = `COALESCE(m.movement_date, m.created_at) < $${ni}::timestamp`;
     } else if (metric.startsWith('closing_')) {
         rangeMode = 'closing';
-        whereDate = `COALESCE(m.movement_date, m.created_at) <= $3::timestamp`;
         values.push(toTs);
+        const ni = values.length;
+        whereDate = `COALESCE(m.movement_date, m.created_at) <= $${ni}::timestamp`;
     } else {
         rangeMode = 'period';
-        whereDate = `COALESCE(m.movement_date, m.created_at) >= $3::timestamp AND COALESCE(m.movement_date, m.created_at) <= $4::timestamp`;
         values.push(fromTs, toTs);
+        const ni = values.length;
+        whereDate = `COALESCE(m.movement_date, m.created_at) >= $${ni - 1}::timestamp AND COALESCE(m.movement_date, m.created_at) <= $${ni}::timestamp`;
     }
 
     if (metric === 'inflow_qty' || metric === 'inflow_sum') whereQty = ` AND m.quantity > 0 `;
     if (metric === 'outflow_qty' || metric === 'outflow_sum') whereQty = ` AND m.quantity < 0 `;
 
-    const sql = `
+    const commercialReserveFilter =
+        commercialTurnover &&
+        rangeMode === 'period' &&
+        ['inflow_qty', 'inflow_sum', 'outflow_qty', 'outflow_sum'].includes(metric)
+            ? PRODUCT_OSV_COMMERCIAL_PERIOD_RESERVE_EXCLUSION_SQL
+            : '';
+
+    const movSql = `
         SELECT
-            m.id,
+            m.id::bigint AS id,
             COALESCE(m.movement_date, m.created_at) AS event_ts,
-            m.movement_type,
+            m.movement_type::text AS movement_type,
             m.quantity,
             COALESCE(m.description, '') AS note,
             m.batch_id,
@@ -569,33 +622,85 @@ async function buildStockDrilldown(pool, params = {}) {
         LEFT JOIN client_order_items coi ON coi.id = m.linked_order_item_id
         LEFT JOIN client_orders o ON o.id = coi.order_id
         WHERE m.item_id = $1::int
-          AND m.warehouse_id = $2::int
+          AND ${whMovePredicate}
           AND ${whereDate}
           ${whereQty}
-        ORDER BY event_ts DESC, m.id DESC
-        LIMIT 400
+          ${commercialReserveFilter}
     `;
-    const res = await pool.query(sql, values);
+
+    let combined = [];
+
+    const res = await pool.query(movSql, values);
+
+    combined.push(...res.rows.map((row) => ({ ...mapStockDrilldownPgRow(row), itemNamePg: row.item_name || '' })));
+
+    const mergeReserveOrders =
+        includeReserves &&
+        rangeMode === 'period' &&
+        (metric === 'outflow_qty' || metric === 'outflow_sum');
+    if (mergeReserveOrders) {
+        const whSourcePred = unifiedFgReservePool
+            ? `(coi.stock_source_warehouse_id IS NULL OR coi.stock_source_warehouse_id IN (SELECT id FROM warehouses WHERE type IN ('finished', 'reserve')))`
+            : `(coi.stock_source_warehouse_id IS NULL OR coi.stock_source_warehouse_id = $2::int)`;
+        const ordRes = await pool.query(
+            `
+            SELECT
+                (-coi.id)::bigint AS id,
+                COALESCE(o.created_at, NOW()) AS event_ts,
+                'client_order_reserve'::text AS movement_type,
+                -GREATEST(COALESCE(coi.qty_ordered, 0) - COALESCE(coi.qty_shipped, 0), 0)::numeric AS quantity,
+                TRIM(CONCAT_WS(' ',
+                    COALESCE(NULLIF(TRIM(o.doc_number), ''), '#' || o.id::text),
+                    '— неотгружено',
+                    ('поз. ' || coi.id::text)
+                )) AS note,
+                NULL::int AS batch_id,
+                ''::text AS batch_number,
+                coi.id AS linked_order_item_id,
+                o.id AS linked_order_id,
+                COALESCE(o.doc_number, '') AS linked_order_doc,
+                i.name AS item_name,
+                wsel.name AS warehouse_name
+            FROM client_order_items coi
+            JOIN client_orders o ON o.id = coi.order_id
+            JOIN items i ON i.id = coi.item_id
+            JOIN warehouses wsel ON wsel.id = $2::int
+            WHERE coi.item_id = $1::int
+              AND o.status IN ('pending', 'processing')
+              AND COALESCE(coi.qty_ordered, 0) > COALESCE(coi.qty_shipped, 0)
+              AND ${whSourcePred}
+        `,
+            /** $2 только для имени склада в строке расшифровки (при пуле — выбранный в отчёте finished id). */
+            [itemId, warehouseId]
+        );
+
+        combined.push(...ordRes.rows.map((row) => ({ ...mapStockDrilldownPgRow(row), itemNamePg: row.item_name || '' })));
+    }
+
+    combined.sort((a, b) => {
+        if (Number(b._sortTs) !== Number(a._sortTs)) return Number(b._sortTs) - Number(a._sortTs);
+        return Number(b.linkedOrderItemId || 0) - Number(a.linkedOrderItemId || 0);
+    });
+    combined = combined.slice(0, 400);
+
+    const itemNameGuess =
+        combined.find((x) => x.itemNamePg)?.itemNamePg ||
+        (await pool.query(`SELECT name FROM items WHERE id = $1 LIMIT 1`, [itemId])).rows[0]?.name ||
+        `#${itemId}`;
+    const whNameGuess =
+        combined[0]?.warehouse ||
+        (await pool.query(`SELECT name FROM warehouses WHERE id = $1 LIMIT 1`, [warehouseId])).rows[0]?.name ||
+        `#${warehouseId}`;
+
     return {
         itemId,
         warehouseId,
-        itemName: res.rows[0]?.item_name || `#${itemId}`,
-        warehouseName: res.rows[0]?.warehouse_name || `#${warehouseId}`,
+        unifiedFgReservePool,
+        includeReservesMerged: mergeReserveOrders,
+        itemName: itemNameGuess,
+        warehouseName: whNameGuess,
         rangeMode,
-        rows: res.rows.map((r) => ({
-            id: Number(r.id || 0),
-            date: new Date(r.event_ts).toLocaleDateString('ru-RU'),
-            type: String(r.movement_type || ''),
-            quantity: Number(r.quantity || 0),
-            warehouse: r.warehouse_name || '',
-            batchId: Number(r.batch_id || 0),
-            batch: r.batch_number || '',
-            linkedOrderItemId: Number(r.linked_order_item_id || 0),
-            linkedOrderId: Number(r.linked_order_id || 0),
-            linkedOrderDoc: r.linked_order_doc || '',
-            source: r.movement_type || '',
-            note: r.note || ''
-        }))
+        rows: combined.map(({ _sortTs, itemNamePg, ...rest }) => rest)
     };
 }
 
@@ -710,17 +815,18 @@ async function buildOsvCounterparties(pool, period, filters, accountingMode = 'm
         .map((r) => {
             const opening = Number(((r.pay_before_in - r.pay_before_out) - (r.ship_before_out - r.ship_before_in)).toFixed(2));
             const closing = Number((opening + (r.pay_in - r.pay_out) - (r.ship_out - r.ship_in)).toFixed(2));
+            // Дт/ДЗ = долг контрагента нам (алгебраическое сальдо < 0). Кт/КЗ = наш долг контрагенту / аванс (алгебраическое > 0). Совпадает с карточкой контрагента.
             return {
                 counterparty_id: Number(r.counterparty_id || 0),
                 counterparty: r.counterparty,
-                opening_debit: opening > 0 ? opening : 0,
-                opening_credit: opening < 0 ? Math.abs(opening) : 0,
+                opening_debit: opening < 0 ? Math.abs(opening) : 0,
+                opening_credit: opening > 0 ? opening : 0,
                 payment_in: Number(r.pay_in.toFixed(2)),
                 payment_out: Number(r.pay_out.toFixed(2)),
                 shipment_in: Number(r.ship_in.toFixed(2)),
                 shipment_out: Number(r.ship_out.toFixed(2)),
-                closing_debit: closing > 0 ? closing : 0,
-                closing_credit: closing < 0 ? Math.abs(closing) : 0,
+                closing_debit: closing < 0 ? Math.abs(closing) : 0,
+                closing_credit: closing > 0 ? closing : 0,
                 closing_balance: closing
             };
         })
@@ -862,6 +968,178 @@ async function buildOsvCashAccounts(pool, period, filters, accountingMode = 'man
     };
 }
 
+/** Презентационное закрытие строк ОСВ по продукции: конец по формуле, не суммирование всех типов проводок. */
+/**
+ * Пересчёт closing по формуле closing = opening + inflow - outflow.
+ * Возвращает количество строк, в которых SQL-closing расходится с формульным (сигнал аномалии).
+ */
+function recomputeProductOsvCommercialRowClosing(rows, stockValuationMode) {
+    let divergenceCount = 0;
+    for (const r of rows) {
+        const oq = Number(r.opening_qty || 0);
+        const iq = Number(r.inflow_qty || 0);
+        const outq = Number(r.outflow_qty || 0);
+        const formulaClosingQty = Number((oq + iq - outq).toFixed(6));
+
+        /* Guardrail: проверка сходимости SQL-closing vs формульного */
+        const rawSqlClosingQty = Number(r.closing_qty || 0);
+        if (Math.abs(rawSqlClosingQty - formulaClosingQty) > 0.01) {
+            divergenceCount++;
+        }
+        r.closing_qty = formulaClosingQty;
+
+        const osl = Number(r.opening_sum_legacy || 0);
+        const isl = Number(r.inflow_sum_legacy || 0);
+        const outl = Number(r.outflow_sum_legacy || 0);
+        r.closing_sum_legacy = Number((osl + isl - outl).toFixed(2));
+
+        const osa = Number(r.opening_sum_actual || 0);
+        const isa = Number(r.inflow_sum_actual || 0);
+        const outa = Number(r.outflow_sum_actual || 0);
+        r.closing_sum_actual = Number((osa + isa - outa).toFixed(2));
+
+        r.closing_sum =
+            stockValuationMode === 'movement_actual'
+                ? r.closing_sum_actual
+                : Number(r.closing_sum_legacy || 0);
+    }
+    return divergenceCount;
+}
+
+async function fetchProductsUnshippedDemandByItem(pool, filters = {}) {
+    const params = [];
+    let extra = '';
+    if (filters.itemId) {
+        params.push(Number(filters.itemId));
+        extra += ` AND coi.item_id = $${params.length}`;
+    }
+    const res = await pool.query(
+        `SELECT coi.item_id,
+                COALESCE(SUM(GREATEST(COALESCE(coi.qty_ordered, 0) - COALESCE(coi.qty_shipped, 0), 0)), 0)::numeric AS unshipped
+         FROM client_order_items coi
+         JOIN client_orders co ON co.id = coi.order_id
+         WHERE co.status IN ('pending', 'processing')
+         ${extra}
+         GROUP BY coi.item_id`,
+        params
+    );
+    const map = new Map();
+    for (const row of res.rows) {
+        map.set(Number(row.item_id), Number(row.unshipped || 0));
+    }
+    return map;
+}
+
+/**
+ * Режим «Учитывать текущие резервы»: неотгруженное по строкам активных заказов (Σ max(ordered−shipped))
+ * добавляется к расходу периода пропорционально конечным остаткам строк складов позиции; конец и суммы считаются
+ * классически: closing = opening + inflow − outflow (в том числе отрицательный конец = долг производства при R > склад).
+ */
+function applyReservesToProductOsvOutflow(rowsAll, unshippedByItem, stockValuationMode) {
+    const map = unshippedByItem instanceof Map ? unshippedByItem : new Map();
+    const totalClosingByItem = new Map();
+    for (const r of rowsAll) {
+        const id = Number(r.item_id);
+        totalClosingByItem.set(id, (totalClosingByItem.get(id) || 0) + Number(r.closing_qty || 0));
+    }
+
+    /** item_id -> строки складов этого товара */
+    const rowsByItem = new Map();
+    for (const r of rowsAll) {
+        const itemId = Number(r.item_id);
+        if (!rowsByItem.has(itemId)) rowsByItem.set(itemId, []);
+        rowsByItem.get(itemId).push(r);
+    }
+
+    const reserveWarnings = [];
+    const allocByRow = new WeakMap();
+
+    const distributeR = (itemId, rowsItem, R) => {
+        if (R <= 0.000001) return;
+        const totClose = rowsItem.reduce((s, rr) => s + Number(rr.closing_qty || 0), 0);
+        if (totClose > 0.000001) {
+            for (const rr of rowsItem) {
+                const share = Number(rr.closing_qty || 0);
+                const alloc = R * (share / totClose);
+                allocByRow.set(rr, (allocByRow.get(rr) || 0) + alloc);
+            }
+        } else {
+            /** Нет книжного конца по строкам склада — всё ΣR «в расход» гладко между строками складов этого товара */
+            const n = rowsItem.length || 1;
+            const slice = R / n;
+            for (const rr of rowsItem) {
+                allocByRow.set(rr, (allocByRow.get(rr) || 0) + slice);
+            }
+        }
+    };
+
+    for (const [itemIdKey, rowsItem] of rowsByItem) {
+        const R = Number(map.get(Number(itemIdKey)) || 0);
+        const totAgg = totalClosingByItem.get(Number(itemIdKey)) || 0;
+        if (R > totAgg + 0.0001) {
+            reserveWarnings.push(
+                `Неотгруженный заказано−отгруженное по активным заказам по товару id=${itemIdKey} (${Number(R).toFixed(4)}) превышает суммарный конечный остаток по строкам складов этого отчёта (${Number(totAgg).toFixed(4)}): в отчётном конце будет отрицательный остаток (учёт производственного долга).`
+            );
+        }
+        distributeR(Number(itemIdKey), rowsItem, R);
+    }
+
+    for (const r of rowsAll) {
+        const alloc = Number((allocByRow.get(r) || 0).toFixed(6));
+        if (alloc <= 0.000001) {
+            /** Закроем суммы через формульный конец (без доп.расхода) */
+            r.closing_qty = Number((Number(r.opening_qty || 0) + Number(r.inflow_qty || 0) - Number(r.outflow_qty || 0)).toFixed(4));
+            r.closing_sum_legacy = Number(
+                (Number(r.opening_sum_legacy || 0) + Number(r.inflow_sum_legacy || 0) - Number(r.outflow_sum_legacy || 0)).toFixed(2)
+            );
+            r.closing_sum_actual = Number(
+                (Number(r.opening_sum_actual || 0) + Number(r.inflow_sum_actual || 0) - Number(r.outflow_sum_actual || 0)).toFixed(2)
+            );
+            r.closing_sum =
+                stockValuationMode === 'movement_actual' ? r.closing_sum_actual : Number(r.closing_sum_legacy || 0);
+            continue;
+        }
+
+        const oqb = Number(r.outflow_qty || 0);
+        let legRate = oqb > 1e-6 ? Number(r.outflow_sum_legacy || 0) / oqb : 0;
+        let actRate = oqb > 1e-6 ? Number(r.outflow_sum_actual || 0) / oqb : 0;
+
+        const iqb = Number(r.inflow_qty || 0);
+        const opq = Number(r.opening_qty || 0);
+        if (!(legRate > 0) || Number.isNaN(legRate)) {
+            legRate =
+                iqb > 1e-6 ? Number(r.inflow_sum_legacy || 0) / iqb :
+                opq + iqb > 1e-6
+                    ? (Number(r.opening_sum_legacy || 0) + Number(r.inflow_sum_legacy || 0)) / (opq + iqb)
+                    : 0;
+        }
+        if (!(actRate > 0) || Number.isNaN(actRate)) {
+            actRate =
+                iqb > 1e-6 ? Number(r.inflow_sum_actual || 0) / iqb :
+                opq + iqb > 1e-6
+                    ? (Number(r.opening_sum_actual || 0) + Number(r.inflow_sum_actual || 0)) / (opq + iqb)
+                    : Number(legRate);
+        }
+
+        r.outflow_qty = Number((oqb + alloc).toFixed(4));
+        r.outflow_sum_legacy = Number((Number(r.outflow_sum_legacy || 0) + alloc * legRate).toFixed(2));
+        r.outflow_sum_actual = Number((Number(r.outflow_sum_actual || 0) + alloc * actRate).toFixed(2));
+        r.outflow_sum = stockValuationMode === 'movement_actual' ? r.outflow_sum_actual : Number(r.outflow_sum_legacy || 0);
+
+        r.closing_qty = Number((opq + iqb - r.outflow_qty).toFixed(4));
+        r.closing_sum_legacy = Number(
+            (Number(r.opening_sum_legacy || 0) + Number(r.inflow_sum_legacy || 0) - Number(r.outflow_sum_legacy || 0)).toFixed(2)
+        );
+        r.closing_sum_actual = Number(
+            (Number(r.opening_sum_actual || 0) + Number(r.inflow_sum_actual || 0) - Number(r.outflow_sum_actual || 0)).toFixed(2)
+        );
+        r.closing_sum =
+            stockValuationMode === 'movement_actual' ? r.closing_sum_actual : Number(r.closing_sum_legacy || 0);
+    }
+
+    return reserveWarnings;
+}
+
 async function buildStockOsv(pool, period, warehouseTypes, title, filters = {}, accountingMode = 'managerial') {
     const stockBalanceModeRaw = String(filters.stockBalanceMode || 'nonzero');
     const stockBalanceMode = ['nonzero', 'movement', 'shipment_only', 'all'].includes(stockBalanceModeRaw)
@@ -871,9 +1149,26 @@ async function buildStockOsv(pool, period, warehouseTypes, title, filters = {}, 
     const stockValuationMode = ['movement_actual', 'legacy_current_price'].includes(stockValuationModeRaw)
         ? stockValuationModeRaw
         : 'movement_actual';
+    const commercialProductPresentation = String(title || '') === 'ОСВ по продукции';
+    /* Guardrail #3: Раздельный учет по складам — отключает слияние finished+reserve */
+    const mergeWarehouses = filters.mergeWarehouses !== false;
+    /** Слияние finished+reserve в одну строку; при фильтре «2 сорт» — только markdown без пула. */
+    const useFgReserveBucket =
+        commercialProductPresentation && mergeWarehouses && String(filters.warehouseType || '').toLowerCase() !== 'markdown';
+    const whIdGroupingExpr = useFgReserveBucket
+        ? `(CASE WHEN w.type IN ('finished', 'reserve')
+                 THEN COALESCE((SELECT MIN(id) FROM warehouses WHERE type = 'finished'), w.id)
+                 ELSE w.id END)`
+        : 'w.id';
+    const whNameGroupingExpr = useFgReserveBucket
+        ? `(CASE WHEN w.type IN ('finished', 'reserve') THEN '${OSV_PRODUCT_FG_RESERVE_POOL_LABEL}' ELSE w.name END)`
+        : 'w.name';
+    const commercialPeriodTurnSql = commercialProductPresentation ? PRODUCT_OSV_COMMERCIAL_PERIOD_RESERVE_EXCLUSION_SQL : '';
     const params = [period.fromTs, period.toTs, warehouseTypes];
     let extra = '';
-    if (filters.warehouseType && warehouseTypes.includes(String(filters.warehouseType))) {
+    if (commercialProductPresentation && filters.warehouseType === 'finished') {
+        extra += ` AND w.type IN ('finished', 'reserve') `;
+    } else if (filters.warehouseType && warehouseTypes.includes(String(filters.warehouseType))) {
         params.push(String(filters.warehouseType));
         extra += ` AND w.type = $${params.length} `;
     }
@@ -885,7 +1180,9 @@ async function buildStockOsv(pool, period, warehouseTypes, title, filters = {}, 
         if (filters.regOnlyPosted !== false) extra += ` AND COALESCE(m.reg_is_posted, true) = true `;
         if (filters.regOnlyPrimaryDoc === true) extra += ` AND COALESCE(m.reg_is_primary_doc, false) = true `;
         if (filters.regRequireDocumentNo === true) extra += ` AND COALESCE(NULLIF(TRIM(m.reg_document_no), ''), '') <> '' `;
-        if (filters.regExcludeReserve !== false) extra += ` AND m.movement_type NOT IN ('reserve_expense', 'reserve_receipt', 'reserve_transfer_in', 'reserve_transfer_out') `;
+        if (filters.regExcludeReserve !== false) {
+            extra += ` AND m.movement_type NOT IN ('reserve_expense', 'reserve_receipt', 'reserve_release_expense', 'reserve_release_receipt', 'reserve_transfer_in', 'reserve_transfer_out') `;
+        }
         if (filters.regExcludeAdjustments !== false) extra += ` AND m.movement_type NOT IN ('manual_adjustment', 'audit_adjustment', 'adjustment', 'revision') `;
         if (filters.regSourceTag) {
             params.push(String(filters.regSourceTag));
@@ -893,8 +1190,14 @@ async function buildStockOsv(pool, period, warehouseTypes, title, filters = {}, 
         }
     }
     if (stockBalanceMode === 'shipment_only') {
-        const balanceTypesSet = new Set((warehouseTypes || []).map((x) => String(x)));
-        if (!filters.warehouseType) balanceTypesSet.add('reserve');
+        let balanceTypesSet = new Set((warehouseTypes || []).map((x) => String(x)));
+        if (!filters.warehouseType) {
+            balanceTypesSet.add('reserve');
+        } else if (commercialProductPresentation && filters.warehouseType === 'finished') {
+            balanceTypesSet = new Set(['finished', 'reserve']);
+        } else if (commercialProductPresentation && filters.warehouseType === 'markdown') {
+            balanceTypesSet = new Set(['markdown']);
+        }
         const balanceTypes = Array.from(balanceTypesSet).filter(Boolean);
         const shipParams = [period.fromTs, period.toTs, balanceTypes];
         let shipFilter = '';
@@ -902,7 +1205,9 @@ async function buildStockOsv(pool, period, warehouseTypes, title, filters = {}, 
             shipParams.push(Number(filters.itemId));
             shipFilter += ` AND m.item_id = $${shipParams.length} `;
         }
-        if (filters.warehouseType) {
+        if (commercialProductPresentation && filters.warehouseType === 'finished') {
+            shipFilter += ` AND w.type IN ('finished', 'reserve') `;
+        } else if (filters.warehouseType) {
             shipParams.push(String(filters.warehouseType));
             shipFilter += ` AND w.type = $${shipParams.length} `;
         }
@@ -926,12 +1231,12 @@ async function buildStockOsv(pool, period, warehouseTypes, title, filters = {}, 
             turnover AS (
                 SELECT
                     m.item_id,
-                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity > 0 THEN m.quantity ELSE 0 END),0)::numeric,4) AS inflow_qty,
-                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity > 0 THEN m.quantity * COALESCE(i.current_price, 0) ELSE 0 END),0)::numeric,2) AS inflow_sum_legacy,
-                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity > 0 THEN m.quantity * COALESCE(NULLIF(m.unit_price, 0), CASE WHEN m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN coi.price ELSE NULL END, i.current_price, 0) ELSE 0 END),0)::numeric,2) AS inflow_sum_actual,
-                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity < 0 THEN ABS(m.quantity) ELSE 0 END),0)::numeric,4) AS outflow_qty,
-                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity < 0 THEN ABS(m.quantity) * COALESCE(i.current_price, 0) ELSE 0 END),0)::numeric,2) AS outflow_sum_legacy,
-                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity < 0 THEN ABS(m.quantity) * COALESCE(NULLIF(m.unit_price, 0), CASE WHEN m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN coi.price ELSE NULL END, i.current_price, 0) ELSE 0 END),0)::numeric,2) AS outflow_sum_actual,
+                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity > 0${commercialPeriodTurnSql} THEN m.quantity ELSE 0 END),0)::numeric,4) AS inflow_qty,
+                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity > 0${commercialPeriodTurnSql} THEN m.quantity * COALESCE(i.current_price, 0) ELSE 0 END),0)::numeric,2) AS inflow_sum_legacy,
+                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity > 0${commercialPeriodTurnSql} THEN m.quantity * COALESCE(NULLIF(m.unit_price, 0), CASE WHEN m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN coi.price ELSE NULL END, i.current_price, 0) ELSE 0 END),0)::numeric,2) AS inflow_sum_actual,
+                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity < 0${commercialPeriodTurnSql} THEN ABS(m.quantity) ELSE 0 END),0)::numeric,4) AS outflow_qty,
+                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity < 0${commercialPeriodTurnSql} THEN ABS(m.quantity) * COALESCE(i.current_price, 0) ELSE 0 END),0)::numeric,2) AS outflow_sum_legacy,
+                    ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity < 0${commercialPeriodTurnSql} THEN ABS(m.quantity) * COALESCE(NULLIF(m.unit_price, 0), CASE WHEN m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN coi.price ELSE NULL END, i.current_price, 0) ELSE 0 END),0)::numeric,2) AS outflow_sum_actual,
                     ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN ABS(m.quantity) ELSE 0 END),0)::numeric,4) AS shipment_turnover_qty,
                     SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp
                               AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp
@@ -994,6 +1299,7 @@ async function buildStockOsv(pool, period, warehouseTypes, title, filters = {}, 
             item_id: Number(r.item_id || 0),
             item: r.item_name,
             warehouse_id: 0,
+            unifiedFgReservePool: true,
             warehouse: r.warehouse_name,
             unit: r.unit,
             opening_qty: Number(r.opening_qty || 0),
@@ -1015,6 +1321,10 @@ async function buildStockOsv(pool, period, warehouseTypes, title, filters = {}, 
             closing_sum: Number(stockValuationMode === 'movement_actual' ? r.closing_sum_actual : r.closing_sum_legacy || 0),
             valuation_fallback_rows: Number(r.fallback_rows_count || 0)
         })).filter((r) => Math.abs(Number(r.shipment_turnover_qty || 0)) > 0.000001);
+        let shipDivergenceCount = 0;
+        if (commercialProductPresentation) {
+            shipDivergenceCount = recomputeProductOsvCommercialRowClosing(rows, stockValuationMode);
+        }
         const totals = {
             opening_qty: Number(rows.reduce((s, r) => s + r.opening_qty, 0).toFixed(4)),
             opening_sum: Number(rows.reduce((s, r) => s + r.opening_sum, 0).toFixed(2)),
@@ -1066,9 +1376,25 @@ async function buildStockOsv(pool, period, warehouseTypes, title, filters = {}, 
                     closing_sum: Number((actualTotals.closing_sum - legacyTotals.closing_sum).toFixed(2))
                 }
             },
-            warnings: stockValuationMode === 'movement_actual' && totals.valuation_fallback_rows > 0
-                ? [`Часть движений оценена по fallback-цене карточки: ${totals.valuation_fallback_rows} строк(и).`]
-                : []
+            warnings: [
+                ...(commercialProductPresentation
+                    ? [
+                        'Единая площадка (готовая + резерв): движения объединены в одну строку; внутренние типы между готовкой и резервом не входят в приход/расход периода (физический остаток и сумма по строке сходятся).'
+                      ]
+                    : []),
+                ...(stockValuationMode === 'movement_actual' && totals.valuation_fallback_rows > 0
+                    ? [`Часть движений оценена по fallback-цене карточки: ${totals.valuation_fallback_rows} строк(и).`]
+                    : []),
+                /* Guardrail #1: сходимость */
+                ...(shipDivergenceCount > 0
+                    ? [`⚠️ Внимание: математический остаток расходится с БД на ${shipDivergenceCount} строках. Возможны аномалии в датах движений.`]
+                    : []),
+                /* Guardrail #2: отрицательные остатки */
+                ...(rows.some(r => Number(r.closing_qty || 0) < -0.0001)
+                    ? ['⚠️ Обнаружены физически невозможные отрицательные остатки (без учёта резервов).']
+                    : [])
+            ],
+            commercialStockPresentation: commercialProductPresentation
         };
     }
     const sql = `
@@ -1076,8 +1402,8 @@ async function buildStockOsv(pool, period, warehouseTypes, title, filters = {}, 
             i.id AS item_id,
             i.name AS item_name,
             i.unit AS unit,
-            w.id AS warehouse_id,
-            w.name AS warehouse_name,
+            ${whIdGroupingExpr} AS warehouse_id,
+            ${whNameGroupingExpr} AS warehouse_name,
             ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) < $1::timestamp THEN m.quantity ELSE 0 END),0)::numeric,4) AS opening_qty,
             ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) < $1::timestamp THEN m.quantity * COALESCE(i.current_price, 0) ELSE 0 END),0)::numeric,2) AS opening_sum,
             ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) < $1::timestamp THEN m.quantity * COALESCE(
@@ -1086,17 +1412,17 @@ async function buildStockOsv(pool, period, warehouseTypes, title, filters = {}, 
                 i.current_price,
                 0
             ) ELSE 0 END),0)::numeric,2) AS opening_sum_actual,
-            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity > 0 THEN m.quantity ELSE 0 END),0)::numeric,4) AS inflow_qty,
-            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity > 0 THEN m.quantity * COALESCE(i.current_price, 0) ELSE 0 END),0)::numeric,2) AS inflow_sum,
-            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity > 0 THEN m.quantity * COALESCE(
+            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity > 0${commercialPeriodTurnSql} THEN m.quantity ELSE 0 END),0)::numeric,4) AS inflow_qty,
+            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity > 0${commercialPeriodTurnSql} THEN m.quantity * COALESCE(i.current_price, 0) ELSE 0 END),0)::numeric,2) AS inflow_sum,
+            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity > 0${commercialPeriodTurnSql} THEN m.quantity * COALESCE(
                 NULLIF(m.unit_price, 0),
                 CASE WHEN m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN coi.price ELSE NULL END,
                 i.current_price,
                 0
             ) ELSE 0 END),0)::numeric,2) AS inflow_sum_actual,
-            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity < 0 THEN ABS(m.quantity) ELSE 0 END),0)::numeric,4) AS outflow_qty,
-            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity < 0 THEN ABS(m.quantity) * COALESCE(i.current_price, 0) ELSE 0 END),0)::numeric,2) AS outflow_sum,
-            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity < 0 THEN ABS(m.quantity) * COALESCE(
+            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity < 0${commercialPeriodTurnSql} THEN ABS(m.quantity) ELSE 0 END),0)::numeric,4) AS outflow_qty,
+            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity < 0${commercialPeriodTurnSql} THEN ABS(m.quantity) * COALESCE(i.current_price, 0) ELSE 0 END),0)::numeric,2) AS outflow_sum,
+            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.quantity < 0${commercialPeriodTurnSql} THEN ABS(m.quantity) * COALESCE(
                 NULLIF(m.unit_price, 0),
                 CASE WHEN m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN coi.price ELSE NULL END,
                 i.current_price,
@@ -1118,8 +1444,8 @@ async function buildStockOsv(pool, period, warehouseTypes, title, filters = {}, 
         LEFT JOIN client_order_items coi ON coi.id = m.linked_order_item_id
         WHERE w.type = ANY($3::text[])
         ${extra}
-        GROUP BY i.id, i.name, i.unit, w.id, w.name
-        ORDER BY i.name, w.name
+        GROUP BY i.id, i.name, i.unit, ${whIdGroupingExpr}, ${whNameGroupingExpr}
+        ORDER BY i.name, ${whNameGroupingExpr}
     `;
     const res = await pool.query(sql, params);
     const rowsAll = res.rows.map((r) => ({
@@ -1127,6 +1453,9 @@ async function buildStockOsv(pool, period, warehouseTypes, title, filters = {}, 
         item: r.item_name,
         warehouse_id: Number(r.warehouse_id || 0),
         warehouse: r.warehouse_name,
+        unifiedFgReservePool: Boolean(
+            useFgReserveBucket && commercialProductPresentation && String(r.warehouse_name || '') === OSV_PRODUCT_FG_RESERVE_POOL_LABEL
+        ),
         unit: r.unit,
         opening_qty: Number(r.opening_qty || 0),
         opening_sum_legacy: Number(r.opening_sum || 0),
@@ -1147,6 +1476,18 @@ async function buildStockOsv(pool, period, warehouseTypes, title, filters = {}, 
         closing_sum: Number(stockValuationMode === 'movement_actual' ? r.closing_sum_actual : r.closing_sum || 0),
         valuation_fallback_rows: Number(r.fallback_rows_count || 0)
     }));
+    let mainDivergenceCount = 0;
+    if (commercialProductPresentation) {
+        mainDivergenceCount = recomputeProductOsvCommercialRowClosing(rowsAll, stockValuationMode);
+    }
+    const applyProductReserve =
+        Boolean(filters.includeReserves) &&
+        (warehouseTypes || []).some((t) => ['finished', 'markdown'].includes(String(t)));
+    let reserveDemandWarnings = [];
+    if (applyProductReserve) {
+        const demandMap = await fetchProductsUnshippedDemandByItem(pool, filters);
+        reserveDemandWarnings = applyReservesToProductOsvOutflow(rowsAll, demandMap, stockValuationMode);
+    }
     let shippedItemIds = null;
     if (stockBalanceMode === 'shipment_only') {
         const shipParams = [period.fromTs, period.toTs];
@@ -1208,23 +1549,67 @@ async function buildStockOsv(pool, period, warehouseTypes, title, filters = {}, 
         outflow_sum: Number(rows.reduce((s, r) => s + Number(r.outflow_sum_actual || 0), 0).toFixed(2)),
         closing_sum: Number(rows.reduce((s, r) => s + Number(r.closing_sum_actual || 0), 0).toFixed(2))
     };
+    const stockColsBase = [
+        { key: 'item', label: 'Номенклатура' },
+        { key: 'warehouse', label: 'Склад' },
+        { key: 'unit', label: 'Ед. изм.' },
+        { key: 'opening_qty', label: 'Остаток начальный (кг)' },
+        { key: 'opening_sum', label: 'Остаток начальный (₽)' },
+        { key: 'inflow_qty', label: 'Приход (кг)' },
+        { key: 'inflow_sum', label: 'Приход (₽)' },
+        { key: 'outflow_qty', label: 'Расход (кг)' },
+        { key: 'outflow_sum', label: 'Расход (₽)' }
+    ];
+    const closingQtyLabel = 'Остаток конечный (кг)';
+    const closingSumLabel = 'Остаток конечный (₽)';
+    const columns = [
+        ...stockColsBase,
+        { key: 'closing_qty', label: closingQtyLabel },
+        { key: 'closing_sum', label: closingSumLabel }
+    ];
+    const warnings = [];
+    if (commercialProductPresentation && useFgReserveBucket) {
+        warnings.push(
+            'Единая площадка (готовая + резерв): движения объединены в одну строку; внутренние типы между готовкой и резервом не входят в приход/расход периода (физический остаток и сумма по строке сходятся).'
+        );
+    }
+    if (commercialProductPresentation && !useFgReserveBucket && !mergeWarehouses) {
+        warnings.push(
+            'Раздельный учёт по складам: слияние finished+reserve отключено. Данные показаны в разрезе физических складов, включая внутренние перемещения в резерв.'
+        );
+    }
+    if (stockValuationMode === 'movement_actual' && totals.valuation_fallback_rows > 0) {
+        const totalMovements = rows.length || 1;
+        const fallbackPct = Number(((totals.valuation_fallback_rows / Math.max(totalMovements, 1)) * 100).toFixed(1));
+        warnings.push(`Часть движений оценена по fallback-цене карточки: ${totals.valuation_fallback_rows} строк(и) (${fallbackPct}%).`);
+        /* Guardrail #4: рекомендация backfill при > 5% */
+        if (fallbackPct > 5) {
+            warnings.push(
+                `⚠️ Более 5% движений оценены по fallback-цене (${fallbackPct}%). Рекомендуется запустить пересчёт исторических цен (backfill) для повышения точности отчёта.`
+            );
+        }
+    }
+    /* Guardrail #1: сходимость */
+    if (mainDivergenceCount > 0) {
+        warnings.push(`⚠️ Внимание: математический остаток расходится с БД на ${mainDivergenceCount} строках. Возможны аномалии в датах движений.`);
+    }
+    /* Guardrail #2: отрицательные остатки без учёта резервов */
+    if (!applyProductReserve && rows.some(r => Number(r.closing_qty || 0) < -0.0001)) {
+        warnings.push('⚠️ Обнаружены физически невозможные отрицательные остатки (без учёта резервов).');
+    }
+    if (applyProductReserve) {
+        warnings.push(
+            'Режим «Учитывать текущие резервы»: суммарное неотгруженное (заказано − отгружено по строкам активных заказов) добавляется к столбцу «Расход». Конец = Начало + Приход − Расход (при недостаче склада — отрицательный конец). Расшифровка расхода показывает движения и строки заказов.'
+        );
+        if (reserveDemandWarnings.length) warnings.push(...reserveDemandWarnings);
+    }
     return {
         title,
-        columns: [
-            { key: 'item', label: 'Номенклатура' },
-            { key: 'warehouse', label: 'Склад' },
-            { key: 'unit', label: 'Ед. изм.' },
-            { key: 'opening_qty', label: 'Остаток начальный (кг)' },
-            { key: 'opening_sum', label: 'Остаток начальный (₽)' },
-            { key: 'inflow_qty', label: 'Приход (кг)' },
-            { key: 'inflow_sum', label: 'Приход (₽)' },
-            { key: 'outflow_qty', label: 'Расход (кг)' },
-            { key: 'outflow_sum', label: 'Расход (₽)' },
-            { key: 'closing_qty', label: 'Остаток конечный (кг)' },
-            { key: 'closing_sum', label: 'Остаток конечный (₽)' }
-        ],
+        columns,
         rows,
         totals,
+        commercialStockPresentation: commercialProductPresentation,
+        includeProductReserves: applyProductReserve,
         valuationMode: stockValuationMode,
         valuationComparison: {
             legacy: legacyTotals,
@@ -1236,9 +1621,7 @@ async function buildStockOsv(pool, period, warehouseTypes, title, filters = {}, 
                 closing_sum: Number((actualTotals.closing_sum - legacyTotals.closing_sum).toFixed(2))
             }
         },
-        warnings: stockValuationMode === 'movement_actual' && totals.valuation_fallback_rows > 0
-            ? [`Часть движений оценена по fallback-цене карточки: ${totals.valuation_fallback_rows} строк(и).`]
-            : []
+        warnings
     };
 }
 
@@ -1407,7 +1790,7 @@ async function buildInventoryRegister(pool, period, filters = {}, pagination = {
             extra += ` AND COALESCE(NULLIF(TRIM(m.reg_document_no), ''), '') <> '' `;
         }
         if (filters.regExcludeReserve !== false) {
-            extra += ` AND m.movement_type NOT IN ('reserve_expense', 'reserve_receipt', 'reserve_transfer_in', 'reserve_transfer_out') `;
+            extra += ` AND m.movement_type NOT IN ('reserve_expense', 'reserve_receipt', 'reserve_release_expense', 'reserve_release_receipt', 'reserve_transfer_in', 'reserve_transfer_out') `;
         }
         if (filters.regExcludeAdjustments !== false) {
             extra += ` AND m.movement_type NOT IN ('manual_adjustment', 'audit_adjustment', 'adjustment', 'revision') `;
@@ -2078,7 +2461,10 @@ async function buildReport(pool, payload) {
     if (reportType === 'osv_counterparties') data = await buildOsvCounterparties(pool, period, filters, accountingMode);
     if (reportType === 'osv_cash_accounts') data = await buildOsvCashAccounts(pool, period, filters, accountingMode);
     if (reportType === 'osv_materials') data = await buildStockOsv(pool, period, ['materials'], 'ОСВ по материалам', filters, accountingMode);
-    if (reportType === 'osv_products') data = await buildStockOsv(pool, period, ['finished', 'markdown'], 'ОСВ по продукции', filters, accountingMode);
+    if (reportType === 'osv_products') {
+        /** Резерв (№7) всегда в выборке вместе с готовой; группируется с finished в один «пул». */
+        data = await buildStockOsv(pool, period, ['finished', 'reserve', 'markdown'], 'ОСВ по продукции', filters, accountingMode);
+    }
     if (reportType === 'turnover_finance') data = await buildTurnoverFinance(pool, period, filters, accountingMode);
     if (reportType === 'inventory_register') data = await buildInventoryRegister(pool, period, filters, payload.pagination || {}, accountingMode);
     if (reportType === 'sales_analytics') data = await buildSalesAnalytics(pool, period, filters, accountingMode);
@@ -2102,10 +2488,18 @@ async function buildReport(pool, payload) {
         checks: []
     };
     if (reportType === 'osv_products' && data.totals) {
-        const expected = Number(((data.totals.opening_qty || 0) + (data.totals.inflow_qty || 0) - (data.totals.outflow_qty || 0)).toFixed(4));
-        const actual = Number((data.totals.closing_qty || 0).toFixed(4));
+        const t = data.totals;
+        const expected = Number(((Number(t.opening_qty || 0) + Number(t.inflow_qty || 0) - Number(t.outflow_qty || 0))).toFixed(4));
+        const actual = Number((Number(t.closing_qty || 0)).toFixed(4));
         const ok = Math.abs(expected - actual) <= 0.0001;
-        consistency.checks.push({ name: 'opening + inflow - outflow = closing', ok, expected, actual });
+        consistency.checks.push({
+            name: data.commercialStockPresentation
+                ? 'Итого: начало + приход − расход = конец (коммерческий режим)'
+                : 'Итого: начало + приход − расход = конец',
+            ok,
+            expected,
+            actual
+        });
         if (!ok) consistency.status = 'warning';
     }
     if (reportType === 'osv_cash_accounts' && data.totals) {
@@ -2344,11 +2738,14 @@ async function runReportPreflight(pool, report, options = {}) {
 
     if (report.reportType === 'osv_products') {
         const hasNegative = Array.isArray(report.rows) && report.rows.some((r) => Number(r.closing_qty || 0) < 0);
+        const commercial = Boolean(report.commercialStockPresentation);
         checks.push({
             code: 'negative_closing_qty',
-            ok: !hasNegative,
-            severity: hasNegative ? 'critical' : 'info',
-            message: hasNegative ? 'Есть отрицательные конечные остатки продукции' : 'Отрицательных конечных остатков нет'
+            ok: !hasNegative || commercial,
+            severity: commercial && hasNegative ? 'info' : (hasNegative ? 'critical' : 'info'),
+            message: commercial && hasNegative
+                ? 'Есть отрицательный коммерческий конец строк (учёт производственного долга) — допустимо в режиме ОСВ по продукции.'
+                : (hasNegative ? 'Есть отрицательные конечные остатки продукции' : 'Отрицательных конечных остатков нет')
         });
     }
 
@@ -2643,7 +3040,10 @@ module.exports = function reportsRoutes(pool) {
                 warehouseId: req.query.warehouseId,
                 dateFrom: req.query.dateFrom,
                 dateTo: req.query.dateTo,
-                metric: req.query.metric
+                metric: req.query.metric,
+                includeReserves: req.query.includeReserves === 'true' || req.query.includeReserves === '1',
+                commercialTurnover: req.query.commercialTurnover === 'true' || req.query.commercialTurnover === '1',
+                unifiedFgReservePool: req.query.unifiedFgReservePool === 'true' || req.query.unifiedFgReservePool === '1'
             });
             res.json(data);
         } catch (err) {
