@@ -237,21 +237,25 @@ async function backfillInventoryUnitPrice(pool, period, apply = false, warehouse
             }))
         };
     }
+    /* FROM не может ссылаться на целевой алиас m в ON (PostgreSQL: missing FROM-clause entry for table "m").
+       Склад и цена строки заказа выносим в WHERE EXISTS и скалярный подзапрос в SET. */
     const updateSql = `
         UPDATE inventory_movements m
         SET unit_price = COALESCE(
-            CASE WHEN m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN coi.price ELSE NULL END,
+            CASE WHEN m.movement_type IN ('sales_shipment', 'shipment_reversal') THEN (
+                SELECT coi.price FROM client_order_items coi WHERE coi.id = m.linked_order_item_id LIMIT 1
+            ) ELSE NULL END,
             i.current_price,
             0
         )::numeric(14,4)
         FROM items i
-        JOIN warehouses w ON w.id = m.warehouse_id
-        LEFT JOIN client_order_items coi ON coi.id = m.linked_order_item_id
         WHERE i.id = m.item_id
           AND ${reportDateExpr('m')} >= $1::timestamp
           AND ${reportDateExpr('m')} <= $2::timestamp
           AND NULLIF(m.unit_price, 0) IS NULL
-          ${Array.isArray(warehouseTypes) && warehouseTypes.length ? `AND w.type = ANY($3::text[])` : ''}
+          ${Array.isArray(warehouseTypes) && warehouseTypes.length
+        ? `AND EXISTS (SELECT 1 FROM warehouses w WHERE w.id = m.warehouse_id AND w.type = ANY($3::text[]))`
+        : ''}
     `;
     const upd = await pool.query(updateSql, params);
     return { mode: 'apply', updated_rows: upd.rowCount || 0 };
