@@ -133,7 +133,7 @@ async function buildCementMessage(pool) {
 
 async function buildSalesTodayMessage(pool) {
     const res = await pool.query(
-        `SELECT SUM(total_amount) as total, COUNT(*) as cnt FROM client_orders WHERE created_at::date = CURRENT_DATE AND status != 'cancelled'`
+        `SELECT SUM(total_amount) as total, COUNT(*) as cnt FROM client_orders WHERE created_at::date = CURRENT_DATE AND status != 'cancelled' AND COALESCE(is_deleted, false) = false`
     );
     return `📈 <b>Сегодня:</b>\n\nЗаказов: ${res.rows[0]?.cnt || 0}\nСумма: ${parseFloat(res.rows[0]?.total || 0).toLocaleString()} ₽`;
 }
@@ -143,6 +143,7 @@ async function buildOrdersInWorkMessage(pool) {
         `SELECT doc_number, status, total_amount, pending_debt, created_at
          FROM client_orders
          WHERE status IN ('pending', 'processing')
+           AND COALESCE(is_deleted, false) = false
          ORDER BY created_at DESC
          LIMIT 25`
     );
@@ -308,7 +309,7 @@ module.exports = function registerTelegramMessageHandlers(bot, pool, authorizedC
             }
 
             if (text === KB.REFRESH) {
-                return bot.sendMessage(currentChatId, '✅ Данные на экране обновлены. Меню без изменений.', {
+                return bot.sendMessage(currentChatId, '🔄 Меню обновлено. Нажмите кнопку раздела для свежих данных.', {
                     reply_markup: mainReplyKeyboard()
                 });
             }

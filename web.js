@@ -464,8 +464,17 @@ server.listen(port, () => {
 });
 
 // [Блок 10: Graceful Shutdown - корректное завершение]
-const gracefulShutdown = () => {
+const gracefulShutdown = async () => {
     logger.info('🛑 Получен сигнал завершения. Освобождаем ресурсы...');
+    /* P3: Остановка Telegram polling перед выходом */
+    if (bot) {
+        try {
+            await bot.stopPolling();
+            logger.info('🤖 Telegram polling остановлен.');
+        } catch (e) {
+            logger.warn(`[TG] stopPolling при shutdown: ${e.message || e}`);
+        }
+    }
     server.close(() => {
         logger.info('📡 HTTP сервер остановлен.');
         pool.end(() => {
