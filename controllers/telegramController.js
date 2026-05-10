@@ -28,7 +28,7 @@ function getFooterTime() {
 
 const LEGACY = {
     BALANCE: '💰 Баланс кассы',
-    CEMENT: '📦 Остаток цемента',
+    WAREHOUSE: '📦 Склад',
     SALES_TODAY: '📊 Отчет по продажам за сегодня'
 };
 
@@ -41,7 +41,7 @@ const CB = {
     FIN_BALANCE: 'tg:f:balance',
     FIN_MENU: 'tg:f:back',
 
-    WH_CEMENT: 'tg:w:cement',
+    WH_STOCK: 'tg:w:stock',
     WH_MENU: 'tg:w:back',
 
     /** Повторная отправка подсказки главного Reply-меню (без сообщения нельзя «показать» клавиатуру). */
@@ -68,7 +68,7 @@ function reportsMenuMarkup() {
     return {
         inline_keyboard: [
             [{ text: 'Продажи за сегодня', callback_data: CB.REPORT_SALES }],
-            [{ text: 'Остатки цемента', callback_data: CB.REPORT_CEMENT }],
+            [{ text: '📦 Склад (готовая продукция)', callback_data: CB.REPORT_CEMENT }],
             [{ text: 'Заказы в работе', callback_data: CB.REPORT_ORDERS }],
             mainMenuInlineFooter()
         ]
@@ -83,7 +83,7 @@ function financeMenuMarkup() {
 
 function warehouseMenuMarkup() {
     return {
-        inline_keyboard: [[{ text: 'Остатки цемента', callback_data: CB.WH_CEMENT }], mainMenuInlineFooter()]
+        inline_keyboard: [[{ text: '📦 Склад (готовая продукция)', callback_data: CB.WH_STOCK }], mainMenuInlineFooter()]
     };
 }
 
@@ -133,14 +133,37 @@ async function buildBalanceMessage(pool) {
     return reply;
 }
 
-async function buildCementMessage(pool) {
+/**
+ * Сводка по складу готовой продукции (Единая площадка: склады finished + reserve).
+ * Внутренние перемещения (reserve_expense, reserve_receipt и т.д.) исключены.
+ * ТОП-15 по остатку > 0.
+ */
+async function buildWarehouseSummaryMessage(pool) {
     const res = await pool.query(
-        `SELECT i.name, SUM(m.quantity) as total FROM inventory_movements m JOIN items i ON m.item_id = i.id WHERE i.name ILIKE '%цемент%' GROUP BY i.name`
+        `SELECT i.name, i.unit,
+                SUM(m.quantity) AS stock
+         FROM inventory_movements m
+         JOIN items i ON m.item_id = i.id
+         JOIN warehouses w ON w.id = m.warehouse_id
+         WHERE w.type IN ('finished', 'reserve')
+           AND m.movement_type NOT IN (
+               'reserve_expense', 'reserve_receipt',
+               'reserve_release_expense', 'reserve_release_receipt',
+               'reserve_transfer_in', 'reserve_transfer_out'
+           )
+         GROUP BY i.id, i.name, i.unit
+         HAVING SUM(m.quantity) > 0
+         ORDER BY SUM(m.quantity) DESC
+         LIMIT 15`
     );
-    if (res.rows.length === 0) return '🏗 <b>Остатки цемента:</b>\n\nНе найдено.';
-    let reply = '<b>🏗 Остатки цемента:</b>\n\n';
+    if (res.rows.length === 0) {
+        return '📦 <b>Сводка по складу (Готовая продукция)</b>\n\n<i>Нет позиций с положительным остатком.</i>' + getFooterTime();
+    }
+    let reply = '<b>📦 Сводка по складу (Готовая продукция)</b>\n<i>ТОП-15 по остатку, Единая площадка</i>\n\n';
     res.rows.forEach((r) => {
-        reply += `• ${escapeHtml(r.name)}: ${parseFloat(r.total).toLocaleString()} кг\n`;
+        const unit = r.unit || 'шт';
+        const qty = parseFloat(r.stock);
+        reply += `• ${escapeHtml(r.name)}: <b>${qty % 1 === 0 ? qty.toLocaleString() : qty.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${escapeHtml(unit)}</b>\n`;
     });
     return reply + getFooterTime();
 }
@@ -338,12 +361,12 @@ module.exports = function registerTelegramMessageHandlers(bot, pool, authorizedC
                 }
             }
 
-            if (text === LEGACY.CEMENT) {
+            if (text === LEGACY.WAREHOUSE) {
                 try {
-                    const reply = await buildCementMessage(pool);
+                    const reply = await buildWarehouseSummaryMessage(pool);
                     return bot.sendMessage(currentChatId, reply, { parse_mode: 'HTML' });
                 } catch (e) {
-                    logger.warn(`[TG] cement: ${e.message || e}`);
+                    logger.warn(`[TG] warehouse: ${e.message || e}`);
                     return bot.sendMessage(currentChatId, '❌ Ошибка');
                 }
             }
@@ -445,7 +468,7 @@ module.exports = function registerTelegramMessageHandlers(bot, pool, authorizedC
             if (data === CB.REPORT_SALES || data === CB.REPORT_CEMENT || data === CB.REPORT_ORDERS) {
                 const map = {
                     [CB.REPORT_SALES]: buildSalesTodayMessage,
-                    [CB.REPORT_CEMENT]: buildCementMessage,
+                    [CB.REPORT_CEMENT]: buildWarehouseSummaryMessage,
                     [CB.REPORT_ORDERS]: buildOrdersInWorkMessage
                 };
                 const reply = await map[data](pool);
@@ -465,8 +488,8 @@ module.exports = function registerTelegramMessageHandlers(bot, pool, authorizedC
                 return;
             }
 
-            if (data === CB.WH_CEMENT) {
-                const reply = await buildCementMessage(pool);
+            if (data === CB.WH_STOCK) {
+                const reply = await buildWarehouseSummaryMessage(pool);
                 await safeEditMessageText(chatId, messageId, reply, {
                     inline_keyboard: [backToWarehouseRow()]
                 });
@@ -475,7 +498,7 @@ module.exports = function registerTelegramMessageHandlers(bot, pool, authorizedC
             }
 
             if (data === NOTIFY_CB.STOCK_SUMMARY) {
-                const reply = await buildCementMessage(pool);
+                const reply = await buildWarehouseSummaryMessage(pool);
                 await safeEditMessageText(chatId, messageId, reply, {
                     inline_keyboard: [notifyBackRow()]
                 });
