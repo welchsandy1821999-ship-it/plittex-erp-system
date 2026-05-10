@@ -4,6 +4,7 @@
 const Big = require('big.js');
 const logger = require('../utils/logger');
 const { escapeHtml, formatMoney, NOTIFY_CB, getNotifySnapshot } = require('../utils/telegram');
+const { getCounterpartyBalanceForDisplay } = require('../utils/counterpartyBalance');
 
 const KB = {
     REPORTS: '📊 Отчеты',
@@ -159,33 +160,18 @@ async function buildOrdersInWorkMessage(pool) {
 }
 
 /**
- * Упрощённый взаиморасчёт по логике checkout (sales).
+ * Упрощённый взаиморасчёт — единая формула из utils/counterpartyBalance.js.
  */
 async function buildCounterpartyBalanceMessage(pool, row) {
     const cpId = row.id;
-    const name = escapeHtml(row.name);
-    const balRes = await pool.query(
-        `
-        SELECT
-            (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders WHERE counterparty_id = $1 AND status = 'completed') as our_shipments,
-            (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = $1 AND transaction_type = 'expense' AND COALESCE(is_deleted, false) = false) as our_payments,
-            (SELECT COALESCE(SUM(amount), 0) FROM inventory_movements WHERE supplier_id = $1 AND movement_type = 'purchase') as their_shipments,
-            (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE counterparty_id = $1 AND transaction_type = 'income' AND COALESCE(is_deleted, false) = false) as their_payments
-    `,
-        [cpId]
-    );
-    const b = balRes.rows[0];
-    const realBalance = new Big(b.our_shipments).plus(b.our_payments).minus(b.their_shipments).minus(b.their_payments);
-    const debtRes = await pool.query(
-        `SELECT COALESCE(SUM(pending_debt), 0) as d FROM client_orders WHERE counterparty_id = $1 AND status NOT IN ('cancelled','returned')`,
-        [cpId]
-    );
-    const pendDebt = new Big(debtRes.rows[0]?.d || 0);
+    const { balance, pendingDebt, name } = await getCounterpartyBalanceForDisplay(pool, cpId);
+    const balNum = Number(balance);
+    const pendNum = Number(pendingDebt);
     return (
-        `<b>👤 ${name}</b> (контрагент)\n\n` +
-        `Взаиморасчёт: <b>${Number(realBalance.toFixed(2)).toLocaleString()} ₽</b>\n` +
-        `(исходящая отгрузка и расход минус входящая оплата и закупки)\n\n` +
-        `Суммарный <b>pending_debt</b> по неотменённым заказам: <b>${Number(pendDebt.toFixed(2)).toLocaleString()} ₽</b>`
+        `<b>👤 ${escapeHtml(name)}</b> (контрагент)\n\n` +
+        `Взаиморасчёт: <b>${formatMoney(balNum)} ₽</b>\n` +
+        `(${balNum >= 0 ? 'должны нам' : 'должны мы'})\n\n` +
+        `Суммарный <b>pending_debt</b> по неотменённым заказам: <b>${formatMoney(pendNum)} ₽</b>`
     );
 }
 
