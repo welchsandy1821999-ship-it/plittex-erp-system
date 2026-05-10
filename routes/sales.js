@@ -308,6 +308,16 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     }
                 }
             });
+
+            const itemsArr = Array.isArray(items) ? items : [];
+            const refundAmtLog = Number(new Big(refund_amount || 0).round(2));
+            const posStr = itemsArr.length
+                ? itemsArr.map((it) => `item ${it.id}: ${it.qty} × ${it.price} ₽ (склад ${it.warehouse_id || '—'})`).join('; ')
+                : 'без товарных позиций (возможны только поддоны/сумма)';
+            const auditMsg = `Возврат по заказу #${order_id || '—'}; документ ${docNum}; суммы: ${refundAmtLog} ₽ (${refund_method || '—'}); поддоны: ${parseInt(String(pallets_returned || 0), 10) || 0}; позиции: ${posStr}${reason ? `; причина: ${reason}` : ''}`;
+            await auditLog(pool, req, 'sales_return_complete', 'client_order', order_id ? Number(order_id) : null, auditMsg);
+            logger.info(`[sales_return] ${auditMsg}`);
+
             const io = req.app.get('io');
             if (io) { io.emit('inventory_updated'); io.emit('sales_updated'); }
             sendNotify(`♻️ <b>Возврат товара: ${escapeHtml(docNum)}</b>\nСумма: ${formatMoney(refund_amount || 0)} ₽\nПричина: ${escapeHtml(reason || 'Не указана')}`);

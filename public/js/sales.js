@@ -3771,7 +3771,7 @@ window.openReturnModal = async function () {
 
         UI.showModal('🔙 Оформление возврата', html, `
             <button class="btn btn-outline" onclick="UI.closeModal()">Отмена</button>
-            <button class="btn btn-red" onclick="executeReturn()">💾 Провести возврат</button>
+            <button type="button" id="ret-submit-btn" class="btn btn-red" onclick="executeReturn()">💾 Провести возврат</button>
         `);
 
         setTimeout(() => {
@@ -3928,6 +3928,13 @@ window.executeReturn = async function () {
     }
     if (method === 'cash' && refundAmt > 0 && !accId) return UI.toast('Выберите кассу для выдачи денег!', 'warning');
 
+    const submitBtn = document.getElementById('ret-submit-btn');
+    const submitBtnHtml = submitBtn ? submitBtn.innerHTML : '';
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = 'Сохранение...';
+    }
+
     try {
         const data = await API.post('/api/sales/returns', { order_id: orderId, counterparty_id: clientId, items: returnItems, pallets_returned: pallets, refund_amount: refundAmt, refund_method: method, account_id: accId, reason: reason });
         UI.closeModal();
@@ -3935,7 +3942,13 @@ window.executeReturn = async function () {
         loadSalesData(false);
         if (typeof loadTable === 'function') loadTable();
         onClientChange();
-    } catch (e) { console.error('[Return Error]', e); }
+    } catch (e) {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = submitBtnHtml;
+        }
+        console.error('[Return Error]', e);
+    }
 };
 
 // ==========================================
