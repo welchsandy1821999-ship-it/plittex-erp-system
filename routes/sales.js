@@ -565,6 +565,12 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 }
 
                 if (isEmployeeCounterparty && validatedOffset > 0) {
+                    const offsetIncomeDesc = `Оплата заказа ${docNum} взаимозачетом (в счет ЗП)`;
+                    await client.query(
+                        `INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, employee_id, salary_adjustment_id, user_id, linked_order_id, source_module, transaction_date)
+                         VALUES ($1, 'income', 'Продажа продукции', $2, 'Взаимозачет', NULL, $3, $4, NULL, $5, $6, 'sales', $7)`,
+                        [validatedOffset, offsetIncomeDesc, counterparty_id, cpMeta.employee_id, user_id || null, orderId, finalOrderDate]
+                    );
                     const salaryDesc = `Выдача аванса (продукцией) по заказу ${docNum}`;
                     const advanceExpenseRes = await client.query(
                         `INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, employee_id, salary_adjustment_id, user_id, linked_order_id, source_module, system_type, transaction_date)
@@ -1820,6 +1826,14 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
                 if (offsetApplied.gt(0) && isEmployeeCounterparty) {
                     const offsetAmountNum = Number(offsetApplied.toFixed(2));
+                    const offsetIncomeDesc = `Оплата заказа ${docNumber} взаимозачетом (в счет ЗП) (редактирование)`;
+                    await client.query(
+                        `INSERT INTO transactions
+                            (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, employee_id, salary_adjustment_id, user_id, linked_order_id, source_module, transaction_date)
+                         VALUES
+                            ($1, 'income', 'Продажа продукции', $2, 'Взаимозачет', NULL, $3, $4, NULL, $5, $6, 'sales', NOW())`,
+                        [offsetAmountNum, offsetIncomeDesc, safeCounterpartyId, cpMeta.employee_id, req.user?.id || null, orderId]
+                    );
                     const salaryDesc = `Выдача аванса (продукцией) по заказу ${docNumber} (редактирование)`;
                     const advanceExpenseRes = await client.query(
                         `INSERT INTO transactions
