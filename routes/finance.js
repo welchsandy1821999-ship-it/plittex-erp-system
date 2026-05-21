@@ -1342,23 +1342,54 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         const queries = `
             SELECT amount::numeric, transaction_type, category, description,
                    TO_CHAR(transaction_date, 'DD.MM.YYYY HH24:MI') as date, 'money' as origin, transaction_date as sort_date,
-                   COALESCE(t.payment_method, '') AS payment_method
+                   COALESCE(t.payment_method, '') AS payment_method,
+                   t.id AS tx_id,
+                   t.linked_order_id,
+                   COALESCE(t.system_type, '') AS system_type,
+                   COALESCE(t.source_module, '') AS source_module,
+                   (
+                       t.transaction_type = 'income'
+                       AND COALESCE(t.source_module, '') = 'sales'
+                       AND COALESCE(t.system_type, '') = ''
+                       AND t.linked_order_id IS NOT NULL
+                       AND EXISTS (
+                           SELECT 1 FROM transactions sp
+                           WHERE sp.linked_order_id = t.linked_order_id
+                             AND sp.system_type = 'salary_payment'
+                             AND COALESCE(sp.is_deleted, false) = false
+                       )
+                   ) AS hide_in_timeline
             FROM transactions t
             WHERE ${moneyWhere}
             UNION ALL
             SELECT SUM(ABS(m.quantity) * coi.price)::numeric as amount, 'expense' as transaction_type, 'Отгрузка продукции' as category,
                    m.description as description, TO_CHAR(COALESCE(m.movement_date, m.created_at), 'DD.MM.YYYY') as date, 'goods' as origin, COALESCE(m.movement_date, m.created_at) as sort_date,
-                   COALESCE(co.payment_method, '') AS payment_method
+                   COALESCE(co.payment_method, '') AS payment_method,
+                   NULL::integer AS tx_id,
+                   co.id AS linked_order_id,
+                   '' AS system_type,
+                   '' AS source_module,
+                   EXISTS (
+                       SELECT 1 FROM transactions sp
+                       WHERE sp.linked_order_id = co.id
+                         AND sp.system_type = 'salary_payment'
+                         AND COALESCE(sp.is_deleted, false) = false
+                   ) AS hide_in_timeline
             FROM inventory_movements m
             JOIN client_order_items coi ON m.linked_order_item_id = coi.id
             JOIN client_orders co ON coi.order_id = co.id
             WHERE co.counterparty_id = $1 AND m.movement_type = 'sales_shipment'
-            GROUP BY m.description, COALESCE(m.movement_date, m.created_at), co.payment_method
+            GROUP BY m.description, COALESCE(m.movement_date, m.created_at), co.id, co.payment_method
             ${cp.is_employee ? '' : `
             UNION ALL
             SELECT amount::numeric, 'income' as transaction_type, 'Поставка сырья' as category,
                    description, TO_CHAR(COALESCE(movement_date, created_at), 'DD.MM.YYYY') as date, 'goods' as origin, COALESCE(movement_date, created_at) as sort_date,
-                   '' AS payment_method
+                   '' AS payment_method,
+                   NULL::integer AS tx_id,
+                   NULL::integer AS linked_order_id,
+                   '' AS system_type,
+                   '' AS source_module,
+                   false AS hide_in_timeline
             FROM inventory_movements WHERE supplier_id = $1 AND movement_type = 'purchase'
             `}
         `;
@@ -1397,11 +1428,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             const balanceBig = new Big(balance);
             const overpayment = balanceBig.lt(0) ? balanceBig.abs().toFixed(2) : '0.00';
 
-            const filteredTransactions = timeline.filter(t => {
-                const isOffsetIncome = t.transaction_type === 'income' && t.payment_method === 'Взаимозачет';
-                const isOffsetShipment = t.category === 'Отгрузка продукции' && t.payment_method === 'Взаимозачет';
-                return !isOffsetIncome && !isOffsetShipment;
-            });
+            const filteredTransactions = timeline.filter((t) => !t.hide_in_timeline);
 
             res.json({
                 info: cp,

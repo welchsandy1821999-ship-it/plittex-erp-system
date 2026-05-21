@@ -75,6 +75,7 @@
 3. **Сальдо в карточке контрагента / акт**  
    - Считается по **таймлайну** (отгрузки из движений + денежные транзакции) в логике `GET /api/counterparties/:id/profile` в **`routes/finance.js`**.  
    - Это третий «слой» отображения; сходимость с п.1–2 достигается корректными `paid_amount`, привязкой `linked_order_id` и аллокацией авансов.
+   - **Расчёт сальдо** идёт по **полному** массиву `timeline` (до UI-фильтра). **Скрытие технических проводок аванса продукцией** (виртуальная отгрузка + compensating `income` из Sales) — только для ответа `transactions`: в SQL каждая ветка UNION задаёт `hide_in_timeline`; для отгрузок и sales-income проверка `EXISTS (transactions WHERE linked_order_id = order_id AND system_type = 'salary_payment')`. На фронт: `timeline.filter((t) => !t.hide_in_timeline)`. Начисления ЗП (`system_type` вроде `salary_accrual`) не скрываются.
 
 - **Автораспределение авансов:** `utils/allocateClientAdvance.js` + `POST /api/finance/reconcile-advances/:counterpartyId` (admin) — уменьшает **контрактный** `pending_debt` на заказах, связывает `transactions` с `linked_order_id`. После ручного «Распределить авансы» в UI цифры п.1–2 чаще совпадают.
 

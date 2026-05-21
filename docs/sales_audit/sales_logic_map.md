@@ -51,7 +51,7 @@ pending|processing ──► PUT /:id/status (cancelled) ──► cancelled
                               • удаляются старые reserve_*
                               • заново создаются reserve_* для новых qty
                               • DELTA-доплата (incomeDelta) → transaction
-                              • offset (взаимозачёт сотрудника) → salary_payment
+                              • offset (взаимозачёт сотрудника) → salary_payment + compensating income (double-entry в `transactions`)
 
 completed/cancelled ──► DELETE /:id ──► settlement_mode in
                        (refund_cash, leave_advance, write_off, none)
@@ -116,6 +116,7 @@ completed/cancelled ──► DELETE /:id ──► settlement_mode in
 - `DELETE /api/transactions/:id` / `PUT /api/transactions/:id` — каскад уважает `linked_order_id`/`salary_adjustment_id`.
 - `POST /api/invoices/:id/pay` — оплата счёта, привязка к `linked_order_id`.
 - `GET /api/counterparties/:id/full` — сальдо/история клиента. **Считает иначе, чем Sales** (расхождение C4).
+- `GET /api/counterparties/:id/profile` — таймлайн карточки контрагента. **Расчёт сальдо** — по полному `timeline` (все ветки UNION). **Скрытие технических строк аванса продукцией** (виртуальная «Отгрузка продукции» + sales-`income` без `system_type` при паре `salary_payment` на том же `linked_order_id`) — поле `hide_in_timeline` в SQL (`EXISTS … system_type = 'salary_payment'`), на фронт уходит `transactions: timeline.filter((t) => !t.hide_in_timeline)`. Строка «Выдача аванса» (`salary_payment`, expense) остаётся видимой.
 
 ### routes/docs.js
 - `getNextDocNumber(client, prefix, table, column)` (определена в `web.js`) — генерирует `УТ-N`, `ЗК-N`, `СЧ-N`, `РН-N` через сканирование max(N) в нужной таблице/колонке.
