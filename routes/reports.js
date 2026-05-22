@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { validateReportRequest } = require('../middleware/validator');
 const { auditLog } = require('../utils/db_init');
 const { buildSalesAnalyticsUnitCostMap } = require('../utils/salesAnalyticsUnitCost');
+const { getSettlementFacts, buildOsvPivot } = require('../utils/counterpartySettlement');
 const { requireAdmin, requireReportAccess, hasReportPermission } = require('../middleware/auth');
 
 const REPORT_TYPES = new Set([
@@ -733,126 +734,67 @@ async function buildStockDrilldown(pool, params = {}) {
 }
 
 async function buildOsvCounterparties(pool, period, filters, accountingMode = 'managerial') {
-    const txParams = [period.fromTs, period.toTs];
-    const mvParams = [period.fromTs, period.toTs];
-    let txWhere = '';
-    let mvWhere = '';
-    if (filters.counterpartyId) {
-        txParams.push(Number(filters.counterpartyId));
-        txWhere += ` AND t.counterparty_id = $${txParams.length} `;
-        mvParams.push(Number(filters.counterpartyId));
-        mvWhere += ` AND co.counterparty_id = $${mvParams.length} `;
-    }
-    if (filters.excludeEmployees === true) {
-        txWhere += ` AND COALESCE(c.is_employee, false) = false `;
-        mvWhere += ` AND COALESCE(cp.is_employee, false) = false `;
-    }
-    if (accountingMode === 'regulatory') {
-        if (filters.regOnlyPosted !== false) {
-            txWhere += ` AND COALESCE(t.reg_is_posted, true) = true `;
-            mvWhere += ` AND COALESCE(m.reg_is_posted, true) = true `;
-        }
-        if (filters.regOnlyPrimaryDoc === true) {
-            txWhere += ` AND COALESCE(t.reg_is_primary_doc, false) = true `;
-            mvWhere += ` AND COALESCE(m.reg_is_primary_doc, false) = true `;
-        }
-        if (filters.regRequireDocumentNo === true) {
-            txWhere += ` AND COALESCE(NULLIF(TRIM(t.reg_document_no), ''), '') <> '' `;
-            mvWhere += ` AND COALESCE(NULLIF(TRIM(m.reg_document_no), ''), '') <> '' `;
-        }
-        if (filters.regSourceTag) {
-            txParams.push(String(filters.regSourceTag));
-            txWhere += ` AND COALESCE(NULLIF(TRIM(t.reg_source_tag), ''), 'legacy') = $${txParams.length} `;
-            mvParams.push(String(filters.regSourceTag));
-            mvWhere += ` AND COALESCE(NULLIF(TRIM(m.reg_source_tag), ''), 'legacy') = $${mvParams.length} `;
-        }
-    }
-
-    const txSql = `
-        SELECT
-            COALESCE(c.id, 0) AS counterparty_id,
-            COALESCE(c.name, 'Без контрагента') AS counterparty_name,
-            ROUND(COALESCE(SUM(CASE WHEN t.transaction_date < $1::timestamp AND t.transaction_type = 'income' THEN t.amount ELSE 0 END), 0)::numeric, 2) AS pay_before_in,
-            ROUND(COALESCE(SUM(CASE WHEN t.transaction_date < $1::timestamp AND t.transaction_type = 'expense' THEN t.amount ELSE 0 END), 0)::numeric, 2) AS pay_before_out,
-            ROUND(COALESCE(SUM(CASE WHEN t.transaction_date >= $1::timestamp AND t.transaction_date <= $2::timestamp AND t.transaction_type = 'income' THEN t.amount ELSE 0 END), 0)::numeric, 2) AS pay_in,
-            ROUND(COALESCE(SUM(CASE WHEN t.transaction_date >= $1::timestamp AND t.transaction_date <= $2::timestamp AND t.transaction_type = 'expense' THEN t.amount ELSE 0 END), 0)::numeric, 2) AS pay_out
-        FROM transactions t
-        LEFT JOIN counterparties c ON c.id = t.counterparty_id
-        WHERE COALESCE(t.is_deleted, false) = false
-        ${txWhere}
-        GROUP BY c.id, c.name
-    `;
-
-    const mvSql = `
-        SELECT
-            COALESCE(co.counterparty_id, 0) AS counterparty_id,
-            COALESCE(cp.name, 'Без контрагента') AS counterparty_name,
-            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) < $1::timestamp AND m.movement_type = 'shipment_reversal' THEN ABS(m.quantity) * COALESCE(coi.price, 0) ELSE 0 END), 0)::numeric, 2) AS ship_before_in,
-            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) < $1::timestamp AND m.movement_type = 'sales_shipment' THEN ABS(m.quantity) * COALESCE(coi.price, 0) ELSE 0 END), 0)::numeric, 2) AS ship_before_out,
-            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.movement_type = 'shipment_reversal' THEN ABS(m.quantity) * COALESCE(coi.price, 0) ELSE 0 END), 0)::numeric, 2) AS ship_in,
-            ROUND(COALESCE(SUM(CASE WHEN COALESCE(m.movement_date, m.created_at) >= $1::timestamp AND COALESCE(m.movement_date, m.created_at) <= $2::timestamp AND m.movement_type = 'sales_shipment' THEN ABS(m.quantity) * COALESCE(coi.price, 0) ELSE 0 END), 0)::numeric, 2) AS ship_out
-        FROM inventory_movements m
-        JOIN client_order_items coi ON coi.id = m.linked_order_item_id
-        JOIN client_orders co ON co.id = coi.order_id
-        LEFT JOIN counterparties cp ON cp.id = co.counterparty_id
-        WHERE m.movement_type IN ('sales_shipment', 'shipment_reversal')
-        ${mvWhere}
-        GROUP BY co.counterparty_id, cp.name
-    `;
-
-    const [txRes, mvRes] = await Promise.all([
-        pool.query(txSql, txParams),
-        pool.query(mvSql, mvParams)
-    ]);
-
-    const byCp = new Map();
-    const ensure = (id, name) => {
-        const key = Number(id || 0);
-        if (!byCp.has(key)) {
-            byCp.set(key, {
-                counterparty_id: key,
-                counterparty: name || 'Без контрагента',
-                pay_before_in: 0,
-                pay_before_out: 0,
-                pay_in: 0,
-                pay_out: 0,
-                ship_before_in: 0,
-                ship_before_out: 0,
-                ship_in: 0,
-                ship_out: 0
-            });
-        }
-        return byCp.get(key);
+    const factOptions = {
+        toTs: period.toTs,
+        order: 'asc',
+        accountingMode,
+        regOnlyPosted: filters.regOnlyPosted,
+        regOnlyPrimaryDoc: filters.regOnlyPrimaryDoc,
+        regRequireDocumentNo: filters.regRequireDocumentNo,
+        regSourceTag: filters.regSourceTag
     };
-    txRes.rows.forEach((r) => {
-        const row = ensure(r.counterparty_id, r.counterparty_name);
-        row.pay_before_in = Number(r.pay_before_in || 0);
-        row.pay_before_out = Number(r.pay_before_out || 0);
-        row.pay_in = Number(r.pay_in || 0);
-        row.pay_out = Number(r.pay_out || 0);
-    });
-    mvRes.rows.forEach((r) => {
-        const row = ensure(r.counterparty_id, r.counterparty_name);
-        row.ship_before_in = Number(r.ship_before_in || 0);
-        row.ship_before_out = Number(r.ship_before_out || 0);
-        row.ship_in = Number(r.ship_in || 0);
-        row.ship_out = Number(r.ship_out || 0);
-    });
+    if (filters.counterpartyId) {
+        factOptions.counterpartyId = Number(filters.counterpartyId);
+    } else if (filters.excludeEmployees === true) {
+        factOptions.excludeEmployees = true;
+    }
 
-    const rows = Array.from(byCp.values())
-        .map((r) => {
-            const opening = Number(((r.pay_before_in - r.pay_before_out) - (r.ship_before_out - r.ship_before_in)).toFixed(2));
-            const closing = Number((opening + (r.pay_in - r.pay_out) - (r.ship_out - r.ship_in)).toFixed(2));
-            // Дт/ДЗ = долг контрагента нам (алгебраическое сальдо < 0). Кт/КЗ = наш долг контрагенту / аванс (алгебраическое > 0). Совпадает с карточкой контрагента.
+    const facts = await getSettlementFacts(pool, factOptions);
+
+    const factsByCp = new Map();
+    for (const fact of facts) {
+        const cpId = Number(fact.counterparty_id || 0);
+        if (!factsByCp.has(cpId)) factsByCp.set(cpId, []);
+        factsByCp.get(cpId).push(fact);
+    }
+
+    const cpIdSet = new Set(factsByCp.keys());
+    if (filters.counterpartyId) {
+        cpIdSet.add(Number(filters.counterpartyId));
+    }
+
+    const cpIds = Array.from(cpIdSet).filter((id) => id > 0);
+    const nameById = new Map();
+    if (cpIds.length > 0) {
+        const nameRes = await pool.query(
+            `
+            SELECT id, name
+            FROM counterparties
+            WHERE id = ANY($1::int[])
+              AND COALESCE(is_deleted, false) = false
+            `,
+            [cpIds]
+        );
+        nameRes.rows.forEach((r) => nameById.set(Number(r.id), r.name));
+    }
+
+    const rows = cpIds
+        .map((cpId) => {
+            const pivot = buildOsvPivot(factsByCp.get(cpId) || [], period.fromTs, period.toTs);
+            const opening = Number(pivot.opening_balance);
+            const closing = Number(pivot.closing_balance);
+            // Закупки (purchase_*) входят в shipment_in периода и в opening/closing через pivot.opening_balance / closing_balance
+            const shipmentIn = Number((Number(pivot.ship_in) + Number(pivot.purchase_in)).toFixed(2));
+
             return {
-                counterparty_id: Number(r.counterparty_id || 0),
-                counterparty: r.counterparty,
+                counterparty_id: cpId,
+                counterparty: nameById.get(cpId) || `Контрагент #${cpId}`,
                 opening_debit: opening < 0 ? Math.abs(opening) : 0,
                 opening_credit: opening > 0 ? opening : 0,
-                payment_in: Number(r.pay_in.toFixed(2)),
-                payment_out: Number(r.pay_out.toFixed(2)),
-                shipment_in: Number(r.ship_in.toFixed(2)),
-                shipment_out: Number(r.ship_out.toFixed(2)),
+                payment_in: Number(pivot.pay_in),
+                payment_out: Number(pivot.pay_out),
+                shipment_in: shipmentIn,
+                shipment_out: Number(pivot.ship_out),
                 closing_debit: closing < 0 ? Math.abs(closing) : 0,
                 closing_credit: closing > 0 ? closing : 0,
                 closing_balance: closing
