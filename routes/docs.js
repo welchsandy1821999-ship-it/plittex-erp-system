@@ -6,6 +6,23 @@ const path = require('path');
 const fs = require('fs');
 const fsPromises = require('fs').promises;
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
+const { getSettlementFacts, buildOsvPivot, mapToProfileTimeline } = require('../utils/counterpartySettlement');
+
+function actPeriodStart(s) {
+    const d = new Date(`${s}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function actPeriodEnd(s) {
+    const d = new Date(`${s}T23:59:59.999`);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function factInActPeriod(fact, fromTs, toTs) {
+    const ts = new Date(fact.fact_ts);
+    if (Number.isNaN(ts.getTime())) return false;
+    return ts >= fromTs && ts <= toTs;
+}
 
 module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     /** Форма печати (КП, бланк): корзина с себестоимостью легко превышает лимит 100kb у urlencoded по умолчанию */
@@ -366,39 +383,55 @@ module.exports = function (pool, ERP_CONFIG, withTransaction, COMPANY_CONFIG) {
     // 7. АКТ СВЕРКИ (Act)
     router.get('/print/act', authenticateToken, async (req, res) => {
         try {
-            // Поддержка обоих форматов: cpId и cp_id
-            const cpId = req.query.cpId || req.query.cp_id;
+            const cpId = Number(req.query.cpId || req.query.cp_id || 0);
+            if (!cpId) return res.status(400).json({ error: 'ID контрагента не указан' });
+
             const safeStart = (!req.query.start || req.query.start === 'undefined') ? '2000-01-01' : req.query.start;
             const safeEnd = (!req.query.end || req.query.end === 'undefined') ? '2100-01-01' : req.query.end;
-            const cpRes = await pool.query('SELECT name, inn FROM counterparties WHERE id = $1', [cpId]);
-            const queries = `
-                SELECT amount::numeric, transaction_type, category, description, 
-                       TO_CHAR(transaction_date, 'DD.MM.YYYY') as date, transaction_date as sort_date
-                FROM transactions WHERE counterparty_id = $1 AND transaction_date BETWEEN $2::timestamp AND ($3::timestamp + interval '1 day' - interval '1 second')
-                  AND COALESCE(is_deleted, false) = false
-                  AND category NOT IN ('Зачёт аванса', 'Взаимозачет')
-                  AND (COALESCE(payment_method, '') != 'Взаимозачет' OR category IN ('Начисление ЗП', 'Зарплата', 'Оплата труда', 'Зарплата и Авансы', 'Премии', 'Штрафы', 'Удержание из ЗП', 'Ввод начальных остатков'))
-                UNION ALL
-                SELECT SUM(ABS(m.quantity) * coi.price)::numeric as amount, 'expense' as transaction_type, 'Отгрузка продукции' as category, 
-                       m.description as description, TO_CHAR(COALESCE(m.movement_date, m.created_at), 'DD.MM.YYYY') as date, COALESCE(m.movement_date, m.created_at) as sort_date
-                FROM inventory_movements m
-                JOIN client_order_items coi ON m.linked_order_item_id = coi.id
-                JOIN client_orders co ON coi.order_id = co.id
-                WHERE co.counterparty_id = $1 AND COALESCE(m.movement_date, m.created_at) >= $2::timestamp AND COALESCE(m.movement_date, m.created_at) <= ($3::timestamp + interval '1 day' - interval '1 second') AND m.movement_type = 'sales_shipment'
-                GROUP BY m.description, COALESCE(m.movement_date, m.created_at)
-                UNION ALL
-                SELECT amount::numeric, 'income' as transaction_type, 'Поставка сырья' as category, 
-                       description, TO_CHAR(movement_date, 'DD.MM.YYYY') as date, movement_date as sort_date
-                FROM inventory_movements WHERE supplier_id = $1 AND COALESCE(movement_date, created_at) >= $2::timestamp AND COALESCE(movement_date, created_at) <= ($3::timestamp + interval '1 day' - interval '1 second') AND movement_type = 'purchase'
-            `;
-            const transactions = await pool.query(`
-                SELECT * FROM (${queries}) AS combined
-                ORDER BY sort_date ASC
-            `, [cpId, safeStart, safeEnd]);
+            const fromTs = actPeriodStart(safeStart);
+            const toTs = actPeriodEnd(safeEnd);
+            if (!fromTs || !toTs) return res.status(400).json({ error: 'Некорректный период акта сверки' });
+
+            const cpRes = await pool.query(
+                'SELECT name, inn, pallets_balance FROM counterparties WHERE id = $1',
+                [cpId]
+            );
+            if (cpRes.rows.length === 0) return res.status(404).json({ error: 'Контрагент не найден' });
+
+            const facts = await getSettlementFacts(pool, {
+                counterpartyId: cpId,
+                toTs,
+                order: 'asc'
+            });
+            const pivot = buildOsvPivot(facts, fromTs, toTs);
+
+            const periodFacts = facts.filter(
+                (f) => factInActPeriod(f, fromTs, toTs) && !f.hide_in_timeline
+            );
+            const transactions = mapToProfileTimeline(periodFacts).sort(
+                (a, b) => a.sort_date - b.sort_date
+            );
+
+            let totalDebit = new Big(0);
+            let totalCredit = new Big(0);
+            for (const f of periodFacts) {
+                const amt = new Big(f.amount || 0);
+                if (f.display_transaction_type === 'expense') {
+                    totalDebit = totalDebit.plus(amt);
+                } else {
+                    totalCredit = totalCredit.plus(amt);
+                }
+            }
 
             res.render('docs/act', {
-                cp: cpRes.rows[0], transactions: transactions.rows,
-                period: { start: req.query.start, end: req.query.end }, company: COMPANY_CONFIG
+                cp: cpRes.rows[0],
+                transactions,
+                openingBalance: Number(pivot.opening_balance),
+                closingBalance: Number(pivot.closing_balance),
+                totalDebit: Number(totalDebit.round(2)),
+                totalCredit: Number(totalCredit.round(2)),
+                period: { start: req.query.start, end: req.query.end },
+                company: COMPANY_CONFIG
             });
         } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });

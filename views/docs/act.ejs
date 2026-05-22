@@ -62,10 +62,25 @@
             </thead>
             <tbody>
                 <% 
-                    let runningBalance = 0;
-                    let totalDebit = 0; 
-                    let totalCredit = 0; 
+                    let runningBalance = Number(openingBalance || 0);
+                    let rowDebit = typeof totalDebit === 'number' ? totalDebit : 0;
+                    let rowCredit = typeof totalCredit === 'number' ? totalCredit : 0;
                 %>
+                <% if (Math.abs(Number(openingBalance || 0)) > 0.0001) { %>
+                    <% 
+                        const openBal = Number(openingBalance || 0);
+                        let openDebit = 0;
+                        let openCredit = 0;
+                        if (openBal > 0) { openDebit = openBal; } else { openCredit = Math.abs(openBal); }
+                    %>
+                    <tr style="background: #fafafa;">
+                        <td class="text-center"><%= period && period.start ? period.start : '—' %></td>
+                        <td><b>Сальдо на начало периода</b></td>
+                        <td class="text-right"><%= openDebit > 0 ? openDebit.toLocaleString('ru-RU') + ' ₽' : '-' %></td>
+                        <td class="text-right"><%= openCredit > 0 ? openCredit.toLocaleString('ru-RU') + ' ₽' : '-' %></td>
+                        <td class="text-right <%= openBal > 0 ? 'color-red' : 'color-green' %>" style="font-weight: bold;"><%= openBal.toLocaleString('ru-RU') %> ₽</td>
+                    </tr>
+                <% } %>
                 <% transactions.forEach((t) => { %>
                     <% 
                         let debit = 0; 
@@ -73,11 +88,9 @@
                         
                         if (t.transaction_type === 'income') { 
                             credit = parseFloat(t.amount); 
-                            totalCredit += credit; 
                             runningBalance -= credit; 
                         } else { 
                             debit = parseFloat(t.amount); 
-                            totalDebit += debit; 
                             runningBalance += debit; 
                         } 
                         
@@ -95,19 +108,20 @@
                     </tr>
                 <% }) %>
                 <tr style="background: #f0f0f0; font-weight: bold;">
-                    <td colspan="2" class="text-right">ИТОГО ОБОРОТЫ:</td>
-                    <td class="text-right"><%= totalDebit.toLocaleString('ru-RU') %> ₽</td>
-                    <td class="text-right"><%= totalCredit.toLocaleString('ru-RU') %> ₽</td>
+                    <td colspan="2" class="text-right">ИТОГО ОБОРОТЫ за период:</td>
+                    <td class="text-right"><%= rowDebit.toLocaleString('ru-RU') %> ₽</td>
+                    <td class="text-right"><%= rowCredit.toLocaleString('ru-RU') %> ₽</td>
                     <td></td>
                 </tr>
             </tbody>
         </table>
 
         <div class="info-text" style="font-weight: bold; font-size: 13px;">
-            <% if (runningBalance > 0) { %>
-                Задолженность в пользу ООО "Плиттекс" составляет: <%= runningBalance.toLocaleString('ru-RU') %> руб.
-            <% } else if (runningBalance < 0) { %>
-                Задолженность в пользу <%= cp.name %> (Аванс) составляет: <%= Math.abs(runningBalance).toLocaleString('ru-RU') %> руб.
+            <% const finalBalance = (typeof closingBalance === 'number') ? Number(closingBalance) : runningBalance; %>
+            <% if (finalBalance > 0) { %>
+                Задолженность в пользу ООО "Плиттекс" составляет: <%= finalBalance.toLocaleString('ru-RU') %> руб.
+            <% } else if (finalBalance < 0) { %>
+                Задолженность в пользу <%= cp.name %> (Аванс) составляет: <%= Math.abs(finalBalance).toLocaleString('ru-RU') %> руб.
             <% } else { %>
                 Задолженность отсутствует (Сальдо равно нулю).
             <% } %>
