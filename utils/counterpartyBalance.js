@@ -4,15 +4,60 @@
  * УНИВЕРСАЛЬНАЯ ФОРМУЛА САЛЬДО ERP:
  *   balance = ourShipments + ourPayments − theirShipments − theirPayments
  *
- * Где:
- *   ourShipments  — стоимость реально отгруженной продукции (inventory_movements × price)
- *   ourPayments   — наши денежные расходы в пользу контрагента (transactions.expense)
- *   theirShipments — их поставки сырья (inventory_movements.purchase)
- *   theirPayments — их денежные приходы (transactions.income)
+ * Phase 3a: сальдо и денежно-товарные компоненты — из v_counterparty_settlement_facts
+ * (utils/counterpartySettlement.js). Аванс по незакрытым заказам — отдельный запрос.
  *
  * Положительное сальдо: должны НАМ.  Отрицательное: должны МЫ.
  */
 const Big = require('big.js');
+const { getSettlementFacts, calculateBalance } = require('./counterpartySettlement');
+
+/**
+ * @param {import('./counterpartySettlement').SettlementFact[]} facts
+ * @param {boolean} isEmployee
+ * @returns {{ our_shipments: string, our_payments: string, their_shipments: string, their_payments: string }}
+ */
+function buildRawComponentsFromFacts(facts, isEmployee) {
+    let ourShipments = new Big(0);
+    let ourPayments = new Big(0);
+    let theirShipments = new Big(0);
+    let theirPayments = new Big(0);
+
+    for (const f of facts || []) {
+        const amt = new Big(f.amount || 0);
+        switch (f.fact_type) {
+            case 'sales_shipment':
+                ourShipments = ourShipments.plus(amt);
+                break;
+            case 'shipment_reversal':
+                ourShipments = ourShipments.minus(amt);
+                break;
+            case 'money_expense':
+                ourPayments = ourPayments.plus(amt);
+                break;
+            case 'money_income':
+                theirPayments = theirPayments.plus(amt);
+                break;
+            case 'money_expense_return_to_client':
+                theirPayments = theirPayments.plus(amt);
+                break;
+            case 'purchase_receipt':
+                if (!isEmployee) {
+                    theirShipments = theirShipments.plus(amt);
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    return {
+        our_shipments: ourShipments.round(2).toFixed(2),
+        our_payments: ourPayments.round(2).toFixed(2),
+        their_shipments: theirShipments.round(2).toFixed(2),
+        their_payments: theirPayments.round(2).toFixed(2)
+    };
+}
 
 /**
  * DRY-хелпер: Баланс контрагента (5 компонентов).
@@ -31,65 +76,31 @@ async function getCounterpartyBalance(dbClient, cpId) {
         throw new Error('Контрагент не найден');
     }
     const cp = cpRes.rows[0];
-    const employeeId = cp.employee_id || null;
     const isEmployee = Boolean(cp.is_employee);
 
-    const balRes = await dbClient.query(
+    const facts = await getSettlementFacts(dbClient, { counterpartyId: Number(cpId) });
+    const balanceNum = calculateBalance(facts);
+    const realBalance = new Big(balanceNum);
+
+    const raw = buildRawComponentsFromFacts(facts, isEmployee);
+
+    const pendingRes = await dbClient.query(
         `
-        WITH money AS (
-            SELECT t.amount::numeric AS amount, t.transaction_type
-            FROM transactions t
-            WHERE (
-                t.counterparty_id = $1
-                OR (
-                    t.employee_id = $2 AND $2 IS NOT NULL
-                    AND (
-                        t.source_module = 'salary'
-                        OR t.system_type LIKE 'salary_%'
-                        OR t.salary_adjustment_id IS NOT NULL
-                    )
-                )
-            )
-              AND COALESCE(t.is_deleted, false) = false
-              AND COALESCE(t.system_type, '') NOT LIKE 'imprest_%'
-              AND COALESCE(t.source_module, '') <> 'transit'
-        ),
-        goods_sales AS (
-            SELECT SUM(ABS(m.quantity) * coi.price)::numeric AS amount
-            FROM inventory_movements m
-            JOIN client_order_items coi ON m.linked_order_item_id = coi.id
-            JOIN client_orders co ON coi.order_id = co.id
-            WHERE co.counterparty_id = $1
-              AND m.movement_type = 'sales_shipment'
-        ),
-        goods_purchase AS (
-            SELECT CASE WHEN $3::boolean THEN 0::numeric ELSE COALESCE(SUM(im.amount), 0)::numeric END AS amount
-            FROM inventory_movements im
-            WHERE im.supplier_id = $1
-              AND im.movement_type = 'purchase'
-        ),
-        pending AS (
-            SELECT COALESCE(SUM(paid_amount), 0)::numeric AS amount
-            FROM client_orders
-            WHERE counterparty_id = $1
-              AND status IN ('pending', 'processing')
-        )
-        SELECT
-            COALESCE((SELECT amount FROM goods_sales), 0)::numeric AS our_shipments,
-            COALESCE((SELECT SUM(amount) FROM money WHERE transaction_type = 'expense'), 0)::numeric AS our_payments,
-            COALESCE((SELECT amount FROM goods_purchase), 0)::numeric AS their_shipments,
-            COALESCE((SELECT SUM(amount) FROM money WHERE transaction_type = 'income'), 0)::numeric AS their_payments,
-            COALESCE((SELECT amount FROM pending), 0)::numeric AS pending_allocated
+        SELECT COALESCE(SUM(paid_amount), 0)::numeric AS pending_allocated
+        FROM client_orders
+        WHERE counterparty_id = $1
+          AND status IN ('pending', 'processing')
         `,
-        [cpId, employeeId, isEmployee]
+        [cpId]
     );
-    const b = balRes.rows[0];
-    const realBalance = new Big(b.our_shipments).plus(b.our_payments).minus(b.their_shipments).minus(b.their_payments);
+    raw.pending_allocated = pendingRes.rows[0].pending_allocated;
+
     const totalAdvance = realBalance.lt(0) ? realBalance.abs() : new Big(0);
-    const allocated = new Big(b.pending_allocated);
+    const allocated = new Big(raw.pending_allocated || 0);
     const freeAdvanceBig = totalAdvance.minus(allocated);
     const freeAdvance = freeAdvanceBig.lt(0) ? new Big(0) : freeAdvanceBig;
-    return { realBalance, totalAdvance, freeAdvance, raw: b, isEmployee };
+
+    return { realBalance, totalAdvance, freeAdvance, raw, isEmployee };
 }
 
 module.exports = {
