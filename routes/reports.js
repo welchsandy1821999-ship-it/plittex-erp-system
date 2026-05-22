@@ -783,20 +783,20 @@ async function buildOsvCounterparties(pool, period, filters, accountingMode = 'm
             const pivot = buildOsvPivot(factsByCp.get(cpId) || [], period.fromTs, period.toTs);
             const opening = Number(pivot.opening_balance);
             const closing = Number(pivot.closing_balance);
-            // Закупки (purchase_*) входят в shipment_in периода и в opening/closing через pivot.opening_balance / closing_balance
+            // Закупки (purchase_*) — в shipment_in периода; в сальдо — через pivot.opening_balance / closing_balance
             const shipmentIn = Number((Number(pivot.ship_in) + Number(pivot.purchase_in)).toFixed(2));
-
+            // Алгебраическое сальдо: >0 = ДЗ (нам должны), <0 = КЗ (мы должны) — как карточка и VIEW
             return {
                 counterparty_id: cpId,
                 counterparty: nameById.get(cpId) || `Контрагент #${cpId}`,
-                opening_debit: opening < 0 ? Math.abs(opening) : 0,
-                opening_credit: opening > 0 ? opening : 0,
+                opening_debit: opening > 0 ? opening : 0,
+                opening_credit: opening < 0 ? Math.abs(opening) : 0,
                 payment_in: Number(pivot.pay_in),
                 payment_out: Number(pivot.pay_out),
                 shipment_in: shipmentIn,
                 shipment_out: Number(pivot.ship_out),
-                closing_debit: closing < 0 ? Math.abs(closing) : 0,
-                closing_credit: closing > 0 ? closing : 0,
+                closing_debit: closing > 0 ? closing : 0,
+                closing_credit: closing < 0 ? Math.abs(closing) : 0,
                 closing_balance: closing
             };
         })
