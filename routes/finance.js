@@ -12,6 +12,8 @@ const { allocateUnlinkedClientIncome } = require('../utils/allocateClientAdvance
 const { money, reconcileOrderSettlement } = require('../utils/orderSettlement');
 const { recalcAccountBalances } = require('../utils/accountBalances');
 const { sendNotify, escapeHtml, formatMoney } = require('../utils/telegram');
+const { getSettlementFacts, mapToProfileTimeline } = require('../utils/counterpartySettlement');
+const { getCounterpartyBalance } = require('../utils/counterpartyBalance');
 
 // 🚀 Единая функция поиска документов в тексте (Защита от опечаток)
 function extractDocNumber(description) {
@@ -1320,124 +1322,32 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         if (cpRes.rows.length === 0) return res.status(404).json({ error: 'Контрагент не найден' });
         const cp = cpRes.rows[0];
 
-        const moneyWhere = `
-            (
-                /* 1. Действия как дилера/покупателя */
-                t.counterparty_id = $1
-                /* 2. Действия как сотрудника (только личные деньги) */
-                OR (
-                    t.employee_id = $2 AND $2 IS NOT NULL
-                    AND (
-                        t.source_module = 'salary'
-                        OR t.system_type LIKE 'salary_%'
-                        OR t.salary_adjustment_id IS NOT NULL
-                    )
-                )
-            )
-            AND COALESCE(t.is_deleted, false) = false
-            AND COALESCE(t.system_type, '') NOT LIKE 'imprest_%'
-            AND COALESCE(t.source_module, '') <> 'transit'
-        `;
+        const facts = await getSettlementFacts(pool, {
+            counterpartyId: Number(cpId),
+            order: 'desc'
+        });
+        const timeline = mapToProfileTimeline(facts);
+        const filteredTransactions = timeline
+            .filter((t) => !t.hide_in_timeline)
+            .sort((a, b) => b.sort_date - a.sort_date);
 
-        const queries = `
-            SELECT amount::numeric, transaction_type, category, description,
-                   TO_CHAR(transaction_date, 'DD.MM.YYYY HH24:MI') as date, 'money' as origin, transaction_date as sort_date,
-                   COALESCE(t.payment_method, '') AS payment_method,
-                   t.id AS tx_id,
-                   t.linked_order_id,
-                   COALESCE(t.system_type, '') AS system_type,
-                   COALESCE(t.source_module, '') AS source_module,
-                   (
-                       t.transaction_type = 'income'
-                       AND COALESCE(t.source_module, '') = 'sales'
-                       AND COALESCE(t.system_type, '') = ''
-                       AND t.linked_order_id IS NOT NULL
-                       AND EXISTS (
-                           SELECT 1 FROM transactions sp
-                           WHERE sp.linked_order_id = t.linked_order_id
-                             AND sp.system_type = 'salary_payment'
-                             AND COALESCE(sp.is_deleted, false) = false
-                       )
-                   ) AS hide_in_timeline
-            FROM transactions t
-            WHERE ${moneyWhere}
-            UNION ALL
-            SELECT SUM(ABS(m.quantity) * coi.price)::numeric as amount, 'expense' as transaction_type, 'Отгрузка продукции' as category,
-                   m.description as description, TO_CHAR(COALESCE(m.movement_date, m.created_at), 'DD.MM.YYYY') as date, 'goods' as origin, COALESCE(m.movement_date, m.created_at) as sort_date,
-                   COALESCE(co.payment_method, '') AS payment_method,
-                   NULL::integer AS tx_id,
-                   co.id AS linked_order_id,
-                   '' AS system_type,
-                   '' AS source_module,
-                   EXISTS (
-                       SELECT 1 FROM transactions sp
-                       WHERE sp.linked_order_id = co.id
-                         AND sp.system_type = 'salary_payment'
-                         AND COALESCE(sp.is_deleted, false) = false
-                   ) AS hide_in_timeline
-            FROM inventory_movements m
-            JOIN client_order_items coi ON m.linked_order_item_id = coi.id
-            JOIN client_orders co ON coi.order_id = co.id
-            WHERE co.counterparty_id = $1 AND m.movement_type = 'sales_shipment'
-            GROUP BY m.description, COALESCE(m.movement_date, m.created_at), co.id, co.payment_method
-            ${cp.is_employee ? '' : `
-            UNION ALL
-            SELECT amount::numeric, 'income' as transaction_type, 'Поставка сырья' as category,
-                   description, TO_CHAR(COALESCE(movement_date, created_at), 'DD.MM.YYYY') as date, 'goods' as origin, COALESCE(movement_date, created_at) as sort_date,
-                   '' AS payment_method,
-                   NULL::integer AS tx_id,
-                   NULL::integer AS linked_order_id,
-                   '' AS system_type,
-                   '' AS source_module,
-                   false AS hide_in_timeline
-            FROM inventory_movements WHERE supplier_id = $1 AND movement_type = 'purchase'
-            `}
-        `;
-        const queryParams = [cpId, cp.employee_id || null];
-        const timelineRes = await pool.query(
-            `SELECT * FROM (${queries}) AS combined ORDER BY sort_date DESC`,
-            queryParams
-        );
-            const timeline = timelineRes.rows;
+        const { realBalance, raw } = await getCounterpartyBalance(pool, cpId);
+        const balance = realBalance.toFixed(2);
+        const overpayment = realBalance.lt(0) ? realBalance.abs().toFixed(2) : '0.00';
 
-            // УНИВЕРСАЛЬНАЯ ФОРМУЛА САЛЬДО ERP:
-            let ourShipments = new Big(0); let ourPayments = new Big(0);
-            let theirShipments = new Big(0); let theirPayments = new Big(0);
-
-            timeline.forEach(item => {
-                const amt = new Big(item.amount);
-                if (item.origin === 'goods') {
-                    if (item.transaction_type === 'expense') ourShipments = ourShipments.plus(amt);
-                    else theirShipments = theirShipments.plus(amt);
-                } else if (item.origin === 'money') {
-                    /* Возврат наличных клиенту — по смыслу взаиморасчётов уменьшает дебиторку (как зачёт в пользу клиента),
-                       а не «оплата от нас» в том же знаке, что усиливает баланс в пользу «нам должны». */
-                    if (item.transaction_type === 'expense' && String(item.category || '').trim() === 'Возврат средств покупателю') {
-                        theirPayments = theirPayments.plus(amt);
-                    } else if (item.transaction_type === 'expense') {
-                        ourPayments = ourPayments.plus(amt);
-                    } else {
-                        theirPayments = theirPayments.plus(amt);
-                    }
-                }
-            });
-
-            // Положительное сальдо: должны НАМ. Отрицательное: должны МЫ.
-            const balance = ourShipments.plus(ourPayments).minus(theirShipments).minus(theirPayments).toFixed(2);
-
-            const balanceBig = new Big(balance);
-            const overpayment = balanceBig.lt(0) ? balanceBig.abs().toFixed(2) : '0.00';
-
-            const filteredTransactions = timeline.filter((t) => !t.hide_in_timeline);
-
-            res.json({
-                info: cp,
-                transactions: filteredTransactions,
-                finances: { balance, totalPaid: theirPayments.toFixed(2), totalInvoiced: ourShipments.toFixed(2) },
-                overpayment: Number(overpayment),
-                saldo: Number(balance),
-                invoices: [], contracts: []
-            });
+        res.json({
+            info: cp,
+            transactions: filteredTransactions,
+            finances: {
+                balance,
+                totalPaid: String(raw.their_payments),
+                totalInvoiced: String(raw.our_shipments)
+            },
+            overpayment: Number(overpayment),
+            saldo: Number(balance),
+            invoices: [],
+            contracts: []
+        });
         } catch (err) {
             logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
