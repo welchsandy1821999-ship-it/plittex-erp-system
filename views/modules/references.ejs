@@ -47,6 +47,13 @@
                     <option value="material">🪨 Сырье</option>
                 </select>
             </div>
+            <div class="form-group col-span-2" id="group-default-warehouse">
+                <label class="text-primary font-bold">Склад по умолчанию (продажи):</label>
+                <select id="ref-default-warehouse" class="input-modern">
+                    <option value="">— Не задан (при продажах → склад ГП) —</option>
+                </select>
+                <small class="text-muted font-11 d-block mt-4">Для номенклатуры 2-го сорта / уценки выберите склад Markdown. Используется модулем продаж и резервированием.</small>
+            </div>
             <div class="form-group">
                 <label>Название:</label>
                 <input type="text" id="ref-name" class="input-modern" placeholder="Точное наименование">

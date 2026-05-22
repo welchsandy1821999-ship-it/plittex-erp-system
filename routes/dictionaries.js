@@ -75,14 +75,36 @@ module.exports = function (pool, withTransaction) {
         } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
 
+    function parseDefaultWarehouseId(raw) {
+        if (raw == null || raw === '') return null;
+        const n = Number(raw);
+        return Number.isInteger(n) && n > 0 ? n : null;
+    }
+
+    router.get('/api/warehouses/product-defaults', async (req, res) => {
+        try {
+            const result = await pool.query(`
+                SELECT id, type, name
+                FROM warehouses
+                WHERE type IN ('finished', 'markdown')
+                ORDER BY CASE type WHEN 'finished' THEN 1 WHEN 'markdown' THEN 2 ELSE 3 END, id
+            `);
+            res.json(result.rows);
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+        }
+    });
+
     router.post('/api/items', requireAdmin, validateItem, async (req, res) => {
         // 🚀 ДОБАВИЛИ piece_rate И шаблоны замесов
-        const { name, item_type, category, unit, price, weight, qty_per_cycle, mold_id, gost_mark, article, piece_rate, mix_main_tpl, mix_face_tpl } = req.body;
+        const { name, item_type, category, unit, price, weight, qty_per_cycle, mold_id, gost_mark, article, piece_rate, mix_main_tpl, mix_face_tpl, default_warehouse_id } = req.body;
+        const defaultWhId = parseDefaultWarehouseId(default_warehouse_id);
         try {
             await pool.query(`
-                INSERT INTO items (name, item_type, category, unit, current_price, weight_kg, qty_per_cycle, mold_id, gost_mark, article, piece_rate, mix_main_tpl, mix_face_tpl) 
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-            `, [name, item_type, category, unit, price, weight, qty_per_cycle || 1, mold_id || null, gost_mark || '', article || null, piece_rate || 0, mix_main_tpl || null, mix_face_tpl || null]);
+                INSERT INTO items (name, item_type, category, unit, current_price, weight_kg, qty_per_cycle, mold_id, gost_mark, article, piece_rate, mix_main_tpl, mix_face_tpl, default_warehouse_id) 
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            `, [name, item_type, category, unit, price, weight, qty_per_cycle || 1, mold_id || null, gost_mark || '', article || null, piece_rate || 0, mix_main_tpl || null, mix_face_tpl || null, defaultWhId]);
             res.json({ success: true, message: 'Позиция добавлена' });
         } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
@@ -100,14 +122,17 @@ module.exports = function (pool, withTransaction) {
             'piece_rate',     // Сдельная ставка
             'mix_main_tpl',   // Шаблон основного слоя
             'mix_face_tpl',   // Шаблон лицевого слоя
-            'default_layer'   // Слой по умолчанию для модуля рецептур
+            'default_layer',  // Слой по умолчанию для модуля рецептур
+            'default_warehouse_id' // Склад-донор по умолчанию (продажи / резерв)
         ];
 
         // 2. Фильтрация входящих данных: оставляем только те, что в белом списке
         const updates = {};
         for (const key of Object.keys(req.body)) {
             if (allowedFields.includes(key)) {
-                updates[key] = req.body[key];
+                updates[key] = key === 'default_warehouse_id'
+                    ? parseDefaultWarehouseId(req.body[key])
+                    : req.body[key];
             }
         }
 

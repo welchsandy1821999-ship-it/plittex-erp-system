@@ -4,6 +4,36 @@
     let currentRefPage = 1;
     let refPageSize = 50;
     let refSearchTimeout = null;
+    let refWarehouseOptionsCache = null;
+
+    const REF_DEFAULT_WH_LABELS = {
+        finished: 'Основной склад (ГП)',
+        markdown: 'Склад уценки (Markdown)'
+    };
+
+    function fillRefDefaultWarehouseSelect(sel, rows) {
+        const prev = sel.value;
+        sel.innerHTML = '<option value="">— Не задан (при продажах → склад ГП) —</option>';
+        (rows || []).forEach((w) => {
+            const label = REF_DEFAULT_WH_LABELS[w.type] || w.name || `Склад #${w.id}`;
+            sel.add(new Option(label, String(w.id)));
+        });
+        if (prev) sel.value = prev;
+        if (sel.tomselect) sel.tomselect.sync();
+    }
+
+    async function ensureRefDefaultWarehouseOptions() {
+        const sel = document.getElementById('ref-default-warehouse');
+        if (!sel) return;
+        try {
+            if (!refWarehouseOptionsCache) {
+                refWarehouseOptionsCache = await API.get('/api/warehouses/product-defaults');
+            }
+            fillRefDefaultWarehouseSelect(sel, refWarehouseOptionsCache);
+        } catch (e) {
+            console.error('Ошибка загрузки складов для справочника:', e);
+        }
+    }
 
     // Инициализация при открытии приложения
     async function loadReferences(page = 1) {
@@ -128,6 +158,7 @@
         document.getElementById('ref-form-title').innerText = '✨ Добавление новой позиции';
         clearRefForm();
         loadMoldsForRefs();
+        void ensureRefDefaultWarehouseOptions();
         document.getElementById('ref-type').dispatchEvent(new Event('change'));
     }
 
@@ -168,11 +199,18 @@
         if (mixMainEl) mixMainEl.value = '';
         const mixFaceEl = document.getElementById('ref-mix-face');
         if (mixFaceEl) mixFaceEl.value = '';
+
+        const defWhEl = document.getElementById('ref-default-warehouse');
+        if (defWhEl) {
+            defWhEl.value = '';
+            if (defWhEl.tomselect) defWhEl.tomselect.sync();
+        }
     }
 
     async function editReference(id) {
         openRefForm();
         document.getElementById('ref-form-title').innerText = '✏️ Редактирование позиции (ID: ' + id + ')';
+        await ensureRefDefaultWarehouseOptions();
 
         try {
             // 🚀 ИСПРАВЛЕНИЕ: API.get уже возвращает данные, .json() вызывать НЕ НУЖНО
@@ -217,6 +255,12 @@
                 const mixFaceEl = document.getElementById('ref-mix-face');
                 if (mixFaceEl) mixFaceEl.value = item.mix_face_tpl || '';
 
+                const defWhEl = document.getElementById('ref-default-warehouse');
+                if (defWhEl) {
+                    defWhEl.value = item.default_warehouse_id ? String(item.default_warehouse_id) : '';
+                    if (defWhEl.tomselect) defWhEl.tomselect.sync();
+                }
+
                 // Прокрутка наверх к форме
                 document.querySelector('.content-area').scrollTo({ top: 0, behavior: 'smooth' });
             }
@@ -228,10 +272,18 @@
 
     async function saveReference() {
         const id = document.getElementById('ref-edit-id').value;
+        const itemType = document.getElementById('ref-type').value;
+        const defWhRaw = document.getElementById('ref-default-warehouse')?.value;
+        let default_warehouse_id = null;
+        if (itemType === 'product' && defWhRaw) {
+            const parsed = Number(defWhRaw);
+            if (Number.isInteger(parsed) && parsed > 0) default_warehouse_id = parsed;
+        }
+
         const payload = {
             name: document.getElementById('ref-name').value.trim(),
             article: document.getElementById('ref-article').value.trim(),
-            item_type: document.getElementById('ref-type').value,
+            item_type: itemType,
             category: document.getElementById('ref-category').value.trim(),
             unit: document.getElementById('ref-unit').value.trim(),
             price: parseFloat(document.getElementById('ref-price').value) || 0,
@@ -242,7 +294,8 @@
             mold_id: document.getElementById('ref-mold-id').value || null,
             gost_mark: document.getElementById('ref-gost')?.value.trim() || '',
             mix_main_tpl: document.getElementById('ref-mix-main')?.value || null,
-            mix_face_tpl: document.getElementById('ref-mix-face')?.value || null
+            mix_face_tpl: document.getElementById('ref-mix-face')?.value || null,
+            default_warehouse_id
         };
 
         if (!payload.name) return UI.toast('Укажите название позиции!', 'error');
@@ -327,7 +380,7 @@
 
     // Функция инициализации всех селектов TomSelect в модуле
     function initStaticRefSelects() {
-        ['ref-filter-type', 'ref-filter-category', 'ref-type', 'ref-mold-id'].forEach(id => {
+        ['ref-filter-type', 'ref-filter-category', 'ref-type', 'ref-mold-id', 'ref-default-warehouse'].forEach(id => {
             const el = document.getElementById(id);
             if (el && !el.tomselect) {
                 new TomSelect(el, { plugins: ['clear_button'] });
@@ -347,13 +400,17 @@
                 const groupMold = document.getElementById('group-mold-select');
                 const groupGost = document.getElementById('group-gost');
                 const groupMixTemplates = document.querySelector('.group-mix-templates');
+                const groupDefaultWh = document.getElementById('group-default-warehouse');
 
                 if (groupQty) groupQty.classList.toggle('inv-hidden', !isProd);
                 if (groupMold) groupMold.classList.toggle('inv-hidden', !isProd);
                 if (groupGost) groupGost.classList.toggle('inv-hidden', !isProd);
                 if (groupMixTemplates) groupMixTemplates.classList.toggle('inv-hidden', !isProd);
+                if (groupDefaultWh) groupDefaultWh.classList.toggle('inv-hidden', !isProd);
             });
         }
+
+        void ensureRefDefaultWarehouseOptions();
     });
 
     // === ГЛОБАЛЬНЫЙ ЭКСПОРТ ===
