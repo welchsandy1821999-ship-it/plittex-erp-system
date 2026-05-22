@@ -16,6 +16,7 @@ const { estimatePalletsFromRecipes } = require('../utils/palletRecipeEstimate');
 const { buildSalesAnalyticsUnitCostData } = require('../utils/salesAnalyticsUnitCost');
 const { getCounterpartyBalance } = require('../utils/counterpartyBalance');
 const { recalcAccountBalances } = require('../utils/accountBalances');
+const { resolveShipmentMovementTimestamp } = require('../utils/mskTime');
 
 const { requireAdmin } = require('../middleware/auth');
 const { validateCheckout, validateReturn, validateShipment, validateTransferReserve, validateOrderStatus } = require('../middleware/validator');
@@ -678,7 +679,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
         const orderId = req.params.id;
         const { items_to_ship, driver, auto, poa_info, pallets, ship_date } = req.body;
         const user_id = req.user.id; // 🛡️ SECURITY: user_id из JWT, не из req.body
-        const finalShipDate = ship_date ? new Date(ship_date).toISOString() : new Date().toISOString();
+        const finalShipDate = resolveShipmentMovementTimestamp(ship_date);
 
         try {
             let docNum;
@@ -803,8 +804,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                                 transferFifo = [{ batch_id: null, qty: shortfall }];
                             }
                             for (const part of transferFifo) {
-                                await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id, movement_date) VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6, $7, $8)`, [item.item_id, -part.qty, `Авто-перевод в резерв при отгрузке`, donorWhId, part.batch_id, user_id || null, item.coi_id, finalShipDate]);
-                                await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id, movement_date) VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6, $7, $8)`, [item.item_id, part.qty, `Авто-добор из свободных остатков`, reserveWhId, part.batch_id, user_id || null, item.coi_id, finalShipDate]);
+                                await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id, movement_date) VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6, $7, COALESCE($8::timestamptz, CURRENT_TIMESTAMP))`, [item.item_id, -part.qty, `Авто-перевод в резерв при отгрузке`, donorWhId, part.batch_id, user_id || null, item.coi_id, finalShipDate]);
+                                await client.query(`INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id, movement_date) VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6, $7, COALESCE($8::timestamptz, CURRENT_TIMESTAMP))`, [item.item_id, part.qty, `Авто-добор из свободных остатков`, reserveWhId, part.batch_id, user_id || null, item.coi_id, finalShipDate]);
                             }
                             
                             // Также корректируем qty_reserved в client_order_items, и убираем из дефицита (qty_production)
@@ -831,7 +832,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     for (const part of shipFifo) {
                         await client.query(
                             `INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, user_id, linked_order_item_id, movement_date, shipment_doc_number)
-                             VALUES ($1, $2, 'sales_shipment', $3, $4, $5, $6, $7, $8, $9)`,
+                             VALUES ($1, $2, 'sales_shipment', $3, $4, $5, $6, $7, COALESCE($8::timestamptz, CURRENT_TIMESTAMP), $9)`,
                             [item.item_id, -part.qty, desc, reserveWhId, part.batch_id, user_id || null, item.coi_id, finalShipDate, docNum]
                         );
                         itemShippedBig = itemShippedBig.plus(new Big(part.qty || 0));

@@ -850,6 +850,12 @@ async function loadSalesData(fullLoad = true) {
             }
         });
 
+        const isMarkdownDefaultProduct = (product, markdownWhId) => {
+            const defWh = Number(product.default_warehouse_id);
+            const mdWh = Number(markdownWhId);
+            return Number.isInteger(defWh) && defWh > 0 && Number.isInteger(mdWh) && mdWh > 0 && defWh === mdWh;
+        };
+
         Object.values(salesProductsInfo).forEach(p => {
             const price = parseFloat(p.price || p.current_price || 0);
             const dealerPrice = parseFloat(p.dealer_price || 0);
@@ -861,21 +867,20 @@ async function loadSalesData(fullLoad = true) {
 
             const whFinished = window.WAREHOUSE_IDS['finished'] || 4;
             const whMarkdown = window.WAREHOUSE_IDS['markdown'] || 5;
-
-            const isSecondGrade = p.name.toLowerCase().includes('2 сорт') || p.name.toLowerCase().includes('2-й сорт');
+            const useMarkdownWarehouse = isMarkdownDefaultProduct(p, whMarkdown);
 
             if (currentSalesWarehouse === 'all') {
-                if (isSecondGrade) {
+                if (useMarkdownWarehouse) {
                     stockMap[p.name] = { id: p.id, warehouseId: whMarkdown, name: p.name, unit: p.unit, qty: stockMarkdown, reserved: 0, price: price, dealer_price: dealerPrice, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: '2 сорт', allowProduction: false };
                 } else {
                     stockMap[p.name] = { id: p.id, warehouseId: whFinished, name: p.name, unit: p.unit, qty: stockFinished, reserved, price, dealer_price: dealerPrice, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Авто', allowProduction: true };
                 }
-            } else if (currentSalesWarehouse === '4' && stockFinished > 0 && !isSecondGrade) {
+            } else if (currentSalesWarehouse === '4' && stockFinished > 0 && !useMarkdownWarehouse) {
                 stockMap[p.name] = { id: p.id, warehouseId: whFinished, name: p.name, unit: p.unit, qty: stockFinished, reserved, price, dealer_price: dealerPrice, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: '1 сорт', allowProduction: false };
             } else if (currentSalesWarehouse === '5' && stockMarkdown > 0) {
-                const finalPrice = isSecondGrade ? price : Math.floor(price * 0.7);
-                const finalDealer = isSecondGrade ? dealerPrice : Math.floor(dealerPrice * 0.7);
-                stockMap[p.name] = { id: p.id, warehouseId: whMarkdown, name: p.name, unit: p.unit, qty: stockMarkdown, reserved: 0, price: finalPrice, dealer_price: finalDealer, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: 'Уценка', allowProduction: false };
+                const finalPrice = useMarkdownWarehouse ? price : Math.floor(price * 0.7);
+                const finalDealer = useMarkdownWarehouse ? dealerPrice : Math.floor(dealerPrice * 0.7);
+                stockMap[p.name] = { id: p.id, warehouseId: whMarkdown, name: p.name, unit: p.unit, qty: stockMarkdown, reserved: 0, price: finalPrice, dealer_price: finalDealer, piece_rate: pieceRate, weight: parseFloat(p.weight_kg || 0), sortLabel: useMarkdownWarehouse ? '2 сорт' : 'Уценка', allowProduction: false };
             }
         });
 

@@ -10,6 +10,7 @@ const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage() });
 const { randomUUID } = require('crypto');
 const { auditLog } = require('../utils/db_init');
+const { resolveAuditMovementTimestamp } = require('../utils/mskTime');
 
 // 👈 Добавили withTransaction третьим аргументом
 module.exports = function (pool, getWhId, withTransaction) {
@@ -71,6 +72,13 @@ module.exports = function (pool, getWhId, withTransaction) {
         return 'неизвестный заказ';
     }
 
+    /** Склад-донор строки заказа: stock_source_warehouse_id, иначе ГП (исторические строки). */
+    function resolveRebalanceDonorWarehouseId(stockSourceWarehouseId, finishedWhId) {
+        const src = Number(stockSourceWarehouseId);
+        if (Number.isInteger(src) && src > 0) return src;
+        return finishedWhId;
+    }
+
     async function internalRebalanceReserves(client) {
         const reserveWhId = await getWhId(client, 'reserve');
         const finishedWhId = await getWhId(client, 'finished');
@@ -80,6 +88,7 @@ module.exports = function (pool, getWhId, withTransaction) {
             SELECT
                 coi.id AS coi_id,
                 coi.item_id,
+                coi.stock_source_warehouse_id,
                 co.doc_number,
                 GREATEST(
                     GREATEST(COALESCE(coi.qty_ordered, 0) - COALESCE(coi.qty_shipped, 0), 0) - COALESCE(coi.qty_reserved, 0),
@@ -102,12 +111,16 @@ module.exports = function (pool, getWhId, withTransaction) {
             const itemId = Number(d.item_id);
             const coiId = Number(d.coi_id);
             if (!Number.isFinite(itemId) || !Number.isFinite(coiId)) continue;
-            await lockStockPair(client, itemId, reserveWhId, finishedWhId);
+
+            const donorWhId = resolveRebalanceDonorWarehouseId(d.stock_source_warehouse_id, finishedWhId);
+            if (!donorWhId || donorWhId === reserveWhId) continue;
+
+            await lockStockPair(client, itemId, reserveWhId, donorWhId);
 
             let need = new Big(d.qty_need || 0);
             if (need.lte(0.0001)) continue;
 
-            // Идемпотентность: не гоняем пару «готовая → резерв», если на резерве уже
+            // Идемпотентность: не гоняем пару «донор → резерв», если на резерве уже
             // не меньше недостаёта по строке заказа (защита от повторных вызовов / гонок).
             const physRes = await client.query(
                 `SELECT COALESCE(SUM(quantity), 0)::numeric AS bal
@@ -129,7 +142,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 GROUP BY m.batch_id
                 HAVING SUM(m.quantity) > 0
                 ORDER BY MIN(COALESCE(m.movement_date, m.created_at)) ASC, m.batch_id ASC
-            `, [itemId, finishedWhId]);
+            `, [itemId, donorWhId]);
 
             for (const row of fifoRes.rows) {
                 if (need.lte(0.0001)) break;
@@ -139,17 +152,17 @@ module.exports = function (pool, getWhId, withTransaction) {
                 if (alloc.lte(0.0001)) continue;
                 const qty = Number(alloc.round(4));
                 const batchId = row.batch_id || null;
-                const docNum = d.doc_number || `#${coiId}`;
+                const docNum = formatOrderLabel(d.doc_number, coiId);
 
                 await client.query(`
                     INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, linked_order_item_id)
                     VALUES ($1, $2, 'reserve_expense', $3, $4, $5, $6)
-                `, [itemId, -qty, `Авто-ребаланс резерва -> ${docNum}`, finishedWhId, batchId, coiId]);
+                `, [itemId, -qty, `Авто-ребаланс резерва -> ${docNum}`, donorWhId, batchId, coiId]);
 
                 await client.query(`
                     INSERT INTO inventory_movements (item_id, quantity, movement_type, description, warehouse_id, batch_id, linked_order_item_id)
                     VALUES ($1, $2, 'reserve_receipt', $3, $4, $5, $6)
-                `, [itemId, qty, `Авто-ребаланс резерва <- WH4 (${docNum})`, reserveWhId, batchId, coiId]);
+                `, [itemId, qty, `Авто-ребаланс резерва <- WH${donorWhId} (${docNum})`, reserveWhId, batchId, coiId]);
 
                 await client.query(`
                     UPDATE client_order_items
@@ -1378,6 +1391,8 @@ module.exports = function (pool, getWhId, withTransaction) {
         const userId = req.user ? req.user.id : null;
 
         try {
+            const auditMovementDate = resolveAuditMovementTimestamp(auditDate);
+
             await withTransaction(pool, async (client) => {
                 let rebalanceNeeded = false;
                 for (const adj of adjustments) {
@@ -1428,7 +1443,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                             const desc = `Инвентаризация (Свернуто)${dateStrPart}: факт ${actualQty}, было ${currentBalance}`;
 
                             if (diffQtyBig.gt(0)) {
-                                if (whType === 'finished') rebalanceNeeded = true;
+                                if (whType === 'finished' || whType === 'markdown') rebalanceNeeded = true;
                                 // ИЗЛИШЕК (+) -> Кладем всё в системную партию
                                 const batchName = 'Излишки инвентаризации от ' + (auditDate || new Date().toISOString().slice(0,10));
                                 let surplusBatchId;
@@ -1441,7 +1456,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                                 await client.query(`
                                     INSERT INTO inventory_movements (item_id, warehouse_id, batch_id, quantity, movement_type, description, user_id, movement_date, created_at) 
                                     VALUES ($1, $2, $3, $4, 'audit_adjustment', $5, $6, COALESCE($7::timestamp, CURRENT_TIMESTAMP), COALESCE($7::timestamp, CURRENT_TIMESTAMP))
-                                `, [itemId, wh_id, surplusBatchId, diffQty, desc, userId, auditDate || null]);
+                                `, [itemId, wh_id, surplusBatchId, diffQty, desc, userId, auditMovementDate]);
                             } else {
                                 // НЕДОСТАЧА (-) -> FIFO Списание с самых старых партий
                                 let batchesQuery = `
@@ -1466,7 +1481,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                                     await client.query(`
                                         INSERT INTO inventory_movements (item_id, warehouse_id, batch_id, quantity, movement_type, description, user_id, movement_date, created_at) 
                                         VALUES ($1, $2, $3, $4, 'audit_adjustment', $5, $6, COALESCE($7::timestamp, CURRENT_TIMESTAMP), COALESCE($7::timestamp, CURRENT_TIMESTAMP))
-                                    `, [itemId, wh_id, ab.batch_id, Number(toWriteOff.times(-1)), desc, userId, auditDate || null]);
+                                    `, [itemId, wh_id, ab.batch_id, Number(toWriteOff.times(-1)), desc, userId, auditMovementDate]);
 
                                     remainingMinus = remainingMinus.minus(toWriteOff);
                                 }
@@ -1476,7 +1491,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                                     await client.query(`
                                         INSERT INTO inventory_movements (item_id, warehouse_id, batch_id, quantity, movement_type, description, user_id, movement_date, created_at) 
                                         VALUES ($1, $2, NULL, $3, 'audit_adjustment', $4, $5, COALESCE($6::timestamp, CURRENT_TIMESTAMP), COALESCE($6::timestamp, CURRENT_TIMESTAMP))
-                                    `, [itemId, wh_id, Number(remainingMinus.times(-1)), desc + ' (без партии)', userId, auditDate || null]);
+                                    `, [itemId, wh_id, Number(remainingMinus.times(-1)), desc + ' (без партии)', userId, auditMovementDate]);
                                 }
                             }
                         }
@@ -1547,13 +1562,13 @@ module.exports = function (pool, getWhId, withTransaction) {
                     if (diffQtyBig.abs().gt(0.0001)) {
                         const dateStrPart = auditDate ? ` от ${auditDate}` : '';
                         const desc = `Инвентаризация${dateStrPart}: факт ${actualQty}, было ${currentBalance}`;
-                        if (whType === 'finished' && diffQtyBig.gt(0)) rebalanceNeeded = true;
+                        if ((whType === 'finished' || whType === 'markdown') && diffQtyBig.gt(0)) rebalanceNeeded = true;
 
                         await client.query(`
                             INSERT INTO inventory_movements 
                             (item_id, warehouse_id, batch_id, quantity, movement_type, description, user_id, movement_date, created_at) 
                             VALUES ($1, $2, $3, $4, 'audit_adjustment', $5, $6, COALESCE($7::timestamp, CURRENT_TIMESTAMP), COALESCE($7::timestamp, CURRENT_TIMESTAMP))
-                        `, [itemId, wh_id, batchId, diffQty, desc, userId, auditDate || null]);
+                        `, [itemId, wh_id, batchId, diffQty, desc, userId, auditMovementDate]);
                     }
                 }
                 if (rebalanceNeeded) {
