@@ -17,10 +17,28 @@ window.Utils = {
         const d = new Date(dateStr);
         if (isNaN(d.getTime())) return dateStr;
         return d.toLocaleDateString('ru-RU', {
+            timeZone: 'Europe/Moscow',
             day: '2-digit',
             month: '2-digit',
             year: 'numeric'
         });
+    },
+    /** DD.MM.YYYY HH:mm (MSK) — для таблицы ДДС и отчётов. */
+    formatDateTimeMsk: function(dateStr, withSeconds) {
+        if (!dateStr) return '';
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return '';
+        const opts = {
+            timeZone: 'Europe/Moscow',
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        };
+        if (withSeconds) opts.second = '2-digit';
+        return d.toLocaleString('ru-RU', opts);
     },
     /**
      * Валидация номера телефона.

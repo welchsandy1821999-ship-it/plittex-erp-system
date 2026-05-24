@@ -1,5 +1,6 @@
 const TelegramBot = require('node-telegram-bot-api');
 const logger = require('./logger');
+const { formatMskDateTime } = require('./mskTime');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -105,9 +106,7 @@ function formatMoney(val) {
 function sendNotify(message, options = {}) {
     if (!bot || !chatId) return undefined;
 
-    const now = new Date();
-    const pad = (n) => String(n).padStart(2, '0');
-    const currentTime = `${pad(now.getDate())}.${pad(now.getMonth() + 1)}.${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    const currentTime = formatMskDateTime(new Date());
     message = String(message ?? '') + '\n\n🕒 ' + currentTime;
 
     const payload = { parse_mode: 'HTML', ...options };
@@ -125,12 +124,45 @@ function sendNotify(message, options = {}) {
         });
 }
 
+/**
+ * Уведомление об изменении взаиморасчётов контрагента (ДДС / корректировка / оплата).
+ */
+function notifyCounterpartyBalanceChange({
+    counterpartyName,
+    amount,
+    transactionType,
+    operationType,
+    description,
+    transactionDate,
+    isReversal = false
+}) {
+    const amt = Math.abs(Number(amount) || 0);
+    if (!counterpartyName || amt <= 0) return undefined;
+
+    const isIncome = transactionType === 'income';
+    const signedPositive = isReversal ? !isIncome : isIncome;
+    const sign = signedPositive ? '+' : '−';
+    const flowLabel = signedPositive ? 'Приход' : 'Расход';
+    const when = transactionDate ? formatMskDateTime(transactionDate) : formatMskDateTime(new Date());
+
+    let msg = `💰 <b>Баланс контрагента</b>\n`;
+    msg += `📅 ${escapeHtml(when)}\n`;
+    msg += `👤 ${escapeHtml(counterpartyName)}\n`;
+    msg += `💵 ${flowLabel}: <b>${sign}${formatMoney(amt)}</b> ₽\n`;
+    msg += `📋 ${escapeHtml(operationType || 'Операция')}`;
+    if (description) msg += `\n📝 ${escapeHtml(description)}`;
+
+    return sendNotify(msg);
+}
+
 module.exports = {
     sendNotify,
+    notifyCounterpartyBalanceChange,
     bot,
     chatId,
     escapeHtml,
     formatMoney,
     NOTIFY_CB,
-    getNotifySnapshot
+    getNotifySnapshot,
+    formatMskDateTime
 };

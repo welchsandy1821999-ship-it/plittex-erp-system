@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
 const Big = require('big.js');
-const { sendNotify, escapeHtml, formatMoney, NOTIFY_CB } = require('../utils/telegram');
+const { sendNotify, escapeHtml, formatMoney, NOTIFY_CB, notifyCounterpartyBalanceChange } = require('../utils/telegram');
 const { auditLog } = require('../utils/db_init');
 const {
     SETTLEMENT_MODES,
@@ -563,6 +563,14 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         `INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, user_id, linked_order_id, source_module, transaction_date) VALUES ($1, 'income', 'Продажа продукции', $2, 'Сразу', $3, $4, $5, $6, 'sales', $7)`,
                         [saleIncomeAmount, finDesc, resolvedAccountId, counterparty_id, user_id || null, orderId, finalOrderDate]
                     );
+                    notifyCounterpartyBalanceChange({
+                        counterpartyName: cpMeta.name || `#${counterparty_id}`,
+                        amount: saleIncomeAmount,
+                        transactionType: 'income',
+                        operationType: 'Оплата по заказу',
+                        description: finDesc,
+                        transactionDate: finalOrderDate
+                    });
                 }
 
                 if (isEmployeeCounterparty && validatedOffset > 0) {
@@ -572,6 +580,14 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                          VALUES ($1, 'income', 'Продажа продукции', $2, 'Взаимозачет', NULL, $3, $4, NULL, $5, $6, 'sales', $7)`,
                         [validatedOffset, offsetIncomeDesc, counterparty_id, cpMeta.employee_id, user_id || null, orderId, finalOrderDate]
                     );
+                    notifyCounterpartyBalanceChange({
+                        counterpartyName: cpMeta.name || `#${counterparty_id}`,
+                        amount: validatedOffset,
+                        transactionType: 'income',
+                        operationType: 'Взаимозачёт по заказу',
+                        description: offsetIncomeDesc,
+                        transactionDate: finalOrderDate
+                    });
                     const salaryDesc = `Выдача аванса (продукцией) по заказу ${docNum}`;
                     const advanceExpenseRes = await client.query(
                         `INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, employee_id, salary_adjustment_id, user_id, linked_order_id, source_module, system_type, transaction_date)
@@ -591,11 +607,21 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 }
             });
 
-            sendNotify(`🛒 <b>Новый заказ: ${escapeHtml(docNum)}</b>`, {
-                reply_markup: {
-                    inline_keyboard: [[{ text: '📋 Заказы в работе', callback_data: NOTIFY_CB.ORDERS_OPEN }]]
+            let checkoutCpName = '';
+            try {
+                const cpRow = await pool.query('SELECT name FROM counterparties WHERE id = $1', [counterparty_id]);
+                checkoutCpName = cpRow.rows[0]?.name || '';
+            } catch (_) { /* ignore */ }
+            sendNotify(
+                `🛒 <b>Новый заказ: ${escapeHtml(docNum)}</b>\n` +
+                `Клиент: ${escapeHtml(checkoutCpName || '—')}\n` +
+                `Сумма заказа: <b>${formatMoney(finalAmount)}</b> ₽`,
+                {
+                    reply_markup: {
+                        inline_keyboard: [[{ text: '📋 Заказы в работе', callback_data: NOTIFY_CB.ORDERS_OPEN }]]
+                    }
                 }
-            });
+            );
             res.json({ success: true, docNum, totalAmount: finalAmount, deficitReport });
 
         } catch (err) {
@@ -684,6 +710,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
         try {
             let docNum;
             let allCompleted = true;
+            let shipmentAmountTotal = 0;
+            let shipmentClientName = '';
 
             await withTransaction(pool, async (client) => {
                 const orderRes = await client.query(
@@ -695,6 +723,8 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 );
                 if (orderRes.rows.length === 0) throw new Error('Заказ не найден');
                 const order = orderRes.rows[0];
+                const cpNameRes = await client.query('SELECT name FROM counterparties WHERE id = $1', [order.counterparty_id]);
+                shipmentClientName = cpNameRes.rows[0]?.name || '';
                 const counterpartyId = Number(order.counterparty_id || 0);
                 if (!counterpartyId) throw new Error('Для заказа не определен контрагент');
 
@@ -753,7 +783,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     // 🔒 ШАГ 1: Блокируем позицию заказа (Row-Level Lock)
                     const coiRes = await client.query(
                         `SELECT id, item_id, qty_ordered, COALESCE(qty_shipped, 0) as qty_shipped, unit_cost_snapshot,
-                                stock_source_warehouse_id
+                                stock_source_warehouse_id, price
                          FROM client_order_items WHERE id = $1 FOR UPDATE`,
                         [item.coi_id]
                     );
@@ -839,6 +869,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         insertedShipmentsCount++;
                     }
                     shippedQtyBig = shippedQtyBig.plus(itemShippedBig);
+                    shipmentAmountTotal += Number(new Big(item.qty || 0).times(coi.price || 0).round(2));
                     await client.query(
                         `UPDATE client_order_items
                          SET qty_shipped = COALESCE(qty_shipped, 0) + $1,
@@ -890,7 +921,12 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             });
             const io = req.app.get('io');
             if (io) { io.emit('inventory_updated'); io.emit('sales_updated'); }
-            sendNotify(`🚚 <b>Отгрузка: ${escapeHtml(docNum)}</b>\nМашина уехала к клиенту.`);
+            sendNotify(
+                `🚚 <b>Отгрузка: ${escapeHtml(docNum)}</b>\n` +
+                `Клиент: ${escapeHtml(shipmentClientName || '—')}\n` +
+                `Сумма отгрузки: <b>${formatMoney(shipmentAmountTotal)}</b> ₽\n` +
+                `Машина уехала к клиенту.`
+            );
 
             res.json({ success: true, docNum, isCompleted: allCompleted });
         } catch (err) {

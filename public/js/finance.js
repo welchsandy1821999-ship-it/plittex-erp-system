@@ -723,20 +723,9 @@
             const transDateStr = t.transaction_date ? t.transaction_date.substring(0, 10) : '';
             const isLocked = financeLockDate && transDateStr && transDateStr <= financeLockDate;
 
-            // 🛡️ Умное и безопасное форматирование даты (защита от сдвига часовых поясов)
-            let safeDate = "-";
-            if (t.transaction_date) {
-                const d = new Date(t.transaction_date);
-                if (!isNaN(d)) {
-                    // Проверяем, есть ли у операции точное время (ручная) или только дата (импорт 1С)
-                    const hasTime = d.getHours() > 0 || d.getMinutes() > 0;
-                    const options = { day: '2-digit', month: '2-digit', year: 'numeric' };
-                    if (hasTime) {
-                        options.hour = '2-digit';
-                        options.minute = '2-digit';
-                    }
-                    safeDate = d.toLocaleDateString('ru-RU', options);
-                }
+            let safeDate = '-';
+            if (t.transaction_date && typeof Utils.formatDateTimeMsk === 'function') {
+                safeDate = Utils.formatDateTimeMsk(t.transaction_date, false);
             }
 
             let receiptHtml = t.receipt_url
@@ -2696,9 +2685,8 @@
             res.data.forEach(t => {
                 const type = t.transaction_type === 'income' ? 'Поступление' : 'Списание';
                 let safeDate = t.date_formatted;
-                if (!safeDate && t.transaction_date) {
-                    const d = new Date(t.transaction_date);
-                    if (!isNaN(d)) safeDate = d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                if (!safeDate && t.transaction_date && typeof Utils.formatDateTimeMsk === 'function') {
+                    safeDate = Utils.formatDateTimeMsk(t.transaction_date, false);
                 }
 
                 const escapeCSV = (str) => `"${String(str || '').replace(/"/g, '""').replace(/\n/g, ' ')}"`;

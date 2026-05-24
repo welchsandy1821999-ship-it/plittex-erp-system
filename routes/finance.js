@@ -11,7 +11,7 @@ const { validateTransaction, validateTransactionEdit, validateTransfer, validate
 const { allocateUnlinkedClientIncome } = require('../utils/allocateClientAdvance');
 const { money, reconcileOrderSettlement } = require('../utils/orderSettlement');
 const { recalcAccountBalances } = require('../utils/accountBalances');
-const { sendNotify, escapeHtml, formatMoney } = require('../utils/telegram');
+const { sendNotify, escapeHtml, formatMoney, notifyCounterpartyBalanceChange } = require('../utils/telegram');
 const { getSettlementFacts, mapToProfileTimeline } = require('../utils/counterpartySettlement');
 const { getCounterpartyBalance } = require('../utils/counterpartyBalance');
 
@@ -439,7 +439,8 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
     async function softDeleteTransactionWithRollback(client, txId) {
         const txRes = await client.query(
-            `SELECT id, amount, transaction_type, linked_order_id, linked_planned_id, linked_id, account_id
+            `SELECT id, amount, transaction_type, linked_order_id, linked_planned_id, linked_id, account_id,
+                    counterparty_id, description, transaction_date, category
              FROM transactions
              WHERE id = $1
                AND COALESCE(is_deleted, false) = false`,
@@ -483,11 +484,44 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             if (tx.account_id) affectedAccountIds.push(Number(tx.account_id));
         }
 
-        return { found: true, affectedAccountIds };
+        return { found: true, affectedAccountIds, tx };
     }
 
+    async function emitCounterpartyBalanceNotify(pool, payload) {
+        const cpId = Number(payload.counterpartyId);
+        if (!Number.isInteger(cpId) || cpId <= 0) return;
+        let counterpartyName = payload.counterpartyName;
+        if (!counterpartyName) {
+            try {
+                const r = await pool.query('SELECT name FROM counterparties WHERE id = $1', [cpId]);
+                counterpartyName = r.rows[0]?.name || `ID ${cpId}`;
+            } catch (_) {
+                counterpartyName = `ID ${cpId}`;
+            }
+        }
+        notifyCounterpartyBalanceChange({
+            counterpartyName,
+            amount: payload.amount,
+            transactionType: payload.transactionType,
+            operationType: payload.operationType,
+            description: payload.description,
+            transactionDate: payload.transactionDate,
+            isReversal: Boolean(payload.isReversal)
+        });
+    }
 
-
+    async function emitCounterpartyBalanceNotifyFromTx(pool, txRow, operationType, { isReversal = false } = {}) {
+        if (!txRow || !txRow.counterparty_id) return;
+        await emitCounterpartyBalanceNotify(pool, {
+            counterpartyId: txRow.counterparty_id,
+            amount: txRow.amount,
+            transactionType: txRow.transaction_type,
+            operationType,
+            description: txRow.description,
+            transactionDate: txRow.transaction_date,
+            isReversal
+        });
+    }
 
 
 
@@ -766,7 +800,14 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             if (!transaction_id || !counterparty_id) {
                 return res.status(400).json({ error: 'ID транзакции и Контрагента обязательны.' });
             }
-            await pool.query('UPDATE transactions SET counterparty_id = $1 WHERE id = $2', [counterparty_id, transaction_id]);
+            const linkRes = await pool.query(
+                `UPDATE transactions SET counterparty_id = $1 WHERE id = $2
+                 RETURNING id, amount, transaction_type, description, transaction_date, counterparty_id`,
+                [counterparty_id, transaction_id]
+            );
+            if (linkRes.rows[0]) {
+                await emitCounterpartyBalanceNotifyFromTx(pool, linkRes.rows[0], 'Привязка контрагента к операции');
+            }
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
@@ -1107,6 +1148,9 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     if (out.found && out.affectedAccountIds.length) {
                         touchedAccounts.push(...out.affectedAccountIds);
                     }
+                    if (out.found && out.tx) {
+                        await emitCounterpartyBalanceNotifyFromTx(pool, out.tx, 'Удаление операции', { isReversal: true });
+                    }
                 }
                 await recalcAccountBalances(client, touchedAccounts);
             });
@@ -1427,6 +1471,14 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             `,
                 [amount, type, FINANCE_CP_BALANCE_CORRECTION_CATEGORY, description, cpId, date]
             );
+            await emitCounterpartyBalanceNotify(pool, {
+                counterpartyId: cpId,
+                amount,
+                transactionType: type,
+                operationType: 'Корректировка баланса',
+                description,
+                transactionDate: date
+            });
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
@@ -1473,12 +1525,17 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         if (!reason) return res.status(400).json({ error: 'Укажите причину удаления транзакции' });
         try {
             let found = false;
+            let deletedTx = null;
             await withTransaction(pool, async (client) => {
                 const out = await softDeleteTransactionWithRollback(client, Number(req.params.id));
                 found = out.found;
+                deletedTx = out.tx || null;
                 await recalcAccountBalances(client, out.affectedAccountIds || []);
             });
             if (!found) return res.status(404).json({ error: 'Транзакция не найдена' });
+            if (deletedTx) {
+                await emitCounterpartyBalanceNotifyFromTx(pool, deletedTx, 'Удаление операции', { isReversal: true });
+            }
             await auditLog(pool, req, 'finance_transaction_delete_fast', 'transaction', Number(req.params.id), `reason=${reason}`);
             res.json({ success: true });
         } catch (err) {
@@ -1727,6 +1784,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     router.post('/api/invoices/:id/pay', validatePayment, async (req, res) => {
         const { account_id, is_order } = req.body;
         const docId = req.params.id;
+        let balanceNotifyPayload = null;
 
         try {
             await withTransaction(pool, async (client) => {
@@ -1760,6 +1818,16 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                             VALUES ($1, 'income', 'Продажа продукции', $2, 'Безналичный расчет', $3, $4, $5, NOW())
                         `, [payAmt, `Оплата долга по заказу №${order.doc_number}`, account_id, order.counterparty_id, order.id]);
                     }
+                    balanceNotifyPayload = {
+                        counterpartyId: order.counterparty_id,
+                        amount: payAmt,
+                        transactionType: 'income',
+                        operationType: req.body.use_offset ? 'Зачёт переплаты по заказу' : 'Оплата по заказу',
+                        description: req.body.use_offset
+                            ? `Зачет переплаты по заказу №${order.doc_number}`
+                            : `Оплата долга по заказу №${order.doc_number}`,
+                        transactionDate: new Date()
+                    };
 
                 } else {
                     // 📄 2. ОПЛАТА РУЧНОГО СЧЕТА
@@ -1773,6 +1841,14 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     `, [inv.amount, `Оплата по счету №${inv.invoice_number}`, account_id, inv.counterparty_id]);
 
                     await client.query("UPDATE invoices SET status = 'paid' WHERE id = $1", [inv.id]);
+                    balanceNotifyPayload = {
+                        counterpartyId: inv.counterparty_id,
+                        amount: inv.amount,
+                        transactionType: 'income',
+                        operationType: 'Оплата по счету',
+                        description: `Оплата по счету №${inv.invoice_number}`,
+                        transactionDate: new Date()
+                    };
                 }
 
                 // 🔄 3. ПЕРЕСЧЕТ БАЛАНСА КАССЫ (только если был реальный приход, не взаимозачет)
@@ -1790,6 +1866,9 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 if (io) io.emit('finance_updated');
             });
 
+            if (balanceNotifyPayload) {
+                await emitCounterpartyBalanceNotify(pool, balanceNotifyPayload);
+            }
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
@@ -2267,6 +2346,23 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 } catch (_) { /* не критично */ }
             }
 
+            if (counterparty_id) {
+                let operationType = 'Операция ДДС';
+                if (employee_mode === 'settlement') operationType = 'Личные взаиморасчеты';
+                else if (employee_mode === 'instant_expense') operationType = 'Расход под отчёт';
+                else if (employee_mode === 'imprest') operationType = 'Выдача под отчёт';
+                else if (employee_mode === 'return') operationType = 'Возврат из подотчёта';
+                else if (category) operationType = category;
+                await emitCounterpartyBalanceNotify(pool, {
+                    counterpartyId: counterparty_id,
+                    amount,
+                    transactionType: type === 'income' ? 'income' : 'expense',
+                    operationType,
+                    description,
+                    transactionDate: finalDate
+                });
+            }
+
             // 🚨 Алерт на крупный расход
             if (type === 'expense' && Number(amount) >= 100000) {
                 let cpName = '';
@@ -2476,6 +2572,9 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 }
                 const out = await softDeleteTransactionWithRollback(client, Number(id));
                 await recalcAccountBalances(client, out.affectedAccountIds || []);
+                if (out.tx) {
+                    await emitCounterpartyBalanceNotifyFromTx(pool, out.tx, 'Удаление операции', { isReversal: true });
+                }
             });
 
             cache.invalidate('finance:accounts');
@@ -2494,6 +2593,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
         // 🚀 Добавили прием cost_group_override и remember_rule
         const { description, amount, category, account_id, counterparty_id, transaction_date, cost_group_override, remember_rule } = req.body;
 
+        let updatedTxType = 'expense';
         try {
             await withTransaction(pool, async (client) => {
                 const txRes = await client.query(
@@ -2502,6 +2602,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 );
                 if (txRes.rows.length === 0) throw new Error("Транзакция не найдена");
                 const oldTx = txRes.rows[0];
+                updatedTxType = oldTx.transaction_type || 'expense';
                 const delta = Number(new Big(req.body.amount).minus(oldTx.amount).toFixed(2));
                 let resolvedEmployeeId = null;
 
@@ -2592,6 +2693,16 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             cache.invalidate('finance:accounts');
             const io = req.app.get('io');
             if (io) io.emit('finance_updated');
+            if (counterparty_id) {
+                await emitCounterpartyBalanceNotify(pool, {
+                    counterpartyId: counterparty_id,
+                    amount,
+                    transactionType: updatedTxType,
+                    operationType: 'Изменение операции',
+                    description,
+                    transactionDate: transaction_date
+                });
+            }
             res.json({ success: true });
         } catch (err) {
             logger.error(err);
@@ -3021,6 +3132,17 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                             }
                         }
                         importedCount++;
+                        if (cp_id) {
+                            await emitCounterpartyBalanceNotify(pool, {
+                                counterpartyId: cp_id,
+                                counterpartyName: safeName,
+                                amount: tr.amount,
+                                transactionType: tr.type,
+                                operationType: 'Импорт банковской выписки',
+                                description: safeDescription,
+                                transactionDate: txDate
+                            });
+                        }
                     } catch (rowErr) {
                         errorsCount++;
                         logger.error(`Ошибка импорта банковской строки: ${rowErr.message}`);
