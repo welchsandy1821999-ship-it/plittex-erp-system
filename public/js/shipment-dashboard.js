@@ -2,6 +2,7 @@
     'use strict';
 
     const QTY_EPS = 0.0001;
+    let sdSearchDebounceTimer = null;
 
     function fmtQty(value) {
         const n = Number(value);
@@ -11,6 +12,11 @@
 
     function qtyClass(value) {
         return Number(value) > QTY_EPS ? 'text-danger font-bold' : '';
+    }
+
+    function entityLink(onclick, label, title) {
+        const titleAttr = title ? ` title="${Utils.escapeHtml(title)}"` : '';
+        return `<span class="entity-link"${titleAttr} onclick="${onclick}">${label}</span>`;
     }
 
     function buildShipmentDashboardQuery() {
@@ -61,29 +67,47 @@
         }
 
         tbody.innerHTML = rows.map((row) => {
-            const doc = Utils.escapeHtml(row.order_number || '—');
-            const client = Utils.escapeHtml(row.client_name || '—');
+            const docLabel = Utils.escapeHtml(row.order_number || '—');
+            const clientLabel = Utils.escapeHtml(row.client_name || '—');
             const planDate = Utils.escapeHtml(row.planned_shipment_date || '—');
-            const item = Utils.escapeHtml(row.item_name || '—');
+            const itemLabel = Utils.escapeHtml(row.item_name || '—');
             const status = Utils.escapeHtml(row.order_status || '');
             const unit = row.item_unit ? ` <span class="text-muted font-12">${Utils.escapeHtml(row.item_unit)}</span>` : '';
             const orderId = Number(row.order_id);
+            const cpId = Number(row.counterparty_id);
+            const itemId = Number(row.item_id);
+
+            const docHtml = orderId
+                ? entityLink(`openOrderDetails(${orderId})`, docLabel, 'Открыть заказ')
+                : docLabel;
+            const clientHtml = cpId
+                ? entityLink(`window.app.openEntity('client', ${cpId})`, clientLabel, 'Открыть карточку клиента')
+                : clientLabel;
+            const itemHtml = itemId
+                ? entityLink(`window.app.openEntity('item_movement', ${itemId})`, itemLabel, 'Открыть движения номенклатуры')
+                : itemLabel;
 
             return `
                 <tr>
                     <td class="p-8">
-                        <span class="font-bold">${doc}</span>
+                        <span class="font-bold">${docHtml}</span>
                         ${status ? `<br><span class="font-11 text-muted">${status}</span>` : ''}
                     </td>
-                    <td class="p-8">${client}</td>
+                    <td class="p-8">${clientHtml}</td>
                     <td class="p-8 text-nowrap">${planDate}</td>
-                    <td class="p-8">${item}${unit}</td>
+                    <td class="p-8">${itemHtml}${unit}</td>
                     <td class="p-8 text-right">${fmtQty(row.qty_ordered)}</td>
                     <td class="p-8 text-right">${fmtQty(row.qty_reserved)}</td>
                     <td class="p-8 text-right ${qtyClass(row.qty_need_reserve)}">${fmtQty(row.qty_need_reserve)}</td>
                     <td class="p-8 text-right ${qtyClass(row.qty_production)}">${fmtQty(row.qty_production)}</td>
-                    <td class="p-8 text-center text-nowrap">
-                        <button type="button" class="btn btn-outline btn-sm" onclick="openOrderDetails(${orderId})" title="Открыть заказ">Открыть заказ</button>
+                    <td class="p-8 text-center text-nowrap sd-actions-cell">
+                        <div class="sales-dropdown sd-actions-dropdown">
+                            <button type="button" class="btn btn-outline btn-sm">Действия <span class="font-10 ml-5">▼</span></button>
+                            <div class="sales-dropdown-content">
+                                <button type="button" onclick="openOrderDetails(${orderId})">📄 Просмотр заказа</button>
+                                <button type="button" onclick="openOrderManager(${orderId})">🚚 Отгрузка</button>
+                            </div>
+                        </div>
                     </td>
                 </tr>
             `;
@@ -115,6 +139,12 @@
         }
     };
 
+    window.refreshShipmentDashboardIfActive = function () {
+        const tab = document.getElementById('tab-shipment-dashboard');
+        if (!tab || !tab.classList.contains('active')) return;
+        if (typeof loadShipmentDashboard === 'function') loadShipmentDashboard();
+    };
+
     window.resetShipmentDashboardFilters = function () {
         const fromEl = document.getElementById('sd-planned-from');
         const toEl = document.getElementById('sd-planned-to');
@@ -127,15 +157,43 @@
         loadShipmentDashboard();
     };
 
-    document.addEventListener('DOMContentLoaded', function () {
+    function scheduleShipmentDashboardSearch() {
+        if (sdSearchDebounceTimer) clearTimeout(sdSearchDebounceTimer);
+        sdSearchDebounceTimer = setTimeout(() => {
+            loadShipmentDashboard();
+        }, 300);
+    }
+
+    function initShipmentDashboardFilters() {
+        const fromEl = document.getElementById('sd-planned-from');
+        const toEl = document.getElementById('sd-planned-to');
         const searchEl = document.getElementById('sd-search');
-        if (searchEl) {
+        const deficitEl = document.getElementById('sd-only-deficit');
+
+        if (fromEl && !fromEl.dataset.sdBound) {
+            fromEl.dataset.sdBound = '1';
+            fromEl.addEventListener('change', loadShipmentDashboard);
+        }
+        if (toEl && !toEl.dataset.sdBound) {
+            toEl.dataset.sdBound = '1';
+            toEl.addEventListener('change', loadShipmentDashboard);
+        }
+        if (deficitEl && !deficitEl.dataset.sdBound) {
+            deficitEl.dataset.sdBound = '1';
+            deficitEl.addEventListener('change', loadShipmentDashboard);
+        }
+        if (searchEl && !searchEl.dataset.sdBound) {
+            searchEl.dataset.sdBound = '1';
+            searchEl.addEventListener('input', scheduleShipmentDashboardSearch);
             searchEl.addEventListener('keydown', function (e) {
                 if (e.key === 'Enter') {
                     e.preventDefault();
+                    if (sdSearchDebounceTimer) clearTimeout(sdSearchDebounceTimer);
                     loadShipmentDashboard();
                 }
             });
         }
-    });
+    }
+
+    document.addEventListener('DOMContentLoaded', initShipmentDashboardFilters);
 })();

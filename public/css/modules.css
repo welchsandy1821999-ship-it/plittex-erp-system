@@ -4650,6 +4650,36 @@
     display: block;
 }
 
+/* Сводка отгрузок: выпадающие меню и липкий заголовок */
+#tab-shipment-dashboard .sd-dashboard-card {
+    overflow: visible;
+}
+
+#tab-shipment-dashboard .sd-table-wrap {
+    overflow: visible;
+}
+
+#tab-shipment-dashboard .sd-table-wrap.table-container {
+    overflow-x: auto;
+    overflow-y: visible;
+}
+
+#tab-shipment-dashboard .sd-dashboard-thead th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--surface-alt);
+}
+
+#tab-shipment-dashboard .sd-actions-dropdown .sales-dropdown-content {
+    z-index: 100;
+}
+
+#tab-shipment-dashboard tr:hover .sd-actions-cell {
+    position: relative;
+    z-index: 20;
+}
+
 /* Kanban Styles Extension */
 .sales-kanban-board {
     display: flex;
@@ -10732,6 +10762,36 @@ body.dark-theme #recipe-mod .rec-add-row .input-modern::placeholder {
 /* Показ при наведении */
 .sales-dropdown:hover .sales-dropdown-content {
     display: block;
+}
+
+/* Сводка отгрузок: выпадающие меню и липкий заголовок */
+#tab-shipment-dashboard .sd-dashboard-card {
+    overflow: visible;
+}
+
+#tab-shipment-dashboard .sd-table-wrap {
+    overflow: visible;
+}
+
+#tab-shipment-dashboard .sd-table-wrap.table-container {
+    overflow-x: auto;
+    overflow-y: visible;
+}
+
+#tab-shipment-dashboard .sd-dashboard-thead th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--surface-alt);
+}
+
+#tab-shipment-dashboard .sd-actions-dropdown .sales-dropdown-content {
+    z-index: 100;
+}
+
+#tab-shipment-dashboard tr:hover .sd-actions-cell {
+    position: relative;
+    z-index: 20;
 }
 
 /* Kanban Styles Extension */

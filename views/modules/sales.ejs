@@ -460,7 +460,7 @@
 
     <!-- === ВКЛАДКА 4: СВОДКА ОТГРУЗОК === -->
     <div id="tab-shipment-dashboard" class="sales-tab-content">
-        <div class="card p-0 overflow-hidden border-0">
+        <div class="card p-0 border-0 sd-dashboard-card">
             <div class="p-15 border-bottom bg-surface-alt">
                 <h3 class="font-16 m-0 text-main">Сводка отгрузок и дефицитов</h3>
                 <p class="font-12 text-muted m-0 mt-5">Активные заказы: потребность в резерве и производстве по строкам (не только физический остаток на складе резерва).</p>
@@ -486,15 +486,15 @@
                             Только дефицит
                         </label>
                     </div>
-                    <button type="button" class="btn btn-blue" onclick="loadShipmentDashboard()">Обновить</button>
+                    <button type="button" class="btn btn-outline btn-sm d-none" id="sd-refresh-btn" onclick="loadShipmentDashboard()" title="Принудительное обновление">Обновить</button>
                 </div>
             </div>
 
             <div id="sd-dashboard-summary" class="sales-totals-bar p-10 font-13 text-muted"></div>
 
-            <div class="table-container m-0">
-                <table class="table-modern w-100">
-                    <thead class="bg-surface-alt">
+            <div class="sd-table-wrap table-container m-0">
+                <table class="table-modern w-100 sd-dashboard-table">
+                    <thead class="bg-surface-alt sd-dashboard-thead">
                         <tr>
                             <th class="p-10 font-12 text-muted text-left">Документ</th>
                             <th class="p-10 font-12 text-muted text-left">Клиент</th>
@@ -508,7 +508,7 @@
                         </tr>
                     </thead>
                     <tbody id="sd-dashboard-table">
-                        <tr><td colspan="9" class="text-center p-20 text-muted font-italic">Выберите вкладку или нажмите «Обновить»</td></tr>
+                        <tr><td colspan="9" class="text-center p-20 text-muted font-italic">Загрузка...</td></tr>
                     </tbody>
                 </table>
             </div>

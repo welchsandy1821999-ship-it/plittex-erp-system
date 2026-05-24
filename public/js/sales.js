@@ -1842,6 +1842,7 @@ window.processCheckout = async function () {
         }
 
         if (typeof loadActiveOrders === 'function') loadActiveOrders();
+        if (typeof refreshShipmentDashboardIfActive === 'function') refreshShipmentDashboardIfActive();
         switchSalesTab('tab-active-orders', document.querySelectorAll('.sales-tab-btn')[1]);
 
     } catch (e) {
@@ -2178,6 +2179,7 @@ window.executeDeleteOrder = async function (orderId) {
         loadActiveOrders();
         loadSalesData(false);
         if (typeof loadTable === 'function') loadTable();
+        if (typeof refreshShipmentDashboardIfActive === 'function') refreshShipmentDashboardIfActive();
     } catch (e) { console.error(e); }
 };
 
@@ -3674,6 +3676,7 @@ window.executePartialShipment = async function (orderId, btnElement) {
         if (typeof loadActiveOrders === 'function') loadActiveOrders();
         if (typeof loadSalesHistory === 'function') loadSalesHistory();
         if (typeof loadTable === 'function') loadTable();
+        if (typeof refreshShipmentDashboardIfActive === 'function') refreshShipmentDashboardIfActive();
     } catch (e) {
         console.error('[Shipment Error]', e);
     } finally {
@@ -5311,6 +5314,7 @@ window.executeForceClose = async function(orderId) {
         UI.closeModal();
         UI.toast('Заказ завершен!', 'success');
         loadActiveOrders();
+        if (typeof refreshShipmentDashboardIfActive === 'function') refreshShipmentDashboardIfActive();
     } catch(e) {
         console.error(e);
         UI.toast(e?.message || 'Не удалось принудительно закрыть заказ', 'error');
