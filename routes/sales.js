@@ -876,7 +876,17 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                             
                             // Также корректируем qty_reserved в client_order_items, и убираем из дефицита (qty_production)
                             await client.query(`UPDATE client_order_items SET qty_reserved = COALESCE(qty_reserved, 0) + $1, qty_production = GREATEST(COALESCE(qty_production, 0) - $1, 0) WHERE id = $2`, [shortfall, item.coi_id]);
-                            
+                            await client.query(
+                                `UPDATE planned_production
+                                 SET quantity = GREATEST(COALESCE(quantity, 0) - $1, 0)
+                                 WHERE order_item_id = $2`,
+                                [shortfall, item.coi_id]
+                            );
+                            await client.query(
+                                `DELETE FROM planned_production WHERE order_item_id = $1 AND quantity <= 0`,
+                                [item.coi_id]
+                            );
+
                             reserveBalance = reserveBalance + shortfall; // Теперь хватает
                         } else {
                             throw new Error(

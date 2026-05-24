@@ -1120,6 +1120,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 JOIN client_order_items coi ON pp.order_item_id = coi.id
                 JOIN client_orders co ON coi.order_id = co.id
                 WHERE co.status IN ('pending', 'processing')
+                  AND COALESCE(co.is_deleted, false) = false
             `;
             if (filterProductId) {
                 planParams.push(filterProductId);
@@ -1145,6 +1146,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                             JOIN client_order_items coi ON pp.order_item_id = coi.id
                             JOIN client_orders co ON coi.order_id = co.id
                             WHERE co.status IN ('pending', 'processing')
+                              AND COALESCE(co.is_deleted, false) = false
                 `;
                 
                 if (filterProductId) {
