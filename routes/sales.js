@@ -46,6 +46,28 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
     }
 
     /**
+     * client_orders.discount: <= 100 — процент на товары; > 100 — абсолютная скидка в рублях.
+     * baseGrossBig — валовая база заказа для пропорционального выделения рублёвой скидки (частичная отгрузка).
+     */
+    function applySmartDiscount(grossBig, discountRaw, baseGrossBig = null) {
+        const gross = new Big(grossBig || 0);
+        const discount = new Big(discountRaw || 0);
+        if (discount.lte(0)) return gross;
+        if (discount.lte(100)) {
+            return gross.times(new Big(100).minus(discount).div(100));
+        }
+        const absDiscount = discount;
+        const base = baseGrossBig != null ? new Big(baseGrossBig || 0) : null;
+        if (base && base.gt(0) && base.gt(gross)) {
+            const allocated = absDiscount.times(gross.div(base));
+            const net = gross.minus(allocated);
+            return net.lt(0) ? new Big(0) : net;
+        }
+        const net = gross.minus(absDiscount);
+        return net.lt(0) ? new Big(0) : net;
+    }
+
+    /**
      * Склад-донор для отгрузки: берём stock_source_warehouse_id из строки заказа (в т.ч. markdown / 2 сорт).
      * Только если в строке NULL — подставляем finished (исторические данные).
      */
@@ -775,6 +797,20 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     await client.query(`UPDATE counterparties SET pallets_balance = COALESCE(pallets_balance, 0) + $1 WHERE id = $2`, [parseInt(pallets), counterpartyId]);
                 }
 
+                const orderMoneyRes = await client.query(
+                    `SELECT discount, logistics_cost FROM client_orders WHERE id = $1`,
+                    [orderId]
+                );
+                const orderDiscount = orderMoneyRes.rows[0]?.discount ?? 0;
+                const orderLogistics = new Big(orderMoneyRes.rows[0]?.logistics_cost || 0);
+                const goodsBaseRes = await client.query(
+                    `SELECT COALESCE(SUM(COALESCE(qty_ordered, 0) * COALESCE(price, 0)), 0)::numeric AS goods_gross
+                     FROM client_order_items WHERE order_id = $1`,
+                    [orderId]
+                );
+                const goodsGrossOrder = new Big(String(goodsBaseRes.rows[0]?.goods_gross || '0'));
+                let shipmentGross = new Big(0);
+
                 const reserveWhId = await getWhId(client, 'reserve');
                 const finishedWhId = await getWhId(client, 'finished');
                 for (let item of items_to_ship) {
@@ -869,7 +905,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         insertedShipmentsCount++;
                     }
                     shippedQtyBig = shippedQtyBig.plus(itemShippedBig);
-                    shipmentAmountTotal += Number(new Big(item.qty || 0).times(coi.price || 0).round(2));
+                    shipmentGross = shipmentGross.plus(new Big(item.qty || 0).times(coi.price || 0));
                     await client.query(
                         `UPDATE client_order_items
                          SET qty_shipped = COALESCE(qty_shipped, 0) + $1,
@@ -901,6 +937,14 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 if (insertedShipmentsCount === 0 || shippedQtyBig.lte(SHIP_COMPLETION_EPSILON)) {
                     throw new Error('Отгрузка прервана: не создано ни одного движения склада.');
                 }
+
+                let shipmentAmountBig = applySmartDiscount(shipmentGross, orderDiscount, goodsGrossOrder);
+                if (orderLogistics.gt(0) && goodsGrossOrder.gt(0) && shipmentGross.gt(0)) {
+                    shipmentAmountBig = shipmentAmountBig.plus(
+                        orderLogistics.times(shipmentGross.div(goodsGrossOrder))
+                    );
+                }
+                shipmentAmountTotal = Number(shipmentAmountBig.round(2));
 
                 const remainingRes = await client.query(
                     `
@@ -1449,9 +1493,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     newTotalBig = newTotalBig.plus(new Big(i.qty_ordered).times(i.price));
                 });
 
-                // Учитываем скидку
-                const discount = new Big(order.discount || 0);
-                newTotalBig = newTotalBig.minus(discount).lt(0) ? new Big(0) : newTotalBig.minus(discount);
+                newTotalBig = applySmartDiscount(newTotalBig, order.discount || 0);
 
                 // Прибавляем логистику, если есть
                 newTotalBig = newTotalBig.plus(new Big(order.logistics_cost || 0));
@@ -1781,8 +1823,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 const parsedDiscount = new Big(safeDiscount || 0);
                 const parsedLogistics = new Big(safeLogistics || 0);
 
-                let calcTotalBig = new Big(calculatedTotal);
-                calcTotalBig = calcTotalBig.minus(parsedDiscount).lt(0) ? new Big(0) : calcTotalBig.minus(parsedDiscount);
+                let calcTotalBig = applySmartDiscount(new Big(calculatedTotal), safeDiscount || 0);
                 calcTotalBig = calcTotalBig.plus(parsedLogistics);
                 calculatedTotal = Number(calcTotalBig.toFixed(2));
 
