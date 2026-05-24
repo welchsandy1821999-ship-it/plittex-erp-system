@@ -32,6 +32,7 @@
         <div class="sales-tab-btn active" onclick="switchSalesTab('tab-new-order', this)">➕ Новый заказ и отгрузка</div>
         <div class="sales-tab-btn" onclick="switchSalesTab('tab-active-orders', this)">📦 Управление заказами</div>
         <div class="sales-tab-btn" onclick="switchSalesTab('tab-history', this)">📜 Архив отгрузок</div>
+        <div class="sales-tab-btn" onclick="switchSalesTab('tab-shipment-dashboard', this)">📋 Сводка отгрузок</div>
     </div>
 
     <div id="tab-new-order" class="sales-tab-content active sales-checkout-column">
@@ -453,6 +454,63 @@
                 <button class="btn btn-outline" onclick="changeHistoryPage(-1)">⬅ Назад</button>
                 <span class="font-bold text-muted" id="hist-page-info">Страница 1 из 1</span>
                 <button class="btn btn-outline" onclick="changeHistoryPage(1)">Вперед ➡</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- === ВКЛАДКА 4: СВОДКА ОТГРУЗОК === -->
+    <div id="tab-shipment-dashboard" class="sales-tab-content">
+        <div class="card p-0 overflow-hidden border-0">
+            <div class="p-15 border-bottom bg-surface-alt">
+                <h3 class="font-16 m-0 text-main">Сводка отгрузок и дефицитов</h3>
+                <p class="font-12 text-muted m-0 mt-5">Активные заказы: потребность в резерве и производстве по строкам (не только физический остаток на складе резерва).</p>
+            </div>
+
+            <div class="bg-surface-alt p-15 border-bottom">
+                <div class="sales-filter-row">
+                    <div class="form-group m-0">
+                        <label class="font-12 text-muted" for="sd-planned-from">План. отгрузка с:</label>
+                        <input type="date" id="sd-planned-from" class="input-modern m-0">
+                    </div>
+                    <div class="form-group m-0">
+                        <label class="font-12 text-muted" for="sd-planned-to">План. отгрузка по:</label>
+                        <input type="date" id="sd-planned-to" class="input-modern m-0">
+                    </div>
+                    <div class="form-group m-0 sf-search">
+                        <label class="font-12 text-muted" for="sd-search">Поиск:</label>
+                        <input type="text" id="sd-search" class="input-modern m-0" placeholder="Заказ, клиент, товар...">
+                    </div>
+                    <div class="form-group m-0 d-flex align-center">
+                        <label class="font-12 text-muted m-0 d-flex align-center cursor-pointer">
+                            <input type="checkbox" id="sd-only-deficit" class="mr-8" checked>
+                            Только дефицит
+                        </label>
+                    </div>
+                    <button type="button" class="btn btn-blue" onclick="loadShipmentDashboard()">Обновить</button>
+                </div>
+            </div>
+
+            <div id="sd-dashboard-summary" class="sales-totals-bar p-10 font-13 text-muted"></div>
+
+            <div class="table-container m-0">
+                <table class="table-modern w-100">
+                    <thead class="bg-surface-alt">
+                        <tr>
+                            <th class="p-10 font-12 text-muted text-left">Документ</th>
+                            <th class="p-10 font-12 text-muted text-left">Клиент</th>
+                            <th class="p-10 font-12 text-muted text-left">План. дата</th>
+                            <th class="p-10 font-12 text-muted text-left">Номенклатура</th>
+                            <th class="p-10 font-12 text-muted text-right">Заказано</th>
+                            <th class="p-10 font-12 text-muted text-right">В резерве</th>
+                            <th class="p-10 font-12 text-muted text-right">Дефицит отгрузки</th>
+                            <th class="p-10 font-12 text-muted text-right">В производство</th>
+                            <th class="p-10 font-12 text-muted text-center">Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sd-dashboard-table">
+                        <tr><td colspan="9" class="text-center p-20 text-muted font-italic">Выберите вкладку или нажмите «Обновить»</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>

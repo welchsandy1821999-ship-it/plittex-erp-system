@@ -1,0 +1,141 @@
+; (function () {
+    'use strict';
+
+    const QTY_EPS = 0.0001;
+
+    function fmtQty(value) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return '0';
+        return n.toLocaleString('ru-RU', { maximumFractionDigits: 2, minimumFractionDigits: 0 });
+    }
+
+    function qtyClass(value) {
+        return Number(value) > QTY_EPS ? 'text-danger font-bold' : '';
+    }
+
+    function buildShipmentDashboardQuery() {
+        const params = new URLSearchParams();
+        const plannedFrom = document.getElementById('sd-planned-from')?.value || '';
+        const plannedTo = document.getElementById('sd-planned-to')?.value || '';
+        const search = (document.getElementById('sd-search')?.value || '').trim();
+        const onlyDeficit = document.getElementById('sd-only-deficit')?.checked;
+
+        if (plannedFrom) params.set('planned_from', plannedFrom);
+        if (plannedTo) params.set('planned_to', plannedTo);
+        if (search) params.set('search', search);
+        if (onlyDeficit) params.set('only_deficit', 'true');
+
+        const qs = params.toString();
+        return qs ? `?${qs}` : '';
+    }
+
+    function renderShipmentDashboardSummary(summary) {
+        const el = document.getElementById('sd-dashboard-summary');
+        if (!el) return;
+        if (!summary) {
+            el.innerHTML = '';
+            return;
+        }
+        const truncated = summary.possibly_truncated
+            ? ' <span class="text-warning">(достигнут лимит строк — уточните период или поиск)</span>'
+            : '';
+        const safety = summary.safety_mode
+            ? ' <span class="text-muted">· без дат: последние 24 мес., лимит ' + (summary.row_limit || 200) + '</span>'
+            : '';
+        el.innerHTML =
+            `Заказов: <b>${summary.order_count || 0}</b> · ` +
+            `Строк: <b>${summary.line_count || 0}</b> · ` +
+            `Дефицит резерва: <b class="text-danger">${summary.lines_with_reserve_deficit || 0}</b> · ` +
+            `Дефицит производства: <b class="text-danger">${summary.lines_with_production_deficit || 0}</b>` +
+            safety + truncated;
+    }
+
+    function renderShipmentDashboardRows(rows) {
+        const tbody = document.getElementById('sd-dashboard-table');
+        if (!tbody) return;
+
+        if (!Array.isArray(rows) || rows.length === 0) {
+            tbody.innerHTML =
+                '<tr><td colspan="9" class="text-center p-20 text-muted font-italic">Нет строк по выбранным фильтрам</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = rows.map((row) => {
+            const doc = Utils.escapeHtml(row.order_number || '—');
+            const client = Utils.escapeHtml(row.client_name || '—');
+            const planDate = Utils.escapeHtml(row.planned_shipment_date || '—');
+            const item = Utils.escapeHtml(row.item_name || '—');
+            const status = Utils.escapeHtml(row.order_status || '');
+            const unit = row.item_unit ? ` <span class="text-muted font-12">${Utils.escapeHtml(row.item_unit)}</span>` : '';
+            const orderId = Number(row.order_id);
+
+            return `
+                <tr>
+                    <td class="p-8">
+                        <span class="font-bold">${doc}</span>
+                        ${status ? `<br><span class="font-11 text-muted">${status}</span>` : ''}
+                    </td>
+                    <td class="p-8">${client}</td>
+                    <td class="p-8 text-nowrap">${planDate}</td>
+                    <td class="p-8">${item}${unit}</td>
+                    <td class="p-8 text-right">${fmtQty(row.qty_ordered)}</td>
+                    <td class="p-8 text-right">${fmtQty(row.qty_reserved)}</td>
+                    <td class="p-8 text-right ${qtyClass(row.qty_need_reserve)}">${fmtQty(row.qty_need_reserve)}</td>
+                    <td class="p-8 text-right ${qtyClass(row.qty_production)}">${fmtQty(row.qty_production)}</td>
+                    <td class="p-8 text-center text-nowrap">
+                        <button type="button" class="btn btn-outline btn-sm" onclick="openOrderDetails(${orderId})" title="Открыть заказ">Открыть заказ</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    window.loadShipmentDashboard = async function () {
+        const tbody = document.getElementById('sd-dashboard-table');
+        if (tbody) {
+            tbody.innerHTML =
+                '<tr><td colspan="9" class="text-center p-20 text-muted font-italic">Загрузка...</td></tr>';
+        }
+
+        try {
+            const data = await API.get('/api/sales/shipment-dashboard' + buildShipmentDashboardQuery());
+            if (!data || data.success !== true) {
+                throw new Error((data && data.error) || 'Некорректный ответ сервера');
+            }
+            renderShipmentDashboardSummary(data.summary);
+            renderShipmentDashboardRows(data.rows);
+        } catch (err) {
+            console.error(err);
+            renderShipmentDashboardSummary(null);
+            if (tbody) {
+                const msg = Utils.escapeHtml(err?.message || 'Ошибка загрузки сводки отгрузок');
+                tbody.innerHTML =
+                    `<tr><td colspan="9" class="text-center p-20 text-danger">${msg}</td></tr>`;
+            }
+        }
+    };
+
+    window.resetShipmentDashboardFilters = function () {
+        const fromEl = document.getElementById('sd-planned-from');
+        const toEl = document.getElementById('sd-planned-to');
+        const searchEl = document.getElementById('sd-search');
+        const deficitEl = document.getElementById('sd-only-deficit');
+        if (fromEl) fromEl.value = '';
+        if (toEl) toEl.value = '';
+        if (searchEl) searchEl.value = '';
+        if (deficitEl) deficitEl.checked = true;
+        loadShipmentDashboard();
+    };
+
+    document.addEventListener('DOMContentLoaded', function () {
+        const searchEl = document.getElementById('sd-search');
+        if (searchEl) {
+            searchEl.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    loadShipmentDashboard();
+                }
+            });
+        }
+    });
+})();

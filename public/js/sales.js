@@ -130,6 +130,9 @@ window.switchSalesTab = function (tabId, btn) {
         if (document.getElementById(hIds.fg)) salesPeriodFinishUi(hIds, window.__salesHistPeriodPickers);
         if (typeof loadSalesHistory === 'function') loadSalesHistory();
     }
+    if (tabId === 'tab-shipment-dashboard' && typeof loadShipmentDashboard === 'function') {
+        loadShipmentDashboard();
+    }
 };
 
 // === ЗАГРУЗКА КАСС/БАНКОВ ===
