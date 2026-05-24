@@ -2141,6 +2141,180 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
     });
 
     // ------------------------------------------------------------------
+    // Единый дашборд отгрузок (строки COI активных заказов)
+    // ------------------------------------------------------------------
+    router.get('/api/sales/shipment-dashboard', async (req, res) => {
+        const plannedFrom = String(req.query.planned_from || '').trim();
+        const plannedTo = String(req.query.planned_to || '').trim();
+        const search = String(req.query.search || '').trim();
+        const onlyDeficitRaw = String(req.query.only_deficit || '').trim().toLowerCase();
+        const onlyDeficit = onlyDeficitRaw === 'true' || onlyDeficitRaw === '1' || onlyDeficitRaw === 'yes';
+        const hasPlannedDateFilter = Boolean(plannedFrom || plannedTo);
+        const SHIPMENT_DASHBOARD_QTY_EPSILON = 0.001;
+        const SHIPMENT_DASHBOARD_DEFAULT_LIMIT = 200;
+        const SHIPMENT_DASHBOARD_FILTERED_LIMIT = 5000;
+
+        const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+        if (plannedFrom && !dateRe.test(plannedFrom)) {
+            return res.status(400).json({ error: 'planned_from: ожидается формат YYYY-MM-DD' });
+        }
+        if (plannedTo && !dateRe.test(plannedTo)) {
+            return res.status(400).json({ error: 'planned_to: ожидается формат YYYY-MM-DD' });
+        }
+
+        try {
+            const params = [];
+            let query = `
+                SELECT
+                    co.id                          AS order_id,
+                    co.doc_number                  AS order_number,
+                    co.status                      AS order_status,
+                    c.name                         AS client_name,
+                    co.planned_shipment_date       AS planned_shipment_date_raw,
+                    TO_CHAR(co.planned_shipment_date, 'DD.MM.YYYY') AS planned_shipment_date,
+                    coi.id                         AS order_item_id,
+                    i.id                           AS item_id,
+                    i.name                         AS item_name,
+                    i.unit                         AS item_unit,
+                    COALESCE(coi.qty_ordered, 0)::numeric   AS qty_ordered,
+                    COALESCE(coi.qty_shipped, 0)::numeric  AS qty_shipped,
+                    COALESCE(coi.qty_reserved, 0)::numeric AS qty_reserved,
+                    COALESCE(coi.qty_production, 0)::numeric AS qty_production,
+                    GREATEST(
+                        COALESCE(coi.qty_ordered, 0) - COALESCE(coi.qty_shipped, 0),
+                        0
+                    )::numeric AS qty_remaining,
+                    GREATEST(
+                        GREATEST(COALESCE(coi.qty_ordered, 0) - COALESCE(coi.qty_shipped, 0), 0)
+                        - COALESCE(coi.qty_reserved, 0),
+                        0
+                    )::numeric AS qty_need_reserve,
+                    COALESCE(mv.reserve_movement_bal, 0)::numeric AS reserve_physical_qty,
+                    COALESCE(co.pending_debt, 0)::numeric AS order_pending_debt,
+                    COALESCE(co.total_amount, 0)::numeric AS order_total_amount,
+                    co.created_at                   AS order_created_at
+                FROM client_orders co
+                INNER JOIN client_order_items coi ON coi.order_id = co.id
+                INNER JOIN items i ON i.id = coi.item_id
+                    AND COALESCE(i.is_deleted, false) = false
+                LEFT JOIN counterparties c ON c.id = co.counterparty_id
+                LEFT JOIN LATERAL (
+                    SELECT SUM(im.quantity)::numeric AS reserve_movement_bal
+                    FROM inventory_movements im
+                    INNER JOIN warehouses w ON w.id = im.warehouse_id AND w.type = 'reserve'
+                    WHERE im.linked_order_item_id = coi.id
+                ) mv ON true
+                WHERE co.status IN ('pending', 'processing')
+                  AND COALESCE(co.is_deleted, false) = false
+                  AND (
+                      COALESCE(coi.qty_ordered, 0) - COALESCE(coi.qty_shipped, 0)
+                  ) > ${SHIPMENT_DASHBOARD_QTY_EPSILON}
+            `;
+
+            if (!hasPlannedDateFilter) {
+                query += `
+                  AND co.created_at >= (CURRENT_TIMESTAMP - INTERVAL '24 months')
+                `;
+            }
+
+            if (plannedFrom) {
+                params.push(plannedFrom);
+                query += ` AND co.planned_shipment_date::date >= $${params.length}::date`;
+            }
+            if (plannedTo) {
+                params.push(plannedTo);
+                query += ` AND co.planned_shipment_date::date <= $${params.length}::date`;
+            }
+
+            if (search) {
+                const searchVal = `%${search}%`;
+                params.push(searchVal);
+                const pIdx = params.length;
+                query += ` AND (
+                    co.doc_number ILIKE $${pIdx}
+                    OR c.name ILIKE $${pIdx}
+                    OR i.name ILIKE $${pIdx}
+                )`;
+            }
+
+            if (onlyDeficit) {
+                query += `
+                  AND (
+                      COALESCE(coi.qty_production, 0) > ${SHIPMENT_DASHBOARD_QTY_EPSILON}
+                      OR GREATEST(
+                          GREATEST(COALESCE(coi.qty_ordered, 0) - COALESCE(coi.qty_shipped, 0), 0)
+                          - COALESCE(coi.qty_reserved, 0),
+                          0
+                      ) > ${SHIPMENT_DASHBOARD_QTY_EPSILON}
+                  )
+                `;
+            }
+
+            query += `
+                ORDER BY
+                    co.planned_shipment_date NULLS LAST,
+                    co.doc_number,
+                    coi.id
+            `;
+
+            const rowLimit = hasPlannedDateFilter
+                ? SHIPMENT_DASHBOARD_FILTERED_LIMIT
+                : SHIPMENT_DASHBOARD_DEFAULT_LIMIT;
+            query += ` LIMIT ${rowLimit}`;
+
+            const result = await pool.query(query, params);
+            const rows = result.rows.map((row) => ({
+                order_id: Number(row.order_id),
+                order_number: row.order_number,
+                order_status: row.order_status,
+                client_name: row.client_name || null,
+                planned_shipment_date: row.planned_shipment_date || null,
+                planned_shipment_date_raw: row.planned_shipment_date_raw || null,
+                order_item_id: Number(row.order_item_id),
+                item_id: Number(row.item_id),
+                item_name: row.item_name,
+                item_unit: row.item_unit || null,
+                qty_ordered: Number(row.qty_ordered || 0),
+                qty_shipped: Number(row.qty_shipped || 0),
+                qty_reserved: Number(row.qty_reserved || 0),
+                qty_production: Number(row.qty_production || 0),
+                qty_remaining: Number(row.qty_remaining || 0),
+                qty_need_reserve: Number(row.qty_need_reserve || 0),
+                reserve_physical_qty: Number(row.reserve_physical_qty || 0),
+                order_pending_debt: Number(row.order_pending_debt || 0),
+                order_total_amount: Number(row.order_total_amount || 0),
+                order_created_at: row.order_created_at
+            }));
+
+            const orderIds = new Set();
+            let linesWithProductionDeficit = 0;
+            let linesWithReserveDeficit = 0;
+            for (const row of rows) {
+                orderIds.add(row.order_id);
+                if (row.qty_production > SHIPMENT_DASHBOARD_QTY_EPSILON) linesWithProductionDeficit += 1;
+                if (row.qty_need_reserve > SHIPMENT_DASHBOARD_QTY_EPSILON) linesWithReserveDeficit += 1;
+            }
+
+            res.json({
+                success: true,
+                rows,
+                summary: {
+                    order_count: orderIds.size,
+                    line_count: rows.length,
+                    lines_with_production_deficit: linesWithProductionDeficit,
+                    lines_with_reserve_deficit: linesWithReserveDeficit,
+                    safety_mode: !hasPlannedDateFilter,
+                    row_limit: rowLimit,
+                    possibly_truncated: rows.length >= rowLimit
+                }
+            });
+        } catch (err) {
+            logger.error(err);
+            res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });
+        }
+    });
+
+    // ------------------------------------------------------------------
     // 10. ПЕРЕБРОСКА РЕЗЕРВОВ (Reserve Transfer)
     // ------------------------------------------------------------------
     router.get('/api/sales/reserve-donors', async (req, res) => {
