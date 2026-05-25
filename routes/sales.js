@@ -1856,24 +1856,29 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 const refundTotal = new Big(toSafeNumber(paidNetRes.rows[0]?.refund_total, 0));
                 const debtCompTotal = new Big(toSafeNumber(paidNetRes.rows[0]?.debt_comp_total, 0));
                 const currentPaid = incomeTotal.minus(refundTotal).minus(debtCompTotal);
+                const existingVirtualOffset = Math.max(
+                    0,
+                    toSafeNumber(order.paid_amount, 0) - Number(currentPaid.toFixed(2))
+                );
+                const effectivePaid = currentPaid.plus(new Big(existingVirtualOffset));
 
-                if (calcTotalBig.lt(currentPaid)) {
+                if (calcTotalBig.lt(effectivePaid)) {
                     throw new Error('Сумма измененного заказа меньше уже внесенной оплаты. Оформите возврат средств клиенту отдельной финансовой операцией перед редактированием.');
                 }
 
-                let targetPaid = currentPaid;
+                let targetPaid = effectivePaid;
                 if (safePaymentMethod === 'paid') {
                     targetPaid = calcTotalBig;
                 } else if (safePaymentMethod === 'partial') {
-                    targetPaid = currentPaid.plus(new Big(safeAdvanceAmount));
+                    targetPaid = effectivePaid.plus(new Big(safeAdvanceAmount));
                     if (targetPaid.gt(calcTotalBig)) targetPaid = calcTotalBig;
                 } else if (safePaymentMethod === 'debt') {
-                    targetPaid = currentPaid;
+                    targetPaid = effectivePaid;
                 } else {
                     throw new Error('Некорректный способ оплаты при редактировании заказа.');
                 }
 
-                let delta = targetPaid.minus(currentPaid);
+                let delta = targetPaid.minus(effectivePaid);
                 if (delta.lt(0)) {
                     throw new Error('Сумма измененного заказа меньше уже внесенной оплаты. Оформите возврат средств клиенту отдельной финансовой операцией перед редактированием.');
                 }
@@ -1891,16 +1896,17 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 let offsetApplied = new Big(0);
                 if (safeOffsetRequested > 0 && delta.gt(0)) {
                     const { freeAdvance } = await getCounterpartyBalance(client, safeCounterpartyId);
+                    const effectiveFreeAdvance = freeAdvance.plus(new Big(existingVirtualOffset));
                     offsetApplied = new Big(safeOffsetRequested);
                     if (offsetApplied.gt(delta)) offsetApplied = delta;
-                    if (offsetApplied.gt(freeAdvance)) {
-                        if (freeAdvance.lte(0)) {
+                    if (offsetApplied.gt(effectiveFreeAdvance)) {
+                        if (effectiveFreeAdvance.lte(0)) {
                             throw new Error('У клиента нет свободного аванса для зачета (возможно, он уже зарезервирован под другие заказы)');
                         }
                         logger.warn(
-                            `[sales.edit] Запрошен зачет ${safeOffsetRequested} по заказу ${docNumber}, применено ${freeAdvance.toFixed(2)} (лимит свободного аванса).`
+                            `[sales.edit] Запрошен зачет ${safeOffsetRequested} по заказу ${docNumber}, применено ${effectiveFreeAdvance.toFixed(2)} (лимит свободного аванса с учётом зачёта этого заказа).`
                         );
-                        offsetApplied = freeAdvance;
+                        offsetApplied = effectiveFreeAdvance;
                     }
                 }
                 const incomeDelta = delta.minus(offsetApplied);
@@ -1944,7 +1950,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     await recalcAccountBalances(client, touchedAccountIds);
                 }
 
-                const finalPaid = currentPaid.plus(incomeDelta).plus(offsetApplied);
+                const finalPaid = effectivePaid.plus(incomeDelta).plus(offsetApplied);
                 const safePaidAmount = toSafeNumber(finalPaid.toFixed(2), 0);
                 const newDebtBig2 = calcTotalBig.minus(finalPaid);
                 const safePendingDebt = toSafeNumber((newDebtBig2.lt(0) ? new Big(0) : newDebtBig2).toFixed(2), 0);
