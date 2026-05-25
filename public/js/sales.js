@@ -149,6 +149,29 @@ async function loadSalesAccounts() {
     } catch (e) { console.error('Ошибка загрузки касс:', e); }
 }
 
+/** Единый источник ID клиента: TomSelect и нативный <select> часто рассинхронизированы. */
+function salesGetTomSelectValue(elOrId) {
+    const el = typeof elOrId === 'string' ? document.getElementById(elOrId) : elOrId;
+    if (!el) return '';
+    if (el.tomselect) {
+        const raw = el.tomselect.getValue();
+        if (Array.isArray(raw)) return String(raw[0] || '').trim();
+        return String(raw ?? '').trim();
+    }
+    return String(el.value ?? '').trim();
+}
+
+function salesClearClientSelect() {
+    const clientSel = document.getElementById('sale-client');
+    if (!clientSel) return;
+    if (clientSel.tomselect) {
+        clientSel.tomselect.clear(true);
+        clientSel.tomselect.setValue('', true);
+        clientSel.tomselect.sync();
+    }
+    clientSel.value = '';
+}
+
 function salesSelectPreferredAccount() {
     const sel = document.getElementById('sale-account');
     if (!sel) return;
@@ -238,7 +261,7 @@ window.loadClientContracts = async function (cpId) {
 // Загружает профиль, договоры, рисует розовую карточку и защищает корзину от махинаций с ценами.
 window.onClientChange = async function () {
     const clientSelect = document.getElementById('sale-client');
-    const cpId = clientSelect ? clientSelect.value : null;
+    const cpId = salesGetTomSelectValue(clientSelect) || null;
     const infoBox = document.getElementById('sale-client-info');
     const contractGroup = document.getElementById('sale-contract-group');
 
@@ -1581,6 +1604,7 @@ function salesResetClientDependentUi() {
     window.CLIENT_AVAILABLE_ADVANCE = 0;
     window.CLIENT_PREFERRED_OFFSET_ACCOUNT_ID = null;
     window.CLIENT_IS_EMPLOYEE = false;
+    window.CLIENT_PRICE_LEVEL = 'basic';
 
     const infoBox = document.getElementById('sale-client-info');
     if (infoBox) {
@@ -1648,12 +1672,7 @@ window.clearOrderForm = function () {
     resetTextOrNum('sale-price', '');
 
     // 3. Сбрасываем переключатели и селекты в дефолт
-    const clientSel = document.getElementById('sale-client');
-    if (clientSel && clientSel.tomselect) {
-        clientSel.tomselect.clear(true); // true = без вызова onChange
-    } else if (clientSel) {
-        clientSel.value = '';
-    }
+    salesClearClientSelect();
     salesResetClientDependentUi();
 
     const accountSel = document.getElementById('sale-account');
@@ -1693,7 +1712,7 @@ window.processCheckout = async function () {
     if (window.isCheckingOut) return;
     if (cart.length === 0) return UI.toast('Корзина пуста', 'error');
 
-    const client_id = document.getElementById('sale-client').value;
+    const client_id = salesGetTomSelectValue('sale-client');
     if (!client_id) return UI.toast('Выберите клиента', 'error');
 
     // ==========================================
@@ -1706,7 +1725,7 @@ window.processCheckout = async function () {
     // ==========================================
     const paymentMethod = document.getElementById('sale-payment-method').value;
     const advanceAmount = parseFloat(document.getElementById('sale-advance-amount')?.value) || 0;
-    const accountId = document.getElementById('sale-account')?.value || '';
+    const accountId = salesGetTomSelectValue('sale-account') || '';
     const offsetChecked = Boolean(document.getElementById('sale-offset-check')?.checked);
     const offsetAmount = offsetChecked ? (parseFloat(document.getElementById('sale-offset-amount')?.value) || 0) : 0;
     const cartTotalRaw = document.getElementById('cart-total-sum')?.innerText || '0';
@@ -1773,7 +1792,7 @@ window.processCheckout = async function () {
         driver: document.getElementById('sale-driver')?.value || null,
         auto: document.getElementById('sale-auto')?.value || null,
         offset_amount: toSafeNumber(offsetAmount, 0),
-        contract_id: document.getElementById('sale-contract').value || null,
+        contract_id: salesGetTomSelectValue('sale-contract') || null,
         delivery_address: (() => {
             const deliveryType = document.querySelector('input[name="sale_delivery_type"]:checked');
             if (deliveryType && deliveryType.value === 'pickup') {

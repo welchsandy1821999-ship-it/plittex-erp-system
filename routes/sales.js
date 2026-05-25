@@ -404,7 +404,20 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
             let finalAmount;
             let deficitReport = []; // 🚀 Инициализируем сразу здесь, чтобы была видна везде
 
+            const safeCounterpartyId = parseInt(String(counterparty_id), 10);
+            if (!Number.isFinite(safeCounterpartyId) || safeCounterpartyId <= 0) {
+                return res.status(400).json({ error: 'Не выбран корректный контрагент' });
+            }
+
             await withTransaction(pool, async (client) => {
+                const cpExistsRes = await client.query(
+                    `SELECT id FROM counterparties WHERE id = $1 AND COALESCE(is_deleted, false) = false`,
+                    [safeCounterpartyId]
+                );
+                if (!cpExistsRes.rows.length) {
+                    throw new Error('Контрагент не найден');
+                }
+
                 docNum = await getNextDocNumber(client, 'ЗК', 'client_orders', 'doc_number');
                 let specNum = contract_id ? `Спец к дог. ${docNum}` : `Б/Н (${docNum})`;
 
@@ -428,7 +441,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 // 💰 АВТО-ЗАЧЁТ АВАНСА: Валидация против реального баланса клиента
                 let validatedOffset = 0;
                 
-                const { realBalance, freeAdvance: availableAdvanceBig } = await getCounterpartyBalance(client, counterparty_id);
+                const { realBalance, freeAdvance: availableAdvanceBig } = await getCounterpartyBalance(client, safeCounterpartyId);
                 const availableAdvance = availableAdvanceBig;
 
                 const requestedOffset = new Big(Number(offset_amount) || 0).lt(0) ? new Big(0) : new Big(Number(offset_amount) || 0);
@@ -466,7 +479,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         payment_method, account_id, discount, planned_shipment_date, delivery_address, 
                         logistics_cost, pallets_qty, driver_name, auto_number, contract_info, contract_id, specification_id, created_at, user_id
                     ) VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING id
-                `, [counterparty_id, docNum, finalAmount, advanceAmt, pendingDebt, payment_method, account_id || null, discount, planned_shipment_date || null, delivery_address, logistics_cost, pallets_qty, driver, auto, contract_info, contract_id || null, specId, finalOrderDate, orderAuthorId]);
+                `, [safeCounterpartyId, docNum, finalAmount, advanceAmt, pendingDebt, payment_method, account_id || null, discount, planned_shipment_date || null, delivery_address, logistics_cost, pallets_qty, driver, auto, contract_info, contract_id || null, specId, finalOrderDate, orderAuthorId]);
 
                 const orderId = orderRes.rows[0].id;
                 const reserveWhId = await getWhId(client, 'reserve');
@@ -550,11 +563,11 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     LEFT JOIN employees e ON e.id = c.employee_id
                     WHERE c.id = $1
                 `,
-                    [counterparty_id]
+                    [safeCounterpartyId]
                 );
                 const cpMeta = cpMetaRes.rows[0] || {};
                 const isEmployeeCounterparty = Boolean(cpMeta.employee_id);
-                const preferredAdvanceAccountId = await getPreferredAdvanceAccountId(client, counterparty_id);
+                const preferredAdvanceAccountId = await getPreferredAdvanceAccountId(client, safeCounterpartyId);
                 const resolvedAccountId = Number(account_id) || preferredAdvanceAccountId || null;
 
                 // Финансы: разделяем "живые деньги" и "зачет" по сценарию
@@ -583,10 +596,10 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 if (saleIncomeAmount > 0 && resolvedAccountId) {
                     await client.query(
                         `INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, user_id, linked_order_id, source_module, transaction_date) VALUES ($1, 'income', 'Продажа продукции', $2, 'Сразу', $3, $4, $5, $6, 'sales', $7)`,
-                        [saleIncomeAmount, finDesc, resolvedAccountId, counterparty_id, user_id || null, orderId, finalOrderDate]
+                        [saleIncomeAmount, finDesc, resolvedAccountId, safeCounterpartyId, user_id || null, orderId, finalOrderDate]
                     );
                     notifyCounterpartyBalanceChange({
-                        counterpartyName: cpMeta.name || `#${counterparty_id}`,
+                        counterpartyName: cpMeta.name || `#${safeCounterpartyId}`,
                         amount: saleIncomeAmount,
                         transactionType: 'income',
                         operationType: 'Оплата по заказу',
@@ -600,10 +613,10 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     await client.query(
                         `INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, employee_id, salary_adjustment_id, user_id, linked_order_id, source_module, transaction_date)
                          VALUES ($1, 'income', 'Продажа продукции', $2, 'Взаимозачет', NULL, $3, $4, NULL, $5, $6, 'sales', $7)`,
-                        [validatedOffset, offsetIncomeDesc, counterparty_id, cpMeta.employee_id, user_id || null, orderId, finalOrderDate]
+                        [validatedOffset, offsetIncomeDesc, safeCounterpartyId, cpMeta.employee_id, user_id || null, orderId, finalOrderDate]
                     );
                     notifyCounterpartyBalanceChange({
-                        counterpartyName: cpMeta.name || `#${counterparty_id}`,
+                        counterpartyName: cpMeta.name || `#${safeCounterpartyId}`,
                         amount: validatedOffset,
                         transactionType: 'income',
                         operationType: 'Взаимозачёт по заказу',
@@ -615,7 +628,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                         `INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, employee_id, salary_adjustment_id, user_id, linked_order_id, source_module, system_type, transaction_date)
                          VALUES ($1, 'expense', 'Зарплата и Авансы', $2, 'Взаимозачет', NULL, $3, $4, NULL, $5, $6, 'sales', 'salary_payment', $7)
                          RETURNING id`,
-                        [validatedOffset, salaryDesc, counterparty_id, cpMeta.employee_id, user_id || null, orderId, finalOrderDate]
+                        [validatedOffset, salaryDesc, safeCounterpartyId, cpMeta.employee_id, user_id || null, orderId, finalOrderDate]
                     );
                     await client.query(
                         `INSERT INTO salary_payments (employee_id, amount, payment_date, payment_type, description, account_id, linked_transaction_id)
@@ -631,7 +644,7 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
 
             let checkoutCpName = '';
             try {
-                const cpRow = await pool.query('SELECT name FROM counterparties WHERE id = $1', [counterparty_id]);
+                const cpRow = await pool.query('SELECT name FROM counterparties WHERE id = $1', [safeCounterpartyId]);
                 checkoutCpName = cpRow.rows[0]?.name || '';
             } catch (_) { /* ignore */ }
             sendNotify(
