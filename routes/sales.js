@@ -2445,7 +2445,22 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                 WHERE coi.order_id = $1
             `, [orderId]);
 
-            res.json({ order: orderRes.rows[0], items: itemsRes.rows });
+            const paymentTxRes = await pool.query(
+                `
+                SELECT id, amount, transaction_type, category, payment_method, account_id, transaction_date
+                FROM transactions
+                WHERE linked_order_id = $1
+                  AND COALESCE(is_deleted, false) = false
+                ORDER BY transaction_date ASC, id ASC
+                `,
+                [orderId]
+            );
+
+            res.json({
+                order: orderRes.rows[0],
+                items: itemsRes.rows,
+                payment_transactions: paymentTxRes.rows
+            });
         } catch (err) {
             logger.error(err);
             res.status(500).json({ error: 'Внутренняя ошибка сервера. Обратитесь к администратору.' });

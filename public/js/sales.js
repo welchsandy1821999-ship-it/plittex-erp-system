@@ -5167,6 +5167,84 @@ function salesFormatDateForInputLocal(value) {
     return local.toISOString().slice(0, 10);
 }
 
+/** Разделение paid_amount заказа: живые деньги (касса) vs зачёт аванса (проводки без account_id + «виртуальная» часть). */
+function salesDeriveOrderEditPayments(order, transactions) {
+    const paidAmount = parseFloat(order?.paid_amount) || 0;
+    let cashPaid = 0;
+    for (const tx of transactions || []) {
+        if (String(tx.transaction_type) !== 'income') continue;
+        const cat = String(tx.category || '').trim();
+        if (cat === 'Возврат: компенсация долга') continue;
+        const amt = parseFloat(tx.amount) || 0;
+        if (tx.account_id != null && tx.account_id !== '') {
+            cashPaid += amt;
+        }
+    }
+    cashPaid = Math.round(cashPaid * 100) / 100;
+    const offsetAmount = Math.max(0, Math.round((paidAmount - cashPaid) * 100) / 100);
+    return { paidAmount, cashPaid, offsetAmount };
+}
+
+async function salesApplyOrderEditPaymentFields(order, transactions) {
+    const { cashPaid, offsetAmount } = salesDeriveOrderEditPayments(order, transactions);
+    const cpId = order.counterparty_id;
+
+    try {
+        const balData = await API.get(`/api/counterparties/${cpId}/balance`);
+        window.CLIENT_AVAILABLE_ADVANCE = parseFloat(balData.availableAdvance) || 0;
+        window.CLIENT_PREFERRED_OFFSET_ACCOUNT_ID = balData.preferredOffsetAccountId || null;
+        window.CLIENT_IS_EMPLOYEE = Boolean(balData.isEmployee);
+    } catch (e) {
+        console.error('Ошибка загрузки аванса клиента при редактировании:', e);
+    }
+
+    const offsetGroup = document.getElementById('sale-offset-group');
+    const offsetMaxEl = document.getElementById('sale-offset-max');
+    if (offsetGroup) {
+        if (window.CLIENT_AVAILABLE_ADVANCE > 0 || offsetAmount > 0) {
+            offsetGroup.classList.remove('sales-hidden');
+            if (offsetMaxEl) {
+                offsetMaxEl.innerText = window.CLIENT_AVAILABLE_ADVANCE.toLocaleString('ru-RU', { minimumFractionDigits: 2 }) + ' ₽';
+            }
+        } else {
+            offsetGroup.classList.add('sales-hidden');
+        }
+    }
+
+    const advanceEl = document.getElementById('sale-advance-amount');
+    const paymentMethod = String(order.payment_method || 'debt');
+    if (advanceEl) {
+        if (paymentMethod === 'partial' && cashPaid > 0) {
+            advanceEl.value = cashPaid.toFixed(2);
+        } else {
+            advanceEl.value = '';
+        }
+    }
+
+    const offsetCheck = document.getElementById('sale-offset-check');
+    const offsetAmountEl = document.getElementById('sale-offset-amount');
+    if (offsetCheck && offsetAmountEl) {
+        if (offsetAmount > 0.009) {
+            offsetCheck.checked = true;
+            offsetAmountEl.disabled = false;
+            const wrap = document.getElementById('sale-offset-input-wrap');
+            if (wrap) wrap.classList.remove('sales-hidden');
+            const totalStr = document.getElementById('cart-total-sum')?.innerText || '0';
+            const totalSum = parseFloat(totalStr.replace(/[^\d.,]/g, '').replace(',', '.')) || 0;
+            const displayOffset = Math.min(offsetAmount, totalSum);
+            offsetAmountEl.value = displayOffset > 0 ? displayOffset.toFixed(2) : '';
+            offsetAmountEl.max = totalSum;
+        } else {
+            offsetCheck.checked = false;
+            if (typeof toggleOffsetInput === 'function') toggleOffsetInput();
+        }
+    }
+
+    if (typeof toggleSalePayment === 'function') toggleSalePayment();
+    if (typeof updateOffsetSummary === 'function') updateOffsetSummary();
+    if (typeof smartAccountToggle === 'function') smartAccountToggle();
+}
+
 window.loadOrderForEdit = async function(orderId) {
     try {
         UI.toast('Загрузка заказа...', 'info');
@@ -5272,11 +5350,7 @@ window.loadOrderForEdit = async function(orderId) {
         if (accountEl && order.account_id) {
             salesSetSelectValueSafe(accountEl, String(order.account_id));
         }
-        const advanceEl = document.getElementById('sale-advance-amount');
-        if (advanceEl) {
-            advanceEl.value = Number(order.paid_amount || 0) > 0 ? String(Number(order.paid_amount || 0)) : '';
-        }
-        
+
         if (order.planned_shipment_date) {
             document.getElementById('sale-planned-date').value = order.planned_shipment_date.split('T')[0];
         }
@@ -5288,6 +5362,7 @@ window.loadOrderForEdit = async function(orderId) {
         }
 
         renderCart();
+        await salesApplyOrderEditPaymentFields(order, resData.payment_transactions || []);
         UI.toast('Режим редактирования активирован', 'success');
         
     } catch (e) {
