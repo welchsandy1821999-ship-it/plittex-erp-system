@@ -1888,11 +1888,20 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     [safeCounterpartyId]
                 );
                 const cpMeta = cpMetaRes.rows[0] || {};
-                const isEmployeeCounterparty = Boolean(cpMeta.employee_id);
                 let offsetApplied = new Big(0);
-                if (isEmployeeCounterparty && safeOffsetRequested > 0 && delta.gt(0)) {
+                if (safeOffsetRequested > 0 && delta.gt(0)) {
+                    const { freeAdvance } = await getCounterpartyBalance(client, safeCounterpartyId);
                     offsetApplied = new Big(safeOffsetRequested);
                     if (offsetApplied.gt(delta)) offsetApplied = delta;
+                    if (offsetApplied.gt(freeAdvance)) {
+                        if (freeAdvance.lte(0)) {
+                            throw new Error('У клиента нет свободного аванса для зачета (возможно, он уже зарезервирован под другие заказы)');
+                        }
+                        logger.warn(
+                            `[sales.edit] Запрошен зачет ${safeOffsetRequested} по заказу ${docNumber}, применено ${freeAdvance.toFixed(2)} (лимит свободного аванса).`
+                        );
+                        offsetApplied = freeAdvance;
+                    }
                 }
                 const incomeDelta = delta.minus(offsetApplied);
 
@@ -1912,30 +1921,23 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                     touchedAccountIds.push(accountForIncome);
                 }
 
-                if (offsetApplied.gt(0) && isEmployeeCounterparty) {
-                    const offsetAmountNum = Number(offsetApplied.toFixed(2));
-                    const offsetIncomeDesc = `Оплата заказа ${docNumber} взаимозачетом (в счет ЗП) (редактирование)`;
+                if (offsetApplied.gt(0)) {
+                    const offsetAmountStr = offsetApplied.toFixed(2);
                     await client.query(
-                        `INSERT INTO transactions
-                            (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, employee_id, salary_adjustment_id, user_id, linked_order_id, source_module, transaction_date)
-                         VALUES
-                            ($1, 'income', 'Продажа продукции', $2, 'Взаимозачет', NULL, $3, $4, NULL, $5, $6, 'sales', NOW())`,
-                        [offsetAmountNum, offsetIncomeDesc, safeCounterpartyId, cpMeta.employee_id, req.user?.id || null, orderId]
+                        `
+                        INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, linked_order_id, source_module, transaction_date)
+                        VALUES ($1, 'income', 'Взаимозачет аванса', $2, 'Взаимозачет', NULL, $3, $4, 'sales', NOW())
+                        `,
+                        [offsetAmountStr, `Зачет аванса по заказу ${docNumber} (редактирование)`, safeCounterpartyId, orderId]
                     );
-                    const salaryDesc = `Выдача аванса (продукцией) по заказу ${docNumber} (редактирование)`;
-                    const advanceExpenseRes = await client.query(
-                        `INSERT INTO transactions
-                            (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, employee_id, salary_adjustment_id, user_id, linked_order_id, source_module, system_type, transaction_date)
-                         VALUES
-                            ($1, 'expense', 'Зарплата и Авансы', $2, 'Взаимозачет', NULL, $3, $4, NULL, $5, $6, 'sales', 'salary_payment', NOW())
-                         RETURNING id`,
-                        [offsetAmountNum, salaryDesc, safeCounterpartyId, cpMeta.employee_id, req.user?.id || null, orderId]
-                    );
-                    await client.query(
-                        `INSERT INTO salary_payments (employee_id, amount, payment_date, payment_type, description, account_id, linked_transaction_id)
-                         VALUES ($1, $2, CURRENT_DATE, 'advance', $3, NULL, $4)`,
-                        [cpMeta.employee_id, offsetAmountNum, `${salaryDesc} [продукцией] (${cpMeta.employee_name || cpMeta.name || 'Сотрудник'})`, advanceExpenseRes.rows[0].id]
-                    );
+                    notifyCounterpartyBalanceChange({
+                        counterpartyName: cpMeta.name || `#${safeCounterpartyId}`,
+                        amount: Number(offsetAmountStr),
+                        transactionType: 'income',
+                        operationType: 'Взаимозачёт по заказу (редактирование)',
+                        description: `Зачет аванса по заказу ${docNumber} (редактирование)`,
+                        transactionDate: new Date()
+                    });
                 }
 
                 if (touchedAccountIds.length > 0) {
