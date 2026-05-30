@@ -58,10 +58,10 @@ async function adminCreateBackup() {
             return;
         }
         UI.toast(data.message || 'Бэкап готов', 'success');
-        if (data.fileName && !data.skipped) {
+        if (data.fileName) {
             void window.openPrintUrl(`/api/admin/backups/download/${encodeURIComponent(data.fileName)}`);
         }
-        setTimeout(adminLoadBackups, data.skipped ? 300 : 1000);
+        setTimeout(adminLoadBackups, 1000);
     } catch (err) {
         UI.toast(err.message || 'Ошибка создания бэкапа', 'error');
     } finally {

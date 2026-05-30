@@ -68,10 +68,7 @@ module.exports = function (pool) {
                 success: true,
                 fileName: result.fileName,
                 sizeKB: result.sizeKB,
-                skipped: Boolean(result.skipped),
-                message: result.skipped
-                    ? `Бэкап за сегодня уже есть: ${result.fileName}`
-                    : `Бэкап создан: ${result.fileName}`
+                message: `Бэкап создан: ${result.fileName}`
             });
         } catch (err) {
             logger.error(`Ошибка бэкапа: ${err.message}`);
@@ -88,7 +85,8 @@ module.exports = function (pool) {
         if (fileName.includes('..') || fileName.includes('/') || fileName.includes('\\')) {
             return res.status(400).json({ error: 'Недопустимое имя файла' });
         }
-        if (!/^erp-backup-\d{4}-\d{2}-\d{2}\.(backup|sql)$/.test(fileName)) {
+        // Старый формат: erp-backup-YYYY-MM-DD.backup; новый: erp-backup-YYYY-MM-DD_HH-mm-ss[_n].backup
+        if (!/^erp-backup-\d{4}-\d{2}-\d{2}(_\d{2}-\d{2}-\d{2}(_\d+)?)?\.(backup|sql)$/.test(fileName)) {
             return res.status(400).json({ error: 'Недопустимое имя файла' });
         }
         const filePath = path.join(__dirname, '..', 'backups', fileName);

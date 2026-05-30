@@ -1,7 +1,7 @@
 /**
  * utils/backup.js — Автоматический бэкап PostgreSQL (custom format для pg_restore / pgAdmin).
  *
- * Формат: pg_dump -Fc → файл erp-backup-YYYY-MM-DD.backup
+ * Формат: pg_dump -Fc → файл erp-backup-YYYY-MM-DD_HH-mm-ss.backup
  * Переменная PG_DUMP_PATH — полный путь к pg_dump (например на Windows Server без PATH).
  */
 const { spawn } = require('child_process');
@@ -12,13 +12,32 @@ const logger = require('./logger');
 const BACKUP_DIR = path.join(__dirname, '..', 'backups');
 const RETENTION_DAYS = 30;
 
+function pad2(n) {
+    return String(n).padStart(2, '0');
+}
+
+function formatLocalDate(d) {
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function formatLocalTime(d) {
+    return `${pad2(d.getHours())}-${pad2(d.getMinutes())}-${pad2(d.getSeconds())}`;
+}
+
 /**
- * Имя файла: erp-backup-2026-05-05.backup
+ * Уникальное имя: erp-backup-2026-05-21_14-30-45.backup
+ * При коллизии в ту же секунду: erp-backup-2026-05-21_14-30-45_1.backup
  */
-function getBackupFileName() {
+function allocateBackupFileName() {
     const now = new Date();
-    const date = now.toISOString().split('T')[0];
-    return `erp-backup-${date}.backup`;
+    const base = `erp-backup-${formatLocalDate(now)}_${formatLocalTime(now)}`;
+    let fileName = `${base}.backup`;
+    let n = 1;
+    while (fs.existsSync(path.join(BACKUP_DIR, fileName))) {
+        fileName = `${base}_${n}.backup`;
+        n += 1;
+    }
+    return fileName;
 }
 
 /**
@@ -54,7 +73,7 @@ function cleanOldBackups() {
 
 /**
  * Запускает pg_dump в custom-формате. Возвращает Promise.
- * @returns {Promise<{ fileName: string, filePath: string, sizeKB: number, skipped?: boolean }>}
+ * @returns {Promise<{ fileName: string, filePath: string, sizeKB: number }>}
  */
 function runBackup() {
     return new Promise((resolve, reject) => {
@@ -62,15 +81,8 @@ function runBackup() {
             fs.mkdirSync(BACKUP_DIR, { recursive: true });
         }
 
-        const fileName = getBackupFileName();
+        const fileName = allocateBackupFileName();
         const filePath = path.join(BACKUP_DIR, fileName);
-
-        if (fs.existsSync(filePath)) {
-            logger.info(`⏭️ Бэкап за сегодня уже существует: ${fileName}. Пропускаем создание.`);
-            cleanOldBackups();
-            const sizeKB = Math.round(fs.statSync(filePath).size / 1024);
-            return resolve({ fileName, filePath, sizeKB, skipped: true });
-        }
 
         const dbHost = process.env.DB_HOST || 'localhost';
         const dbPort = process.env.DB_PORT || '5432';
@@ -135,7 +147,7 @@ function runBackup() {
             const sizeKB = Math.round(fs.statSync(filePath).size / 1024);
             logger.info(`✅ Бэкап завершён: ${fileName} (${sizeKB} KB, ${durationSec}с)`);
             cleanOldBackups();
-            resolve({ fileName, filePath, sizeKB, skipped: false });
+            resolve({ fileName, filePath, sizeKB });
         });
     });
 }
