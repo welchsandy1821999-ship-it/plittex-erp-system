@@ -3502,14 +3502,19 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     o.total_amount as order_total,
                     -- Выручка: цена продажи × кол-во отгруженного
                     COALESCE(SUM(ABS(m.quantity) * COALESCE(coi.price, 0)), 0) as revenue,
-                    -- Полная себестоимость: слепок (unit_cost_snapshot) → fallback на recipe_cost
+                    -- Полная себестоимость: слепок (unit_cost_snapshot) → fallback на recipe_cost (0 ≠ слепок)
                     COALESCE(SUM(
                         ABS(m.quantity) * COALESCE(
-                            coi.unit_cost_snapshot,
+                            NULLIF(coi.unit_cost_snapshot, 0),
                             recipe_data.recipe_cost,
                             0
                         )
-                    ), 0) as material_cost
+                    ), 0) as material_cost,
+                    BOOL_OR(
+                        m.id IS NOT NULL
+                        AND NULLIF(coi.unit_cost_snapshot, 0) IS NULL
+                        AND COALESCE(recipe_data.recipe_cost, 0) > 0
+                    ) AS is_estimate
                 FROM client_orders o
                 JOIN counterparties c ON o.counterparty_id = c.id
                 LEFT JOIN client_order_items coi ON coi.order_id = o.id
@@ -3531,7 +3536,13 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                 const materialCost = parseFloat(row.material_cost) || 0;
                 const profit = revenue - materialCost;
                 const margin = revenue > 0 ? ((profit / revenue) * 100).toFixed(1) : '0.0';
-                return { ...row, revenue, profit, margin };
+                return {
+                    ...row,
+                    revenue,
+                    profit,
+                    margin,
+                    is_estimate: Boolean(row.is_estimate)
+                };
             });
 
             res.json(data);

@@ -411,7 +411,11 @@
 
             let html = '<div class="finance-margin-grid">';
             orders.forEach(o => {
-                const marginColor = o.margin > 30 ? 'var(--success)' : (o.margin > 15 ? 'var(--warning)' : 'var(--danger)');
+                const marginNum = Number(o.margin) || 0;
+                const marginColor = marginNum > 30 ? 'var(--success)' : (marginNum > 15 ? 'var(--warning)' : 'var(--danger)');
+                const estimateBadge = o.is_estimate
+                    ? '<span class="badge ms-2" style="font-size: 10px; background: var(--warning-bg); color: var(--warning-text); border: 1px solid var(--warning); vertical-align: middle;" title="Себестоимость рассчитана по рецептуре (без учета доп. затрат)">По рецепту</span>'
+                    : '';
                 html += `
                 <div class="finance-margin-card">
                     <div class="flex-1">
@@ -420,7 +424,7 @@
                     </div>
                     <div class="flex-1 text-right">
                         <div class="font-bold text-main">${Utils.formatMoney(o.profit)}</div>
-                        <div class="font-11 font-bold" style="color: ${marginColor};">Рентабельность: ${o.margin}%</div>
+                        <div class="font-11 font-bold" style="color: ${marginColor};">Рентабельность: ${o.margin}%${estimateBadge}</div>
                     </div>
                 </div>
             `;
