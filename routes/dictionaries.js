@@ -213,7 +213,7 @@ module.exports = function (pool, withTransaction) {
                 SELECT e.*, COALESCE(a.balance, 0) AS imprest_debt,
                        (SELECT MAX(production_date) FROM production_batches WHERE shift_name = e.full_name) AS last_shift_at
                 FROM employees e 
-                LEFT JOIN accounts a ON a.name = 'Подотчет: ' || e.full_name AND a.type = 'imprest'
+                LEFT JOIN accounts a ON a.employee_id = e.id AND a.account_role = 'imprest'
                 WHERE e.status != 'deleted' 
                 ORDER BY e.department, e.full_name
             `);
@@ -239,11 +239,11 @@ module.exports = function (pool, withTransaction) {
                     VALUES ($1, true, false, false, 'physical', $2, 'Сотрудник')
                 `, [full_name, employeeId]);
 
-                // 3. Создаём виртуальный счёт подотчёта
+                // 3. Создаём виртуальный счёт подотчёта (employee_id обязателен: chk_accounts_imprest_requires_employee)
                 await client.query(`
-                    INSERT INTO accounts (name, type, balance)
-                    VALUES ($1, 'imprest', 0)
-                `, ['Подотчет: ' + full_name]);
+                    INSERT INTO accounts (name, type, balance, employee_id, account_role)
+                    VALUES ($1, 'imprest', 0, $2, 'imprest')
+                `, ['Подотчет: ' + full_name, employeeId]);
             });
             res.json({ success: true, message: 'Сотрудник добавлен' });
         } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
