@@ -78,11 +78,13 @@ function corsAllowOriginCallback(origin, callback) {
 }
 
 const io = new Server(server, {
+    path: '/socket.io/',
     cors: {
         origin: corsAllowOriginCallback,
         methods: ['GET', 'POST'],
         credentials: true
-    }
+    },
+    transports: ['websocket', 'polling']
 });
 
 /**
@@ -155,8 +157,6 @@ pool.on('error', (err) => {
     logger.error(`🚨 Непредвиденная ошибка в пуле соединений БД: ${err.message}`);
 });
 
-app.set('io', io);
-
 // [Блок 2.2: Инициализация системных таблиц]
 const { initSystemTables, auditLog } = require('./utils/db_init');
 initSystemTables(pool);
@@ -201,7 +201,13 @@ app.use(cors({
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     credentials: true
 }));
-app.use(compression());
+app.use(compression({
+    filter: (req, res) => {
+        const url = req.originalUrl || req.url || '';
+        if (url.includes('/socket.io')) return false;
+        return compression.filter(req, res);
+    }
+}));
 
 app.use(express.static(PUBLIC_DIR));
 app.use(express.json({ limit: '50mb' }));
@@ -449,8 +455,13 @@ if (bot) registerTelegramMessageHandlers(bot, pool, chatId);
 const { initCronJobs } = require('./utils/cron');
 initCronJobs(pool);
 
-// [Блок 9: Socket.io и Старт сервера]
-io.on('connection', (socket) => logger.info(`🔌 Подключен: ${socket.id}`));
+// [Блок 9: Socket.io и старт HTTP-сервера]
+// io привязан к server (не к app). Обязательно server.listen — app.listen сломает WebSocket.
+app.set('io', io);
+
+io.on('connection', (socket) => {
+    logger.info(`🔌 Подключен: ${socket.id}`);
+});
 
 server.listen(port, () => {
     logger.info(`🚀 ERP Server запущен на порту ${port}`);
