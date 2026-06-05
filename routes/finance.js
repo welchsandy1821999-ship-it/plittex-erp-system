@@ -2580,7 +2580,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
             cache.invalidate('finance:accounts');
             const io = req.app.get('io');
             if (io) io.emit('finance_updated');
-            auditLog(pool, req, 'delete_transaction', 'transaction', parseInt(id, 10), `reason=${reason}`);
+            await auditLog(pool, req, 'delete_transaction', 'transaction', parseInt(id, 10), `reason=${reason}`);
             res.json({ success: true, message: "Транзакция удалена и балансы пересчитаны" });
         } catch (err) {
             const statusCode = err.message.includes('модуле "Кадры"') ? 403 : 500;

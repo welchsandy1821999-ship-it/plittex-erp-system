@@ -147,14 +147,8 @@ const pool = new Pool({
     max: 20,                        // Максимум подключений в пуле
     idleTimeoutMillis: 30000,       // Закрывать idle через 30с
     connectionTimeoutMillis: 5000,  // Таймаут на подключение к БД
-    statement_timeout: 30000        // Убивать запросы длиннее 30с
-});
-
-// Гарантируем UTF-8 для каждой новой сессии Postgres.
-pool.on('connect', (client) => {
-    client.query("SET client_encoding TO 'UTF8'").catch((err) => {
-        logger.error(`❌ Не удалось установить client_encoding=UTF8: ${err.message}`);
-    });
+    statement_timeout: 30000,       // Убивать запросы длиннее 30с
+    options: '-c client_encoding=UTF8'
 });
 
 pool.on('error', (err) => {
