@@ -86,7 +86,6 @@
             }
         };
     </script>
-    <script src="/js/api-url.js"></script>
     <script src="/js/core.js"></script>
     <script src="/js/cache.js"></script>
 
@@ -108,13 +107,7 @@
     <script>
         const originalFetch = window.fetch;
         window.fetch = async function (resource, config = {}) {
-            let url = (resource instanceof Request) ? resource.url : resource;
-            if (typeof url === 'string' && typeof resolveApiUrl === 'function') {
-                url = resolveApiUrl(url);
-                if (resource instanceof Request) {
-                    resource = new Request(url, resource);
-                }
-            }
+            const url = (resource instanceof Request) ? resource.url : resource;
             const requestToken = localStorage.getItem('token') || localStorage.getItem('jwtToken');
 
             if (typeof url === 'string' && url.includes('/api') && !url.includes('/api/login')) {

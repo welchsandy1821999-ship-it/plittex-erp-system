@@ -42,10 +42,8 @@
 
 ## 4. Клиент: HTTP и UI
 
-- **`public/js/api-url.js`:** `window.resolveApiUrl(path)` — единый хелпер URL для API. Строит адрес от **текущего origin** страницы: на проде убирает закладки `:3000`, при необходимости поднимает `http://` → `https://` (Mixed Content на мобильных). **Правило для нового кода:** любой прямой `fetch('/api/...')` или абсолютный URL — только через `resolveApiUrl()`. Не использовать hardcoded `localhost:3000`, `http://erp...` и переменные `.env` на фронтенде.
-- **`public/js/core.js`:** `window.API` — `get/post/put/patch/delete` с заголовком `Authorization: Bearer` и разбором JSON; внутри вызывает `resolveApiUrl`; при 401/403 — `handleLogout` где применимо.
-- **`views/partials/scripts.ejs`:** подключает `api-url.js` до `core.js`; обёртка над `window.fetch` нормализует URL через `resolveApiUrl` и подставляет Bearer для `/api` (кроме login) — **дополняет** `API`, предпочтительно писать новый код через **`API.*`**.
-- **`public/login.html`:** отдельная страница входа; `POST` авторизации через `resolveApiUrl('/api/login')`; при открытии с `:3000` или `http://` на не-localhost — редирект на канонический HTTPS URL.
+- **`public/js/core.js`:** `window.API` — `get/post/put/patch/delete` с заголовком `Authorization: Bearer` и разбором JSON; при 401/403 — `handleLogout` где применимо.
+- **`views/partials/scripts.ejs`:** обёртка над `window.fetch` подставляет Bearer для URL с `/api` (кроме login) — **дополняет** `API`, предпочтительно писать новый код через **`API.*`**.
 - **Модули:** `views/index.ejs` подключает все `views/modules/*`; навигация `switchModule` + `activeModuleId` в `localStorage`.
 - **Стили:** `public/css/theme.css`, `layout.css`, `components.css`, `modules.css`. Инлайн-стили в шаблонах в основном убраны; новые блоки — только через CSS-классы по **`styles_and_ui.md`**. В JS вместо `.style.display` используется `classList.add/remove/toggle('d-none')`.
 

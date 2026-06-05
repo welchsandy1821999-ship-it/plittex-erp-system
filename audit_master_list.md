@@ -30,7 +30,7 @@
 | 11 | Оборудование | `equipment-mod` | ✅ |
 | 12 | Администрирование | `admin-mod` | ✅ |
 
-**Общие кросс-ресы:** `public/js/api-url.js` (`resolveApiUrl` — обязателен для новых API URL), `public/js/core.js`, `public/js/cache.js`, `views/partials/modals.ejs`, `views/partials/scripts.ejs`, `public/login.html`, `public/css/*`, `web.js` (подключение роутеров, Socket.io).
+**Общие кросс-ресы:** `public/js/core.js`, `public/js/cache.js`, `views/partials/modals.ejs`, `views/partials/scripts.ejs`, `public/css/*`, `web.js` (подключение роутеров, Socket.io).
 
 **Печатные/отдельные страницы** (вне «вкладок»): `views/docs/*`, `login.html`.
 

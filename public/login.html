@@ -3,7 +3,6 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Вход - Плиттекс ERP</title>
     <style>
         body {
@@ -11,8 +10,7 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 100vh;
-            min-height: 100dvh;
+            height: 100vh;
             margin: 0;
             font-family: sans-serif;
             color: white;
@@ -24,7 +22,7 @@
             border-radius: 16px;
             backdrop-filter: blur(10px);
             text-align: center;
-            width: min(350px, calc(100vw - 32px));
+            width: 350px;
             box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
         }
 
@@ -61,11 +59,6 @@
             background: #2563eb;
         }
 
-        button:disabled {
-            opacity: 0.7;
-            cursor: wait;
-        }
-
         #error-msg {
             color: #ef4444;
             margin-top: 15px;
@@ -73,44 +66,18 @@
             font-size: 14px;
         }
     </style>
-    <script src="/js/api-url.js"></script>
-    <script>
-        (function () {
-            const h = window.location.hostname;
-            const isLocal = h === 'localhost' || h === '127.0.0.1' || h === '[::1]';
-            if (isLocal) return;
-            const port = window.location.port;
-            if (port === '3000' || port === '3001') {
-                window.location.replace(`${window.location.protocol}//${h}/login.html`);
-                return;
-            }
-            if (window.location.protocol === 'http:') {
-                window.location.replace(`https://${h}${window.location.pathname}${window.location.search}`);
-            }
-        })();
-    </script>
 </head>
 
 <body>
     <div class="login-box">
         <h2>ПЛИТТЕКС ERP</h2>
-        <form id="login-form" autocomplete="on">
-            <input type="text" id="username" name="username" placeholder="Логин" autocomplete="username" required>
-            <input type="password" id="password" name="password" placeholder="Пароль" autocomplete="current-password" required>
-            <button type="submit" id="login-btn">Войти</button>
-        </form>
+        <input type="text" id="username" placeholder="Логин">
+        <input type="password" id="password" placeholder="Пароль" onkeypress="if(event.key === 'Enter') doLogin()">
+        <button onclick="doLogin()">Войти</button>
         <div id="error-msg"></div>
     </div>
 
     <script>
-        const loginForm = document.getElementById('login-form');
-        const loginBtn = document.getElementById('login-btn');
-
-        loginForm.addEventListener('submit', (event) => {
-            event.preventDefault();
-            doLogin();
-        });
-
         async function doLogin() {
             const u = document.getElementById('username').value.trim();
             const p = document.getElementById('password').value.trim();
@@ -122,20 +89,12 @@
             }
 
             err.innerText = 'Авторизация...';
-            loginBtn.disabled = true;
 
             try {
-                const loginUrl = typeof resolveApiUrl === 'function'
-                    ? resolveApiUrl('/api/login')
-                    : '/api/login';
-
-                const res = await fetch(loginUrl, {
+                const res = await fetch('/api/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username: u, password: p }),
-                    credentials: 'same-origin',
-                    mode: 'cors',
-                    cache: 'no-store'
+                    body: JSON.stringify({ username: u, password: p })
                 });
 
                 const data = await res.json();
@@ -144,16 +103,12 @@
                     localStorage.setItem('token', data.token);
                     localStorage.setItem('jwtToken', data.token);
                     localStorage.setItem('user', JSON.stringify(data.user));
-                    window.location.replace('/');
-                    return;
+                    window.location.href = '/'; // Успешный вход -> идем в корень
+                } else {
+                    err.innerText = data.error || 'Ошибка входа';
                 }
-
-                err.innerText = data.error || 'Ошибка входа';
             } catch (e) {
                 err.innerText = 'Ошибка соединения с сервером';
-                console.error('Login error:', e);
-            } finally {
-                loginBtn.disabled = false;
             }
         }
     </script>

@@ -32,7 +32,7 @@ plittex-erp/
 │
 ├── public/
 │   ├── css/               # theme, layout, components, modules
-│   ├── js/                # Клиентские модули (см. §5); `api-url.js` — `resolveApiUrl()`; `auth-flow.js` — legacy login
+│   ├── js/                # Клиентские модули (см. §5); `auth-flow.js` — только для `login.html`
 │   ├── libs/              # vendor: chart, flatpickr, tom-select (см. `views/index.ejs`)
 │   ├── images/
 │   ├── saved_docs/        # Сгенерированные/сохранённые вложения (runtime)
@@ -118,9 +118,7 @@ plittex-erp/
 | Оборудование | `equipment-mod` | `views/modules/equipment.ejs` | `public/js/equipment.js` |
 | Админ | `admin-mod` (admin) | `views/modules/admin.ejs` | `public/js/admin.js` |
 
-Общий рантайм: `public/js/api-url.js` (`resolveApiUrl` — **обязателен** для новых URL API), `public/js/core.js` (в т.ч. `window.API`, WebSocket), `public/js/cache.js`, порядок подключения в `views/partials/scripts.ejs` (`api-url.js` → `core.js`). Класс `admin-only` в nav скрывается не-админам через JWT в `startApp` в `scripts.ejs`.
-
-**URL API на клиенте:** не хардкодить `http://`, `:3000` и абсолютные origin. Для `fetch` — `resolveApiUrl('/api/...')`; в модулях SPA предпочтительно `window.API.*` (внутри уже нормализует путь). Страница входа: `public/login.html` подключает `api-url.js` и редиректит с `:3000`/`http://` на проде.
+Общий рантайм: `public/js/core.js` (в т.ч. `window.API`, WebSocket), `public/js/cache.js`, порядок подключения в `views/partials/scripts.ejs`. Класс `admin-only` в nav скрывается не-админам через JWT в `startApp` в `scripts.ejs`.
 
 ---
 
