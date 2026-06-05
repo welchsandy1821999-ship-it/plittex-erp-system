@@ -93,13 +93,18 @@ function _getAuthToken() {
     return localStorage.getItem('token') || localStorage.getItem('jwtToken') || '';
 }
 
+function _apiUrl(url) {
+    if (typeof window.resolveApiUrl === 'function') return window.resolveApiUrl(url);
+    return url;
+}
+
 window.API = {
     get: async function(url) {
         try {
             const token = _getAuthToken();
             const headers = { 'Content-Type': 'application/json' };
             if (token) headers['Authorization'] = 'Bearer ' + token;
-            const res = await fetch(url, { headers });
+            const res = await fetch(_apiUrl(url), { headers });
             if (!res.ok) {
                 if (res.status === 401 || res.status === 403) {
                     if (typeof window.handleLogout === 'function') window.handleLogout();
@@ -121,7 +126,7 @@ throw err;
             const token = _getAuthToken();
             const headers = { 'Content-Type': 'application/json' };
             if (token) headers['Authorization'] = 'Bearer ' + token;
-            const res = await fetch(url, {
+            const res = await fetch(_apiUrl(url), {
                 method: 'POST',
                 headers,
                 body: JSON.stringify(data)
@@ -148,7 +153,7 @@ throw err;
             const token = _getAuthToken();
             const headers = { 'Content-Type': 'application/json' };
             if (token) headers['Authorization'] = 'Bearer ' + token;
-            const res = await fetch(url, {
+            const res = await fetch(_apiUrl(url), {
                 method: 'PUT',
                 headers,
                 body: JSON.stringify(data)
@@ -175,7 +180,7 @@ throw err;
             const token = _getAuthToken();
             const headers = { 'Content-Type': 'application/json' };
             if (token) headers['Authorization'] = 'Bearer ' + token;
-            const res = await fetch(url, {
+            const res = await fetch(_apiUrl(url), {
                 method: 'PATCH',
                 headers,
                 body: JSON.stringify(data)
@@ -201,7 +206,7 @@ throw err;
             const token = _getAuthToken();
             const headers = { 'Content-Type': 'application/json' };
             if (token) headers['Authorization'] = 'Bearer ' + token;
-            const res = await fetch(url, { method: 'DELETE', headers });
+            const res = await fetch(_apiUrl(url), { method: 'DELETE', headers });
             if (!res.ok) {
                 if (res.status === 401 || res.status === 403) {
                     if (typeof window.handleLogout === 'function') window.handleLogout();
@@ -230,7 +235,7 @@ async function getPrintToken() {
     if (!t) {
         throw new Error('Сессия отсутствует');
     }
-    const res = await fetch('/api/generate-print-token', {
+    const res = await fetch(_apiUrl('/api/generate-print-token'), {
         method: 'POST',
         headers: { 'Authorization': 'Bearer ' + t, 'Content-Type': 'application/json' }
     });

@@ -12,11 +12,15 @@ const Auth = {
         errorDiv.innerText = 'Проверка...';
 
         try {
-            // 🔑 /api/login не требует JWT — используем fetch напрямую
-            const res = await fetch('/api/login', {
+            const loginUrl = typeof resolveApiUrl === 'function'
+                ? resolveApiUrl('/api/login')
+                : '/api/login';
+            const res = await fetch(loginUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
+                body: JSON.stringify({ username, password }),
+                credentials: 'same-origin',
+                cache: 'no-store'
             });
 
             const data = await res.json();
