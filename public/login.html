@@ -108,7 +108,8 @@
                     err.innerText = data.error || 'Ошибка входа';
                 }
             } catch (e) {
-                err.innerText = 'Ошибка соединения с сервером';
+                err.innerText = 'Сбой сети: ' + (e.name || 'Error') + ' | ' + (e.message || e.toString());
+                console.error('Login error:', e);
             }
         }
     </script>
