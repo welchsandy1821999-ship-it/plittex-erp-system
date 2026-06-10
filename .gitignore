@@ -37,6 +37,8 @@ postgres_data/
 
 # === 5b. ВРЕМЕННЫЕ СКРИПТЫ И ЗАМЕТКИ ===
 tmp/
+scripts/ssh_query.py
+scripts/ssh_probe.py
 
 # === 6. СИСТЕМНЫЕ ФАЙЛЫ И РЕДАКТОРЫ ===
 .idea/
