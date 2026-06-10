@@ -358,12 +358,47 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                                 WHERE id = $2
                             `, [refundAmountNum, order_id]);
                         }
-                        // Строка в «Финансовой истории» контрагента: уменьшение долга без выдачи наличных
-                        await client.query(
-                            `INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, user_id, linked_order_id, source_module)
-                             VALUES ($1, 'income', 'Возврат: компенсация долга', $2, 'Сразу', NULL, $3, $4, $5, 'sales')`,
-                            [refundAmountNum, desc, counterparty_id, user_id || null, order_id || null]
+
+                        // 🔍 Проверяем: контрагент — сотрудник?
+                        // Если да — нужно отразить возврат в зарплатном балансе
+                        const cpMetaForReturn = await client.query(
+                            `SELECT c.employee_id, e.full_name AS employee_name
+                             FROM counterparties c
+                             LEFT JOIN employees e ON e.id = c.employee_id
+                             WHERE c.id = $1`,
+                            [counterparty_id]
                         );
+                        const returnEmployeeId = cpMetaForReturn.rows[0]?.employee_id || null;
+
+                        // Строка в «Финансовой истории» контрагента: уменьшение долга без выдачи наличных
+                        // Если контрагент — сотрудник, ставим employee_id, чтобы возврат
+                        // отображался в расчёте зарплатного баланса сотрудника
+                        await client.query(
+                            `INSERT INTO transactions (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, employee_id, user_id, linked_order_id, source_module)
+                             VALUES ($1, 'income', 'Возврат: компенсация долга', $2, 'Взаимозачет', NULL, $3, $4, $5, $6, 'sales')`,
+                            [refundAmountNum, desc, counterparty_id, returnEmployeeId, user_id || null, order_id || null]
+                        );
+
+                        // 🛡️ БАГ-ФИХ: для сотрудников создаём запись salary_payments чтобы
+                        // возврат был виден в истории выплат (как отмена части аванса-продукцией)
+                        if (returnEmployeeId) {
+                            const cpNameForReturn = cpMetaForReturn.rows[0]?.employee_name || `#${counterparty_id}`;
+                            const orderDocNum = order_id
+                                ? (await client.query('SELECT doc_number FROM client_orders WHERE id=$1', [order_id])).rows[0]?.doc_number || ''
+                                : '';
+                            const salaryReturnDesc = `Возврат аванса (продукцией) по заказу ${orderDocNum}: ${desc} [${cpNameForReturn}]`;
+                            // Получаем ID только что вставленной транзакции возврата
+                            const lastTxRes = await client.query(
+                                `SELECT id FROM transactions WHERE employee_id=$1 AND transaction_type='income' AND category='Возврат: компенсация долга' AND linked_order_id=$2 ORDER BY id DESC LIMIT 1`,
+                                [returnEmployeeId, order_id || null]
+                            );
+                            const linkedReturnTxId = lastTxRes.rows[0]?.id || null;
+                            await client.query(
+                                `INSERT INTO salary_payments (employee_id, amount, payment_date, payment_type, description, account_id, linked_transaction_id, is_deleted)
+                                 VALUES ($1, $2, CURRENT_DATE, 'return', $3, NULL, $4, false)`,
+                                [returnEmployeeId, refundAmountNum, salaryReturnDesc, linkedReturnTxId]
+                            );
+                        }
                     }
                 }
             });

@@ -32,6 +32,7 @@ SELECT
         AND COALESCE(t.source_module, '') = 'sales'
         AND COALESCE(t.system_type, '') = ''
         AND t.linked_order_id IS NOT NULL
+        AND TRIM(COALESCE(t.category, '')) <> 'Возврат: компенсация долга'
         AND EXISTS (
             SELECT 1
             FROM transactions sp
@@ -40,6 +41,7 @@ SELECT
               AND COALESCE(sp.is_deleted, false) = false
         )
     ) AS hide_in_timeline,
+
     COALESCE(t.reg_is_posted, true) AS reg_is_posted,
     COALESCE(t.reg_is_primary_doc, false) AS reg_is_primary_doc,
     COALESCE(t.reg_document_no, '')::text AS reg_document_no,
