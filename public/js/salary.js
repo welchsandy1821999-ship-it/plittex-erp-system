@@ -651,7 +651,12 @@
 
                 if (record) {
                     if (record.status === 'present') {
-                        earnedToday += (record.custom_rate !== null && record.custom_rate !== undefined) ? parseFloat(record.custom_rate) : dailyCost;
+                        const cellRate = (record.custom_rate !== null && record.custom_rate !== undefined) ? parseFloat(record.custom_rate) : dailyCost;
+                        earnedToday += cellRate;
+                    } else if (record.status === 'partial') {
+                        const cellRate = (record.custom_rate !== null && record.custom_rate !== undefined) ? parseFloat(record.custom_rate) : dailyCost;
+                        const cellMultiplier = (record.multiplier !== undefined && record.multiplier !== null) ? parseFloat(record.multiplier) : 1.0;
+                        earnedToday += cellRate * cellMultiplier;
                     }
                     earnedToday += (parseFloat(record.bonus) || 0) - (parseFloat(record.penalty) || 0);
                 }

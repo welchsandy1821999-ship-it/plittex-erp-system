@@ -386,19 +386,22 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                             const orderDocNum = order_id
                                 ? (await client.query('SELECT doc_number FROM client_orders WHERE id=$1', [order_id])).rows[0]?.doc_number || ''
                                 : '';
-                            const salaryReturnDesc = `Возврат аванса (продукцией) по заказу ${orderDocNum}: ${desc} [${cpNameForReturn}]`;
+                            const salaryReturnDesc = `Возврат товара: аванс (продукцией) по заказу ${orderDocNum}: ${desc} [${cpNameForReturn}]`;
                             // Получаем ID только что вставленной транзакции возврата
                             const lastTxRes = await client.query(
                                 `SELECT id FROM transactions WHERE employee_id=$1 AND transaction_type='income' AND category='Возврат: компенсация долга' AND linked_order_id=$2 ORDER BY id DESC LIMIT 1`,
                                 [returnEmployeeId, order_id || null]
                             );
                             const linkedReturnTxId = lastTxRes.rows[0]?.id || null;
+                            const returnMonthStr = new Date().toISOString().slice(0, 7);
+                            // ✅ Пишем в salary_adjustments (→ ДОП. ОПЕРАЦИИ), а не в salary_payments (→ АВАНСЫ)
                             await client.query(
-                                `INSERT INTO salary_payments (employee_id, amount, payment_date, payment_type, description, account_id, linked_transaction_id, is_deleted)
-                                 VALUES ($1, $2, CURRENT_DATE, 'return', $3, NULL, $4, false)`,
-                                [returnEmployeeId, refundAmountNum, salaryReturnDesc, linkedReturnTxId]
+                                `INSERT INTO salary_adjustments (employee_id, month_str, amount, description, counterparty_id, linked_transaction_id, cash_posting_mode, operation_kind, source_module)
+                                 VALUES ($1, $2, $3, $4, $5, $6, 'none', 'return', 'sales')`,
+                                [returnEmployeeId, returnMonthStr, refundAmountNum, salaryReturnDesc, counterparty_id, linkedReturnTxId]
                             );
                         }
+
                     }
                 }
             });

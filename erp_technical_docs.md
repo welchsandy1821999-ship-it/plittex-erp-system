@@ -27,6 +27,7 @@
 - **ERP_CONFIG** (в `web.js`): НДС и список категорий «без НДС» — передаётся в `routes/finance.js` и `routes/sales.js`.
 - **Health:** `GET /api/health` — до JWT, для мониторинга.
 - **Печать по URL с токеном:** `POST /api/generate-print-token` (основной JWT) → краткоживущий JWT с `type: 'print'` в query (`middleware/auth.js`).
+- **Продакшен:** `https://erp.plittex.ru` → **Cloudflare (прокси)** → Nginx (443) → PM2/Node `:3000`. TLS fingerprint на периметре Beget блокировал мобильный трафик; **решение — Cloudflare Free** (раздел 10 в **`docs/deployment/connectivity-erp-plittex-client-diagnosis.md`**). Изменений на Ubuntu/Nginx не требуется.
 
 ---
 
