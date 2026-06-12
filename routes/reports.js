@@ -955,18 +955,33 @@ function recomputeProductOsvCommercialRowClosing(rows, stockValuationMode) {
         const rawSqlClosingQty = Number(r.closing_qty || 0);
         if (Math.abs(rawSqlClosingQty - formulaClosingQty) > 0.01) {
             divergenceCount++;
+            /* 🛡️ BUG-FIX: При расхождении используем SQL-closing (сумма ВСЕХ движений),
+             * а не формульный. Формула ломается для 2-сорт товаров:
+             * reserve_exclusion фильтр исключает reserve_receipt из inflow,
+             * но sales_shipment с того же reserve учитывается в outflow.
+             * SQL-closing = SUM(все движения на finished+reserve) — всегда физически корректен. */
+            r.closing_qty = rawSqlClosingQty;
+        } else {
+            r.closing_qty = formulaClosingQty;
         }
-        r.closing_qty = formulaClosingQty;
 
         const osl = Number(r.opening_sum_legacy || 0);
         const isl = Number(r.inflow_sum_legacy || 0);
         const outl = Number(r.outflow_sum_legacy || 0);
-        r.closing_sum_legacy = Number((osl + isl - outl).toFixed(2));
+        const formulaClosingSumLegacy = Number((osl + isl - outl).toFixed(2));
+        const rawSqlClosingSumLegacy = Number(r.closing_sum_legacy || 0);
+        r.closing_sum_legacy = (Math.abs(rawSqlClosingSumLegacy - formulaClosingSumLegacy) > 0.01)
+            ? rawSqlClosingSumLegacy
+            : formulaClosingSumLegacy;
 
         const osa = Number(r.opening_sum_actual || 0);
         const isa = Number(r.inflow_sum_actual || 0);
         const outa = Number(r.outflow_sum_actual || 0);
-        r.closing_sum_actual = Number((osa + isa - outa).toFixed(2));
+        const formulaClosingSumActual = Number((osa + isa - outa).toFixed(2));
+        const rawSqlClosingSumActual = Number(r.closing_sum_actual || 0);
+        r.closing_sum_actual = (Math.abs(rawSqlClosingSumActual - formulaClosingSumActual) > 0.01)
+            ? rawSqlClosingSumActual
+            : formulaClosingSumActual;
 
         r.closing_sum =
             stockValuationMode === 'movement_actual'
@@ -975,6 +990,7 @@ function recomputeProductOsvCommercialRowClosing(rows, stockValuationMode) {
     }
     return divergenceCount;
 }
+
 
 async function fetchProductsUnshippedDemandByItem(pool, filters = {}) {
     const params = [];
