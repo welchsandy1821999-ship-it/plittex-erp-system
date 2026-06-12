@@ -1188,6 +1188,63 @@ window.reportsToggleDensity = function() {
     requestAnimationFrame(reportsAfterReportsLayout);
 };
 
+/* ─── Filter panel collapse ──────────────────────────────────────────── */
+window.reportsToggleFilterPanel = function() {
+    const card = document.querySelector('#reports-mod .reports-filter-card');
+    const btn  = document.getElementById('reports-filter-panel-toggle');
+    if (!card) return;
+    const isCollapsed = card.classList.toggle('reports-filter-card--collapsed');
+    try { localStorage.setItem('reports_filter_panel_collapsed', isCollapsed ? '1' : '0'); } catch(_) {}
+    if (btn) btn.textContent = isCollapsed ? '⚙ Фильтры ▼' : '⚙ Фильтры ▲';
+    if (isCollapsed) reportsUpdateCollapsedBar();
+    requestAnimationFrame(reportsAfterReportsLayout);
+};
+
+function reportsUpdateCollapsedBar() {
+    const typeEl   = document.getElementById('reports-filter-collapsed-type');
+    const periodEl = document.getElementById('reports-filter-collapsed-period');
+    if (!typeEl || !periodEl) return;
+
+    const typeSelect = document.getElementById('reports-type');
+    const typeName = typeSelect ? (typeSelect.options[typeSelect.selectedIndex]?.text || '') : '';
+
+    const periodDisplay = document.getElementById('reports-period-display');
+    const periodVal = periodDisplay ? periodDisplay.value : '';
+
+    typeEl.innerHTML   = typeName   ? `<strong>${Utils.escapeHtml(typeName)}</strong>` : '';
+    periodEl.innerHTML = periodVal  ? `📅 ${Utils.escapeHtml(periodVal)}` : '';
+}
+
+function reportsInitPanelStates() {
+    /* Restore filter panel collapsed state */
+    let collapsed = false;
+    try { collapsed = localStorage.getItem('reports_filter_panel_collapsed') === '1'; } catch(_) {}
+    if (collapsed) {
+        const card = document.querySelector('#reports-mod .reports-filter-card');
+        const btn  = document.getElementById('reports-filter-panel-toggle');
+        if (card) card.classList.add('reports-filter-card--collapsed');
+        if (btn)  btn.textContent = '⚙ Фильтры ▼';
+        reportsUpdateCollapsedBar();
+    }
+
+    /* Restore warnings collapsed state */
+    let warningsCollapsed = false;
+    try { warningsCollapsed = localStorage.getItem('reports_warnings_collapsed') === '1'; } catch(_) {}
+    if (warningsCollapsed) {
+        const wrap = document.getElementById('reports-warning-wrap');
+        if (wrap) wrap.classList.add('reports-warning-collapsed');
+    }
+}
+
+/* ─── Warnings collapse ──────────────────────────────────────────────── */
+window.reportsToggleWarnings = function() {
+    const wrap = document.getElementById('reports-warning-wrap');
+    if (!wrap) return;
+    const isCollapsed = wrap.classList.toggle('reports-warning-collapsed');
+    try { localStorage.setItem('reports_warnings_collapsed', isCollapsed ? '1' : '0'); } catch(_) {}
+    requestAnimationFrame(reportsAfterReportsLayout);
+};
+
 function reportsGetSalesAnalyticsTab(data) {
     const tabs = Array.isArray(data?.tabs) ? data.tabs : [];
     if (!tabs.length) return null;
@@ -1585,7 +1642,9 @@ function reportsRender(data) {
         totals.innerHTML = '';
     }
 
-    if (warning) {
+    const wrap    = document.getElementById('reports-warning-wrap');
+    const summary = document.getElementById('reports-warning-summary');
+    if (warning && wrap) {
         const warnings = Array.isArray(data.warnings) ? data.warnings.filter(Boolean) : [];
         const preflight = data.preflight || null;
         let preflightBlock = [];
@@ -1600,7 +1659,11 @@ function reportsRender(data) {
         }
         const allWarnings = warnings.concat(preflightBlock);
         if (allWarnings.length) {
-            warning.classList.remove('d-none');
+            wrap.classList.remove('d-none');
+            /* Summary line: first warning truncated + count badge */
+            const firstText = String(allWarnings[0] || '').replace(/\s+/g, ' ').trim();
+            const more = allWarnings.length > 1 ? ` (+${allWarnings.length - 1})` : '';
+            if (summary) summary.textContent = `⚠ ${firstText}${more}`;
             warning.innerHTML = allWarnings.map((w) => {
                 const text = Utils.escapeHtml(w);
                 /* Guardrail #4: кнопка backfill */
@@ -1610,10 +1673,12 @@ function reportsRender(data) {
                 return `<div>${text}</div>`;
             }).join('');
         } else {
-            warning.classList.add('d-none');
+            wrap.classList.add('d-none');
             warning.textContent = '';
+            if (summary) summary.textContent = '';
         }
     }
+
 
     if (data.pagination) {
         const p = data.pagination;
@@ -2506,8 +2571,10 @@ window.initReports = function() {
     reportsSyncCounterpartyBalanceHint();
     reportsInitRunsAccordion();
     reportsApplyDensity();
+    reportsInitPanelStates();
     reportsAfterReportsLayout();
     reportsInitFilterHeightObserver();
+
     if (!window.__reportsState.stickyResizeBound) {
         const rafHead = () => requestAnimationFrame(reportsSyncTableHead);
         window.addEventListener('scroll', rafHead, { passive: true });
