@@ -1745,7 +1745,7 @@ module.exports = function (pool, getWhId, withTransaction) {
                 }
 
                 if (grade2Qty > 0) {
-                    const origItemRes = await client.query('SELECT name, article, category, unit, current_price, item_type, weight_kg, qty_per_cycle, amortization_per_cycle, mold_id, gost_mark, dealer_price FROM items WHERE id = $1', [tileId]);
+                    const origItemRes = await client.query('SELECT name, article, category, unit, current_price, item_type, weight_kg, qty_per_cycle, amortization_per_cycle, mold_id, gost_mark, dealer_price, mix_main_tpl, mix_face_tpl FROM items WHERE id = $1', [tileId]);
                     let markdownTileId = tileId;
 
                     if (origItemRes.rows.length > 0) {
@@ -1763,10 +1763,10 @@ module.exports = function (pool, getWhId, withTransaction) {
                                 markdownTileId = checkExistRes.rows[0].id;
                             } else {
                                 const insertRes = await client.query(`
-                                    INSERT INTO items (name, article, category, unit, current_price, dealer_price, item_type, is_deleted, weight_kg, qty_per_cycle, amortization_per_cycle, mold_id, gost_mark)
-                                    VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8, $9, $10, $11, $12)
+                                    INSERT INTO items (name, article, category, unit, current_price, dealer_price, item_type, is_deleted, weight_kg, qty_per_cycle, amortization_per_cycle, mold_id, gost_mark, default_warehouse_id, mix_main_tpl, mix_face_tpl)
+                                    VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8, $9, $10, $11, $12, $13, $14, $15)
                                     RETURNING id
-                                `, [newName, newArticle, orig.category, orig.unit, newPrice, newDealerPrice, orig.item_type, orig.weight_kg, orig.qty_per_cycle, orig.amortization_per_cycle, orig.mold_id, orig.gost_mark]);
+                                `, [newName, newArticle, orig.category, orig.unit, newPrice, newDealerPrice, orig.item_type, orig.weight_kg, orig.qty_per_cycle, orig.amortization_per_cycle, orig.mold_id, orig.gost_mark, markdownWh, orig.mix_main_tpl || null, orig.mix_face_tpl || null]);
                                 markdownTileId = insertRes.rows[0].id;
                             }
                         }
