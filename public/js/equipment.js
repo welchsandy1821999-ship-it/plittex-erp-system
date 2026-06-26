@@ -219,11 +219,9 @@ window.saveEquipment = async function () {
     if (!payload.name) return UI.toast('Введите название!', 'warning');
 
     try {
-        const res = await API.post(id ? `/api/equipment/${id}` : '/api/equipment', {
-            method: id ? 'PUT' : 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
+        const res = id
+            ? await API.put(`/api/equipment/${id}`, payload)
+            : await API.post('/api/equipment', payload);
 
         if (true) {
             UI.toast('Оборудование успешно сохранено!', 'success');

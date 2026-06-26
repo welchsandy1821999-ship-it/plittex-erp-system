@@ -578,9 +578,11 @@ module.exports = function (pool, getWhId, getNextDocNumber, withTransaction, ERP
                                 SELECT i.name, COALESCE(SUM(m.quantity), 0) as balance 
                                 FROM items i 
                                 LEFT JOIN inventory_movements m ON i.id = m.item_id
+                                    AND m.warehouse_id IN (SELECT id FROM warehouses WHERE type = 'materials')
                                 WHERE i.id = $1 
                                 GROUP BY i.name
                             `, [mat.material_id]);
+
 
                             const balance = materialStockRes.rows[0] ? Number(new Big(materialStockRes.rows[0].balance || 0).round(2)) : 0;
                             if (balance < totalNeeded) {

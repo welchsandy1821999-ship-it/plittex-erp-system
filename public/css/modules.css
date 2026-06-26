@@ -860,6 +860,33 @@
     flex-shrink: 0;
 }
 
+.payroll-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: 0.2s;
+}
+
+.payroll-checkbox-label:hover {
+    background: var(--surface-hover);
+    color: var(--text-main);
+}
+
+.payroll-checkbox-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--warning);
+}
+
 .payroll-header-formula {
     font-size: 12px;
     margin: 0 0 8px 0;

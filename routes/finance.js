@@ -1103,6 +1103,7 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                        COALESCE(t.category_override, t.category) AS category, t.description, t.payment_method, t.vat_amount,
                        t.counterparty_id, t.account_id, 
                        t.cost_group_override, /* 👈 Добавили ручное исключение */
+                       t.exclude_from_salary, /* 👈 Флаг исключения из ЗП */
                        ${getEffectiveCostGroupSql('t', 'tc', 'tc_override', 'opex')} as current_cost_group,
                        c.name as counterparty_name, a.name as account_name,
                        u_author.full_name as author_name
@@ -2590,8 +2591,8 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
 
     router.put('/api/transactions/:id', requireAdmin, validateTransactionEdit, async (req, res) => {
         const { id } = req.params;
-        // 🚀 Добавили прием cost_group_override и remember_rule
-        const { description, amount, category, account_id, counterparty_id, transaction_date, cost_group_override, remember_rule } = req.body;
+        // 🚀 Добавили прием cost_group_override, remember_rule и exclude_from_salary
+        const { description, amount, category, account_id, counterparty_id, transaction_date, cost_group_override, remember_rule, exclude_from_salary } = req.body;
 
         let updatedTxType = 'expense';
         try {
@@ -2645,7 +2646,8 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                         transaction_date = $7,
                         cost_group_override = $8,
                         source_module = $9,
-                        system_type = $10
+                        system_type = $10,
+                        exclude_from_salary = COALESCE($12, false)
                     WHERE id = $11
                 `, [
                     description,
@@ -2658,7 +2660,8 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     cost_group_override || null,
                     nextSourceModule,
                     nextSystemType,
-                    id
+                    id,
+                    exclude_from_salary !== undefined ? exclude_from_salary : false
                 ]);
 
                 // Синхронизация с модулем зарплаты

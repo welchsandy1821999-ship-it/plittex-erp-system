@@ -1695,6 +1695,14 @@
                 </label>
             </div>
             `}
+
+            <div class="form-group" style="grid-column: span 2; margin-top: 5px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 8px; background: var(--surface-alt); border-radius: 6px; border: 1px solid var(--border);">
+                    <input type="checkbox" id="edit-tx-exclude-salary" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--warning);" ${tr.exclude_from_salary ? 'checked' : ''}>
+                    <span style="font-size: 12px; font-weight: bold; color: var(--text-muted);">💰 Не учитывать в зарплате (балансе ЗП)</span>
+                </label>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px; padding-left: 30px;">Если включено — эта транзакция не влияет на остаток ЗП сотрудника</div>
+            </div>
         </div>
     `;
 
@@ -1723,7 +1731,8 @@
 
             // Передаем новые параметры на бэкенд
             cost_group_override: document.getElementById('edit-tx-cost-group') ? (document.getElementById('edit-tx-cost-group').value || null) : null,
-            remember_rule: document.getElementById('edit-tx-remember') ? document.getElementById('edit-tx-remember').checked : false
+            remember_rule: document.getElementById('edit-tx-remember') ? document.getElementById('edit-tx-remember').checked : false,
+            exclude_from_salary: document.getElementById('edit-tx-exclude-salary') ? document.getElementById('edit-tx-exclude-salary').checked : false
         };
 
         try {

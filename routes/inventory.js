@@ -1343,16 +1343,19 @@ module.exports = function (pool, getWhId, withTransaction) {
                             const newPrice = orig.current_price ? Number(new Big(orig.current_price).div(2).round(2)) : 0;
                             const newDealerPrice = orig.dealer_price ? Number(new Big(orig.dealer_price).div(2).round(2)) : 0;
 
-                            const checkExistRes = await client.query('SELECT id FROM items WHERE name = $1 AND is_deleted = false LIMIT 1', [newName]);
+                            const checkExistRes = await client.query(
+                                'SELECT id FROM items WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) AND is_deleted = false LIMIT 1',
+                                [newName]
+                            );
 
                             if (checkExistRes.rows.length > 0) {
                                 targetItemId = checkExistRes.rows[0].id;
                             } else {
                                 const insertRes = await client.query(`
-                                    INSERT INTO items (name, article, category, unit, current_price, dealer_price, item_type, is_deleted, weight_kg, qty_per_cycle, amortization_per_cycle, mold_id, gost_mark)
-                                    VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8, $9, $10, $11, $12)
+                                    INSERT INTO items (name, article, category, unit, current_price, dealer_price, item_type, is_deleted, weight_kg, qty_per_cycle, amortization_per_cycle, mold_id, gost_mark, default_warehouse_id)
+                                    VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8, $9, $10, $11, $12, $13)
                                     RETURNING id
-                                `, [newName, newArticle, orig.category, orig.unit, newPrice, newDealerPrice, orig.item_type, orig.weight_kg, orig.qty_per_cycle, orig.amortization_per_cycle, orig.mold_id, orig.gost_mark]);
+                                `, [newName, newArticle, orig.category, orig.unit, newPrice, newDealerPrice, orig.item_type, orig.weight_kg, orig.qty_per_cycle, orig.amortization_per_cycle, orig.mold_id, orig.gost_mark, markdownWh]);
                                 targetItemId = insertRes.rows[0].id;
                             }
                         }
@@ -1757,7 +1760,11 @@ module.exports = function (pool, getWhId, withTransaction) {
                             const newPrice = orig.current_price ? Number(new Big(orig.current_price).div(2).round(2)) : 0;
                             const newDealerPrice = orig.dealer_price ? Number(new Big(orig.dealer_price).div(2).round(2)) : 0;
 
-                            const checkExistRes = await client.query('SELECT id FROM items WHERE name = $1 AND is_deleted = false LIMIT 1', [newName]);
+                            const checkExistRes = await client.query(
+                                'SELECT id FROM items WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) AND is_deleted = false LIMIT 1',
+                                [newName]
+                            );
+
 
                             if (checkExistRes.rows.length > 0) {
                                 markdownTileId = checkExistRes.rows[0].id;

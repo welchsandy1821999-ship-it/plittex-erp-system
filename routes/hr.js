@@ -310,6 +310,12 @@ module.exports = function (pool, withTransaction) {
     router.post('/api/timesheet', requireAdmin, async (req, res) => {
         const { date, records } = req.body;
         try {
+            // 🛡️ ЗАЩИТА: Проверяем, не закрыт ли месяц
+            const monthStr = date.substring(0, 7);
+            if (await isMonthClosed(pool, monthStr)) {
+                return res.status(403).json({ error: "Этот месяц уже закрыт для редактирования" });
+            }
+
             await withTransaction(pool, async (client) => {
                 for (let rec of records) {
                     await client.query(`
@@ -531,15 +537,21 @@ module.exports = function (pool, withTransaction) {
     // ОБНОВЛЕННЫЙ РОУТ: Получение выплат (улучшен сбор динамических балансов)
     router.get('/api/salary/balances', async (req, res) => {
         const { year, month } = req.query;
-        let monthFilter = '';
+        let txMonthFilter = '';
+        let adjMonthFilter = '';
         let params = [];
         if (year && month) {
-            monthFilter = `AND t.transaction_date <= $1::timestamp`;
-            params.push(`${year}-${month}-01`);
+            txMonthFilter = `AND t.transaction_date <= $1::timestamp`;
+            // salary_adjustments хранит month_str формата 'YYYY-MM'
+            // Считаем корректировки за все месяцы СТРОГО ДО запрашиваемого
+            adjMonthFilter = `AND sa.month_str < $1`;
+            params.push(`${year}-${String(month).padStart(2, '0')}`);
         }
 
         try {
-            // Динамический расчет prev_balance (строго по транзакциям)
+            // Динамический расчет prev_balance:
+            // 1. Транзакции (начисления, налоги, авансы, подотчёт) — БЕЗ salary_period_adjustment
+            // 2. + salary_adjustments (корректировки) — из той же таблицы, что использует фронтенд
             const result = await pool.query(`
             SELECT e.id, e.full_name, e.status, e.department,
                    COALESCE(a.balance, 0) AS imprest_debt,
@@ -553,18 +565,29 @@ module.exports = function (pool, withTransaction) {
                         WHERE (t.employee_id = e.id OR cp.employee_id = e.id)
                           AND (
                               t.source_module = 'salary'
-                              OR t.system_type IN ('salary_payment', 'salary_imprest_deduction', 'salary_accrual', 'salary_tax_withhold', 'salary_period_adjustment')
+                              OR t.system_type IN ('salary_payment', 'salary_imprest_deduction', 'salary_accrual', 'salary_tax_withhold', 'salary_legacy_action')
                               OR t.category IN ('Начисление ЗП', 'Зарплата', 'Оплата труда', 'Зарплата и Авансы', 'Премии', 'Штрафы', 'Удержание из ЗП', 'Ввод начальных остатков')
                           )
-                          ${monthFilter}
+                          AND COALESCE(t.system_type, '') NOT IN ('salary_period_adjustment', 'salary_adjustment_cash_in', 'salary_adjustment_cash_out')
+                          AND COALESCE(t.exclude_from_salary, false) = false
+                          ${txMonthFilter ? txMonthFilter.replace('$1::timestamp', "($1 || '-01')::timestamp") : ''}
                           AND COALESCE(t.is_deleted, false) = false
+                       ), 0
+                   )
+                   +
+                   COALESCE(
+                       (SELECT SUM(sa.amount)
+                        FROM salary_adjustments sa
+                        WHERE sa.employee_id = e.id
+                          ${adjMonthFilter}
+                          AND COALESCE(sa.is_deleted, false) = false
                        ), 0
                    ) AS prev_balance
             FROM employees e
             LEFT JOIN accounts a ON a.employee_id = e.id AND a.type = 'imprest'
             WHERE e.status = 'active'
                OR EXISTS (SELECT 1 FROM transactions t2 JOIN counterparties cp2 ON t2.counterparty_id = cp2.id WHERE cp2.employee_id = e.id)
-               ${year && month ? `OR EXISTS (SELECT 1 FROM timesheet_records WHERE employee_id = e.id AND record_date >= $1::date AND record_date < ($1::date + interval '1 month'))` : ''}
+               ${year && month ? `OR EXISTS (SELECT 1 FROM timesheet_records WHERE employee_id = e.id AND record_date >= ($1 || '-01')::date AND record_date < (($1 || '-01')::date + interval '1 month'))` : ''}
         `, params);
             res.json(result.rows);
         } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
@@ -632,18 +655,7 @@ module.exports = function (pool, withTransaction) {
                             `, [parseFloat(b.tax).toFixed(2), 'Удержан налог за период: ' + monthStr, cpId, b.employee_id, closeBatchId, `${monthStr}-01`, closeAuthorId]);
                         }
 
-                        // 3. Корректировки (adjSum)
-                        if (b.adjSum && parseFloat(b.adjSum) !== 0) {
-                            const adj = parseFloat(b.adjSum);
-                            const tType = adj > 0 ? 'income' : 'expense';
-                            const tCat = adj > 0 ? 'Премии' : 'Удержание из ЗП';
 
-                            await client.query(`
-                                INSERT INTO transactions 
-                                (amount, transaction_type, category, description, counterparty_id, employee_id, account_id, payment_method, source_module, system_type, generation_batch_id, transaction_date, user_id)
-                                VALUES ($1, $2, $3, $4, $5, $6, NULL, 'Взаимозачет', 'salary', 'salary_period_adjustment', $7, (date_trunc('month', $8::date) + interval '1 month' - interval '1 second')::timestamp, $9)
-                            `, [Math.abs(adj).toFixed(2), tType, tCat, 'Доп. корректировки за период: ' + monthStr, cpId, b.employee_id, closeBatchId, `${monthStr}-01`, closeAuthorId]);
-                        }
 
                         // 4. Авто-перенос незакрытого подотчета в зарплату (удержание) при закрытии месяца
                         const imprestRes = await client.query(
@@ -755,7 +767,7 @@ module.exports = function (pool, withTransaction) {
                     UPDATE transactions
                     SET is_deleted = true
                     WHERE source_module = 'salary'
-                      AND system_type IN ('salary_accrual', 'salary_tax_withhold', 'salary_period_adjustment', 'salary_imprest_deduction')
+                      AND system_type IN ('salary_accrual', 'salary_tax_withhold')
                       AND transaction_date >= $1::date
                       AND transaction_date < ($1::date + interval '1 month')
                       AND COALESCE(is_deleted, false) = false

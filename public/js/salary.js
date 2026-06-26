@@ -31,9 +31,18 @@
         ['emp-dep-filter', 'ts-dep-filter', 'pay-dep-filter'].forEach(id => {
             const el = document.getElementById(id);
             if (el && !el.tomselect) {
+                const onChange = id === 'pay-dep-filter'
+                    ? () => { if (typeof reRenderTimesheet === 'function') reRenderTimesheet(); }
+                    : id === 'emp-dep-filter'
+                        ? () => { if (typeof filterEmployees === 'function') filterEmployees(); }
+                        : id === 'ts-dep-filter'
+                            ? () => { if (typeof reRenderTimesheet === 'function') reRenderTimesheet(); }
+                            : undefined;
                 new TomSelect(el, {
                     plugins: ['clear_button'],
-                    allowEmptyOption: true
+                    allowEmptyOption: true,
+                    onChange: onChange,
+                    dropdownParent: 'body'
                 });
             }
         });
@@ -278,6 +287,14 @@
                 <div class="font-11 text-muted mt-4">Внимание: редактируйте поле выше ТОЛЬКО для исправления старых долгов.</div>
                 ${liveBalanceHtml}
             </div>
+
+            <div class="form-group">
+                <label class="payroll-checkbox-label" style="margin-top:8px;">
+                    <input type="checkbox" id="emp-exclude-salary" ${isEdit && emp.exclude_from_salary ? 'checked' : ''}>
+                    <span>Не учитывать в зарплате (баланс ЗП)</span>
+                </label>
+                <div class="font-11 text-muted mt-4">Если включено — сотрудник не участвует в расчётах «К ВЫДАЧЕ» и не отображается в таблице выплат.</div>
+            </div>
         </div>
     `;
 
@@ -306,7 +323,8 @@
             tax_rate: parseFloat(document.getElementById('emp-tax-rate').value) || 0,
             tax_withheld: parseFloat(document.getElementById('emp-tax-withheld').value) || 0,
             prev_balance: parseFloat(document.getElementById('emp-prev-balance').value) || 0,
-            status: document.getElementById('emp-status').value
+            status: document.getElementById('emp-status').value,
+            exclude_from_salary: document.getElementById('emp-exclude-salary')?.checked || false
         };
 
         if (!payload.full_name) return UI.toast('Введите ФИО!', 'error');
@@ -630,7 +648,11 @@
 
         let tfootTotals = { accrued: 0, prevBalance: 0, tax: 0, advance: 0, extra: 0, payout: 0 };
 
+        // Чекбокс «Не учитывать минусы»
+        const ignoreNegatives = document.getElementById('ignore-negatives-checkbox')?.checked || false;
+
         currentEmployees.forEach(emp => {
+
             let earnedToday = 0;
 
             const empStat = currentMonthStats.find(s => s.employee_id === emp.id) || emp;
@@ -684,8 +706,10 @@
 
             // ВАЖНО: Математику считаем для ВСЕХ сотрудников (чтобы итоги карточек не ломались)
             const netChange = earnedToday - finalTax - advances + adjSum;
-            sumTotal[emp.department] += availableToPay;
-            sumTotal['Всего'] += availableToPay;
+            // Если «Не учитывать минусы» и у сотрудника К ВЫДАЧЕ < 0 — не добавляем в итоги
+            const payForTotals = (ignoreNegatives && availableToPay < 0) ? 0 : availableToPay;
+            sumTotal[emp.department] += payForTotals;
+            sumTotal['Всего'] += payForTotals;
             // 🚀 ИСПРАВЛЕНИЕ: Добавлены tax и adjSum для корректного закрытия месяца
             currentMonthBalances.push({
                 employee_id: emp.id,
@@ -714,7 +738,11 @@
                 tfootTotals.tax += finalTax;
                 tfootTotals.advance += advances;
                 tfootTotals.extra += adjSum;
-                tfootTotals.payout += availableToPay;
+                tfootTotals.payout += (ignoreNegatives && availableToPay < 0) ? 0 : availableToPay;
+
+                // Отображаемое значение К ВЫДАЧЕ (зажимаем минусы если чекбокс активен)
+                const displayPayout = (ignoreNegatives && availableToPay < 0) ? 0 : availableToPay;
+                const isClampedNegative = ignoreNegatives && availableToPay < 0;
 
                 let advancesHtml = `<span class="text-muted">0 ₽</span>`;
                 if (advances > 0) advancesHtml = `<span class="text-primary text-underline cursor-pointer font-bold" onclick="openAdvancesDetails(${emp.id}, '${Utils.escapeHtml(emp.full_name)}')">-${Utils.formatMoney(advances).replace(" ₽", "")} ₽</span>`;
@@ -723,14 +751,14 @@
                 if (adjSum !== 0) adjHtml = `<span class="font-bold ${adjSum > 0 ? 'text-success' : 'text-danger'}">${adjSum > 0 ? '+' : ''}${Utils.formatMoney(adjSum).replace(" ₽", "")} ₽</span>`;
 
                 payoutsHtml += `
-                <tr>
+                <tr${isClampedNegative ? ' style="opacity: 0.45;"' : ''}>
                     <td><strong class="font-14">${Utils.escapeHtml(emp.full_name)}</strong><br><span class="font-11 ${emp.status === 'fired' ? 'text-danger' : 'text-muted'}">${emp.status === 'fired' ? 'УВОЛЕН' : Utils.escapeHtml(emp.position)}</span></td>
                     <td class="text-right font-bold font-15">${Utils.formatMoney(earnedToday).replace(" ₽", "")} ₽</td>
                     <td class="text-right font-bold ${prevBalance >= 0 ? 'text-primary' : 'text-danger'}">${prevBalance > 0 ? '+' : ''}${Utils.formatMoney(prevBalance).replace(" ₽", "")} ₽</td>
                     <td class="text-right text-danger">-${Utils.formatMoney(finalTax).replace(" ₽", "")} ₽</td>
                     <td class="text-right">${advancesHtml}</td>
                     <td class="text-right hr-adj-cell cursor-pointer" onclick="openAdjustmentsModal(${emp.id}, '${Utils.escapeHtml(emp.full_name)}', '${year}-${String(month).padStart(2, '0')}')">‌${adjHtml}</td>
-                    <td class="text-right font-bold font-16 ${availableToPay >= 0 ? 'hr-payout-positive' : 'hr-payout-negative'}">${Utils.formatMoney(availableToPay).replace(" ₽", "")} ₽</td>
+                    <td class="text-right font-bold font-16 ${displayPayout >= 0 ? 'hr-payout-positive' : 'hr-payout-negative'}">${isClampedNegative ? '<span style="text-decoration:line-through;font-size:11px;color:var(--text-muted)">' + Utils.formatMoney(availableToPay).replace(" ₽", "") + '</span> 0' : Utils.formatMoney(displayPayout).replace(" ₽", "")} ₽</td>
                     <td class="text-center">
                         <div class="flex-row gap-5 justify-center">
                             <button class="btn btn-outline hr-adj-btn border-warning text-warning" onclick="openAdjustmentsModal(${emp.id}, '${Utils.escapeHtml(emp.full_name)}', '${year}-${String(month).padStart(2, '0')}')">⚙️</button>
@@ -1809,7 +1837,8 @@
     };
     // Функция локальной перерисовки табеля (для работы поиска и фильтров)
     window.reRenderTimesheet = function () {
-        const monthPicker = document.getElementById('ts-month-picker').value;
+        const monthPicker = document.getElementById('ts-month-picker')?.value
+            || document.getElementById('payroll-period-select')?.value;
         if (!monthPicker) return;
         const [year, month] = monthPicker.split('-');
         // Вызываем отрисовку с уже загруженными данными (currentMonthRecords и т.д.)

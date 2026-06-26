@@ -250,15 +250,15 @@ module.exports = function (pool, withTransaction) {
     });
 
     router.put('/api/employees/:id', requireAdmin, validateEmployee, async (req, res) => {
-        const { full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, status } = req.body;
+        const { full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, status, exclude_from_salary } = req.body;
         const currentMonthStr = new Date().toISOString().substring(0, 7);
 
         try {
             await withTransaction(pool, async (client) => {
                 await client.query(`
-                    UPDATE employees SET full_name=$1, position=$2, department=$3, schedule_type=$4, salary_cash=$5, salary_official=$6, tax_rate=$7, tax_withheld=$8, prev_balance=$9, status=$10
+                    UPDATE employees SET full_name=$1, position=$2, department=$3, schedule_type=$4, salary_cash=$5, salary_official=$6, tax_rate=$7, tax_withheld=$8, prev_balance=$9, status=$10, exclude_from_salary=COALESCE($12, false)
                     WHERE id=$11
-                `, [full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, status, req.params.id]);
+                `, [full_name, position, department, schedule_type, salary_cash, salary_official, tax_rate, tax_withheld, prev_balance, status, req.params.id, exclude_from_salary || false]);
 
                 await client.query(`
                     UPDATE monthly_salary_stats SET salary_cash=$1, salary_official=$2, tax_rate=$3, tax_withheld=$4
@@ -349,6 +349,19 @@ module.exports = function (pool, withTransaction) {
             res.json({ success: true, message: 'Оборудование обновлено' });
         } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
     });
+
+    // Алиас POST /api/equipment/:id → PUT (для совместимости с кешированным фронтендом)
+    router.post('/api/equipment/:id', requireAdmin, validateEquipment, async (req, res) => {
+        const { name, equipment_type, purchase_cost, planned_cycles, current_cycles, qty_per_cycle, status } = req.body;
+        try {
+            await pool.query(`
+                UPDATE equipment SET name=$1, equipment_type=$2, purchase_cost=$3, planned_cycles=$4, current_cycles=$5, qty_per_cycle=$6, status=$7 
+                WHERE id=$8
+            `, [name, equipment_type, purchase_cost, planned_cycles, current_cycles || 0, qty_per_cycle, status, req.params.id]);
+            res.json({ success: true, message: 'Оборудование обновлено' });
+        } catch (err) { logger.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+    });
+
 
     router.post('/api/equipment/:id/maintenance', requireAdmin, async (req, res) => {
         const { amount, description, account_id, reset_cycles } = req.body;

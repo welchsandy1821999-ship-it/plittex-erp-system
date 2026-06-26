@@ -128,6 +128,11 @@
                 <div class="payroll-divider"></div>
                 <button class="btn btn-outline" onclick="printSalarySheet()">🖨️ ЗП</button>
                 <button class="btn btn-outline btn-outline-primary" onclick="exportSalaryToCSV()">📊 Excel (ЗП)</button>
+                <div class="payroll-divider"></div>
+                <label class="payroll-checkbox-label" title="Если включено — сотрудники с отрицательным К ВЫДАЧЕ не учитываются в итогах">
+                    <input type="checkbox" id="ignore-negatives-checkbox" onchange="reRenderTimesheet()">
+                    <span>Не учитывать минусы</span>
+                </label>
             </div>
             
             <div class="table-container">
