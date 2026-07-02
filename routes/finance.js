@@ -2061,8 +2061,8 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
     });
 
     router.post('/api/transactions', requireAdmin, validateTransaction, async (req, res) => {
-        // 🚀 1. ДОБАВИЛИ ПРИЕМ НОВЫХ ПОЛЕЙ: cost_group_override и remember_rule
-        let { amount, type, category, description, method, account_id, counterparty_id, employee_mode, cost_group_override, remember_rule, date } = req.body;
+        // 🚀 1. ДОБАВИЛИ ПРИЕМ НОВЫХ ПОЛЕЙ: cost_group_override, remember_rule, exclude_from_salary
+        let { amount, type, category, description, method, account_id, counterparty_id, employee_mode, cost_group_override, remember_rule, date, exclude_from_salary } = req.body;
 
         const finalDate = date ? new Date(date).toISOString() : new Date().toISOString();
 
@@ -2107,9 +2107,9 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     const txRes = await client.query(
                         `
                         INSERT INTO transactions
-                            (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, employee_id, source_module, system_type, transaction_date, cost_group_override, user_id)
+                            (amount, transaction_type, category, description, payment_method, account_id, counterparty_id, employee_id, source_module, system_type, transaction_date, cost_group_override, user_id, exclude_from_salary)
                         VALUES
-                            ($1, $2, $3, $4, $5, $6, $7, $8, 'salary', $9, $10, $11, $12)
+                            ($1, $2, $3, $4, $5, $6, $7, $8, 'salary', $9, $10, $11, $12, COALESCE($13, false))
                         RETURNING id
                     `,
                         [
@@ -2124,40 +2124,44 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                             txSystemType,
                             finalDate,
                             cost_group_override || null,
-                            txAuthorId
+                            txAuthorId,
+                            exclude_from_salary || false
                         ]
                     );
                     const txId = txRes.rows[0].id;
 
-                    const accRes = account_id ? await client.query('SELECT type FROM accounts WHERE id = $1', [account_id]) : { rows: [] };
-                    const accType = accRes.rows[0]?.type || null;
-                    const postingMode = accType === 'cash' ? 'cash' : (accType ? 'bank' : 'none');
-                    const monthStr = String(finalDate).slice(0, 7);
-                    const adjAmount = type === 'expense' ? -amountAbs : amountAbs;
-                    const adjDesc = description || `Личный взаиморасчет (${cp.name})`;
-                    const adjRes = await client.query(
-                        `
-                        INSERT INTO salary_adjustments
-                            (employee_id, month_str, amount, description, counterparty_id, linked_transaction_id, cash_posting_mode, cash_account_id, operation_kind, source_module)
-                        VALUES
-                            ($1, $2, $3, $4, $5, $6, $7, $8, 'manual_correction', 'finance')
-                        RETURNING id
-                    `,
-                        [
-                            employeeId,
-                            monthStr,
-                            adjAmount,
-                            adjDesc,
-                            counterparty_id,
-                            txId,
-                            postingMode,
-                            account_id || null
-                        ]
-                    );
-                    await client.query(
-                        'UPDATE transactions SET salary_adjustment_id = $1 WHERE id = $2',
-                        [adjRes.rows[0].id, txId]
-                    );
+                    // 💰 Создаём salary_adjustment ТОЛЬКО если НЕ стоит флаг «Не учитывать в ЗП»
+                    if (!exclude_from_salary) {
+                        const accRes = account_id ? await client.query('SELECT type FROM accounts WHERE id = $1', [account_id]) : { rows: [] };
+                        const accType = accRes.rows[0]?.type || null;
+                        const postingMode = accType === 'cash' ? 'cash' : (accType ? 'bank' : 'none');
+                        const monthStr = String(finalDate).slice(0, 7);
+                        const adjAmount = type === 'expense' ? -amountAbs : amountAbs;
+                        const adjDesc = description || `Личный взаиморасчет (${cp.name})`;
+                        const adjRes = await client.query(
+                            `
+                            INSERT INTO salary_adjustments
+                                (employee_id, month_str, amount, description, counterparty_id, linked_transaction_id, cash_posting_mode, cash_account_id, operation_kind, source_module)
+                            VALUES
+                                ($1, $2, $3, $4, $5, $6, $7, $8, 'manual_correction', 'finance')
+                            RETURNING id
+                        `,
+                            [
+                                employeeId,
+                                monthStr,
+                                adjAmount,
+                                adjDesc,
+                                counterparty_id,
+                                txId,
+                                postingMode,
+                                account_id || null
+                            ]
+                        );
+                        await client.query(
+                            'UPDATE transactions SET salary_adjustment_id = $1 WHERE id = $2',
+                            [adjRes.rows[0].id, txId]
+                        );
+                    }
                 } else if (employee_mode === 'instant_expense' && counterparty_id) {
                     await ensureTransferCategories(client);
                     const cpRes = await client.query('SELECT name, employee_id FROM counterparties WHERE id = $1', [counterparty_id]);
@@ -2670,6 +2674,14 @@ module.exports = function (pool, upload, withTransaction, ERP_CONFIG) {
                     SET payment_date = $1, amount = $2 
                     WHERE linked_transaction_id = $3
                 `, [transaction_date, amount, id]);
+
+                // 💰 Синхронизация salary_adjustments: если exclude_from_salary включен — удаляем связанную корректировку
+                if (exclude_from_salary) {
+                    await client.query(
+                        `UPDATE salary_adjustments SET is_deleted = true WHERE linked_transaction_id = $1 AND COALESCE(is_deleted, false) = false`,
+                        [id]
+                    );
+                }
 
                 // 🚀 МАГИЯ САМООБУЧЕНИЯ: Сохраняем правило для контрагента
                 if (remember_rule && counterparty_id) {

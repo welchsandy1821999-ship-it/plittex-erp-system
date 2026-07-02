@@ -1,4 +1,4 @@
-; (function () {
+﻿; (function () {
     // === public/js/finance.js ===
     let currentAccounts = [];
     let financeCounterparties = [];
@@ -1004,6 +1004,22 @@
             if (lblReturn) lblReturn.className = 'btn ' + (mode === 'return' ? 'btn-blue' : 'btn-outline');
 
             const radio = document.querySelector(`input[name="employee-mode"][value="${mode}"]`);
+
+            // Показываем чекбокс «Не учитывать в ЗП» только для settlement и return
+            const excludeWrap = document.getElementById('exclude-salary-wrapper');
+            if (excludeWrap) {
+                if (mode === 'settlement' || mode === 'return') {
+                    excludeWrap.classList.remove('d-none');
+                    excludeWrap.style.display = 'flex';
+                } else {
+                    excludeWrap.classList.add('d-none');
+                    excludeWrap.style.display = 'none';
+                    const cb = document.getElementById('trans-exclude-salary');
+                    if (cb) cb.checked = false;
+                }
+            }
+
+            if (typeof updateCategoryList === 'function') updateCategoryList();
             if (!radio) console.error('[DEBUG] Не найдена radio-кнопка для режима:', mode);
             if (radio) radio.checked = true;
 
@@ -1220,6 +1236,10 @@
                             <input type="radio" name="employee-mode" value="instant_expense" style="display:none;"> 🔁 Транзит
                         </label>
                     </div>
+                    <label id="exclude-salary-wrapper" class="d-none" style="display: none; align-items: center; gap: 8px; margin-top: 10px; cursor: pointer; padding: 8px; background: var(--surface); border-radius: 6px; border: 1px solid var(--warning);">
+                        <input type="checkbox" id="trans-exclude-salary" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--warning);">
+                        <span style="font-size: 12px; font-weight: bold; color: var(--warning-text);">💰 Не учитывать в зарплате (балансе ЗП)</span>
+                    </label>
                 </div>
             </div>
 
@@ -1445,6 +1465,8 @@
         const rememberEl = document.getElementById('trans-remember');
         const cost_group_override = costGroupEl ? (costGroupEl.value || null) : null;
         const remember_rule = rememberEl ? rememberEl.checked : false;
+        const excludeSalaryEl = document.getElementById('trans-exclude-salary');
+        const exclude_from_salary = excludeSalaryEl ? excludeSalaryEl.checked : false;
 
         try {
             const result = await API.post('/api/transactions', {
@@ -1458,7 +1480,8 @@
                 counterparty_id,
                 employee_mode,
                 cost_group_override: cost_group_override,
-                remember_rule: remember_rule
+                remember_rule: remember_rule,
+                exclude_from_salary: exclude_from_salary
             });
 
             // Если дошли сюда — значит сервер ответил 200 OK
