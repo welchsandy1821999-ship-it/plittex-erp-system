@@ -9,7 +9,11 @@ const PACKAGING_KEYWORDS = [
     'упаков',
     'пакет',
     'пленк',
+    'плён',
+    'плен',
     'стретч',
+    'стрейч',
+    'стреч',
     'лента',
     'этикет',
     'ярлык',
@@ -18,7 +22,9 @@ const PACKAGING_KEYWORDS = [
     'поддон',
     'паллета',
     'паллет',
-    'тара'
+    'тара',
+    'скоб',
+    'скотч'
 ];
 
 function hasPackagingKeyword(text) {
@@ -36,16 +42,3 @@ function isPackagingItem(name, category) {
 module.exports = {
     isPackagingItem
 };
-/**
- * Материалы, учитываемые как «упаковка»: в формовке — только план/себестоимость, списание со склада — при распалубке.
- * Дублирование с клиентом (production.js) избегаем — везде этот helper на сервере; на клиенте — зеркальная эвристика.
- */
-function isPackagingItem(name, category) {
-    const c = (category && String(category).toLowerCase()) || '';
-    if (c.includes('упаков')) return true;
-    const n = (name && String(name).toLowerCase()) || '';
-    if (/(скоб|лент|стрейч|стреч|стретч|плён|плен|поддон|паллет|короб|скотч|пакет)/i.test(n)) return true;
-    return false;
-}
-
-module.exports = { isPackagingItem };

@@ -140,12 +140,17 @@ describe('Finance API', () => {
                 return { rows: [], rowCount: 1 };
             });
 
-            const res = await request(app).delete('/api/transactions/1');
+            const res = await request(app).delete('/api/transactions/1?reason=тест');
             expect(res.status).toBe(200);
             expect(res.body.success).toBe(true);
         });
 
-        test('❌ Удаление несуществующей транзакции — ошибка', async () => {
+        test('❌ Удаление без причины — отклонено (400)', async () => {
+            const res = await request(app).delete('/api/transactions/999');
+            expect(res.status).toBe(400);
+        });
+
+        test('❌ Удаление несуществующей транзакции — ошибка (500)', async () => {
             mockPool._queryFn.mockImplementation(async (text) => {
                 if (text.includes('source_module')) {
                     return { rows: [] };
@@ -153,7 +158,7 @@ describe('Finance API', () => {
                 return { rows: [] };
             });
 
-            const res = await request(app).delete('/api/transactions/999');
+            const res = await request(app).delete('/api/transactions/999?reason=тест');
             expect(res.status).toBe(500);
         });
     });

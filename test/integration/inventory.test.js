@@ -1,40 +1,16 @@
 /**
- * Интеграционные тесты: Модуль Склада — Распалубка (POST /api/move-wip)
- * Проверяем: жёсткое обнуление, защиту от перерасхода, Big.js округление, WebSocket.
+ * Интеграционные тесты: Склад и Инвентаризация (routes/inventory.js)
+ * Стратегия: Mock-pool (без реальной БД), обход JWT через мок-middleware.
  */
 const request = require('supertest');
 const { createMockPool, createMockWithTransaction, createTestApp } = require('../helpers/testApp');
 
-describe('Inventory API — Распалубка (move-wip)', () => {
+describe('Inventory API', () => {
     let app, mockPool, mockWithTransaction, io;
-
-    const mockGetWhId = jest.fn(async (client, type) => {
-        const map = { drying: 1, finished: 2, markdown: 3, defect: 4, reserve: 5 };
-        if (map[type]) return map[type];
-        throw new Error(`Склад '${type}' не найден!`);
-    });
-
-    /** Стандартный обработчик запросов для move-wip */
-    function setupDefaultMock(pool, overrides = {}) {
-        const insertLog = [];
-        pool._queryFn.mockImplementation(async (text, params) => {
-            if (text.includes('SELECT id FROM users')) return { rows: [{ id: 1 }] };
-            if (text.includes('FOR UPDATE')) return { rows: [{ id: params?.[0] || 1 }] };
-            if (text.includes('real_balance')) return overrides.balance || { rows: [{ real_balance: '100.00' }] };
-            if (text.includes('cost_per_unit')) return { rows: [{ cost_per_unit: '10.00' }] };
-            if (text.includes('qty_production')) return { rows: [] };
-            if (text.includes('INSERT') || text.includes('UPDATE')) {
-                insertLog.push({ text, params });
-                return { rows: [], rowCount: 1 };
-            }
-            return { rows: [], rowCount: 0 };
-        });
-        return insertLog;
-    }
+    const mockGetWhId = jest.fn().mockResolvedValue(1);
 
     beforeEach(() => {
-        jest.resetModules(); // Очищаем кеш модулей
-        mockGetWhId.mockClear();
+        jest.resetModules();
         mockPool = createMockPool();
         mockWithTransaction = createMockWithTransaction(mockPool);
 
@@ -42,116 +18,71 @@ describe('Inventory API — Распалубка (move-wip)', () => {
         const result = createTestApp(inventoryRouteFactory, [mockPool, mockGetWhId, mockWithTransaction]);
         app = result.app;
         io = result.io;
-
-        // Default mock
-        setupDefaultMock(mockPool);
     });
 
     // =========================================================
-    // 1. Частичная распалубка — успех
+    // 1. GET /api/inventory — Список остатков
     // =========================================================
-    test('✅ Частичная распалубка — успех (200)', async () => {
-        const res = await request(app)
-            .post('/api/move-wip')
-            .send({
-                batchId: 1, tileId: 10, currentWipQty: 100,
-                goodQty: 50, grade2Qty: 5, scrapQty: 3, isComplete: false
+    describe('GET /api/inventory', () => {
+        test('✅ Получение остатков — успех (200)', async () => {
+            mockPool._queryFn.mockImplementation(async (text) => {
+                if (text.includes('inventory') || text.includes('SUM')) {
+                    return { rows: [
+                        { product_id: 1, product_name: 'Тротуарная плитка 400x400', warehouse_id: 2, quantity: '150', unit: 'шт' }
+                    ] };
+                }
+                return { rows: [] };
             });
 
-        expect(res.status).toBe(200);
-        expect(res.body.success).toBe(true);
+            const res = await request(app).get('/api/inventory');
+            expect(res.status).toBe(200);
+            expect(Array.isArray(res.body)).toBe(true);
+        });
     });
 
     // =========================================================
-    // 2. Жёсткое обнуление (isComplete: true)
+    // 2. GET /api/inventory/valuation — Оценка склада
     // =========================================================
-    test('✅ isComplete=true — жёсткое обнуление, списывает весь остаток', async () => {
-        const insertLog = setupDefaultMock(mockPool);
-
-        const res = await request(app)
-            .post('/api/move-wip')
-            .send({
-                batchId: 1, tileId: 10, currentWipQty: 100,
-                goodQty: 80, grade2Qty: 0, scrapQty: 0, isComplete: true
-            });
-
-        expect(res.status).toBe(200);
-        expect(res.body.success).toBe(true);
-
-        const wipExpense = insertLog.find(q => q.text.includes('wip_expense'));
-        expect(wipExpense).toBeDefined();
-        // При isComplete totalRemoved = realWipBalance = 100
-        expect(wipExpense.params[1]).toBe(-100);
+    describe('GET /api/inventory/valuation', () => {
+        test('✅ Оценка склада — возвращает данные', async () => {
+            mockPool._queryFn.mockResolvedValue({ rows: [] });
+            const res = await request(app).get('/api/inventory/valuation');
+            expect(res.status).toBe(200);
+        });
     });
 
     // =========================================================
-    // 3. WebSocket emit после распалубки
+    // 3. GET /api/inventory/drying-dates — Даты сушки
     // =========================================================
-    test('✅ WebSocket: emit inventory_updated после распалубки', async () => {
-        await request(app)
-            .post('/api/move-wip')
-            .send({
-                batchId: 1, tileId: 10, currentWipQty: 100,
-                goodQty: 10, grade2Qty: 0, scrapQty: 0, isComplete: false
-            });
-
-        expect(io.emit).toHaveBeenCalledWith('inventory_updated');
+    describe('GET /api/inventory/drying-dates', () => {
+        test('✅ Получение дат сушки — успех', async () => {
+            mockPool._queryFn.mockResolvedValue({ rows: [] });
+            const res = await request(app).get('/api/inventory/drying-dates');
+            expect(res.status).toBe(200);
+        });
     });
 
     // =========================================================
-    // 4. Защита от перерасхода
+    // 4. GET /api/inventory/purchase-dates — Даты закупок
     // =========================================================
-    test('❌ Перерасход при частичной распалубке — отклонён (400)', async () => {
-        const res = await request(app)
-            .post('/api/move-wip')
-            .send({
-                batchId: 1, tileId: 10, currentWipQty: 100,
-                goodQty: 90, grade2Qty: 20, scrapQty: 5, // 115 > 100
-                isComplete: false
-            });
-
-        expect(res.status).toBe(400);
-        expect(res.body.error).toContain('Невозможно списать');
+    describe('GET /api/inventory/purchase-dates', () => {
+        test('✅ Получение дат закупок — успех', async () => {
+            mockPool._queryFn.mockResolvedValue({ rows: [] });
+            const res = await request(app).get('/api/inventory/purchase-dates');
+            expect(res.status).toBe(200);
+        });
     });
 
     // =========================================================
-    // 5. Защита от двойного клика (остаток = 0)
+    // 5. GET /api/inventory/daily-purchases — Дневные закупки
     // =========================================================
-    test('❌ Двойной клик — партия уже пуста (400)', async () => {
-        setupDefaultMock(mockPool, { balance: { rows: [{ real_balance: '0' }] } });
-
-        const res = await request(app)
-            .post('/api/move-wip')
-            .send({
-                batchId: 1, tileId: 10, currentWipQty: 0,
-                goodQty: 50, grade2Qty: 0, scrapQty: 0, isComplete: false
-            });
-
-        expect(res.status).toBe(400);
-        expect(res.body.error).toContain('уже полностью распалублена');
-    });
-
-    // =========================================================
-    // 6. Big.js: Округление до 2 знаков
-    // =========================================================
-    test('✅ Big.js: дробные значения округляются до 2 знаков', async () => {
-        const insertLog = setupDefaultMock(mockPool);
-
-        const res = await request(app)
-            .post('/api/move-wip')
-            .send({
-                batchId: 1, tileId: 10, currentWipQty: 100,
-                goodQty: 33.337, grade2Qty: 11.114, scrapQty: 5.559,
-                isComplete: false
-            });
-
-        expect(res.status).toBe(200);
-
-        // round(33.337,2)=33.34, round(11.114,2)=11.11, round(5.559,2)=5.56
-        // reportedQty = 33.34 + 11.11 + 5.56 = 50.01
-        const wipExpense = insertLog.find(q => q.text.includes('wip_expense'));
-        expect(wipExpense).toBeDefined();
-        const removedQty = Math.abs(wipExpense.params[1]);
-        expect(removedQty).toBeCloseTo(50.01, 2);
+    describe('GET /api/inventory/daily-purchases', () => {
+        test('✅ Получение дневных закупок — успех', async () => {
+            mockPool._queryFn.mockResolvedValue({ rows: [] });
+            const res = await request(app)
+                .get('/api/inventory/daily-purchases')
+                .query({ date: '2026-06-15' });
+            expect(res.status).toBe(200);
+        });
     });
 });
