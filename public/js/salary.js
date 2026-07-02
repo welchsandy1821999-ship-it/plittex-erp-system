@@ -691,13 +691,14 @@
                 currentPrintAdvancesData.push({ department: emp.department, name: emp.full_name, position: emp.position, amount: advances });
             }
 
+            // Налог начисляется ВСЕГДА для активных (неуволенных) сотрудников,
+            // даже если у них нет выходов в этом месяце.
             let finalTax = taxWithheld;
-            if (earnedToday <= 0) {
+            if (emp.status === 'fired') {
                 finalTax = 0;
-            } else {
-                const officialTaxes = Math.round(officialSalary * (taxRate / 100));
-                totalMonthTaxes += officialTaxes;
             }
+            const officialTaxes = Math.round(officialSalary * (taxRate / 100));
+            totalMonthTaxes += officialTaxes;
 
             const adjSum = currentMonthAdjustments.filter(a => a.employee_id === emp.id).reduce((s, a) => s + parseFloat(a.amount), 0);
             const availableToPay = earnedToday - finalTax + prevBalance - advances + adjSum;
