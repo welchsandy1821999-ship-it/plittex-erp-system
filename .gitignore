@@ -1,4 +1,4 @@
-# === 1. СЕКРЕТЫ И КОНФИГУРАЦИИ (КРИТИЧЕСКИ ВАЖНО) ===
+# === 1. СЕКРЕТЫ И КОНФИГУРАЦИИ ===
 .env
 .env.local
 .env.*.local
@@ -12,35 +12,32 @@ public/uploads/
 public/saved_docs/*
 !public/saved_docs/.gitkeep
 
-# === 4. ЛОГИ СИСТЕМЫ ===
+# === 4. ЛОГИ ===
 logs/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 *.log
 
-# временные/черновые данные
+# === 5. ВРЕМЕННЫЕ ФАЙЛЫ ===
 *.tmp
 *.temp
 .cache/
+tmp/
 
-# выгрузки в корне репозитория (отчёты, CSV и т.п.)
-/*.csv
-
-# === 5. БАЗЫ ДАННЫХ И БЭКАПЫ ===
+# === 6. БАЗЫ ДАННЫХ И БЭКАПЫ ===
 db_backups/
 backups/
 postgres_data/
 *.sql
-# Скрипты подготовки БД в репозитории
 !scripts/**/*.sql
 
-# === 5b. ВРЕМЕННЫЕ СКРИПТЫ И ЗАМЕТКИ ===
-tmp/
-scripts/ssh_query.py
-scripts/ssh_probe.py
+# === 7. ДЕПЛОЙ (разовые скрипты не коммитить) ===
+deploy/*
+!deploy/deploy_all.js
+!deploy/nginx-erp.conf
 
-# === 6. СИСТЕМНЫЕ ФАЙЛЫ И РЕДАКТОРЫ ===
+# === 8. СИСТЕМНЫЕ ФАЙЛЫ И РЕДАКТОРЫ ===
 .idea/
 .vscode/
 .vs/
@@ -50,8 +47,10 @@ scripts/ssh_probe.py
 .DS_Store
 Thumbs.db
 
-# === 7. DOCKER ===
-docker-compose.override.yml
-docker-compose.yml
+# === 9. DOCKER (не используется) ===
+docker-compose*.yml
 Dockerfile
-docker
+docker/
+
+# === 10. ВЫГРУЗКИ ===
+/*.csv

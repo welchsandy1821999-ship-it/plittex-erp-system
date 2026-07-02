@@ -1,36 +1,43 @@
-# === 1. СЕКРЕТЫ И КОНФИГУРАЦИИ (КРИТИЧЕСКИ ВАЖНО) ===
+# === СЕКРЕТЫ ===
 .env
 .env.local
 .env.*.local
 
-# === 2. ЗАВИСИМОСТИ ===
+# === ЗАВИСИМОСТИ ===
 node_modules/
+package-lock.json
 
-# === 3. ПОЛЬЗОВАТЕЛЬСКИЕ ДАННЫЕ И ЗАГРУЗКИ ===
+# === ДАННЫЕ И ЗАГРУЗКИ ===
 public/uploads/
-!public/uploads/.gitkeep
+public/saved_docs/
 
-# === 4. ЛОГИ СИСТЕМЫ ===
+# === ЛОГИ ===
 logs/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 *.log
 
-# === 5. БАЗЫ ДАННЫХ И БЭКАПЫ ===
+# === БАЗЫ ДАННЫХ И БЭКАПЫ ===
 db_backups/
 backups/
 postgres_data/
-*.sql
 
-# === 6. СИСТЕМНЫЕ ФАЙЛЫ И РЕДАКТОРЫ ===
+# === БИНАРНЫЕ И ВЕНДОРНЫЕ ФАЙЛЫ ===
+public/libs/
+public/img/
+public/files/
+*.pdf
+*.png
+*.jpg
+*.xlsx
+*.csv
+
+# === СИСТЕМНЫЕ ФАЙЛЫ ===
 .idea/
 .vscode/
+.vs/
 .DS_Store
 Thumbs.db
 
-# === 7. DOCKER ===
-docker-compose.override.yml
-docker-compose.yml
+# === DOCKER (не используется) ===
+docker-compose*.yml
 Dockerfile
-docker
+docker/

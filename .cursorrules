@@ -1,29 +1,28 @@
-# AI Agent Directives (System Level)
+# Plittex ERP — AI Agent Directives
 
-1. **Slow and Accurate (Context-First):**
-   Never edit code blindly. Always use `view_file` to read the actual, current code context before formulating a plan or making an edit. Better to read the whole file and be slow, than guess and break the logic.
+## Язык общения
+Общение ведётся на русском языке. Комментарии в коде — на русском, если это не стандартные ключевые слова.
 
-2. **Native Tooling vs Scratch Scripts:**
-   Always edit files using native IDE tools (`replace_file_content` / `multi_replace_file_content`). "Scratch scripts" (`scratch_*.js/py`) must NOT be used for patching code. Они предназначены ТОЛЬКО для разового выполнения утилит (например, прямой SQL запрос в БД или диагностика), и должны удаляться немедленно после использования без следов в рабочей директории.
+## 1. Контекст прежде правок
+Никогда не редактировать код вслепую. Всегда сначала прочитать актуальный файл целиком, понять контекст, потом формулировать план и вносить правки. Лучше потратить время на чтение, чем сломать логику гаданием.
 
-3. **Git Discipline:**
-   Before risky or broad refactors, create a restore point (checkpoint commit or equivalent agreed with user). Keep commit history clean and avoid noisy checkpoint spam when the task is small.
+## 2. Деплой на продакшн
+Основной скрипт деплоя: `deploy/deploy_all.js`. Он загружает все изменённые файлы по SSH на сервер и перезапускает PM2. Продакшн-сервер работает на Ubuntu + PM2 + Nginx.
 
-4. **Terminal Best Practices:**
-   - Always use `grep_search` instead of terminal commands for finding code.
-   - When using `git`, always append `--no-pager`.
-   - Never run commands that require interactive user input.
+## 3. Инлайн-стили
+Инлайн-стили **строго запрещены** в UI-компонентах и шаблонах (EJS/JS). Исключение: функции, генерирующие HTML для печати (print forms, PDF), где инлайн-стили являются стандартом для стабильности вёрстки на бумаге.
 
-5. **Planning Mode Strictness:**
-   Do not auto-execute plans. You must stop and wait for explicit textual approval ("Делай", "Согласен") from the user before executing any block of code modifications.
+## 4. Политика чистоты (Zero Clutter)
+- **Запрет на скрипты для текста:** Строго запрещено создавать Node.js или Python скрипты для чтения, поиска или замены текста в файлах проекта. Используй встроенные инструменты (grep, Select-String, встроенные функции чтения/записи).
+- **Приоритет однострочников:** Для запросов к БД — однострочные `node -e "..."`. Обязательно вызывать `pool.end()`.
+- **Правило «чистого пола»:** Временные скрипты должны удаляться сразу после использования. В проекте не должно оставаться временных артефактов.
 
-6. **Local Server Lifecycle:**
-   Be aware that the app runs locally via Node (nodemon/pm2). If backend routes or configurations change, restart the node process via shell natively if necessary (e.g., `npm run dev`), do NOT use Docker logic unless explicitly instructed by the user.
+## 5. Терминал
+- Для поиска по коду использовать `grep_search`, не терминальные команды.
+- Не запускать интерактивные команды.
 
-7. **Inline Styles Exception:**
-   Инлайн-стили СТРОГО ЗАПРЕЩЕНЫ в UI-компонентах и шаблонах (EJS/JS), НО они ЯВЛЯЮТСЯ СТАНДАРТОМ и РАЗРЕШЕНЫ в функциях, генерирующих HTML для вывода на печать (print forms, PDF generators), таких как модули `recipes.js` и `salary.js`, для обеспечения стабильности верстки на бумаге.
+## 6. Серверное окружение
+Приложение запускается через Node.js (PM2 на продакшне, nodemon в dev). Docker **не используется**. При изменении серверного кода — перезапуск через `deploy/deploy_all.js` (продакшн) или `npm run dev` (локально).
 
-8. **СТРОГИЕ ОГРАНИЧЕНИЯ ПО СКРИПТАМ (ZERO CLUTTER POLICY):**
-   - **Запрет на скрипты для текста:** СТРОГО ЗАПРЕЩЕНО создавать Node.js или Python скрипты для чтения, поиска или замены текста в файлах проекта. Используй исключительно встроенные инструменты (grep, Select-String, встроенные функции чтения/записи редактора).
-   - **Приоритет однострочников:** Если необходимо выполнить запрос к БД, используй однострочные команды (`node -e "..."`). Всегда обязательно вызывай `pool.end()`, чтобы процесс не зависал!
-   - **Правило "Чистого пола":** Если создание отдельного файла-скрипта критически необходимо (например, сложная миграция), скрипт должен быть удален в той же команде запуска. В проекте не должно оставаться временных артефактов.
+## 7. Архитектура проекта
+Единственный актуальный архитектурный документ: `erp_technical_docs.md` в корне проекта. При добавлении новых маршрутов, модулей или утилит — обновлять этот документ.
